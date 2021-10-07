@@ -88,3 +88,18 @@ object SyntTest2 extends App{
 //.I4(I4), // 1-bit LUT input
 //.I5(I5) // 1-bit LUT input (fast MUX select only available to O6 output)
 //);
+
+
+
+object SyntTest3 extends App{
+  LutInputs.set(6)
+
+  val rtls = ArrayBuffer[Rtl]()
+  rtls += Rtl(SpinalVerilog(Rtl.ffIo(new Component {
+    val a,b = in UInt(64 bits)
+    val result = out(a + b)
+  })))
+  val targets = XilinxStdTargets().take(2)
+
+  Bench(rtls, targets)
+}

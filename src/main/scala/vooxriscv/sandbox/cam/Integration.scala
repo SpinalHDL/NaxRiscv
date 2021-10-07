@@ -7,13 +7,13 @@ import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
 import scala.collection.mutable.ArrayBuffer
 class Integration extends Component{
   val sp = SlotSelectorParameter(
-    slotCount   = 32,
+    slotCount   = 16,
     eventCount  = 32,
     selWidth    = 2,
     schedules   = List.tabulate(2)(i => ScheduleParameter(32, i))
   )
   val wp = WaitTableParameter(
-    slotCount    = 32,
+    slotCount    = 16,
     wayCount     = 2,
     triggerCount = 2,
     eventPorts   = 2,
@@ -23,7 +23,7 @@ class Integration extends Component{
   val waitTable = new WaitTable(wp, SlotSelectorContext(sp))
   val slotSelector = new SlotSelector(sp)
   slotSelector.io.slots <> waitTable.io.pop
-  waitTable.io.events <> RegNext(Vec(slotSelector.io.schedules.map(_.event))) //Assume always ready TODO remove reg
+  waitTable.io.events <> (Vec(slotSelector.io.schedules.map(_.event))) //Assume always ready TODO remove reg
 
   val push = waitTable.io.push.toIo
   val squedules = slotSelector.io.schedules.toIo

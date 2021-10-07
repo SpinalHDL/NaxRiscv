@@ -4,7 +4,7 @@ import spinal.core._
 import spinal.lib._
 import vooxriscv.sandbox.matrix3.ScheduleParameter
 
-case class WaitTableParameter( slotCount : Int,
+case class IssueQueueParameter(slotCount : Int,
                                wayCount : Int,
                                robEntries : Int,
                                selCount : Int,
@@ -12,15 +12,14 @@ case class WaitTableParameter( slotCount : Int,
   assert(slotCount % wayCount == 0)
   val lineCount = slotCount/wayCount
   val eventType = HardType(Bits(slotCount bits))
-
 }
 
-case class WaitTablePush[T <: Data](p : WaitTableParameter, contextType : HardType[T]) extends Bundle{
+case class IssueQueuePush[T <: Data](p : IssueQueueParameter, contextType : HardType[T]) extends Bundle{
   val line = Bits(p.lineCount bits)
-  val slots = Vec.fill(p.wayCount)(WaitTablePushSlot(p, contextType))
+  val slots = Vec.fill(p.wayCount)(IssueQueuePushSlot(p, contextType))
 }
 
-case class WaitTablePushSlot[T <: Data](p : WaitTableParameter, contextType : HardType[T]) extends Bundle{
+case class IssueQueuePushSlot[T <: Data](p : IssueQueueParameter, contextType : HardType[T]) extends Bundle{
   val event = p.eventType()
   val sel = Bits(p.selCount bits)
   val context = contextType()
@@ -35,19 +34,18 @@ case class ScheduleParameter(eventCount : Int,
 //  val eventType = HardType(Bits(eventCount bits))
 }
 
-case class WaitTableIo[T <: Data](p : WaitTableParameter, slotContextType : HardType[T]) extends Bundle{
-  val priority  = in Bits(p.slotCount bits)
+case class IssueQueueIo[T <: Data](p : IssueQueueParameter, slotContextType : HardType[T]) extends Bundle{
   val events = KeepAttribute(in(p.eventType()))
-  val push = slave Stream(WaitTablePush(p, slotContextType))
+  val push = slave Stream(IssueQueuePush(p, slotContextType))
   val schedules = Vec(p.schedules.map(sp => master Stream(Schedule(sp))))
 }
 
 
 //Extra light in lut, but don't pack FF
-class WaitTable[T <: Data](p : WaitTableParameter, slotContextType : HardType[T]) extends Component{
-  val io = WaitTableIo(p, slotContextType)
+class IssueQueue[T <: Data](p : IssueQueueParameter, slotContextType : HardType[T]) extends Component{
+  val io = IssueQueueIo(p, slotContextType)
 
-  case class WaitTablePop() extends Bundle{
+  case class IssueQueuePop() extends Bundle{
     val sel = Bits(p.selCount bits)
     val context = slotContextType()
   }
