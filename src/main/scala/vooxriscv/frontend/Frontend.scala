@@ -1,5 +1,6 @@
 package vooxriscv.frontend
 
+import org.scalatest.tools.Framework
 import spinal.core._
 import spinal.core.fiber.{Handle, Lock}
 import vooxriscv.pipeline._
@@ -57,6 +58,7 @@ class Frontend(config : FrontendConfig) extends Pipeline{
   connect(s0, s1)(M2S(flushPreserveInput = true))
   connect(s1, s2)(M2S())
   connect(s2, s3)(M2S())
+
   val lateLock = Lock()
   val buildLock = Lock()
 
@@ -93,6 +95,7 @@ object FrontendPlay extends App{
 }
 
 class AluPlugin extends FrontendPlugin{
+
   val setup = create early new Area{
     val decoder = frontend.getService(classOf[DecoderPlugin])
     decoder.lock.retain()

@@ -78,6 +78,8 @@ class PcManager(resetVector : BigInt) extends FrontendPlugin with JumpService{
       output.payload := pc
     }
 
-    PC := fetchPc.output.payload
+    fetchPc.output.ready := s0.isReady
+    s0.valid := fetchPc.output.valid
+    s0(PC) := fetchPc.output.payload
   }
 }
