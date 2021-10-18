@@ -3,42 +3,47 @@ package vooxriscv.frontend
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib._
+import vooxriscv.interfaces.JumpService
 import vooxriscv.pipeline._
+import vooxriscv.utilities.Plugin
+import vooxriscv.Global
 
 import scala.collection.mutable.ArrayBuffer
 
-trait JumpService{
-  def createJumpInterface(stage : Stage, priority : Int = 0) : Flow[UInt] //High priority win
-}
 
 
-class PcManager(resetVector : BigInt) extends FrontendPlugin with JumpService{
-  case class JumpInfo(interface :  Flow[UInt], stage: Stage, priority : Int)
+class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpService{
+  case class JumpInfo(interface :  Flow[UInt], priority : Int)
   val jumpInfos = ArrayBuffer[JumpInfo]()
-  override def createJumpInterface(stage: Stage, priority : Int = 0): Flow[UInt] = {
-    assert(stage != null)
+  override def createJumpInterface(priority : Int = 0): Flow[UInt] = {
     val interface = Flow(UInt(32 bits))
-    jumpInfos += JumpInfo(interface,stage, priority)
+    jumpInfos += JumpInfo(interface, priority)
     interface
   }
 
+  val setup = create early new Area{
+    val pipeline = getService(classOf[FrontendPlugin])
+    pipeline.lock.retain()
+  }
 
   val logic = create late{
-    val s0 = frontend.s0
-    import s0._
-    import Frontend._
+    import vooxriscv.frontend.Frontend._
+    val stage = setup.pipeline.getStage(0)
+    val pipeline = setup.pipeline.getPipeline()
+    import stage._
 
     val jump = new Area {
-      val sortedByStage = jumpInfos.sortWith((a, b) => {
-        (frontend.precedenceOf(b.stage, a.stage)) ||
-          ((a.stage == b.stage) && a.priority > b.priority)
-      })
+      val sortedByStage = jumpInfos.sortWith(_.priority > _.priority)
       val valids = sortedByStage.map(_.interface.valid)
       val pcs = sortedByStage.map(_.interface.payload)
 
-      val pcLoad = Flow(PC)
+      val pcLoad = Flow(Global.PC)
       pcLoad.valid := jumpInfos.map(_.interface.valid).orR
-      pcLoad.payload := MuxOH(OHMasking.first(valids.asBits), pcs)
+      if(valids.nonEmpty) {
+        pcLoad.payload := MuxOH(OHMasking.first(valids.asBits), pcs)
+      } else {
+        pcLoad.payload.assignDontCare()
+      }
     }
 
     val fetchPc = new Area{
@@ -78,8 +83,10 @@ class PcManager(resetVector : BigInt) extends FrontendPlugin with JumpService{
       output.payload := pc
     }
 
-    fetchPc.output.ready := s0.isReady
-    s0.valid := fetchPc.output.valid
-    s0(PC) := fetchPc.output.payload
+    fetchPc.output.ready := stage.isReady
+    stage.valid := fetchPc.output.valid
+    stage(Global.PC) := fetchPc.output.payload
+
+    setup.pipeline.lock.release()
   }
 }

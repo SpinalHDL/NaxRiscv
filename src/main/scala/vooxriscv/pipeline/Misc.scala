@@ -2,6 +2,7 @@ package vooxriscv.pipeline
 
 import spinal.core._
 import spinal.lib._
+import vooxriscv.utilities.Misc
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -21,41 +22,62 @@ class Stage extends Nameable {
       var ready : Bool = null
     }
 
-    val output = new {
+    val output = new Area {
       val valid = Bool()
       var ready : Bool = null
     }
 
-    val will = new {
-      var haltAsk, removeAsk, flushAsk = false
-      var haltBe, removeBe, flushBe = false
+//    val will = new {
+//      var haltAsk, removeAsk, flushAsk = false
+//      var haltBe, removeBe, flushBe = false
+//    }
+
+    val arbitration = new {
+      var isRemoved : Bool = null
+      var isFlushed : Bool = null
+      var isFlushingNext : Bool = null
+      var isHalted : Bool = null
+      var isHaltedByOthers : Bool = null
     }
 
     val request = new {
       val halts = ArrayBuffer[Bool]()
+      val removes = ArrayBuffer[Bool]()
+
     }
 
 
 
     val stageableToData = mutable.LinkedHashMap[Stageable[Data], Data]()
+    val stageableOverloadedToData = mutable.LinkedHashMap[Stageable[Data], Data]()
+
+    def outputOf(key : Stageable[Data]) = stageableOverloadedToData.get(key) match {
+      case Some(x) => x
+      case None => stageableToData(key)
+    }
   }
 
   implicit def stageablePiped[T <: Data](stageable: Stageable[T]) = Stage.this(stageable)
   def haltIt() : Unit = haltIt(ConditionalContext.isTrue)
   def haltIt(cond : Bool) : Unit = {
-    internals.will.haltAsk = true
-    internals.will.haltBe = true
+//    internals.will.haltAsk = true
+//    internals.will.haltBe = true
     internals.request.halts += cond
   }
   def flushIt() : Unit = ???
   def removeIt(): Unit = ???
-  def isValid: Bool = ???
-  def isFireing: Bool = ???
-  def isRemoved : Bool = ???
+  def isValid: Bool = internals.input.valid
+  def isFireing: Bool = isValid && isReady
+  def isRemoved : Bool = {
+    if(internals.arbitration.isRemoved == null) internals.arbitration.isRemoved = Misc.outsideCondScope(Bool())
+    internals.arbitration.isRemoved
+  }
+  def isFlushed : Bool = {
+    if(internals.arbitration.isFlushed == null) internals.arbitration.isFlushed = Misc.outsideCondScope(Bool())
+    internals.arbitration.isFlushed
+  }
   def isReady : Bool = {
-    if(internals.input.ready == null)
-      internals.input.ready = outsideCondScope(Bool())
-
+    if(internals.input.ready == null) internals.input.ready = Misc.outsideCondScope(Bool())
     internals.input.ready
   }
 
@@ -64,18 +86,10 @@ class Stage extends Nameable {
 
 
 
-  def outsideCondScope[T](that : => T) : T = {
-    val body = Component.current.dslBody  // Get the head of the current component symboles tree (AST in other words)
-    val ctx = body.push()                 // Now all access to the SpinalHDL API will be append to it (instead of the current context)
-    val swapContext = body.swap()         // Empty the symbole tree (but keep a reference to the old content)
-    val ret = that                        // Execute the block of code (will be added to the recently empty body)
-    ctx.restore()                         // Restore the original context in which this function was called
-    swapContext.appendBack()              // append the original symboles tree to the modified body
-    ret                                   // return the value returned by that
-  }
+
 
   def apply[T <: Data](key : Stageable[T]) : T = {
-    internals.stageableToData.getOrElseUpdate(key.asInstanceOf[Stageable[Data]],outsideCondScope{
+    internals.stageableToData.getOrElseUpdate(key.asInstanceOf[Stageable[Data]],Misc.outsideCondScope{
 //      val input,inputDefault = key()
 //      inputsDefault(key.asInstanceOf[Stageable[Data]]) = inputDefault
 //      input := inputDefault
@@ -87,6 +101,18 @@ class Stage extends Nameable {
     }).asInstanceOf[T]
   }
 
+  def overloaded[T <: Data](key : Stageable[T]) : T = {
+    internals.stageableOverloadedToData.getOrElseUpdate(key.asInstanceOf[Stageable[Data]], Misc.outsideCondScope {
+      //      val input,inputDefault = key()
+      //      inputsDefault(key.asInstanceOf[Stageable[Data]]) = inputDefault
+      //      input := inputDefault
+      //      input.setPartialName(this, key.getName())
+
+      val v = CombInit(this.apply(key))
+
+      v
+    }).asInstanceOf[T]
+  }
 
 
 //  def <<(that : Stage) = {
@@ -118,8 +144,8 @@ trait ConnectionLogic extends OverridedEqualsHashCode{
          s : ConnectionPoint,
          flush : Bool) : Area // Remove => one element, flush =>
 
-  def latency : Int
-  def tokenCapacity : Int
+  def latency : Int = ???
+  def tokenCapacity : Int = ???
 }
 
 object Connection{
@@ -298,7 +324,7 @@ class Pipeline extends Area{
       for((l, id) <- c.logics.zipWithIndex){
 
         val s = if(l == c.logics.last)
-          ConnectionPoint(c.s.input.valid, c.s.input.ready, Vec(stageables.map(c.s.stageableToData(_))))
+          ConnectionPoint(c.s.input.valid, c.s.input.ready, Vec(stageables.map(c.s.outputOf(_))))
         else {
           ConnectionPoint(Bool(), (m.ready != null) generate Bool(), Vec(stageables.map(_.craft())))
         }
@@ -352,6 +378,9 @@ case class PipelineTop() extends Component {
       when(io.cond0 === 0){
         haltIt()
       }
+      when(io.cond0 === 1){
+        haltIt()
+      }
 
       B := A + 1
       C := A + 2
@@ -362,6 +391,8 @@ case class PipelineTop() extends Component {
       io.sink.valid := internals.output.valid
       io.sink.payload := B + C
     }
+
+    build()
   }
 }
 
