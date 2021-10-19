@@ -46,7 +46,7 @@ class AlignerPlugin() extends Plugin{
       if(flush != null) when(flush){
         buffer.mask := 0
       }
-      s.payload := m.payload
+      (s.payload, m.payload).zipped.foreach(_ := _)
     }
   }
 
@@ -69,10 +69,10 @@ class AlignerPlugin() extends Plugin{
     val slices = new Area {
       //0 -> 1111  1 -> 0111 2 > 0011 ...
       val pcMaskLut = Vec.tabulate(SLICE_COUNT)(i => B((1 << SLICE_COUNT - i) - 1, SLICE_COUNT bits))
-      val pcMask = pcMaskLut.read(Global.PC(log2Up(SLICE_BYTES), log2Up(SLICE_COUNT) bits))
+      val pcMask = pcMaskLut.read(FETCH_PC_VIRTUAL(log2Up(SLICE_BYTES), log2Up(SLICE_COUNT) bits))
       val data = (WORD ## buffer.data).subdivideIn(SLICE_WIDTH bits)
       var mask = ((MASK & pcMask) ## buffer.mask)
-      var used = B(0, SLICE_COUNT bits)
+      var used = B(0, SLICE_COUNT*2 bits)
     }
 
     val decoders = for (i <- 0 until SLICE_COUNT * 2) yield new Area {

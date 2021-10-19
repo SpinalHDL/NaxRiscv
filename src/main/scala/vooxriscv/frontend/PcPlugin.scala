@@ -37,7 +37,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
       val valids = sortedByStage.map(_.interface.valid)
       val pcs = sortedByStage.map(_.interface.payload)
 
-      val pcLoad = Flow(Global.PC)
+      val pcLoad = Flow(FETCH_PC_VIRTUAL)
       pcLoad.valid := jumpInfos.map(_.interface.valid).orR
       if(valids.nonEmpty) {
         pcLoad.payload := MuxOH(OHMasking.first(valids.asBits), pcs)
@@ -85,7 +85,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
 
     fetchPc.output.ready := stage.isReady
     stage.valid := fetchPc.output.valid
-    stage(Global.PC) := fetchPc.output.payload
+    stage(FETCH_PC_VIRTUAL) := fetchPc.output.payload
 
     setup.pipeline.lock.release()
   }

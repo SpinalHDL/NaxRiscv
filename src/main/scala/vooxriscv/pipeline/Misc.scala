@@ -94,27 +94,13 @@ class Stage extends Nameable {
 
   def apply[T <: Data](key : Stageable[T]) : T = {
     internals.stageableToData.getOrElseUpdate(key.asInstanceOf[Stageable[Data]],Misc.outsideCondScope{
-//      val input,inputDefault = key()
-//      inputsDefault(key.asInstanceOf[Stageable[Data]]) = inputDefault
-//      input := inputDefault
-//      input.setPartialName(this, key.getName())
-
-      val v = key()
-
-      v
+      key()
     }).asInstanceOf[T]
   }
 
   def overloaded[T <: Data](key : Stageable[T]) : T = {
     internals.stageableOverloadedToData.getOrElseUpdate(key.asInstanceOf[Stageable[Data]], Misc.outsideCondScope {
-      //      val input,inputDefault = key()
-      //      inputsDefault(key.asInstanceOf[Stageable[Data]]) = inputDefault
-      //      input := inputDefault
-      //      input.setPartialName(this, key.getName())
-
-      val v = CombInit(this.apply(key))
-
-      v
+      CombInit(this.apply(key))
     }).asInstanceOf[T]
   }
 
@@ -142,8 +128,8 @@ class Stage extends Nameable {
 //  }
 }
 
-case class ConnectionPoint(valid : Bool, ready : Bool, payload : Vec[Data]) extends Nameable
-trait ConnectionLogic extends OverridedEqualsHashCode{
+case class ConnectionPoint(valid : Bool, ready : Bool, payload : Seq[Data]) extends Nameable
+trait ConnectionLogic extends Nameable with OverridedEqualsHashCode {
   def on(m : ConnectionPoint,
          s : ConnectionPoint,
          flush : Bool, flushNext : Bool, flushNextHit : Bool) : Area // Remove => one element, flush =>
@@ -161,7 +147,7 @@ object Connection{
            flush : Bool, flushNext : Bool, flushNextHit : Bool) = new Area {
       if(m.ready != null) m.ready   := s.ready
       s.valid   := m.valid
-      s.payload := m.payload
+      (s.payload, m.payload).zipped.foreach(_ := _)
     }
 
     override def latency = 0
@@ -175,29 +161,33 @@ object Connection{
            s : ConnectionPoint,
            flush : Bool, flushNext : Bool, flushNextHit : Bool) = new Area{
 
-      val (rValid, rData) = m.ready match {
-        case null => (
-            RegNext(m.valid) init(False),
-            RegNext(m.payload)
-        )
-        case r =>   (
-          RegNextWhen(m.valid, r) init(False),
-          RegNextWhen(m.payload, if(holdPayload) m.valid && r else r)
-        )
+      s.valid.setAsReg()
+      s.payload.foreach(_.setAsReg())
+
+      m.ready match {
+        case null =>
+          s.valid := m.valid
+          (s.payload, m.payload).zipped.foreach(_ := _)
+        case r => {
+          when(r) {
+            s.valid := m.valid
+          }
+          when(if (holdPayload) m.valid && r else r) {
+            (s.payload, m.payload).zipped.foreach(_ := _)
+          }
+        }
       }
 
       if(flushPreserveInput){
         println("WARNING flushPreserveInput NOT IMPLEMENTED")
       }
-      if (flush != null && !flushPreserveInput) rValid clearWhen(flush)
+      if (flush != null && !flushPreserveInput) s.valid clearWhen(flush)
 
       if(m.ready != null) {
         m.ready := s.ready
         if (collapse) m.ready setWhen (!s.valid)
       }
 
-      s.valid := rValid
-      s.payload := rData
 
       if(flushNextHit == null)println(" WARNING flushNextHit not implemented")
     }
@@ -225,6 +215,7 @@ class Pipeline extends Area{
     c.m = m
     c.s = s
     c.logics ++= logics
+    c
   }
 
   def precedenceOf(that : Stage, over : Stage) : Boolean = {
@@ -376,16 +367,19 @@ class Pipeline extends Area{
     //Interconnect stages
     for(c <- connections){
       val stageables = c.m.stageableToData.keys.filter(c.s.stageableToData.contains(_))
-      var m = ConnectionPoint(c.m.output.valid, c.m.output.ready, Vec(stageables.map(c.m.stageableToData(_))))
+      var m = ConnectionPoint(c.m.output.valid, c.m.output.ready, stageables.map(c.m.outputOf(_)).toList)
       for((l, id) <- c.logics.zipWithIndex){
 
         val s = if(l == c.logics.last)
-          ConnectionPoint(c.s.input.valid, c.s.input.ready, Vec(stageables.map(c.s.outputOf(_))))
+          ConnectionPoint(c.s.input.valid, c.s.input.ready, stageables.map(c.s.stageableToData(_)).toList)
         else {
-          ConnectionPoint(Bool(), (m.ready != null) generate Bool(), Vec(stageables.map(_.craft())))
+          ConnectionPoint(Bool(), (m.ready != null) generate Bool(), stageables.map(_.craft()).toList)
         }
         val area = l.on(m, s, clFlush(l), clFlushNext(l), clFlushNextHit(l))
-        area.setCompositeName(c, s"level_$id")
+        if(c.logics.size != 1)
+          area.setCompositeName(c, s"level_$id")
+        else
+          area.setCompositeName(c)
         m = s
       }
 
@@ -394,12 +388,12 @@ class Pipeline extends Area{
     //Name stuff
     for(stage <- stages){
       for((key, value) <- stage.internals.stageableToData){
-        value.setName(s"${stage}_${key}")
+        value.setCompositeName(stage, s"${key}")
       }
     }
 
     for(c <- connections){
-      c.setName(s"${c.m}_to_${c.s}")
+      if(c.isUnnamed) c.setName(s"${c.m}_to_${c.s}")
     }
   }
 

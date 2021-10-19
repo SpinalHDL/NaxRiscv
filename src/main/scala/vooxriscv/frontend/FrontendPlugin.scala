@@ -40,9 +40,10 @@ class FrontendPlugin() extends Plugin {
 
     import Connection._
     for((m, s) <- (fetches.dropRight(1), fetches.tail).zipped){
-      connect(m, s)(M2S(flushPreserveInput = m == fetches.head))
+      connect(m, s)(M2S(flushPreserveInput = m == fetches.head)).setCompositeName(s, "driver")
     }
   }
+  pipeline.setCompositeName(this)
 
   val builder = create late new Area{
     lock.await()

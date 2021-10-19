@@ -7,7 +7,9 @@ import vooxriscv.pipeline._
 import scala.collection.mutable.ArrayBuffer
 
 
-trait Plugin{
+trait Plugin extends Area{
+  this.setName(ClassName(this))
+
   val framework = Handle[Framework]()
   def getService[T](clazz : Class[T]) = framework.getService(clazz)
 
