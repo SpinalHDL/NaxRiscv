@@ -29,7 +29,10 @@ object Frontend extends Area{
   val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
 
 
+  val FETCH_PC_PHYSICAL   = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
+  val FETCH_PC_VIRTUAL   = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
 
   val WORD_JUNCTION = new JunctionKey()
   val INSTRUCTION_JUNCTION = new JunctionKey()
 }
+

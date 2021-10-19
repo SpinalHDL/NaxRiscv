@@ -42,8 +42,8 @@ class Stage extends Nameable {
 
     val request = new {
       val halts = ArrayBuffer[Bool]()
-      val removes = ArrayBuffer[Bool]()
-
+      val flush = ArrayBuffer[Bool]()
+      val flushNext = ArrayBuffer[Bool]()
     }
 
 
@@ -59,15 +59,15 @@ class Stage extends Nameable {
 
   implicit def stageablePiped[T <: Data](stageable: Stageable[T]) = Stage.this(stageable)
   def haltIt() : Unit = haltIt(ConditionalContext.isTrue)
-  def haltIt(cond : Bool) : Unit = {
-//    internals.will.haltAsk = true
-//    internals.will.haltBe = true
-    internals.request.halts += cond
-  }
-  def flushIt() : Unit = ???
+  def flushIt() : Unit = flushIt(ConditionalContext.isTrue)
+  def flushNext() : Unit = flushNext(ConditionalContext.isTrue)
+  def haltIt(cond : Bool) : Unit = internals.request.halts += cond
+  def flushIt(cond : Bool) : Unit = internals.request.flush += cond
+  def flushNext(cond : Bool) : Unit =  internals.request.flushNext += cond
   def removeIt(): Unit = ???
   def isValid: Bool = internals.input.valid
   def isFireing: Bool = isValid && isReady
+  def isStuck: Bool = isValid && !isReady
   def isRemoved : Bool = {
     if(internals.arbitration.isRemoved == null) internals.arbitration.isRemoved = Misc.outsideCondScope(Bool())
     internals.arbitration.isRemoved
@@ -75,6 +75,10 @@ class Stage extends Nameable {
   def isFlushed : Bool = {
     if(internals.arbitration.isFlushed == null) internals.arbitration.isFlushed = Misc.outsideCondScope(Bool())
     internals.arbitration.isFlushed
+  }
+  def isFlushingNext : Bool = {
+    if(internals.arbitration.isFlushingNext == null) internals.arbitration.isFlushingNext = Misc.outsideCondScope(Bool())
+    internals.arbitration.isFlushingNext
   }
   def isReady : Bool = {
     if(internals.input.ready == null) internals.input.ready = Misc.outsideCondScope(Bool())
@@ -142,17 +146,19 @@ case class ConnectionPoint(valid : Bool, ready : Bool, payload : Vec[Data]) exte
 trait ConnectionLogic extends OverridedEqualsHashCode{
   def on(m : ConnectionPoint,
          s : ConnectionPoint,
-         flush : Bool) : Area // Remove => one element, flush =>
+         flush : Bool, flushNext : Bool, flushNextHit : Bool) : Area // Remove => one element, flush =>
 
   def latency : Int = ???
   def tokenCapacity : Int = ???
+  def alwasContainsSlaveToken : Boolean = false
+  def withPayload : Boolean = true
 }
 
 object Connection{
   case class DIRECT() extends ConnectionLogic {
     def on(m : ConnectionPoint,
            s : ConnectionPoint,
-           flush : Bool) = new Area {
+           flush : Bool, flushNext : Bool, flushNextHit : Bool) = new Area {
       if(m.ready != null) m.ready   := s.ready
       s.valid   := m.valid
       s.payload := m.payload
@@ -167,7 +173,7 @@ object Connection{
                  flushPreserveInput : Boolean = false) extends ConnectionLogic {
     def on(m : ConnectionPoint,
            s : ConnectionPoint,
-           flush : Bool) = new Area{
+           flush : Bool, flushNext : Bool, flushNextHit : Bool) = new Area{
 
       val (rValid, rData) = m.ready match {
         case null => (
@@ -192,10 +198,13 @@ object Connection{
 
       s.valid := rValid
       s.payload := rData
+
+      if(flushNextHit == null)println(" WARNING flushNextHit not implemented")
     }
 
     override def latency = 1
     override def tokenCapacity = 1
+    override def alwasContainsSlaveToken : Boolean = true
   }
 
 }
@@ -269,15 +278,54 @@ class Pipeline extends Area{
       }
     }
 
+    val clFlush = mutable.LinkedHashMap[ConnectionLogic, Bool]()
+    val clFlushNext = mutable.LinkedHashMap[ConnectionLogic, Bool]()
+    val clFlushNextHit = mutable.LinkedHashMap[ConnectionLogic, Bool]()
+
     def propagateRequirements(stage : Stage): Unit ={
       if(stage.request.halts.nonEmpty){
         stage.isReady //Force creation
+      }
+      def orR(l : Seq[Bool]) : Bool = l.size match {
+        case 0 => null
+        case 1 => l.head
+        case _ => l.orR
+      }
+      var flush = stage.internals.request.flush.nonEmpty generate orR(stage.internals.request.flush)
+      var flushNext = stage.internals.request.flushNext.nonEmpty generate orR(stage.internals.request.flushNext)
+      (stage.internals.arbitration.isFlushed, flush) match {
+        case (null, null) =>
+        case (x, null) => stage.isFlushed := False
+        case (_, x) =>    stage.isFlushed := flush
+      }
+      (stage.internals.arbitration.isFlushingNext, flushNext) match {
+        case (null, null) =>
+        case (x, null) => stage.isFlushingNext := False
+        case (_, x) =>    stage.isFlushingNext := flushNext
       }
       stageDriver.get(stage) match {
         case Some(c : ConnectionModel) => {
           if(c.s.input.ready != null && c.m.output.ready == null){
             c.m.output.ready = Bool()
           }
+          c.logics.reverseIterator.foreach{ l =>
+            clFlush(l) = flush
+            clFlushNext(l) = flushNext
+            clFlushNextHit(l) = null
+            if(flushNext != null){
+              clFlushNextHit(l) = Bool()
+              flush = flush match {
+                case null => clFlushNext(l) && clFlushNextHit(l)
+                case _ => flush || clFlushNext(l) && clFlushNextHit(l)
+              }
+              flushNext = l.alwasContainsSlaveToken match {
+                case true => null
+                case false => clFlushNext(l) && !clFlushNextHit(l)
+              }
+            }
+          }
+          if(flush != null) c.m.flushIt(flush)
+          if(flushNext != null) c.m.flushNext(flushNext)
         }
         case None =>
       }
@@ -293,8 +341,16 @@ class Pipeline extends Area{
           propagateData(key, m);
         }
       }
-
       propagateRequirements(end)
+    }
+
+    //Name stuff
+    for(s <- stages){
+      import s.internals._
+      if(arbitration.isFlushed != null) arbitration.isFlushed.setCompositeName(s, "isFlushed")
+      if(arbitration.isFlushingNext != null) arbitration.isFlushingNext.setCompositeName(s, "isFlushingNext")
+      if(arbitration.isHalted != null) arbitration.isFlushingNext.setCompositeName(s, "isHalted")
+      if(arbitration.isHaltedByOthers != null) arbitration.isFlushingNext.setCompositeName(s, "isHaltedByOthers")
     }
 
     //Internal connections
@@ -328,7 +384,7 @@ class Pipeline extends Area{
         else {
           ConnectionPoint(Bool(), (m.ready != null) generate Bool(), Vec(stageables.map(_.craft())))
         }
-        val area = l.on(m, s, null) //TODO
+        val area = l.on(m, s, clFlush(l), clFlushNext(l), clFlushNextHit(l))
         area.setCompositeName(c, s"level_$id")
         m = s
       }
@@ -363,8 +419,8 @@ case class PipelineTop() extends Component {
     val A, B, C = Stageable(UInt(8 bits))
 
     import Connection._
-    connect(s0, s1)(DIRECT())
-    connect(s1, s2)(M2S(), M2S(), M2S())
+    connect(s0, s1)(M2S())
+    connect(s1, s2)(M2S())
 
     val onS0 = new Area {
       import s0._
@@ -378,8 +434,11 @@ case class PipelineTop() extends Component {
       when(io.cond0 === 0){
         haltIt()
       }
-      when(io.cond0 === 1){
-        haltIt()
+//      when(io.cond0 === 1){
+//        flushIt()
+//      }
+      when(io.cond0 === 2){
+        flushNext()
       }
 
       B := A + 1
@@ -392,8 +451,8 @@ case class PipelineTop() extends Component {
       io.sink.payload := B + C
     }
 
-    build()
   }
+  pipeline.build()
 }
 
 object PipelinePlay extends App{

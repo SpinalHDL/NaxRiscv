@@ -22,8 +22,11 @@ object Gen extends App{
     plugins += new JunctionPlugin()
     plugins += new FrontendPlugin()
     plugins += new PcPlugin()
-    plugins += new FetchL1()
-    plugins += new Compactor()
+    plugins += new FetchL1Plugin(
+      cacheSize = 4096,
+      wayCount = 1
+    )
+    plugins += new AlignerPlugin()
     plugins += new DecoderPlugin()
     val frontend = new Framework(plugins)
   })

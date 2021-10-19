@@ -34,25 +34,26 @@ import vooxriscv.utilities.Plugin
 //  }
 //}
 
-class Compactor() extends Plugin{
+class AlignerPlugin() extends Plugin{
 
-//  class CustomConnector extends ConnectionLogic{
-//    override def on(m: ConnectionPoint, s: ConnectionPoint, flush: Bool) = new Area {
-//      val l = logic.get
-//      import l._
-//      s.valid := extractors.map(_.valid).orR
-//      m.ready := fireInput
-//      when(flush){
-//        buffer.mask := 0
-//      }
-//      s.payload := m.payload
-//    }
-//  }
+  class CustomConnector extends ConnectionLogic{
+    override def on(m: ConnectionPoint, s: ConnectionPoint, flush: Bool, flushNext : Bool, flushNextHit : Bool) = new Area {
+      val l = logic.get
+      import l._
+      assert(flushNext == null)
+      s.valid := extractors.map(_.valid).orR
+      if(m.ready != null) m.ready := fireInput
+      if(flush != null) when(flush){
+        buffer.mask := 0
+      }
+      s.payload := m.payload
+    }
+  }
 
   val setup = create early new Area{
     val frontend = framework.getService(classOf[FrontendPlugin])
     frontend.retain()
-//    frontend.pipeline.connect(frontend.pipeline.fetches.last, frontend.pipeline.aligned)(new CustomConnector)
+    frontend.pipeline.connect(frontend.pipeline.fetches.last, frontend.pipeline.aligned)(new CustomConnector)
   }
 
   val logic = create late new Area {
@@ -106,8 +107,7 @@ class Compactor() extends Plugin{
       val valid = slices.mask.drop(i).orR && !notEnoughData
       slices.used \= slices.used | usage
       slices.mask \= slices.mask & ~usage
-
-//      ALIGNED_INSTRUCTION(i) := instruction
+      ALIGNED_INSTRUCTION(i) := instruction
     }
 
 
@@ -118,21 +118,22 @@ class Compactor() extends Plugin{
       buffer.data := WORD
       fireInput := True
     }
-    when(input.isRemoved){
-      buffer.mask := 0
-    }
-  }
-
-  val injection = create late{
-    val output = setup.frontend.pipeline.aligned
-    output.valid := logic.extractors.map(_.valid).orR
-    logic.input.haltIt(!logic.fireInput)
-    logic.input.flushIt(output.isRemoved)
-    logic.fire setWhen(output.isFireing)
-
-    output(ALIGNED_INSTRUCTION) := Vec(logic.extractors.map(_.instruction))
+//    when(input.isRemoved){
+//      buffer.mask := 0
+//    }
     setup.frontend.release()
   }
+
+//  val injection = create late{
+//    val output = setup.frontend.pipeline.aligned
+//    output.valid := logic.extractors.map(_.valid).orR
+//    logic.input.haltIt(!logic.fireInput)
+//    logic.input.flushIt(output.isRemoved)
+//    logic.fire setWhen(output.isFireing)
+//
+//    output(ALIGNED_INSTRUCTION) := Vec(logic.extractors.map(_.instruction))
+//    setup.frontend.release()
+//  }
 
 }
 
