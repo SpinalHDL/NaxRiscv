@@ -3,8 +3,6 @@ package vooxriscv.frontend
 import spinal.core._
 import vooxriscv.Global
 import vooxriscv.pipeline._
-import vooxriscv.utilities.JunctionKey
-
 
 
 object Frontend extends Area{
@@ -32,7 +30,5 @@ object Frontend extends Area{
   val FETCH_PC_PHYSICAL   = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
   val FETCH_PC_VIRTUAL   = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
 
-  val WORD_JUNCTION = new JunctionKey()
-  val INSTRUCTION_JUNCTION = new JunctionKey()
 }
 

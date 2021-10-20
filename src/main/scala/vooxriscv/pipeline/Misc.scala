@@ -338,6 +338,7 @@ class Pipeline extends Area{
     //Name stuff
     for(s <- stages){
       import s.internals._
+      s.isValid.setCompositeName(s, "isValid")
       if(arbitration.isFlushed != null) arbitration.isFlushed.setCompositeName(s, "isFlushed")
       if(arbitration.isFlushingNext != null) arbitration.isFlushingNext.setCompositeName(s, "isFlushingNext")
       if(arbitration.isHalted != null) arbitration.isFlushingNext.setCompositeName(s, "isHalted")

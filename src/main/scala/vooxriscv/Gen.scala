@@ -2,25 +2,22 @@ package vooxriscv
 
 import spinal.core._
 import vooxriscv.frontend._
-import vooxriscv.utilities.{Framework, FrameworkConfig, JunctionPlugin, Plugin}
+import vooxriscv.utilities._
 
 import scala.collection.mutable.ArrayBuffer
 
 object Config{
-  def default() = {
+  def properties() = {
     Global.PHYSICAL_WIDTH.set(32)
     Frontend.RVC.set(true)
     Frontend.FETCH_DATA_WIDTH.set(64)
     Frontend.INSTRUCTION_WIDTH.set(32)
     Frontend.DECODE_COUNT.set(2)
   }
-}
-object Gen extends App{
-  SpinalVerilog(new Component {
-    Config.default()
+  def plugins(): Seq[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
-    plugins += new JunctionPlugin()
     plugins += new FrontendPlugin()
+    plugins += new DirectAddressTranslationPlugin()
     plugins += new PcPlugin()
     plugins += new FetchL1Plugin(
       cacheSize = 4096,
@@ -28,6 +25,23 @@ object Gen extends App{
     )
     plugins += new AlignerPlugin()
     plugins += new DecoderPlugin()
-    val frontend = new Framework(plugins)
+    plugins += new SandboxPlugin()
+    plugins
+  }
+}
+object Gen extends App{
+  SpinalVerilog(new Component {
+    Config.properties()
+    val frontend = new Framework(Config.plugins())
   })
 }
+
+//object GenSim extends App{
+//  import spinal.core.sim._
+//  SimConfig.withFstWave.compile(new Component {
+//    Config.properties()
+//    val frontend = new Framework(Config.plugins())
+//  }).doSim(seed = 42){}
+//}
+
+
