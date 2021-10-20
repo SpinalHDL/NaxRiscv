@@ -17,7 +17,7 @@ case class FetchL1Rsp(p : FetchL1Plugin) extends Bundle{
 
 case class FetchL1Bus(p : FetchL1Plugin) extends Bundle with IMasterSlave {
   val cmd = Stream(FetchL1Cmd(p))
-  val rsp = Stream(FetchL1Rsp(p))
+  val rsp = Flow(FetchL1Rsp(p))
 
   override def asMaster() = {
     master(cmd)
@@ -195,6 +195,8 @@ class FetchL1Plugin(val cacheSize : Int,
           fire := True
         }
       }
+
+      setup.pipeline.getStage(0).haltIt(valid)
     }
 
     val fetch = new Area{
@@ -235,14 +237,16 @@ class FetchL1Plugin(val cacheSize : Int,
         setup.redoJump.valid := False
         setup.redoJump.payload := FETCH_PC_VIRTUAL
 
-        when(!WAYS_HIT){
-          refill.valid := True
-          refill.address := FETCH_PC_PHYSICAL
+        when(isValid) {
+          when(!WAYS_HIT) {
+            refill.valid := True
+            refill.address := FETCH_PC_PHYSICAL
 
-          setup.redoJump.valid := True
-          flushIt() //Not enough to avoid a second failure, but avoid halt the pipeline.
-        } otherwise { //Success
+            setup.redoJump.valid := True
+            flushIt() //Not enough to avoid a second failure, but avoid halt the pipeline.
+          } otherwise { //Success
 
+          }
         }
       }
 

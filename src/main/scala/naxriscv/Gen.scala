@@ -21,7 +21,8 @@ object Config{
     plugins += new PcPlugin()
     plugins += new FetchL1Plugin(
       cacheSize = 4096,
-      wayCount = 1
+      wayCount = 1,
+      injectionAt = 2
     )
     plugins += new AlignerPlugin()
     plugins += new DecoderPlugin()
@@ -31,8 +32,9 @@ object Config{
 }
 object Gen extends App{
   SpinalVerilog(new Component {
+    setDefinitionName("NaxRiscv")
     Config.properties()
-    val frontend = new Framework(Config.plugins())
+    val framework = new Framework(Config.plugins())
   })
 }
 

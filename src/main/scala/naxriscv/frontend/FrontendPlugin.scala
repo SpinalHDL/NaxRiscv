@@ -48,7 +48,6 @@ class FrontendPlugin() extends Plugin {
   val builder = create late new Area{
     lock.await()
     pipeline.build()
-    println("Frontend builded")
   }
 
   def getStage(id : Int) = pipeline.fetches(id)

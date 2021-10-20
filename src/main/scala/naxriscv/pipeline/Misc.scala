@@ -43,6 +43,7 @@ class Stage extends Nameable {
     val request = new {
       val halts = ArrayBuffer[Bool]()
       val flush = ArrayBuffer[Bool]()
+      val flushRoot = ArrayBuffer[Bool]()
       val flushNext = ArrayBuffer[Bool]()
     }
 
@@ -62,7 +63,10 @@ class Stage extends Nameable {
   def flushIt() : Unit = flushIt(ConditionalContext.isTrue)
   def flushNext() : Unit = flushNext(ConditionalContext.isTrue)
   def haltIt(cond : Bool) : Unit = internals.request.halts += cond
-  def flushIt(cond : Bool) : Unit = internals.request.flush += cond
+  def flushIt(cond : Bool, root : Boolean = true) : Unit = {
+    internals.request.flush += cond
+    if(root) internals.request.flushRoot += cond
+  }
   def flushNext(cond : Bool) : Unit =  internals.request.flushNext += cond
   def removeIt(): Unit = ???
   def isValid: Bool = internals.input.valid
@@ -164,11 +168,14 @@ object Connection{
       s.valid.setAsReg()
       s.payload.foreach(_.setAsReg())
 
+
+
       m.ready match {
         case null =>
           s.valid := m.valid
           (s.payload, m.payload).zipped.foreach(_ := _)
         case r => {
+          if (flush != null && flushPreserveInput) s.valid clearWhen(flush)
           when(r) {
             s.valid := m.valid
           }
@@ -178,18 +185,13 @@ object Connection{
         }
       }
 
-      if(flushPreserveInput){
-        println("WARNING flushPreserveInput NOT IMPLEMENTED")
-      }
+
       if (flush != null && !flushPreserveInput) s.valid clearWhen(flush)
 
       if(m.ready != null) {
         m.ready := s.ready
         if (collapse) m.ready setWhen (!s.valid)
       }
-
-
-      if(flushNextHit == null)println(" WARNING flushNextHit not implemented")
     }
 
     override def latency = 1
@@ -315,7 +317,7 @@ class Pipeline extends Area{
               }
             }
           }
-          if(flush != null) c.m.flushIt(flush)
+          if(flush != null) c.m.flushIt(flush, false)
           if(flushNext != null) c.m.flushNext(flushNext)
         }
         case None =>
@@ -326,19 +328,25 @@ class Pipeline extends Area{
       }
     }
 
-    for(end <- connectionsWithoutSinks){
-      for(key <- end.stageableToData.keys){
-        for(m <- stageMasters(end)) {
+    for(stage <- stages){
+      for(key <- stage.stageableToData.keys){
+        for(m <- stageMasters(stage)) {
           propagateData(key, m);
         }
       }
+    }
+
+    for(end <- connectionsWithoutSinks){
       propagateRequirements(end)
     }
 
     //Name stuff
     for(s <- stages){
       import s.internals._
-      s.isValid.setCompositeName(s, "isValid")
+      s.internals.output.valid.setCompositeName(s, "valid_output")
+      if(s.internals.output.ready != null) s.internals.output.ready.setCompositeName(s, "ready_output")
+      s.internals.input.valid.setCompositeName(s, "valid")
+      if(s.internals.input.ready != null) s.internals.input.ready.setCompositeName(s, "ready")
       if(arbitration.isFlushed != null) arbitration.isFlushed.setCompositeName(s, "isFlushed")
       if(arbitration.isFlushingNext != null) arbitration.isFlushingNext.setCompositeName(s, "isFlushingNext")
       if(arbitration.isHalted != null) arbitration.isFlushingNext.setCompositeName(s, "isHalted")
@@ -348,6 +356,7 @@ class Pipeline extends Area{
     //Internal connections
     for(s <- stages){
       s.output.valid := s.input.valid
+      if(s.internals.request.flushRoot.nonEmpty) s.output.valid clearWhen(s.internals.request.flushRoot.orR)
 
       (s.input.ready,  s.output.ready) match {
         case (null, null) =>
