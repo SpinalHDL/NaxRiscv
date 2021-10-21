@@ -47,6 +47,7 @@ obj_dir
 *.o
 *.bin
 explor
+nax.h
 
 simWorkspace/
 tmp/

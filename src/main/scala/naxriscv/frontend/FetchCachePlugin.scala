@@ -6,16 +6,16 @@ import naxriscv.frontend.Frontend._
 import naxriscv.pipeline.Stageable
 import naxriscv.utilities._
 
-case class FetchL1Cmd(p : FetchL1Plugin) extends Bundle{
+case class FetchL1Cmd(p : FetchCachePlugin) extends Bundle{
   val address = UInt(Global.PHYSICAL_WIDTH bits)
 }
 
-case class FetchL1Rsp(p : FetchL1Plugin) extends Bundle{
+case class FetchL1Rsp(p : FetchCachePlugin) extends Bundle{
   val data = Bits(p.memDataWidth bit)
   val error = Bool()
 }
 
-case class FetchL1Bus(p : FetchL1Plugin) extends Bundle with IMasterSlave {
+case class FetchL1Bus(p : FetchCachePlugin) extends Bundle with IMasterSlave {
   val cmd = Stream(FetchL1Cmd(p))
   val rsp = Flow(FetchL1Rsp(p))
 
@@ -25,17 +25,17 @@ case class FetchL1Bus(p : FetchL1Plugin) extends Bundle with IMasterSlave {
   }
 }
 
-class FetchL1Plugin(val cacheSize : Int,
-                    val wayCount : Int,
-                    val lineSize : Int = 64,
-                    val readAt : Int = 0,
-                    val hitsAt : Int = 1,
-                    val hitAt : Int = 1,
-                    val bankMuxesAt : Int = 1,
-                    val bankMuxAt : Int = 2,
-                    val controlAt : Int = 2,
-                    val injectionAt : Int = 2,
-                    val memDataWidth   : Int = 64) extends Plugin with FetchPipelineRequirements {
+class FetchCachePlugin(val cacheSize : Int,
+                       val wayCount : Int,
+                       val lineSize : Int = 64,
+                       val readAt : Int = 0,
+                       val hitsAt : Int = 1,
+                       val hitAt : Int = 1,
+                       val bankMuxesAt : Int = 1,
+                       val bankMuxAt : Int = 2,
+                       val controlAt : Int = 2,
+                       val injectionAt : Int = 2,
+                       val memDataWidth   : Int = 64) extends Plugin with FetchPipelineRequirements {
   override def stagesCountMin = injectionAt + 1
 
   val mem = create early master(FetchL1Bus(this))
@@ -48,6 +48,10 @@ class FetchL1Plugin(val cacheSize : Int,
     val redoJump = pcPlugin.createJumpInterface()
 
     mem.flatten.filter(_.isOutput).foreach(_.assignDontCare())
+
+    val doc = getService(classOf[DocPlugin])
+    doc.property("FETCH_MEM_DATA_BITS", memDataWidth)
+    doc.property("FETCH_LINE_BYTES", memDataWidth)
   }
 
   val logic = create late new Area{
@@ -243,7 +247,8 @@ class FetchL1Plugin(val cacheSize : Int,
             refill.address := FETCH_PC_PHYSICAL
 
             setup.redoJump.valid := True
-            flushIt() //Not enough to avoid a second failure, but avoid halt the pipeline.
+            flushIt()
+            setup.pipeline.getStage(0).haltIt() //"optional"
           } otherwise { //Success
 
           }

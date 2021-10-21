@@ -16,10 +16,11 @@ object Config{
   }
   def plugins(): Seq[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
+    plugins += new DocPlugin()
     plugins += new FrontendPlugin()
     plugins += new DirectAddressTranslationPlugin()
     plugins += new PcPlugin()
-    plugins += new FetchL1Plugin(
+    plugins += new FetchCachePlugin(
       cacheSize = 4096,
       wayCount = 1,
       injectionAt = 2
@@ -31,11 +32,13 @@ object Config{
   }
 }
 object Gen extends App{
-  SpinalVerilog(new Component {
+  val report = SpinalVerilog(new Component {
     setDefinitionName("NaxRiscv")
     Config.properties()
     val framework = new Framework(Config.plugins())
   })
+  val doc = report.toplevel.framework.getService(classOf[DocPlugin])
+  doc.genC()
 }
 
 //object GenSim extends App{
