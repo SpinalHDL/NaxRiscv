@@ -60,12 +60,20 @@ class Framework(val plugins : Seq[Plugin]) extends Area{
 
 
 
-  def getService[T: ClassTag] : T = getServiceImpl(classTag[T].runtimeClass).asInstanceOf[T]
-  def getServiceImpl[T](clazz : Class[T]) = {
+  def getService[T: ClassTag] : T = {
+    val clazz = (classTag[T].runtimeClass)
     val filtered = plugins.filter(o => clazz.isAssignableFrom(o.getClass))
     assert(filtered.length == 1, s"??? ${clazz.getName}")
     filtered.head.asInstanceOf[T]
   }
+
+  def getServiceWhere[T: ClassTag](filter : T => Boolean) : T = {
+    val clazz = (classTag[T].runtimeClass)
+    val filtered = plugins.filter(o => clazz.isAssignableFrom(o.getClass) && filter(o.asInstanceOf[T]))
+    assert(filtered.length == 1, s"??? ${clazz.getName}")
+    filtered.head.asInstanceOf[T]
+  }
+
   def getServices = plugins
 }
 

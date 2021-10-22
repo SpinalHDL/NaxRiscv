@@ -32,6 +32,61 @@ trait DecoderService{
   def addDefault(key : Stageable[_ <: BaseType], value : Any)
 }
 
+trait RobService{
+  def robPushLine() : Stream[RobPushLine]
+  def robPopLine() : Stream[RobPopLine]
+  def robCompletion() : Stream[RobCompletion]
+}
+
+trait RegfileIdentifier{
+  def regfileId : RegfileConfig
+}
+
+trait AllocationService extends RegfileIdentifier{
+  def newAllocPort() : Stream[UInt]
+  def newFreePort() : Flow[UInt]
+}
+
+trait RenamerService extends RegfileIdentifier {
+  def newTranslationPort() : Any
+  def rollbackToCommit() : Unit
+}
+
+trait RegfileService extends RegfileIdentifier{
+  def newRead() : Any
+  def newWriteFlow() : Unit
+  def newWriteStream() : Unit
+}
+
+trait RegfileConfig{
+  def size : Int
+  def width : Int
+  def x0AlwaysZero : Boolean
+}
+
+trait WakeService {
+  def newWakeOhPort() : Stream[WakeOh]
+  def newWakeRobIdPort() : Stream[WakeRobId]
+}
+
+trait CommitService {
+  def onCommit() : Vec[Flow[CommitEntry]]
+  def newWakeRobIdPort() : Stream[WakeRobId]
+}
+
+
+object Riscv{
+  val intRegfile = new RegfileConfig {
+    override def size = 32
+    override def width = ???
+    override def x0AlwaysZero = true
+  }
+  val floatRegfile = new RegfileConfig {
+    override def size = 32
+    override def width = ???
+    override def x0AlwaysZero = true
+  }
+}
 
 case class RobCompletion() extends Bundle {
   val id = UInt(Global.ROB_ID_WIDTH bits)
@@ -53,8 +108,15 @@ case class RobPopEntry() extends Bundle{
   val commitTask = NoData
 }
 
-trait RobService{
-  def robPushLine() : Stream[RobPushLine]
-  def robPopLine() : Stream[RobPopLine]
-  def robCompletion() : Stream[RobCompletion]
+case class WakeOh() extends Bundle{
+  val oh = Bits()
+}
+
+case class WakeRobId() extends Bundle{
+  val id = UInt()
+}
+
+case class CommitEntry() extends Bundle {
+  val kind = ???
+  val context = ???
 }

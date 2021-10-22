@@ -24,7 +24,8 @@ class CommitPlugin extends Plugin{
     }
 
     val reschedule = new Area {
-      val valid = Reg(Bool())
+      val valid = Reg(Bool()) init(False)
+      val trap = Reg(Bool())
       val age = Reg(UInt(ROB_ID_WIDTH bits))
       val pcTarget = Reg(Global.PC)
       val commit = new Area{
