@@ -51,7 +51,7 @@ class AlignerPlugin() extends Plugin{
   }
 
   val setup = create early new Area{
-    val frontend = framework.getService(classOf[FrontendPlugin])
+    val frontend = getService[FrontendPlugin]
     frontend.retain()
     frontend.pipeline.connect(frontend.pipeline.fetches.last, frontend.pipeline.aligned)(new CustomConnector)
   }
@@ -107,7 +107,7 @@ class AlignerPlugin() extends Plugin{
       val valid = slices.mask.drop(i).orR && !notEnoughData
       slices.used \= slices.used | usage
       slices.mask \= slices.mask & ~usage
-      ALIGNED_INSTRUCTION(i) := instruction
+      INSTRUCTION_ALIGNED(i) := instruction
     }
 
 

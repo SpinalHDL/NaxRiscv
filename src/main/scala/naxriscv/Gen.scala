@@ -37,7 +37,7 @@ object Gen extends App{
     Config.properties()
     val framework = new Framework(Config.plugins())
   })
-  val doc = report.toplevel.framework.getService(classOf[DocPlugin])
+  val doc = report.toplevel.framework.getService[DocPlugin]
   doc.genC()
 }
 

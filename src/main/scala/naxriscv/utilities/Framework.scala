@@ -5,13 +5,13 @@ import spinal.core.fiber.{Handle, Lock}
 import naxriscv.pipeline._
 
 import scala.collection.mutable.ArrayBuffer
+import scala.reflect.{ClassTag, classTag}
 
 
 trait Plugin extends Area{
   this.setName(ClassName(this))
 
   val framework = Handle[Framework]()
-  def getService[T](clazz : Class[T]) = framework.getService(clazz)
 
   def create = new {
     def early[T](body : => T) : Handle[T] = {
@@ -36,6 +36,9 @@ trait Plugin extends Area{
       }
     }
   }
+
+//  def getService[T](clazz : Class[T]) = framework.getService(clazz)
+  def getService[T: ClassTag] : T = framework.getService[T]
 }
 
 class FrameworkConfig(){
@@ -56,7 +59,9 @@ class Framework(val plugins : Seq[Plugin]) extends Area{
   }
 
 
-  def getService[T](clazz : Class[T]) = {
+
+  def getService[T: ClassTag] : T = getServiceImpl(classTag[T].runtimeClass).asInstanceOf[T]
+  def getServiceImpl[T](clazz : Class[T]) = {
     val filtered = plugins.filter(o => clazz.isAssignableFrom(o.getClass))
     assert(filtered.length == 1, s"??? ${clazz.getName}")
     filtered.head.asInstanceOf[T]

@@ -18,16 +18,43 @@ object JumpService{
     val COMMIT = 200
   }
 }
+
+case class JumpCmd() extends Bundle{
+  val pc = Global.PC()
+}
 trait JumpService{
-  def createJumpInterface(priority : Int = 0) : Flow[UInt] //High priority win
+  def createJumpInterface(priority : Int = 0) : Flow[JumpCmd] //High priority win
 }
 
-case class FetchWord(predictorType : HardType[Data]) extends Bundle{
-  val word = Frontend.WORD()
-  val mask = Frontend.MASK()
-  val branchHistory = Frontend.BRANCH_HISTORY()
-  val predictor = predictorType()
+trait DecoderService{
+  def add(key : MaskedLiteral,values : Seq[(Stageable[_ <: BaseType],Any)])
+  def add(encoding :Seq[(MaskedLiteral,Seq[(Stageable[_ <: BaseType],Any)])])
+  def addDefault(key : Stageable[_ <: BaseType], value : Any)
 }
-trait FetchWordService{
-  def getFetchWordStream() : Stream[FetchWord]
+
+
+case class RobCompletion() extends Bundle {
+  val id = UInt(Global.ROB_ID_WIDTH bits)
+}
+case class RobPushLine() extends Bundle {
+  val id = UInt(Global.ROB_ID_WIDTH bits)
+  val entries = Vec.fill(Global.ROB_ROWS)(RobPushEntry())
+}
+case class RobPushEntry() extends Bundle{
+  val commitTask = NoData
+}
+
+case class RobPopLine() extends Bundle {
+  val id = UInt(Global.ROB_ID_WIDTH bits)
+  val entries = Vec.fill(Global.ROB_ROWS)(RobPopEntry())
+}
+case class RobPopEntry() extends Bundle{
+  val valid = Bool()
+  val commitTask = NoData
+}
+
+trait RobService{
+  def robPushLine() : Stream[RobPushLine]
+  def robPopLine() : Stream[RobPopLine]
+  def robCompletion() : Stream[RobCompletion]
 }

@@ -3,7 +3,7 @@ package naxriscv.frontend
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib._
-import naxriscv.interfaces.JumpService
+import naxriscv.interfaces.{JumpCmd, JumpService}
 import naxriscv.pipeline._
 import naxriscv.utilities.Plugin
 import naxriscv.Global
@@ -13,16 +13,16 @@ import scala.collection.mutable.ArrayBuffer
 
 
 class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpService{
-  case class JumpInfo(interface :  Flow[UInt], priority : Int)
+  case class JumpInfo(interface :  Flow[JumpCmd], priority : Int)
   val jumpInfos = ArrayBuffer[JumpInfo]()
-  override def createJumpInterface(priority : Int = 0): Flow[UInt] = {
-    val interface = Flow(UInt(32 bits))
+  override def createJumpInterface(priority : Int = 0): Flow[JumpCmd] = {
+    val interface = Flow(JumpCmd())
     jumpInfos += JumpInfo(interface, priority)
     interface
   }
 
   val setup = create early new Area{
-    val pipeline = getService(classOf[FrontendPlugin])
+    val pipeline = getService[FrontendPlugin]
     pipeline.lock.retain()
   }
 
@@ -35,12 +35,12 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
     val jump = new Area {
       val sortedByStage = jumpInfos.sortWith(_.priority > _.priority)
       val valids = sortedByStage.map(_.interface.valid)
-      val pcs = sortedByStage.map(_.interface.payload)
+      val cmds = sortedByStage.map(_.interface.payload)
 
-      val pcLoad = Flow(FETCH_PC_VIRTUAL)
+      val pcLoad = Flow(JumpCmd())
       pcLoad.valid := jumpInfos.map(_.interface.valid).orR
       if(valids.nonEmpty) {
-        pcLoad.payload := MuxOH(OHMasking.first(valids.asBits), pcs)
+        pcLoad.payload := MuxOH(OHMasking.first(valids.asBits), cmds)
       } else {
         pcLoad.payload.assignDontCare()
       }
@@ -67,7 +67,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
 
       when(jump.pcLoad.valid) {
         correction := True
-        pc := jump.pcLoad.payload
+        pc := jump.pcLoad.pc
         flushed := True
       }
 

@@ -59,6 +59,7 @@ class Stage extends Nameable {
   }
 
   implicit def stageablePiped[T <: Data](stageable: Stageable[T]) = Stage.this(stageable)
+//  implicit def stageablePiped2[T <: Data](stageable: Stageable[T]) = new DataPimper(Stage.this(stageable))
   def haltIt() : Unit = haltIt(ConditionalContext.isTrue)
   def flushIt() : Unit = flushIt(ConditionalContext.isTrue)
   def flushNext() : Unit = flushNext(ConditionalContext.isTrue)

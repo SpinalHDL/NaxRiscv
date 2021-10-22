@@ -23,12 +23,14 @@ object Frontend extends Area{
   val MASK = Stageable(Bits(FETCH_DATA_WIDTH/SLICE_WIDTH bits))
 
 
-  val ALIGNED_INSTRUCTION = Stageable(Vec.fill(DECODE_COUNT)(Bits(INSTRUCTION_WIDTH bits)))
+  val INSTRUCTION_ALIGNED = Stageable(Vec.fill(DECODE_COUNT)(Bits(INSTRUCTION_WIDTH bits)))
+  val INSTRUCTION_DECOMPRESSED = Stageable(Vec.fill(DECODE_COUNT)(Bits(INSTRUCTION_WIDTH bits)))
   val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
 
 
   val FETCH_PC_PHYSICAL   = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
   val FETCH_PC_VIRTUAL   = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
 
+  val USE_RS1, USE_RS2 = Stageable(Bool())
 }
 

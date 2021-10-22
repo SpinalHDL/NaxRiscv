@@ -1,5 +1,6 @@
 package naxriscv
 
+import naxriscv.frontend.Frontend
 import spinal.core.ScopeProperty
 import naxriscv.pipeline.Stageable
 import spinal.core._
@@ -11,6 +12,8 @@ object Global  extends Area{
 
   val PC   = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
 
-
+  def ROB_ROWS = Frontend.DECODE_COUNT
+  val ROB_SIZE = ScopeProperty[Int]
+  def ROB_ID_WIDTH = log2Up(ROB_SIZE.get)
 }
 

@@ -41,15 +41,15 @@ class FetchCachePlugin(val cacheSize : Int,
   val mem = create early master(FetchL1Bus(this))
 
   val setup = create early new Area{
-    val pipeline = getService(classOf[FrontendPlugin])
+    val pipeline = getService[FrontendPlugin]
     pipeline.lock.retain()
 
-    val pcPlugin = getService(classOf[PcPlugin])
+    val pcPlugin = getService[PcPlugin]
     val redoJump = pcPlugin.createJumpInterface()
 
     mem.flatten.filter(_.isOutput).foreach(_.assignDontCare())
 
-    val doc = getService(classOf[DocPlugin])
+    val doc = getService[DocPlugin]
     doc.property("FETCH_MEM_DATA_BITS", memDataWidth)
     doc.property("FETCH_LINE_BYTES", memDataWidth)
   }
@@ -239,7 +239,7 @@ class FetchCachePlugin(val cacheSize : Int,
         import controlStage._
 
         setup.redoJump.valid := False
-        setup.redoJump.payload := FETCH_PC_VIRTUAL
+        setup.redoJump.pc := FETCH_PC_VIRTUAL
 
         when(isValid) {
           when(!WAYS_HIT) {

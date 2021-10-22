@@ -5,7 +5,7 @@ import naxriscv.utilities.Plugin
 
 class SandboxPlugin extends Plugin{
   val setup = create early new Area{
-    val frontend = framework.getService(classOf[FrontendPlugin])
+    val frontend = getService[FrontendPlugin]
     frontend.retain()
   }
 
