@@ -3,7 +3,7 @@ package naxriscv.interfaces
 import spinal.core._
 import spinal.lib._
 import naxriscv.Global
-import naxriscv.frontend.{Frontend}
+import naxriscv.frontend.Frontend
 import naxriscv.pipeline._
 
 case class JumpPayload() extends Bundle {
@@ -73,12 +73,20 @@ trait RegfileSpec{
   def size : Int
   def width : Int
   def x0AlwaysZero : Boolean
+
+  def ->(access : RfAccess) = RfResource(this, access)
 }
 
-trait EncodingRessource
+trait EncodingResource{
+
+}
+
+case class RfResource(rf : RegfileSpec, enc : RfAccess) extends EncodingResource
+
+
 case class Encoding(
    key : MaskedLiteral,
-   ressources : Seq[EncodingRessource]
+   ressources : Seq[EncodingResource]
 )
 
 //trait FunctionalUnitDatabase {
@@ -94,46 +102,39 @@ trait FunctionalUnitService{
   def getIssuePort() : Unit
 }
 
-//  def TypeR(key : MaskedLiteral): Unit = Instruction(
-//    key = key,
-//    ressources = List(INT_RS1, INT_RS2, INT_RD),
-//  )
-//
 
-trait RfAccess extends EncodingRessource{
+trait RfAccess {
   def decode(i : Bits) : UInt
-  def rf : RegfileSpec
 }
-
 trait RfRead extends RfAccess
 trait RfWrite extends RfAccess
 
+
+
 object Riscv{
+  val RS1 = new RfRead{
+    def decode(i : Bits) = i(19 downto 15).asUInt
+  }
+  val RS2 = new RfRead{
+    def decode(i : Bits) = i(24 downto 20).asUInt
+  }
+  val RD = new RfWrite{
+    def decode(i : Bits) = i(11 downto 7).asUInt
+  }
   val integer = new Area{
     val regfile = new RegfileSpec {
       override def size = 32
       override def width = ???
       override def x0AlwaysZero = true
     }
-    val RS1 = new RfRead{
-      def decode(i : Bits) = i(19 downto 15).asUInt
-      def rf = regfile
-    }
-    val RS2 = new RfRead{
-      def decode(i : Bits) = i(24 downto 20).asUInt
-      def rf = regfile
-    }
-    val RD = new RfWrite{
-      def decode(i : Bits) = i(11 downto 7).asUInt
-      def rf = regfile
-    }
+
     def TypeR(key : MaskedLiteral) = Encoding(
       key = key,
-      ressources = List(RS1, RS2, RD)
+      ressources = List(RS1, RS2, RD).map(regfile -> _)
     )
     def TypeI(key : MaskedLiteral) = Encoding(
       key = key,
-      ressources = List(RS1, RD)
+      ressources = List(RS1, RD).map(regfile -> _)
     )
 
     val ADD  = TypeR(M"0000000----------000-----0110011")
