@@ -39,10 +39,10 @@ trait RobService{
 }
 
 trait RegfileIdentifier{
-  def regfileId : RegfileConfig
+  def regfileId : RegfileSpec
 }
 
-trait AllocationService extends RegfileIdentifier{
+trait RfAllocationService extends RegfileIdentifier{
   def newAllocPort() : Stream[UInt]
   def newFreePort() : Flow[UInt]
 }
@@ -58,11 +58,6 @@ trait RegfileService extends RegfileIdentifier{
   def newWriteStream() : Unit
 }
 
-trait RegfileConfig{
-  def size : Int
-  def width : Int
-  def x0AlwaysZero : Boolean
-}
 
 trait WakeService {
   def newWakeOhPort() : Stream[WakeOh]
@@ -71,20 +66,78 @@ trait WakeService {
 
 trait CommitService {
   def onCommit() : Vec[Flow[CommitEntry]]
-  def newWakeRobIdPort() : Stream[WakeRobId]
+  def newCompletionPort() : Flow[CompletionCmd]
 }
 
+trait RegfileSpec{
+  def size : Int
+  def width : Int
+  def x0AlwaysZero : Boolean
+}
+
+trait EncodingRessource
+case class Encoding(
+   key : MaskedLiteral,
+   ressources : Seq[EncodingRessource]
+)
+
+//trait FunctionalUnitDatabase {
+////  def retain() : Unit
+////  def release() : Unit
+//  def register(fu)
+//}
+
+trait FunctionalUnitService{
+  def getId : Any
+  def hasFixedLatency : Boolean
+  def getFixedLatency : Int
+  def getIssuePort() : Unit
+}
+
+//  def TypeR(key : MaskedLiteral): Unit = Instruction(
+//    key = key,
+//    ressources = List(INT_RS1, INT_RS2, INT_RD),
+//  )
+//
+
+trait RfAccess extends EncodingRessource{
+  def decode(i : Bits) : UInt
+  def rf : RegfileSpec
+}
+
+trait RfRead extends RfAccess
+trait RfWrite extends RfAccess
 
 object Riscv{
-  val intRegfile = new RegfileConfig {
-    override def size = 32
-    override def width = ???
-    override def x0AlwaysZero = true
-  }
-  val floatRegfile = new RegfileConfig {
-    override def size = 32
-    override def width = ???
-    override def x0AlwaysZero = true
+  val integer = new Area{
+    val regfile = new RegfileSpec {
+      override def size = 32
+      override def width = ???
+      override def x0AlwaysZero = true
+    }
+    val RS1 = new RfRead{
+      def decode(i : Bits) = i(19 downto 15).asUInt
+      def rf = regfile
+    }
+    val RS2 = new RfRead{
+      def decode(i : Bits) = i(24 downto 20).asUInt
+      def rf = regfile
+    }
+    val RD = new RfWrite{
+      def decode(i : Bits) = i(11 downto 7).asUInt
+      def rf = regfile
+    }
+    def TypeR(key : MaskedLiteral) = Encoding(
+      key = key,
+      ressources = List(RS1, RS2, RD)
+    )
+    def TypeI(key : MaskedLiteral) = Encoding(
+      key = key,
+      ressources = List(RS1, RD)
+    )
+
+    val ADD  = TypeR(M"0000000----------000-----0110011")
+    val ADDI = TypeI(M"-----------------000-----0010011")
   }
 }
 
@@ -119,4 +172,13 @@ case class WakeRobId() extends Bundle{
 case class CommitEntry() extends Bundle {
   val kind = ???
   val context = ???
+}
+
+case class CompletionCmd(canTrap : Boolean, canJump : Boolean) extends Bundle {
+  val robId = UInt(Global.ROB_ID_WIDTH bits)
+
+  val jump = canJump generate Bool()
+  val trap = canTrap generate Bool()
+  val cause = canTrap generate UInt(Global.TRAP_CAUSE_WIDTH bits)
+  val arg = (canTrap || canJump) generate Bits(Global.XLEN bits) //Target PC if jump, payload if trap
 }

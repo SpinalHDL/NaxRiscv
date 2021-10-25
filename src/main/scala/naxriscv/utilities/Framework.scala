@@ -37,6 +37,8 @@ trait Plugin extends Area{
     }
   }
 
+  def getSubServices() : Seq[Any] = Nil
+
 //  def getService[T](clazz : Class[T]) = framework.getService(clazz)
   def getService[T: ClassTag] : T = framework.getService[T]
 }
@@ -58,23 +60,23 @@ class Framework(val plugins : Seq[Plugin]) extends Area{
     lateLock.release()
   }
 
-
+  val services = plugins ++ plugins.flatMap(_.getSubServices())
 
   def getService[T: ClassTag] : T = {
     val clazz = (classTag[T].runtimeClass)
-    val filtered = plugins.filter(o => clazz.isAssignableFrom(o.getClass))
+    val filtered = services.filter(o => clazz.isAssignableFrom(o.getClass))
     assert(filtered.length == 1, s"??? ${clazz.getName}")
     filtered.head.asInstanceOf[T]
   }
 
   def getServiceWhere[T: ClassTag](filter : T => Boolean) : T = {
     val clazz = (classTag[T].runtimeClass)
-    val filtered = plugins.filter(o => clazz.isAssignableFrom(o.getClass) && filter(o.asInstanceOf[T]))
+    val filtered = services.filter(o => clazz.isAssignableFrom(o.getClass) && filter(o.asInstanceOf[T]))
     assert(filtered.length == 1, s"??? ${clazz.getName}")
     filtered.head.asInstanceOf[T]
   }
 
-  def getServices = plugins
+  def getServices = services
 }
 
 

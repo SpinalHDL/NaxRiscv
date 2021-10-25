@@ -1,5 +1,6 @@
 package naxriscv.backend
 
+import naxriscv.interfaces.RfAllocationService
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -11,8 +12,11 @@ class AllocatorMultiPort[T <: Data](dataType : HardType[T], depth : Int, pushCou
   }
 }
 
-class RegfileRenamerPlugin extends Plugin{
+class RfAllocationPlugin extends Plugin with RfAllocationService{
 
+  override def newAllocPort() = ???
+  override def newFreePort() = ???
+  override def regfileId = ???
 
   val logic = create late new Area{
     val entryCount : Int = ???
