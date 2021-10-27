@@ -14,6 +14,15 @@ object Stageable{
 class Stageable[T <: Data](gen : => T) extends HardType(gen) with Nameable {
 
 }
+class StageableOffset(val value : Any)
+object StageableOffsetNone extends StageableOffset(null)
+case class StageableKey(stageable: Stageable[Data], key : Any){
+  override def toString = {
+    var name = stageable.toString
+    if(key != null) name = name + "_" + key
+    name
+  }
+}
 
 class Stage extends Nameable {
   val internals = new {
@@ -49,16 +58,20 @@ class Stage extends Nameable {
 
 
 
-    val stageableToData = mutable.LinkedHashMap[Stageable[Data], Data]()
-    val stageableOverloadedToData = mutable.LinkedHashMap[Stageable[Data], Data]()
+    val stageableToData = mutable.LinkedHashMap[StageableKey, Data]()
+    val stageableOverloadedToData = mutable.LinkedHashMap[StageableKey, Data]()
 
-    def outputOf(key : Stageable[Data]) = stageableOverloadedToData.get(key) match {
+    def outputOf(key : StageableKey) = stageableOverloadedToData.get(key) match {
       case Some(x) => x
       case None => stageableToData(key)
     }
   }
 
-  implicit def stageablePiped[T <: Data](stageable: Stageable[T]) = Stage.this(stageable)
+  implicit def stageablePiped[T <: Data](stageable: Stageable[T])(implicit key : StageableOffset = StageableOffsetNone) = Stage.this(stageable, key.value)
+  implicit def stageablePiped2[T <: Data](stageable: Stageable[T]) = new {
+    def of(key : Any) = Stage.this.apply(stageable, key)
+  }
+  implicit def stageablePiped3[T <: Data](key: Tuple2[Stageable[T], Any]) = Stage.this(key._1, key._2)
 //  implicit def stageablePiped2[T <: Data](stageable: Stageable[T]) = new DataPimper(Stage.this(stageable))
   def haltIt() : Unit = haltIt(ConditionalContext.isTrue)
   def flushIt() : Unit = flushIt(ConditionalContext.isTrue)
@@ -94,19 +107,25 @@ class Stage extends Nameable {
 
 
 
-
-
-
-  def apply[T <: Data](key : Stageable[T]) : T = {
-    internals.stageableToData.getOrElseUpdate(key.asInstanceOf[Stageable[Data]],Misc.outsideCondScope{
-      key()
-    }).asInstanceOf[T]
+  def apply(key : StageableKey) : Data = {
+    internals.stageableToData.getOrElseUpdate(key, Misc.outsideCondScope{
+      key.stageable()
+    })
+  }
+  def overloaded(key : StageableKey) : Data = {
+    internals.stageableOverloadedToData.getOrElseUpdate(key, Misc.outsideCondScope{
+      key.stageable()
+    })
   }
 
+  def apply[T <: Data](key : Stageable[T]) : T = {
+    apply(StageableKey(key.asInstanceOf[Stageable[Data]], null)).asInstanceOf[T]
+  }
+  def apply[T <: Data](key : Stageable[T], key2 : Any) : T = {
+    apply(StageableKey(key.asInstanceOf[Stageable[Data]], key2)).asInstanceOf[T]
+  }
   def overloaded[T <: Data](key : Stageable[T]) : T = {
-    internals.stageableOverloadedToData.getOrElseUpdate(key.asInstanceOf[Stageable[Data]], Misc.outsideCondScope {
-      CombInit(this.apply(key))
-    }).asInstanceOf[T]
+    apply(StageableKey(key.asInstanceOf[Stageable[Data]], null)).asInstanceOf[T]
   }
 
 
@@ -252,7 +271,7 @@ class Pipeline extends Area{
     }
 
     //Fill payload holes in the pipeline
-    def propagateData(key : Stageable[Data], stage : Stage): Boolean ={
+    def propagateData(key : StageableKey, stage : Stage): Boolean ={
       stage.stageableToData.get(key) match {
         case None => {
           val hits = ArrayBuffer[Stage]()
@@ -384,7 +403,7 @@ class Pipeline extends Area{
         val s = if(l == c.logics.last)
           ConnectionPoint(c.s.input.valid, c.s.input.ready, stageables.map(c.s.stageableToData(_)).toList)
         else {
-          ConnectionPoint(Bool(), (m.ready != null) generate Bool(), stageables.map(_.craft()).toList)
+          ConnectionPoint(Bool(), (m.ready != null) generate Bool(), stageables.map(_.stageable.craft()).toList)
         }
         val area = l.on(m, s, clFlush(l), clFlushNext(l), clFlushNextHit(l))
         if(c.logics.size != 1)
@@ -447,13 +466,20 @@ case class PipelineTop() extends Component {
       }
 
       B := A + 1
-      C := A + 2
+      s1(C, "miaou") :=  A + 2
+      (C,"wuff") :=  A + 3
+      (C, "wuff2") :=  A + 4
+
+      {
+        implicit val offset = new StageableOffset("yololo")
+        C := U(5)
+      }
     }
 
     val onS2 = new Area {
       import s2._
       io.sink.valid := internals.output.valid
-      io.sink.payload := B + C
+      io.sink.payload := B + s2(C, "miaou") + s2(C, "wuff") +(C, "wuff2") +(C, "yololo")
     }
 
   }

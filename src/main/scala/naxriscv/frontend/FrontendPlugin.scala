@@ -37,7 +37,6 @@ class FrontendPlugin() extends Plugin {
     val decoded = new Stage()
     val renamed = new Stage()
 
-
     import Connection._
     for((m, s) <- (fetches.dropRight(1), fetches.tail).zipped){
       connect(m, s)(M2S(flushPreserveInput = m == fetches.head)).setCompositeName(s, "driver")

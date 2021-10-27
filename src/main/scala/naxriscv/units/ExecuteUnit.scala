@@ -1,11 +1,11 @@
 package naxriscv.units
 
-import naxriscv.interfaces.{DecoderService, Encoding, FunctionalUnitService}
+import naxriscv.interfaces.{DecoderService, Encoding, ExecuteUnitService}
 import naxriscv.utilities.Plugin
 
-class FunctionalUnit(fuId : Any) extends Plugin with FunctionalUnitService{
+class ExecuteUnit(euId : Any) extends Plugin with ExecuteUnitService{
 
-  override def uniqueIds = List(fuId)
+  override def uniqueIds = List(euId)
 
   override def hasFixedLatency = ???
 

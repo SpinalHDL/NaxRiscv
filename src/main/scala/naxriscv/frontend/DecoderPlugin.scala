@@ -1,6 +1,6 @@
 package naxriscv.frontend
 
-import naxriscv.interfaces.{DecoderService, Encoding, FunctionalUnitService, Riscv}
+import naxriscv.interfaces.{DecoderService, Encoding, ExecuteUnitService, Riscv}
 import naxriscv.pipeline._
 import spinal.core._
 import spinal.lib._
@@ -59,8 +59,8 @@ class DecoderPlugin() extends Plugin with DecoderService{
   override def add(encoding: Seq[(MaskedLiteral, Seq[(Stageable[_ <: BaseType], Any)])]) = ???
   override def addDefault(key: Stageable[_ <: BaseType], value: Any) = ???
 
-  val encodings = mutable.LinkedHashMap[FunctionalUnitService, ArrayBuffer[Encoding]]()
-  override def addFunction(fu: FunctionalUnitService, enc: Encoding) = {
+  val encodings = mutable.LinkedHashMap[ExecuteUnitService, ArrayBuffer[Encoding]]()
+  override def addFunction(fu: ExecuteUnitService, enc: Encoding) = {
     encodings.getOrElseUpdate(fu, ArrayBuffer[Encoding]()) += enc
   }
 
@@ -69,7 +69,7 @@ class DecoderPlugin() extends Plugin with DecoderService{
 
   val setup = create early new Area{
     getService[FrontendPlugin].retain()
-    val EU_SEL = Stageable(Vec.fill(Frontend.DECODE_COUNT)(Bits(getServicesOf[FunctionalUnitService].size bits)))
+    val EU_SEL = Stageable(Bits(getServicesOf[ExecuteUnitService].size bits))
   }
 
   val logic = create late new Area{
@@ -80,10 +80,17 @@ class DecoderPlugin() extends Plugin with DecoderService{
     val stage = frontend.pipeline.decoded
     import stage._
 
-    Riscv.READ_RS1 := False
-    Riscv.READ_RS2 := False
-    Riscv.WRITE_RD := False
-    setup.EU_SEL.foreach(_ := 0)
+    for(i <- 0 until Frontend.DECODE_COUNT) {
+      (Riscv.READ_RS1, i) := False
+      (Riscv.READ_RS2, i) := False
+      (Riscv.WRITE_RD, i) := False
+      (setup.EU_SEL  , i) := B(0)
+//      implicit val offset = new StageableOffset(i)
+//      Riscv.READ_RS1 := False
+//      Riscv.READ_RS2 := False
+//      Riscv.WRITE_RD := False
+//      setup.EU_SEL   := B(0)
+    }
 
     frontend.release()
   }

@@ -31,10 +31,10 @@ trait DecoderService extends Service{
   def add(key : MaskedLiteral,values : Seq[(Stageable[_ <: BaseType],Any)])
   def add(encoding :Seq[(MaskedLiteral,Seq[(Stageable[_ <: BaseType],Any)])])
   def addDefault(key : Stageable[_ <: BaseType], value : Any)
-  def addFunction(fu: FunctionalUnitService,
+  def addFunction(fu: ExecuteUnitService,
                   enc: Encoding) : Unit
 
-  def getEuSel() : Stageable[Vec[Bits]]
+  def getEuSel() : Stageable[Bits]
 }
 
 trait RobService extends Service{
@@ -97,7 +97,7 @@ case class Encoding(
 //  def register(fu)
 //}
 
-trait FunctionalUnitService extends Service{
+trait ExecuteUnitService extends Service{
   def hasFixedLatency : Boolean
   def getFixedLatency : Int
   def getIssuePort() : Unit
@@ -114,6 +114,10 @@ trait RfWrite extends RfAccess
 
 
 object Riscv{
+  def READ_RS(id : Int) = id match {
+    case 0 => READ_RS1
+    case 1 => READ_RS2
+  }
   val READ_RS1 = Stageable(Bool())
   val READ_RS2 = Stageable(Bool())
   val WRITE_RD = Stageable(Bool())

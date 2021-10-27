@@ -14,6 +14,7 @@ object Frontend extends Area{
   val BRANCH_HISTORY_WIDTH = ScopeProperty[Int]
   val DECODE_COUNT = ScopeProperty[Int]
   def FETCH_COUNT = DECODE_COUNT.get
+  def DISPATCH_COUNT = DECODE_COUNT.get
 
   def SLICE_WIDTH = if(RVC) 16 else 32
   def SLICE_BYTES = if(RVC) 2 else 4
@@ -22,6 +23,7 @@ object Frontend extends Area{
   val WORD = Stageable(Bits(FETCH_DATA_WIDTH bits))
   val MASK = Stageable(Bits(FETCH_DATA_WIDTH/SLICE_WIDTH bits))
 
+  val DISPATCH_MASK = Stageable(Bool())
 
   val INSTRUCTION_ALIGNED = Stageable(Vec.fill(DECODE_COUNT)(Bits(INSTRUCTION_WIDTH bits)))
   val INSTRUCTION_DECOMPRESSED = Stageable(Vec.fill(DECODE_COUNT)(Bits(INSTRUCTION_WIDTH bits)))

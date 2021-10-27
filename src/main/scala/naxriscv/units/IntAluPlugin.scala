@@ -7,7 +7,7 @@ import naxriscv.utilities.Plugin
 
 class IntAluPlugin(fuId : Any) extends Plugin{
   val setup = create early new Area{
-    val fu = getService[FunctionalUnit](fuId)
+    val fu = getService[ExecuteUnit](fuId)
     fu.addFunction(Riscv.integer.ADD)
     fu.addFunction(Riscv.integer.ADDI)
   }
