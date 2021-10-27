@@ -16,8 +16,8 @@ class RsTranslationPlugin(regfileConfig : RegfileSpec) extends Plugin with Renam
   }
 
   val logic = create late new Area{
-    val commited, issued = Mem.fill(regfileConfig.size)(UInt(log2Up(regfileConfig.size) bits))
-    val updated = Vec.fill(regfileConfig.size)(Reg(Bool)) //TODO init
+    val commited, issued = Mem.fill(regfileConfig.sizeArch)(UInt(log2Up(regfileConfig.sizeArch) bits))
+    val updated = Vec.fill(regfileConfig.sizeArch)(Reg(Bool)) //TODO init
 
 
   }

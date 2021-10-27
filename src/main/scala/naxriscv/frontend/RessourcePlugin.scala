@@ -16,7 +16,7 @@ class RessourcePlugin() extends Plugin {
     getService[FrontendPlugin].retain()
 
     val intAllocService = getService[RfAllocationService](Riscv.integer.regfile)
-    val intAllocPort = List.fill(DISPATCH_COUNT)(intAllocService.newAllocPort())
+    val intAllocPort = intAllocService.getAllocPort()
 
     val translationService = getService[RenamerService]()
     val translationPort = List.fill(DISPATCH_COUNT)(translationService.newTranslationPort())

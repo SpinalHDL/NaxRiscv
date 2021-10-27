@@ -5,7 +5,7 @@ import spinal.lib._
 import naxriscv.Global
 import naxriscv.frontend.Frontend
 import naxriscv.pipeline._
-import naxriscv.utilities.Service
+import naxriscv.utilities.{AllocatorMultiPortPop, Service}
 
 case class JumpPayload() extends Bundle {
   val pc = Global.PC()
@@ -45,8 +45,8 @@ trait RobService extends Service{
 
 
 trait RfAllocationService extends Service {
-  def newAllocPort() : Stream[UInt]
-  def newFreePort() : Flow[UInt]
+  def getAllocPort() : AllocatorMultiPortPop[UInt]
+  def getFreePort() : Vec[Flow[UInt]]
 }
 
 trait RenamerService extends Service {
@@ -72,7 +72,8 @@ trait CommitService  extends Service{
 }
 
 trait RegfileSpec{
-  def size : Int
+  def sizeArch : Int
+  def sizePhys : Int
   def width : Int
   def x0AlwaysZero : Boolean
 
@@ -132,7 +133,8 @@ object Riscv{
   }
   val integer = new Area{
     val regfile = new RegfileSpec {
-      override def size = 32
+      override def sizeArch = 32
+      override def sizePhys = Global.INT_RF_PHYSICAL
       override def width = ???
       override def x0AlwaysZero = true
     }
@@ -193,4 +195,11 @@ case class CompletionCmd(canTrap : Boolean, canJump : Boolean) extends Bundle {
   val trap = canTrap generate Bool()
   val cause = canTrap generate UInt(Global.TRAP_CAUSE_WIDTH bits)
   val arg = (canTrap || canJump) generate Bits(Global.XLEN bits) //Target PC if jump, payload if trap
+}
+
+case class AllocationPort(entryWidth : Int) extends Bundle{
+  val mask = Bits(Frontend.DISPATCH_COUNT bits)
+  val fire = Bool()
+  val ready = Bool()
+  val allocations = Vec.fill(Frontend.DISPATCH_COUNT)(UInt(entryWidth bits))
 }
