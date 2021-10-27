@@ -5,6 +5,7 @@ import spinal.lib._
 import naxriscv.Global
 import naxriscv.frontend.Frontend
 import naxriscv.pipeline._
+import naxriscv.utilities.Service
 
 case class JumpPayload() extends Bundle {
   val pc = Global.PC()
@@ -22,49 +23,50 @@ object JumpService{
 case class JumpCmd() extends Bundle{
   val pc = Global.PC()
 }
-trait JumpService{
+trait JumpService extends Service{
   def createJumpInterface(priority : Int = 0) : Flow[JumpCmd] //High priority win
 }
 
-trait DecoderService{
+trait DecoderService extends Service{
   def add(key : MaskedLiteral,values : Seq[(Stageable[_ <: BaseType],Any)])
   def add(encoding :Seq[(MaskedLiteral,Seq[(Stageable[_ <: BaseType],Any)])])
   def addDefault(key : Stageable[_ <: BaseType], value : Any)
+  def addFunction(fu: FunctionalUnitService,
+                  enc: Encoding) : Unit
+
+  def getEuSel() : Stageable[Vec[Bits]]
 }
 
-trait RobService{
+trait RobService extends Service{
   def robPushLine() : Stream[RobPushLine]
   def robPopLine() : Stream[RobPopLine]
   def robCompletion() : Stream[RobCompletion]
 }
 
-trait RegfileIdentifier{
-  def regfileId : RegfileSpec
-}
 
-trait RfAllocationService extends RegfileIdentifier{
+trait RfAllocationService extends Service {
   def newAllocPort() : Stream[UInt]
   def newFreePort() : Flow[UInt]
 }
 
-trait RenamerService extends RegfileIdentifier {
+trait RenamerService extends Service {
   def newTranslationPort() : Any
   def rollbackToCommit() : Unit
 }
 
-trait RegfileService extends RegfileIdentifier{
+trait RegfileService extends Service{
   def newRead() : Any
   def newWriteFlow() : Unit
   def newWriteStream() : Unit
 }
 
 
-trait WakeService {
+trait WakeService extends Service{
   def newWakeOhPort() : Stream[WakeOh]
   def newWakeRobIdPort() : Stream[WakeRobId]
 }
 
-trait CommitService {
+trait CommitService  extends Service{
   def onCommit() : Vec[Flow[CommitEntry]]
   def newCompletionPort() : Flow[CompletionCmd]
 }
@@ -95,11 +97,11 @@ case class Encoding(
 //  def register(fu)
 //}
 
-trait FunctionalUnitService{
-  def getId : Any
+trait FunctionalUnitService extends Service{
   def hasFixedLatency : Boolean
   def getFixedLatency : Int
   def getIssuePort() : Unit
+  def addFunction(enc : Encoding)
 }
 
 
@@ -112,6 +114,9 @@ trait RfWrite extends RfAccess
 
 
 object Riscv{
+  val READ_RS1 = Stageable(Bool())
+  val READ_RS2 = Stageable(Bool())
+  val WRITE_RD = Stageable(Bool())
   val RS1 = new RfRead{
     def decode(i : Bits) = i(19 downto 15).asUInt
   }
@@ -127,6 +132,8 @@ object Riscv{
       override def width = ???
       override def x0AlwaysZero = true
     }
+
+    def toResource(accesses : Seq[RfAccess]) = accesses.map(regfile -> _)
 
     def TypeR(key : MaskedLiteral) = Encoding(
       key = key,

@@ -8,7 +8,6 @@ import spinal.lib._
 class RsTranslationPlugin(regfileConfig : RegfileSpec) extends Plugin with RenamerService {
   override def newTranslationPort() = ???
   override def rollbackToCommit() = rollback := True
-  override def regfileId = regfileConfig
 
 //  case class Port(cmd : Flow[])
   val rollback = create early Bool()

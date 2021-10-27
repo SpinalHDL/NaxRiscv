@@ -16,7 +16,6 @@ class RfAllocationPlugin extends Plugin with RfAllocationService{
 
   override def newAllocPort() = ???
   override def newFreePort() = ???
-  override def regfileId = ???
 
   val logic = create late new Area{
     val entryCount : Int = ???

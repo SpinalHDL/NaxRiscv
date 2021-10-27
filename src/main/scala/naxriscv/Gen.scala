@@ -27,7 +27,7 @@ object Config{
     )
     plugins += new AlignerPlugin()
     plugins += new DecoderPlugin()
-    plugins += new SandboxPlugin()
+    plugins += new PlayPlugin()
     plugins
   }
 }

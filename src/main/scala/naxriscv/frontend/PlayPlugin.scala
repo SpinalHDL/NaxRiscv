@@ -3,7 +3,7 @@ package naxriscv.frontend
 import spinal.core._
 import naxriscv.utilities.Plugin
 
-class SandboxPlugin extends Plugin{
+class PlayPlugin extends Plugin{
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     frontend.retain()

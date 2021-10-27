@@ -7,8 +7,11 @@ import naxriscv.pipeline._
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.{ClassTag, classTag}
 
+trait Service{
+  def uniqueIds : Seq[Any] = Nil
+}
 
-trait Plugin extends Area{
+trait Plugin extends Area with Service{
   this.setName(ClassName(this))
 
   val framework = Handle[Framework]()
@@ -37,10 +40,11 @@ trait Plugin extends Area{
     }
   }
 
-  def getSubServices() : Seq[Any] = Nil
+  def getSubServices() : Seq[Service] = Nil
 
-//  def getService[T](clazz : Class[T]) = framework.getService(clazz)
-  def getService[T: ClassTag] : T = framework.getService[T]
+  def getServicesOf[T <: Service : ClassTag] : Seq[T] = framework.getServicesOf[T]
+  def getService[T <: Service : ClassTag] : T = framework.getService[T]
+  def getService[T <: Service : ClassTag](id : Any) : T = framework.getService[T](id)
 }
 
 class FrameworkConfig(){
@@ -62,12 +66,17 @@ class Framework(val plugins : Seq[Plugin]) extends Area{
 
   val services = plugins ++ plugins.flatMap(_.getSubServices())
 
-  def getService[T: ClassTag] : T = {
+  def getServicesOf[T <: Service : ClassTag] : Seq[T] = {
     val clazz = (classTag[T].runtimeClass)
     val filtered = services.filter(o => clazz.isAssignableFrom(o.getClass))
-    assert(filtered.length == 1, s"??? ${clazz.getName}")
+    filtered.asInstanceOf[Seq[T]]
+  }
+  def getService[T <: Service : ClassTag] : T = {
+    val filtered = getServicesOf[T]
+    assert(filtered.length == 1, s"??? ${classTag[T].runtimeClass.getName}")
     filtered.head.asInstanceOf[T]
   }
+  def getService[T <: Service : ClassTag](id : Any) : T = getServiceWhere[T](_.uniqueIds.contains(id))
 
   def getServiceWhere[T: ClassTag](filter : T => Boolean) : T = {
     val clazz = (classTag[T].runtimeClass)

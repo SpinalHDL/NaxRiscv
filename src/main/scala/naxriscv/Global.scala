@@ -10,7 +10,8 @@ object Global  extends Area{
   val PHYSICAL_WIDTH = ScopeProperty[Int]
   def VIRTUAL_WIDTH = PHYSICAL_WIDTH.get //for now
 
-  val PC   = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
+  val PC = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
+
 
   def ROB_ROWS = Frontend.DECODE_COUNT
   val ROB_SIZE = ScopeProperty[Int]
