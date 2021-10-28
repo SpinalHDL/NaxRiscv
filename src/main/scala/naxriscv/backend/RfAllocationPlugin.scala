@@ -2,11 +2,10 @@ package naxriscv.backend
 
 import naxriscv.Global
 import naxriscv.frontend.Frontend
-import naxriscv.interfaces.{AllocationPort, RegfileSpec, RfAllocationService}
+import naxriscv.interfaces.{RegfileSpec, RfAllocationService}
 import naxriscv.utilities.{AllocatorMultiPortMem, Plugin}
 import spinal.core._
 import spinal.lib._
-import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
 
 import scala.collection.mutable.ArrayBuffer
 

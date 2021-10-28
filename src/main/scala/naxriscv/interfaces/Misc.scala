@@ -197,9 +197,3 @@ case class CompletionCmd(canTrap : Boolean, canJump : Boolean) extends Bundle {
   val arg = (canTrap || canJump) generate Bits(Global.XLEN bits) //Target PC if jump, payload if trap
 }
 
-case class AllocationPort(entryWidth : Int) extends Bundle{
-  val mask = Bits(Frontend.DISPATCH_COUNT bits)
-  val fire = Bool()
-  val ready = Bool()
-  val allocations = Vec.fill(Frontend.DISPATCH_COUNT)(UInt(entryWidth bits))
-}

@@ -2,7 +2,7 @@ package naxriscv.utilities
 
 import naxriscv.Global
 import naxriscv.frontend.Frontend
-import naxriscv.interfaces.{AllocationPort, RegfileSpec, RfAllocationService}
+import naxriscv.interfaces.{RegfileSpec, RfAllocationService}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
