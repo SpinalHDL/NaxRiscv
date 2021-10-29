@@ -3,11 +3,14 @@ package naxriscv.frontend
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib._
-import naxriscv.Global
+
 import naxriscv.pipeline._
 
 import scala.collection.mutable.ArrayBuffer
-import naxriscv.frontend.Frontend._
+
+import naxriscv._
+import naxriscv.Global._
+import naxriscv.Frontend._
 import naxriscv.utilities.Plugin
 
 //case class CompactorCmd() extends Bundle {
@@ -107,7 +110,7 @@ class AlignerPlugin() extends Plugin{
       val valid = slices.mask.drop(i).orR && !notEnoughData
       slices.used \= slices.used | usage
       slices.mask \= slices.mask & ~usage
-      INSTRUCTION_ALIGNED(i) := instruction
+      (INSTRUCTION_ALIGNED,i) := instruction
     }
 
 

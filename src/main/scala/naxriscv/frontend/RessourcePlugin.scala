@@ -1,8 +1,10 @@
 package naxriscv.frontend
 
-import naxriscv.interfaces.{DecoderService, Encoding, ExecuteUnitService, RenamerService, RfAllocationService, Riscv}
+import naxriscv.interfaces.{DecoderService, Encoding, ExecuteUnitService, RfAllocationService, Riscv}
 import naxriscv.pipeline._
-import naxriscv.frontend.Frontend._
+import naxriscv._
+import naxriscv.Global._
+import naxriscv.Frontend._
 import naxriscv.utilities.Plugin
 import spinal.core._
 
@@ -15,11 +17,11 @@ class RessourcePlugin() extends Plugin {
   val setup = create early new Area{
     getService[FrontendPlugin].retain()
 
-    val intAllocService = getService[RfAllocationService](Riscv.integer.regfile)
-    val intAllocPort = intAllocService.getAllocPort()
+//    val intAllocService = getService[RfAllocationService](Riscv.integer.regfile)
+//    val intAllocPort = intAllocService.getAllocPort()
 
-    val translationService = getService[RenamerService]()
-    val translationPort = List.fill(DISPATCH_COUNT)(translationService.newTranslationPort())
+//    val translationService = getService[RenamerService]()
+//    val translationPort = List.fill(DISPATCH_COUNT)(translationService.newTranslationPort())
   }
 
   val logic = create late new Area{

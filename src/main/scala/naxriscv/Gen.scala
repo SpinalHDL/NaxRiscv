@@ -1,7 +1,9 @@
 package naxriscv
 
+import naxriscv.backend.{RegFilePlugin, RobPlugin}
 import spinal.core._
 import naxriscv.frontend._
+import naxriscv.interfaces.Riscv
 import naxriscv.utilities._
 
 import scala.collection.mutable.ArrayBuffer
@@ -13,6 +15,8 @@ object Config{
     Frontend.FETCH_DATA_WIDTH.set(64)
     Frontend.INSTRUCTION_WIDTH.set(32)
     Frontend.DECODE_COUNT.set(2)
+    Global.COMMIT_COUNT.set(2)
+    ROB.SIZE.set(64)
   }
   def plugins(): Seq[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
@@ -26,7 +30,17 @@ object Config{
       injectionAt = 2
     )
     plugins += new AlignerPlugin()
+    plugins += new DecompressorPlugin()
     plugins += new DecoderPlugin()
+    plugins += new RegFilePlugin(
+      spec = Riscv.integer.regfile,
+      physicalDepth = 64
+    )
+    plugins += new RfTranslationPlugin()
+    plugins += new RfDependencyPlugin()
+    plugins += new RfAllocationPlugin(Riscv.integer.regfile)
+    plugins += new RobPlugin()
+    plugins += new IssuePlugin()
     plugins += new PlayPlugin()
     plugins
   }

@@ -2,8 +2,9 @@ package naxriscv.interfaces
 
 import spinal.core._
 import spinal.lib._
-import naxriscv.Global
-import naxriscv.frontend.Frontend
+import naxriscv._
+import naxriscv.Global._
+import naxriscv.Frontend._
 import naxriscv.pipeline._
 import naxriscv.utilities.{AllocatorMultiPortPop, Service}
 
@@ -34,10 +35,24 @@ trait DecoderService extends Service{
   def addFunction(fu: ExecuteUnitService,
                   enc: Encoding) : Unit
 
-  def getEuSel() : Stageable[Bits]
+  def EU_SEL() : Stageable[Bits]
+
+  def READ_RS(id : Int)  : Stageable[Bool]
+  def PHYSICAL_RS(id : Int)  : Stageable[UInt]
+
+  def WRITE_RD : Stageable[Bool]
+  def PHYSICAL_RD  : Stageable[UInt]
+
+//  def WAIT_ROB_RS(id : Int) : Stageable[UInt]
+//  def WAIT_ENABLE_RS(id : Int) : Stageable[Bool]
+
+  def rsCount  : Int
+  def rsPhysicalDepthMax : Int
 }
 
 trait RobService extends Service{
+//  def robDepth : Int
+//  val ROB_DEPENDENCY : Stageable[UInt]
   def robPushLine() : Stream[RobPushLine]
   def robPopLine() : Stream[RobPopLine]
   def robCompletion() : Stream[RobCompletion]
@@ -49,15 +64,17 @@ trait RfAllocationService extends Service {
   def getFreePort() : Vec[Flow[UInt]]
 }
 
-trait RenamerService extends Service {
-  def newTranslationPort() : Any
-  def rollbackToCommit() : Unit
-}
+//trait RenamerService extends Service {
+//  def newTranslationPort() : Any
+//  def rollbackToCommit() : Unit
+//}
 
 trait RegfileService extends Service{
-  def newRead() : Any
-  def newWriteFlow() : Unit
-  def newWriteStream() : Unit
+  def getPhysicalDepth : Int
+
+//  def newRead() : Any
+//  def newWriteFlow() : Unit
+//  def newWriteStream() : Unit
 }
 
 
@@ -73,7 +90,6 @@ trait CommitService  extends Service{
 
 trait RegfileSpec{
   def sizeArch : Int
-  def sizePhys : Int
   def width : Int
   def x0AlwaysZero : Boolean
 
@@ -115,6 +131,17 @@ trait RfWrite extends RfAccess
 
 
 object Riscv{
+
+  def funct7Range = 31 downto 25
+  def rdRange = 11 downto 7
+  def funct3Range = 14 downto 12
+  def rs2Range = 24 downto 20
+  def rs1Range = 19 downto 15
+  def rs3Range = 31 downto 27
+  def csrRange = 31 downto 20
+  def rsRange(id : Int) = List(rs1Range, rs2Range,rs3Range)(id)
+
+
   def READ_RS(id : Int) = id match {
     case 0 => READ_RS1
     case 1 => READ_RS2
@@ -134,7 +161,6 @@ object Riscv{
   val integer = new Area{
     val regfile = new RegfileSpec {
       override def sizeArch = 32
-      override def sizePhys = Global.INT_RF_PHYSICAL
       override def width = ???
       override def x0AlwaysZero = true
     }
@@ -156,19 +182,19 @@ object Riscv{
 }
 
 case class RobCompletion() extends Bundle {
-  val id = UInt(Global.ROB_ID_WIDTH bits)
+  val id = UInt(ROB.ID_WIDTH bits)
 }
 case class RobPushLine() extends Bundle {
-  val id = UInt(Global.ROB_ID_WIDTH bits)
-  val entries = Vec.fill(Global.ROB_ROWS)(RobPushEntry())
+  val id = UInt(ROB.ID_WIDTH bits)
+  val entries = Vec.fill(ROB.ROWS)(RobPushEntry())
 }
 case class RobPushEntry() extends Bundle{
   val commitTask = NoData
 }
 
 case class RobPopLine() extends Bundle {
-  val id = UInt(Global.ROB_ID_WIDTH bits)
-  val entries = Vec.fill(Global.ROB_ROWS)(RobPopEntry())
+  val id = UInt(ROB.ID_WIDTH bits)
+  val entries = Vec.fill(ROB.ROWS)(RobPopEntry())
 }
 case class RobPopEntry() extends Bundle{
   val valid = Bool()
@@ -189,7 +215,7 @@ case class CommitEntry() extends Bundle {
 }
 
 case class CompletionCmd(canTrap : Boolean, canJump : Boolean) extends Bundle {
-  val robId = UInt(Global.ROB_ID_WIDTH bits)
+//  val robId = UInt(Global.ROB_ID_WIDTH bits)
 
   val jump = canJump generate Bool()
   val trap = canTrap generate Bool()
@@ -197,3 +223,13 @@ case class CompletionCmd(canTrap : Boolean, canJump : Boolean) extends Bundle {
   val arg = (canTrap || canJump) generate Bits(Global.XLEN bits) //Target PC if jump, payload if trap
 }
 
+case class RobWait() extends Area with OverridedEqualsHashCode {
+  val ID = Stageable(ROB.ID_TYPE)
+  val ENABLE = Stageable(Bool())
+}
+
+trait IssueService extends Service{
+  def newRobWait() : RobWait
+  def retain() : Unit
+  def release() : Unit
+}

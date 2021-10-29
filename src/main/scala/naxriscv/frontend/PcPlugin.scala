@@ -6,10 +6,11 @@ import spinal.lib._
 import naxriscv.interfaces.{JumpCmd, JumpService}
 import naxriscv.pipeline._
 import naxriscv.utilities.Plugin
-import naxriscv.Global
+import naxriscv._
+import naxriscv.Global._
+import naxriscv.Frontend._
 
 import scala.collection.mutable.ArrayBuffer
-
 
 
 class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpService{
@@ -27,7 +28,6 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
   }
 
   val logic = create late{
-    import naxriscv.frontend.Frontend._
     val stage = setup.pipeline.getStage(0)
     val pipeline = setup.pipeline.getPipeline()
     import stage._

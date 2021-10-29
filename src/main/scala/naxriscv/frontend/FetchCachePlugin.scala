@@ -1,8 +1,9 @@
 package naxriscv.frontend
 import spinal.core._
 import spinal.lib._
-import naxriscv.Global
-import naxriscv.frontend.Frontend._
+import naxriscv._
+import naxriscv.Global._
+import naxriscv.Frontend._
 import naxriscv.pipeline.Stageable
 import naxriscv.utilities._
 

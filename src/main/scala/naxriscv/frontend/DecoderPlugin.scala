@@ -1,7 +1,11 @@
 package naxriscv.frontend
 
-import naxriscv.interfaces.{DecoderService, Encoding, ExecuteUnitService, Riscv}
-import naxriscv.pipeline._
+import naxriscv._
+import naxriscv.Global._
+import naxriscv.Frontend._
+import naxriscv.interfaces.{DecoderService, Encoding, ExecuteUnitService, RegfileService, Riscv}
+import naxriscv.pipeline.Connection.DIRECT
+import naxriscv.pipeline.{Stageable, _}
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.Plugin
@@ -65,25 +69,45 @@ class DecoderPlugin() extends Plugin with DecoderService{
   }
 
 
-  override def getEuSel() = setup.EU_SEL
+  override def EU_SEL() = setup.EU_SEL
+//  override def WAIT_ROB_RS(id: Int) = logic.regfiles.WAIT_ROB_RS(id)
+//  override def WAIT_ENABLE_RS(id: Int) = logic.regfiles.WAIT_ENABLE_RS(id)
+  override def READ_RS(id: Int) = logic.regfiles.READ_RS(id)
+  override def PHYSICAL_RS(id: Int) = logic.regfiles.ARCH_RS(id)
+  override def WRITE_RD = logic.regfiles.WRITE_RD
+  override def PHYSICAL_RD = logic.regfiles.ARCH_RD
+  override def rsCount = logic.regfiles.rsCount
+  override def rsPhysicalDepthMax = logic.regfiles.physicalMax
 
   val setup = create early new Area{
-    getService[FrontendPlugin].retain()
+    val frontend = getService[FrontendPlugin]
+    frontend.retain()
+    frontend.pipeline.connect(frontend.pipeline.decompressed, frontend.pipeline.decoded)(new DIRECT)
     val EU_SEL = Stageable(Bits(getServicesOf[ExecuteUnitService].size bits))
   }
 
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
-    println("Encodings : ")
-    println(encodings)
+
+    val regfiles = new Area {
+      val plugins = getServicesOf[RegfileService]
+      val physicalMax = plugins.map(_.getPhysicalDepth).max
+      val rsCount = 2
+      val ARCH_RS = List.fill(rsCount)(Stageable(UInt(log2Up(physicalMax) bits)))
+      val ARCH_RD = Stageable(UInt(log2Up(physicalMax) bits))
+//      val WAIT_ROB_RS    = List.fill(rsCount)(Stageable(ROB.ID_TYPE()))
+//      val WAIT_ENABLE_RS = List.fill(rsCount)(Stageable(Bool()))
+      val READ_RS = List.fill(rsCount)(Stageable(Bool()))
+      val WRITE_RD = Stageable(Bool)
+    }
 
     val stage = frontend.pipeline.decoded
     import stage._
 
     for(i <- 0 until Frontend.DECODE_COUNT) {
-      (Riscv.READ_RS1, i) := False
-      (Riscv.READ_RS2, i) := False
-      (Riscv.WRITE_RD, i) := False
+      (regfiles.READ_RS(0), i) := False
+      (regfiles.READ_RS(1), i) := False
+      (regfiles.WRITE_RD, i) := False
       (setup.EU_SEL  , i) := B(0)
 //      implicit val offset = new StageableOffset(i)
 //      Riscv.READ_RS1 := False

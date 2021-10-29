@@ -1,11 +1,11 @@
-package naxriscv.backend
+package naxriscv.frontend
 
-import naxriscv.Global
-import naxriscv.frontend.Frontend
-import naxriscv.interfaces.{RegfileSpec, RfAllocationService}
+import naxriscv._
+import naxriscv.Global._
+import naxriscv.Frontend._
+import naxriscv.interfaces.{RegfileService, RegfileSpec, RfAllocationService}
 import naxriscv.utilities.{AllocatorMultiPortMem, Plugin}
 import spinal.core._
-import spinal.lib._
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -16,7 +16,7 @@ class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationServi
   var freePorts = ArrayBuffer
 
   val logic = create late new Area{
-    val entryCount = rf.sizePhys
+    val entryCount = getService[RegfileService](rf).getPhysicalDepth
     val entryIdWidth = log2Up(entryCount)
     val entryType = HardType(UInt(entryIdWidth bits))
     val allocator = new AllocatorMultiPortMem(

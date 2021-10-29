@@ -1,10 +1,12 @@
-package naxriscv.backend
+package naxriscv.frontend
 
-import naxriscv.compatibility.{ClockDomainFasterTag, MultiPortWritesSymplifier}
-import naxriscv.interfaces.{RegfileSpec, RenamerService}
+import naxriscv._
+import naxriscv.Global._
+import naxriscv.Frontend._
+import naxriscv.compatibility.MultiPortWritesSymplifier
+import naxriscv.interfaces.{DecoderService, RegfileService, RegfileSpec, Riscv}
 import naxriscv.utilities.Plugin
 import spinal.core._
-import spinal.core.internals.{MemTopology, Phase, PhaseContext, PhaseMemBlackboxing}
 import spinal.lib._
 import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
 
@@ -53,14 +55,16 @@ class TranslatorWithRollback[T <: Data](payloadType : HardType[T],
   val commits = new UpdatedState(io.commits)
 
   val location = new Area{
-    val updated = Reg(Bits(depth bits)) init(0) //TODO init may be relaxed
+    val updated = Reg(Bits(depth bits))
     val set = for(i <- 0 until depth) yield new Area{
       val hits =  io.writes.map(p => p.valid && p.address === i)
       when(hits.orR){
         updated(i) := True
       }
     }
-    when(io.rollback){
+
+    val booted = RegNext(True) init(False)
+    when(io.rollback || !booted){
       updated := 0
     }
   }
@@ -100,20 +104,35 @@ object TranslatorWithRollback extends App{
 }
 
 
-class RsTranslationPlugin(rf : RegfileSpec) extends Plugin with RenamerService {
-  override def newTranslationPort() = ???
-  override def rollbackToCommit() = rollback := True
-
-//  case class Port(cmd : Flow[])
-  val rollback = create early Bool()
+class RfTranslationPlugin() extends Plugin {
   val setup = create early new Area{
-
+    val frontend = getService[FrontendPlugin]
+    frontend.retain()
   }
 
   val logic = create late new Area{
-    val commited, issued = Mem.fill(rf.sizeArch)(UInt(log2Up(rf.sizeArch) bits))
-    val updated = Vec.fill(rf.sizeArch)(Reg(Bool)) //TODO init
+    val decoder = getService[DecoderService]
 
-    when
+    val frontend = getService[FrontendPlugin]
+    val impl = new TranslatorWithRollback(
+      payloadType = UInt(log2Up(decoder.rsPhysicalDepthMax) bits),
+      depth       = 32,
+      commitPorts = Global.COMMIT_COUNT,
+      writePorts  = DISPATCH_COUNT,
+      readPorts   = DISPATCH_COUNT*decoder.rsCount
+    )
+
+    val translation = new Area{
+      val stage = frontend.pipeline.renamed
+      import stage._
+      for(slotId <- 0 until DISPATCH_COUNT) {
+        for(rsId <- 0 until decoder.rsCount) {
+          val port = impl.io.reads(slotId*decoder.rsCount+rsId)
+          port.cmd.payload := U((INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rsRange(rsId)))
+          (decoder.PHYSICAL_RS(rsId), slotId) := port.rsp.payload
+        }
+      }
+    }
+    frontend.release()
   }
 }

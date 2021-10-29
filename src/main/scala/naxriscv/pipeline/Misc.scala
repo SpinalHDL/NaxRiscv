@@ -9,6 +9,7 @@ import scala.collection.mutable.ArrayBuffer
 
 object Stageable{
   def apply[T <: Data](gen : => T) = new Stageable(gen)
+  def apply[T <: Data](gen : HardType[T]) = new Stageable(gen.craft())
 }
 
 class Stageable[T <: Data](gen : => T) extends HardType(gen) with Nameable {
@@ -18,7 +19,7 @@ class StageableOffset(val value : Any)
 object StageableOffsetNone extends StageableOffset(null)
 case class StageableKey(stageable: Stageable[Data], key : Any){
   override def toString = {
-    var name = stageable.toString
+    var name = stageable.getName()
     if(key != null) name = name + "_" + key
     name
   }
@@ -226,10 +227,16 @@ class Pipeline extends Area{
     var m, s : Stage = null
     val logics = ArrayBuffer[ConnectionLogic]()
   }
-//  val stages = ArrayBuffer[Stage]()
+  val stages = mutable.LinkedHashSet[Stage]()
   val connections = ArrayBuffer[ConnectionModel]()
   val joins = ArrayBuffer[ConnectionModel]() //Not implemented yet
   val forks = ArrayBuffer[ConnectionModel]() //Not implemented yet
+
+  def newStage() : Stage = {
+    val s = new Stage
+    stages += s
+    s
+  }
 
   def connect(m : Stage, s : Stage)(logics : ConnectionLogic*) = {
     val c = new ConnectionModel
@@ -258,7 +265,7 @@ class Pipeline extends Area{
 
   def build(): Unit = {
     implicit def internalsImplicit(stage : Stage) = stage.internals
-    val stages = mutable.LinkedHashSet[Stage]() ++ connections.map(c => List(c.m, c.s)).flatten
+    this.stages ++= connections.map(c => List(c.m, c.s)).flatten
     val stagesWithSink = mutable.LinkedHashSet[Stage]() ++ connections.map(_.m)
     val connectionsWithoutSinks = stages -- stagesWithSink
     val stageMasters = mutable.LinkedHashMap[Stage, ArrayBuffer[Stage]]()

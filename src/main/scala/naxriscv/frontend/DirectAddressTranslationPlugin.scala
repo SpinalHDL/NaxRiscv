@@ -2,6 +2,9 @@ package naxriscv.frontend
 
 import naxriscv.utilities.Plugin
 import spinal.core._
+import naxriscv._
+import naxriscv.Global._
+import naxriscv.Frontend._
 
 class DirectAddressTranslationPlugin extends Plugin{
   val setup = create early new Area{

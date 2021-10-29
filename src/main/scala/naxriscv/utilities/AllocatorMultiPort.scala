@@ -1,7 +1,6 @@
 package naxriscv.utilities
 
 import naxriscv.Global
-import naxriscv.frontend.Frontend
 import naxriscv.interfaces.{RegfileSpec, RfAllocationService}
 import naxriscv.utilities.Plugin
 import spinal.core._

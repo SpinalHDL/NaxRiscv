@@ -31,16 +31,18 @@ class FrontendPlugin() extends Plugin {
       case s : FetchPipelineRequirements => s.stagesCountMin
       case _ => 0
     }.max
-    val fetches = Array.fill(stagesCount)(new Stage())
-    val aligned = new Stage()
-    val decompressed = new Stage()
-    val decoded = new Stage()
-    val renamed = new Stage()
+    val fetches = Array.fill(stagesCount)(newStage())
+    val aligned = newStage()
+    val decompressed = newStage()
+    val decoded = newStage()
+    val renamed = newStage()
 
     import Connection._
     for((m, s) <- (fetches.dropRight(1), fetches.tail).zipped){
-      connect(m, s)(M2S(flushPreserveInput = m == fetches.head)).setCompositeName(s, "driver")
+      connect(m, s)(M2S(flushPreserveInput = m == fetches.head))
     }
+
+    connect(decoded, renamed)(M2S())
   }
   pipeline.setCompositeName(this)
 
@@ -54,4 +56,6 @@ class FrontendPlugin() extends Plugin {
 
   def retain() = lock.retain()
   def release() = lock.release()
+
+
 }
