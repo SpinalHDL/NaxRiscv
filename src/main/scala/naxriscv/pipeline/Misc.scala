@@ -327,6 +327,9 @@ class Pipeline extends Area{
         case Some(c : ConnectionModel) => {
           if(c.s.input.ready != null && c.m.output.ready == null){
             c.m.output.ready = Bool()
+            if(c.m.input.ready == null){
+              c.m.input.ready = Bool()
+            }
           }
           c.logics.reverseIterator.foreach{ l =>
             clFlush(l) = flush

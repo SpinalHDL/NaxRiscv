@@ -43,9 +43,6 @@ trait DecoderService extends Service{
   def WRITE_RD : Stageable[Bool]
   def PHYSICAL_RD  : Stageable[UInt]
 
-//  def WAIT_ROB_RS(id : Int) : Stageable[UInt]
-//  def WAIT_ENABLE_RS(id : Int) : Stageable[Bool]
-
   def rsCount  : Int
   def rsPhysicalDepthMax : Int
 }
@@ -56,8 +53,14 @@ trait RobService extends Service{
   def robPushLine() : Stream[RobPushLine]
   def robPopLine() : Stream[RobPopLine]
   def robCompletion() : Stream[RobCompletion]
+  def robLineValids() : RobLineMask
 }
 
+
+case class RobLineMask() extends Bundle{
+  val line = ROB.ID_TYPE()
+  val mask = Bits(ROB.ROWS bits)
+}
 
 trait RfAllocationService extends Service {
   def getAllocPort() : AllocatorMultiPortPop[UInt]
@@ -78,14 +81,15 @@ trait RegfileService extends Service{
 }
 
 
-trait WakeService extends Service{
-  def newWakeOhPort() : Stream[WakeOh]
-  def newWakeRobIdPort() : Stream[WakeRobId]
-}
+//trait WakeService extends Service{
+//  def newWakeOhPort() : Stream[WakeOh]
+//  def newWakeRobIdPort() : Stream[WakeRobId]
+//}
 
 trait CommitService  extends Service{
   def onCommit() : Vec[Flow[CommitEntry]]
   def newCompletionPort() : Flow[CompletionCmd]
+  def rollback() : Bool
 }
 
 trait RegfileSpec{
@@ -141,14 +145,6 @@ object Riscv{
   def csrRange = 31 downto 20
   def rsRange(id : Int) = List(rs1Range, rs2Range,rs3Range)(id)
 
-
-  def READ_RS(id : Int) = id match {
-    case 0 => READ_RS1
-    case 1 => READ_RS2
-  }
-  val READ_RS1 = Stageable(Bool())
-  val READ_RS2 = Stageable(Bool())
-  val WRITE_RD = Stageable(Bool())
   val RS1 = new RfRead{
     def decode(i : Bits) = i(19 downto 15).asUInt
   }
@@ -215,7 +211,7 @@ case class CommitEntry() extends Bundle {
 }
 
 case class CompletionCmd(canTrap : Boolean, canJump : Boolean) extends Bundle {
-//  val robId = UInt(Global.ROB_ID_WIDTH bits)
+  val robId = ROB.ID_TYPE()
 
   val jump = canJump generate Bool()
   val trap = canTrap generate Bool()
@@ -232,4 +228,9 @@ trait IssueService extends Service{
   def newRobWait() : RobWait
   def retain() : Unit
   def release() : Unit
+}
+
+
+trait WakeService extends Service{
+  def wakeRobs : Seq[Flow[UInt]]
 }

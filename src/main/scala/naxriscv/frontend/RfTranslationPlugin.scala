@@ -4,7 +4,7 @@ import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.compatibility.MultiPortWritesSymplifier
-import naxriscv.interfaces.{DecoderService, RegfileService, RegfileSpec, Riscv}
+import naxriscv.interfaces.{CommitService, DecoderService, RegfileService, RegfileSpec, Riscv}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -112,24 +112,47 @@ class RfTranslationPlugin() extends Plugin {
 
   val logic = create late new Area{
     val decoder = getService[DecoderService]
-
     val frontend = getService[FrontendPlugin]
+
+    val stage = frontend.pipeline.renamed
+    import stage._
+
     val impl = new TranslatorWithRollback(
       payloadType = UInt(log2Up(decoder.rsPhysicalDepthMax) bits),
       depth       = 32,
-      commitPorts = Global.COMMIT_COUNT,
+      commitPorts = COMMIT_COUNT,
       writePorts  = DISPATCH_COUNT,
       readPorts   = DISPATCH_COUNT*decoder.rsCount
     )
 
+    impl.io.rollback := getService[CommitService].rollback()
+
+    val writes = for(slotId <- 0 until DISPATCH_COUNT) {
+      impl.io.writes(slotId).valid := isFireing && (DISPATCH_MASK, slotId)
+      impl.io.writes(slotId).address := U((INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rdRange))
+      impl.io.writes(slotId).data := stage(decoder.PHYSICAL_RD, slotId)
+    }
+
+    val commits = for(slotId <- 0 until COMMIT_COUNT) {
+      //TODO
+    }
+
     val translation = new Area{
-      val stage = frontend.pipeline.renamed
-      import stage._
       for(slotId <- 0 until DISPATCH_COUNT) {
         for(rsId <- 0 until decoder.rsCount) {
           val port = impl.io.reads(slotId*decoder.rsCount+rsId)
-          port.cmd.payload := U((INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rsRange(rsId)))
+          val archRs = (Frontend.INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rsRange(rsId))
+          port.cmd.payload := U(archRs)
           (decoder.PHYSICAL_RS(rsId), slotId) := port.rsp.payload
+
+          //Slot bypass
+          for(priorId <- 0 until slotId){
+            val useRd = (decoder.WRITE_RD, priorId) && (DISPATCH_MASK, priorId)
+            val writeRd = (Frontend.INSTRUCTION_DECOMPRESSED, priorId)(Riscv.rdRange)
+            when(useRd && writeRd === archRs){
+              (decoder.PHYSICAL_RS(rsId), slotId) := stage(decoder.PHYSICAL_RS(rsId), priorId)
+            }
+          }
         }
       }
     }

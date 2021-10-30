@@ -1,6 +1,6 @@
 package naxriscv
 
-import naxriscv.backend.{RegFilePlugin, RobPlugin}
+import naxriscv.backend.{CommitPlugin, RegFilePlugin, RobPlugin}
 import spinal.core._
 import naxriscv.frontend._
 import naxriscv.interfaces.Riscv
@@ -41,6 +41,7 @@ object Config{
     plugins += new RfAllocationPlugin(Riscv.integer.regfile)
     plugins += new RobPlugin()
     plugins += new IssuePlugin()
+    plugins += new CommitPlugin()
     plugins += new PlayPlugin()
     plugins
   }

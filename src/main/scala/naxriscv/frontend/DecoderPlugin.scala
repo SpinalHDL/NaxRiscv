@@ -70,8 +70,6 @@ class DecoderPlugin() extends Plugin with DecoderService{
 
 
   override def EU_SEL() = setup.EU_SEL
-//  override def WAIT_ROB_RS(id: Int) = logic.regfiles.WAIT_ROB_RS(id)
-//  override def WAIT_ENABLE_RS(id: Int) = logic.regfiles.WAIT_ENABLE_RS(id)
   override def READ_RS(id: Int) = logic.regfiles.READ_RS(id)
   override def PHYSICAL_RS(id: Int) = logic.regfiles.ARCH_RS(id)
   override def WRITE_RD = logic.regfiles.WRITE_RD
@@ -95,8 +93,6 @@ class DecoderPlugin() extends Plugin with DecoderService{
       val rsCount = 2
       val ARCH_RS = List.fill(rsCount)(Stageable(UInt(log2Up(physicalMax) bits)))
       val ARCH_RD = Stageable(UInt(log2Up(physicalMax) bits))
-//      val WAIT_ROB_RS    = List.fill(rsCount)(Stageable(ROB.ID_TYPE()))
-//      val WAIT_ENABLE_RS = List.fill(rsCount)(Stageable(Bool()))
       val READ_RS = List.fill(rsCount)(Stageable(Bool()))
       val WRITE_RD = Stageable(Bool)
     }
@@ -109,6 +105,7 @@ class DecoderPlugin() extends Plugin with DecoderService{
       (regfiles.READ_RS(1), i) := False
       (regfiles.WRITE_RD, i) := False
       (setup.EU_SEL  , i) := B(0)
+      (DISPATCH_MASK, i) := (MASK_ALIGNED, i)
 //      implicit val offset = new StageableOffset(i)
 //      Riscv.READ_RS1 := False
 //      Riscv.READ_RS2 := False

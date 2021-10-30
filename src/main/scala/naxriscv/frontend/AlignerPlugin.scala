@@ -111,6 +111,7 @@ class AlignerPlugin() extends Plugin{
       slices.used \= slices.used | usage
       slices.mask \= slices.mask & ~usage
       (INSTRUCTION_ALIGNED,i) := instruction
+      (MASK_ALIGNED, i) := valid
     }
 
 

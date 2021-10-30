@@ -1,17 +1,22 @@
 package naxriscv.backend
 
 import naxriscv.{Global, ROB}
-import naxriscv.interfaces.{JumpService, RobService}
+import naxriscv.interfaces.{CommitService, JumpService, RfAllocationService, RobService}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
 import naxriscv.Global._
 
-class CommitPlugin extends Plugin{
+class CommitPlugin extends Plugin with CommitService{
+  override def onCommit() = ???
+  override def newCompletionPort() = ???
+
+  override def rollback() = False
 
   val setup = create early new Area{
-    val rob = getService[RobService].robPopLine()
     val jump = getService[JumpService].createJumpInterface(JumpService.Priorities.COMMIT) //Flush missing
+    val rob = getService[RobService]
+    val robLineMask = rob.robLineValids()
   }
 
   val logic = create late new Area {
@@ -21,6 +26,8 @@ class CommitPlugin extends Plugin{
       val empty = alloc === commit
       val canFree = free =/= commit
       val commitLine = commit >> log2Up(ROB.ROWS.get)
+
+      setup.robLineMask.line := commit.resized
     }
 
     val reschedule = new Area {
@@ -32,6 +39,11 @@ class CommitPlugin extends Plugin{
         val (row, line) = age.splitAt(log2Up(ROB.ROWS.get))
         val lineHit = age >> log2Up(ROB.ROWS.get) === ptr.commitLine
       }
+
+      //TODO remove
+      age := 0
+      pcTarget := 0
+      trap := False
     }
 
     val commit = new Area {
@@ -45,8 +57,7 @@ class CommitPlugin extends Plugin{
       setup.jump.payload.assignDontCare()
       when(!ptr.empty) {
         for (rowId <- 0 until ROB.ROWS) {
-          val entry = setup.rob.entries(rowId)
-          when(entry.valid && mask(rowId) && continue) {
+          when(setup.robLineMask.mask(rowId) && mask(rowId) && continue) {
             maskComb(rowId) := False
             when(reschedule.valid && reschedule.commit.lineHit && reschedule.commit.row === rowId){
               continue \= False
@@ -59,14 +70,19 @@ class CommitPlugin extends Plugin{
         }
         when(maskComb === 0 || force) {
           mask := (1 << ROB.ROWS) - 1
-          ptr.commit := ptr.commit + 1
+          ptr.commit := ptr.commit + ROB.ROWS.get
         }
       }
     }
 
     val free = new Area{
+      val allocator = getService[RfAllocationService].getFreePort()
+      for(port <- allocator){
+        port.valid := False
+        port.payload := 0
+      }
       when(ptr.canFree){
-        ptr.free := ptr.free + 1
+        ptr.free := ptr.free + ROB.ROWS.get
       }
     }
   }

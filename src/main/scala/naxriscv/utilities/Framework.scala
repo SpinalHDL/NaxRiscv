@@ -73,8 +73,11 @@ class Framework(val plugins : Seq[Plugin]) extends Area{
   }
   def getService[T <: Service : ClassTag] : T = {
     val filtered = getServicesOf[T]
-    assert(filtered.length == 1, s"??? ${classTag[T].runtimeClass.getName}")
-    filtered.head.asInstanceOf[T]
+    filtered.length match {
+      case 0 => throw new Exception(s"Can't find the service ${classTag[T].runtimeClass.getName}")
+      case 1 => filtered.head
+      case _ => throw new Exception(s"Found multiple instances of ${classTag[T].runtimeClass.getName}")
+    }
   }
   def getService[T <: Service : ClassTag](id : Any) : T = getServiceWhere[T](_.uniqueIds.contains(id))
 

@@ -9,6 +9,7 @@ object ROB extends AreaObject{
   val SIZE = ScopeProperty[Int]
   def ID_WIDTH = log2Up(SIZE.get)
   val ID_TYPE = HardType(UInt(ID_WIDTH bits))
+  def lineRange = ID_WIDTH-1 downto log2Up(ROWS)
 }
 
 object Global extends AreaObject {
@@ -43,6 +44,7 @@ object Frontend extends AreaObject {
 
   val DISPATCH_MASK = Stageable(Bool())
 
+  val MASK_ALIGNED = Stageable(Bool())
   val INSTRUCTION_ALIGNED = Stageable(Bits(INSTRUCTION_WIDTH bits))
   val INSTRUCTION_DECOMPRESSED = Stageable(Bits(INSTRUCTION_WIDTH bits))
   val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
@@ -50,5 +52,7 @@ object Frontend extends AreaObject {
 
   val FETCH_PC_PHYSICAL  = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
   val FETCH_PC_VIRTUAL   = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
+
+  val ROB_ID = Stageable(ROB.ID_TYPE)
 }
 

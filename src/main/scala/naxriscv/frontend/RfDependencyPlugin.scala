@@ -1,8 +1,9 @@
 package naxriscv.frontend
 
-import naxriscv.{Frontend, Global}
+import naxriscv.Frontend.{DISPATCH_MASK, ROB_ID}
+import naxriscv.{Frontend, Global, ROB}
 import naxriscv.compatibility.MultiPortWritesSymplifier
-import naxriscv.interfaces.{DecoderService, IssueService, RegfileService, RegfileSpec, Riscv}
+import naxriscv.interfaces.{CommitService, DecoderService, WakeService, IssueService, RegfileService, RegfileSpec, Riscv}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -123,24 +124,60 @@ class RfDependencyPlugin() extends Plugin {
   val logic = create late new Area{
     val decoder = getService[DecoderService]
     val frontend = getService[FrontendPlugin]
+    val wakers = getServicesOf[WakeService]
+    val wakeIds = wakers.flatMap(_.wakeRobs)
+
+    val stage = frontend.pipeline.renamed
+    import stage._
 
     val impl = new DependencyStorage(
       archDepth   = 32,
       physDepth   = decoder.rsPhysicalDepthMax,
-      commitPorts = Global.COMMIT_COUNT,
-      writePorts  = Frontend.DISPATCH_COUNT,
+      commitPorts = wakeIds.size,
+      writePorts  = Global.COMMIT_COUNT,
       readPorts   = Frontend.DISPATCH_COUNT*decoder.rsCount
     )
 
+    //Write
+    for(slotId <- 0 until Frontend.DISPATCH_COUNT) {
+      val port = impl.io.writes(slotId)
+      port.valid := stage.isFireing && (decoder.WRITE_RD, slotId) && (DISPATCH_MASK, slotId)
+      port.address := U((Frontend.INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rdRange))
+      port.data := ROB_ID | slotId
+    }
+
+    //Commit
+    for((event, port) <- (wakeIds, impl.io.commits).zipped){
+      port.valid := event.valid
+      port.address := event.payload
+    }
+
+    impl.io.clear := getService[CommitService].rollback()
+
+    //Read
     val dependency = new Area{
-      val stage = frontend.pipeline.renamed
-      import stage._
       for(slotId <- 0 until Frontend.DISPATCH_COUNT) {
         for(rsId <- 0 until decoder.rsCount) {
+          val archRs = (Frontend.INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rsRange(rsId))
+          val useRs = (decoder.READ_RS(rsId), slotId)
           val port = impl.io.reads(slotId*decoder.rsCount+rsId)
-          port.cmd.payload := U((Frontend.INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rsRange(rsId)))
+          port.cmd.payload := U(archRs)
           (setup.waits(rsId).ENABLE, slotId) := port.rsp.enable
           (setup.waits(rsId).ID    , slotId) := port.rsp.rob
+
+          //Slot write bypass
+          for(priorId <- 0 until slotId){
+            val useRd = (decoder.WRITE_RD, priorId) && (DISPATCH_MASK, priorId)
+            val writeRd = (Frontend.INSTRUCTION_DECOMPRESSED, priorId)(Riscv.rdRange)
+            when(useRd && writeRd === archRs){
+              (setup.waits(rsId).ENABLE, slotId) := True
+              (setup.waits(rsId).ID    , slotId) := ROB_ID | priorId
+            }
+          }
+
+          when(!useRs){
+            (setup.waits(rsId).ENABLE, slotId) := False
+          }
         }
       }
     }
