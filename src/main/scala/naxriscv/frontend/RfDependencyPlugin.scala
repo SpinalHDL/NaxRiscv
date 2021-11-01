@@ -152,7 +152,7 @@ class RfDependencyPlugin() extends Plugin {
       port.address := event.payload
     }
 
-    impl.io.clear := getService[CommitService].rollback()
+    impl.io.clear := getService[CommitService].reschedulingPort().valid
 
     //Read
     val dependency = new Area{

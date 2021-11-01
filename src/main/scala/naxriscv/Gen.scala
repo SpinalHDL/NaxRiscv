@@ -3,7 +3,8 @@ package naxriscv
 import naxriscv.backend.{CommitPlugin, RegFilePlugin, RobPlugin}
 import spinal.core._
 import naxriscv.frontend._
-import naxriscv.interfaces.Riscv
+import naxriscv.interfaces.{ExecutionUnitPush, Riscv}
+import naxriscv.units.{ExecuteUnit, IntAluPlugin}
 import naxriscv.utilities._
 
 import scala.collection.mutable.ArrayBuffer
@@ -32,16 +33,20 @@ object Config{
     plugins += new AlignerPlugin()
     plugins += new DecompressorPlugin()
     plugins += new DecoderPlugin()
+    plugins += new RfTranslationPlugin()
+    plugins += new RfDependencyPlugin()
+    plugins += new RfAllocationPlugin(Riscv.integer.regfile)
+    plugins += new DisspatchPlugin(
+      slotCount = 32
+    )
+    plugins += new ExecuteUnit("ALU0")
+    plugins += new IntAluPlugin("ALU0")
+    plugins += new RobPlugin()
+    plugins += new CommitPlugin()
     plugins += new RegFilePlugin(
       spec = Riscv.integer.regfile,
       physicalDepth = 64
     )
-    plugins += new RfTranslationPlugin()
-    plugins += new RfDependencyPlugin()
-    plugins += new RfAllocationPlugin(Riscv.integer.regfile)
-    plugins += new RobPlugin()
-    plugins += new IssuePlugin()
-    plugins += new CommitPlugin()
     plugins += new PlayPlugin()
     plugins
   }

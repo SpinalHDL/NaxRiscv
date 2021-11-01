@@ -125,7 +125,7 @@ class RfTranslationPlugin() extends Plugin {
       readPorts   = DISPATCH_COUNT*decoder.rsCount
     )
 
-    impl.io.rollback := getService[CommitService].rollback()
+    impl.io.rollback := getService[CommitService].reschedulingPort().valid
 
     val writes = for(slotId <- 0 until DISPATCH_COUNT) {
       impl.io.writes(slotId).valid := isFireing && (DISPATCH_MASK, slotId)

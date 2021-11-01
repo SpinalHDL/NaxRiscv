@@ -6,7 +6,6 @@ import naxriscv.sandbox.matrix3.ScheduleParameter
 
 case class IssueQueueParameter(slotCount : Int,
                                wayCount : Int,
-                               robEntries : Int,
                                selCount : Int,
                                schedules : Seq[ScheduleParameter]){
   assert(slotCount % wayCount == 0)
@@ -15,7 +14,6 @@ case class IssueQueueParameter(slotCount : Int,
 }
 
 case class IssueQueuePush[T <: Data](p : IssueQueueParameter, contextType : HardType[T]) extends Bundle{
-  val line = Bits(p.lineCount bits)
   val slots = Vec.fill(p.wayCount)(IssueQueuePushSlot(p, contextType))
 }
 
@@ -25,11 +23,12 @@ case class IssueQueuePushSlot[T <: Data](p : IssueQueueParameter, contextType : 
   val context = contextType()
 }
 
-case class Schedule(p : ScheduleParameter) extends Bundle{
-  val event = Bits(p.eventCount bits)
+case class Schedule(p : ScheduleParameter, slotCount : Int) extends Bundle{
+  val event = Bits(slotCount/p.eventFactor bits)
 }
 
-case class ScheduleParameter(eventCount : Int,
+case class ScheduleParameter(eventFactor : Int,
+                             eventOffset : Int,
                              selId : Int){
 //  val eventType = HardType(Bits(eventCount bits))
 }
@@ -37,12 +36,12 @@ case class ScheduleParameter(eventCount : Int,
 case class IssueQueueIo[T <: Data](p : IssueQueueParameter, slotContextType : HardType[T]) extends Bundle{
   val events = KeepAttribute(in(p.eventType()))
   val push = slave Stream(IssueQueuePush(p, slotContextType))
-  val schedules = Vec(p.schedules.map(sp => master Stream(Schedule(sp))))
+  val schedules = Vec(p.schedules.map(sp => master Stream(Schedule(sp, p.slotCount))))
 }
 
 
-//Extra light in lut, but don't pack FF
-class IssueQueue[T <: Data](p : IssueQueueParameter, slotContextType : HardType[T]) extends Component{
+
+class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardType[T]) extends Component{
   val io = IssueQueueIo(p, slotContextType)
 
   case class IssueQueuePop() extends Bundle{
@@ -63,24 +62,6 @@ class IssueQueue[T <: Data](p : IssueQueueParameter, slotContextType : HardType[
 
       when(fire){ selComb := 0 }
       sel := selComb
-//      val popComb = valid && done
-//      val popValid = RegNext(popComb) clearWhen(popPort.ready)
-//      val popSel = RegNext(popComb ? sel | B(0))
-//      val popSelPriority = RegNext((popComb && io.priority(priority)) ? sel | B(0))
-//      when(popPort.ready){ popSel := 0; popSelPriority := 0}
-
-//      popPort.valid := popValid
-//      popPort.sel := popSel
-//      popPort.selPriority := popSelPriority
-//      popPort.context := context
-
-//      popPort.valid := popComb
-//      popPort.sel := sel
-//      popPort.context := context
-
-//      val select = new Area{
-//        def select = sel
-//      }
     }
   }
 
@@ -123,8 +104,8 @@ class IssueQueue[T <: Data](p : IssueQueueParameter, slotContextType : HardType[
 
   val slots = lines.map(_.ways).flatten
   val selector = for((schedule, scheduleId) <- io.schedules.zipWithIndex) yield new Area{
-    val scheduleParameter = p.schedules(scheduleId)
-    val slotsValid = slots.map(s => s.ready && s.sel(scheduleParameter.selId)).asBits()
+    val sp = p.schedules(scheduleId)
+    val slotsValid = (sp.eventOffset until p.slotCount by sp.eventFactor).map(i => slots(i).ready && slots(i).sel(sp.selId)).asBits()
     val selOh = OHMasking.firstV2(slotsValid, firstOrder =  LutInputs.get/2)
 
     schedule.valid := slotsValid.orR
@@ -132,6 +113,6 @@ class IssueQueue[T <: Data](p : IssueQueueParameter, slotContextType : HardType[
   }
 
   for((slot, slotIdx) <- slots.zipWithIndex){
-    slot.fire := selector.map(_.selOh(slotIdx)).orR
+    slot.fire := selector.filter(s => slotIdx % s.sp.eventFactor == s.sp.eventOffset).map(s => s.selOh(slotIdx/s.sp.eventFactor)).orR
   }
 }

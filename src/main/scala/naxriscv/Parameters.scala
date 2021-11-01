@@ -5,11 +5,11 @@ import spinal.core._
 
 
 object ROB extends AreaObject{
-  def ROWS = Frontend.DECODE_COUNT
+  def COLS = Frontend.DECODE_COUNT
   val SIZE = ScopeProperty[Int]
   def ID_WIDTH = log2Up(SIZE.get)
   val ID_TYPE = HardType(UInt(ID_WIDTH bits))
-  def lineRange = ID_WIDTH-1 downto log2Up(ROWS)
+  def lineRange = ID_WIDTH-1 downto log2Up(COLS)
 }
 
 object Global extends AreaObject {

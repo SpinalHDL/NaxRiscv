@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.interfaces.{DecoderService, Encoding, ExecuteUnitService, RegfileService, Riscv}
+import naxriscv.interfaces.{DecoderService, Encoding, EuGroup, ExecuteUnitService, RegfileService, Riscv}
 import naxriscv.pipeline.Connection.DIRECT
 import naxriscv.pipeline.{Stageable, _}
 import spinal.core._
@@ -69,7 +69,7 @@ class DecoderPlugin() extends Plugin with DecoderService{
   }
 
 
-  override def EU_SEL() = setup.EU_SEL
+  override def euGroups = logic.euGroups
   override def READ_RS(id: Int) = logic.regfiles.READ_RS(id)
   override def PHYSICAL_RS(id: Int) = logic.regfiles.ARCH_RS(id)
   override def WRITE_RD = logic.regfiles.WRITE_RD
@@ -81,11 +81,20 @@ class DecoderPlugin() extends Plugin with DecoderService{
     val frontend = getService[FrontendPlugin]
     frontend.retain()
     frontend.pipeline.connect(frontend.pipeline.decompressed, frontend.pipeline.decoded)(new DIRECT)
-    val EU_SEL = Stageable(Bits(getServicesOf[ExecuteUnitService].size bits))
   }
 
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
+
+    val executionUnits = getServicesOf[ExecuteUnitService]
+    val euGroups = ArrayBuffer[EuGroup]()
+    //TODO merges
+    for(eu <- executionUnits){
+      euGroups += EuGroup(
+        Seq(eu),
+        Stageable(Bool()).setName(eu.euName() + "_SEL")
+      )
+    }
 
     val regfiles = new Area {
       val plugins = getServicesOf[RegfileService]
@@ -104,7 +113,7 @@ class DecoderPlugin() extends Plugin with DecoderService{
       (regfiles.READ_RS(0), i) := False
       (regfiles.READ_RS(1), i) := False
       (regfiles.WRITE_RD, i) := False
-      (setup.EU_SEL  , i) := B(0)
+      for(group <- euGroups) (group.sel  , i) := False
       (DISPATCH_MASK, i) := (MASK_ALIGNED, i)
 //      implicit val offset = new StageableOffset(i)
 //      Riscv.READ_RS1 := False

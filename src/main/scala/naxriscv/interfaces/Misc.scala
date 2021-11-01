@@ -28,6 +28,10 @@ trait JumpService extends Service{
   def createJumpInterface(priority : Int = 0) : Flow[JumpCmd] //High priority win
 }
 
+
+case class EuGroup(eus : Seq[ExecuteUnitService],
+                   sel: Stageable[Bool])
+
 trait DecoderService extends Service{
   def add(key : MaskedLiteral,values : Seq[(Stageable[_ <: BaseType],Any)])
   def add(encoding :Seq[(MaskedLiteral,Seq[(Stageable[_ <: BaseType],Any)])])
@@ -35,7 +39,7 @@ trait DecoderService extends Service{
   def addFunction(fu: ExecuteUnitService,
                   enc: Encoding) : Unit
 
-  def EU_SEL() : Stageable[Bits]
+  def euGroups : Seq[EuGroup]
 
   def READ_RS(id : Int)  : Stageable[Bool]
   def PHYSICAL_RS(id : Int)  : Stageable[UInt]
@@ -48,18 +52,14 @@ trait DecoderService extends Service{
 }
 
 trait RobService extends Service{
-//  def robDepth : Int
-//  val ROB_DEPENDENCY : Stageable[UInt]
-  def robPushLine() : Stream[RobPushLine]
-  def robPopLine() : Stream[RobPopLine]
-  def robCompletion() : Stream[RobCompletion]
+  def robCompletion() : Flow[RobCompletion]
   def robLineValids() : RobLineMask
 }
 
 
 case class RobLineMask() extends Bundle{
   val line = ROB.ID_TYPE()
-  val mask = Bits(ROB.ROWS bits)
+  val mask = Bits(ROB.COLS bits)
 }
 
 trait RfAllocationService extends Service {
@@ -86,10 +86,14 @@ trait RegfileService extends Service{
 //  def newWakeRobIdPort() : Stream[WakeRobId]
 //}
 
+case class RescheduleCmd() extends Bundle{
+  val nextRob = ROB.ID_TYPE()
+}
+
 trait CommitService  extends Service{
   def onCommit() : Vec[Flow[CommitEntry]]
-  def newCompletionPort() : Flow[CompletionCmd]
-  def rollback() : Bool
+  def newCompletionPort(canTrap : Boolean, canJump : Boolean) : Flow[CompletionCmd]
+  def reschedulingPort() : Flow[RescheduleCmd]
 }
 
 trait RegfileSpec{
@@ -118,10 +122,15 @@ case class Encoding(
 //  def register(fu)
 //}
 
+case class ExecutionUnitPush() extends Bundle{
+  val robId = ROB_ID()
+}
+
 trait ExecuteUnitService extends Service{
+  def euName() : String
   def hasFixedLatency : Boolean
   def getFixedLatency : Int
-  def getIssuePort() : Unit
+  def pushPort() : Stream[ExecutionUnitPush]
   def addFunction(enc : Encoding)
 }
 
@@ -182,7 +191,7 @@ case class RobCompletion() extends Bundle {
 }
 case class RobPushLine() extends Bundle {
   val id = UInt(ROB.ID_WIDTH bits)
-  val entries = Vec.fill(ROB.ROWS)(RobPushEntry())
+  val entries = Vec.fill(ROB.COLS)(RobPushEntry())
 }
 case class RobPushEntry() extends Bundle{
   val commitTask = NoData
@@ -190,7 +199,7 @@ case class RobPushEntry() extends Bundle{
 
 case class RobPopLine() extends Bundle {
   val id = UInt(ROB.ID_WIDTH bits)
-  val entries = Vec.fill(ROB.ROWS)(RobPopEntry())
+  val entries = Vec.fill(ROB.COLS)(RobPopEntry())
 }
 case class RobPopEntry() extends Bundle{
   val valid = Bool()
