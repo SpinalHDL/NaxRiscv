@@ -17,8 +17,7 @@ class PlayPlugin extends Plugin{
     import stage._
     out(stage.isValid)
     out(stage(Frontend.WORD))
-    out(stage(Frontend.MASK))
-    out(frontend.pipeline.renamed(INSTRUCTION_DECOMPRESSED, 0))
+    out(frontend.pipeline.allocated(INSTRUCTION_DECOMPRESSED, 0))
     frontend.release()
   }
 }

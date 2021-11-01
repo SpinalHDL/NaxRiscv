@@ -11,12 +11,20 @@ import scala.collection.mutable.ArrayBuffer
 
 object Config{
   def properties() = {
+//    Global.PHYSICAL_WIDTH.set(32)
+//    Frontend.RVC.set(true)
+//    Frontend.FETCH_DATA_WIDTH.set(64)
+//    Frontend.INSTRUCTION_WIDTH.set(32)
+//    Frontend.DECODE_COUNT.set(2)
+//    Global.COMMIT_COUNT.set(2)
+//    ROB.SIZE.set(64)
+
     Global.PHYSICAL_WIDTH.set(32)
     Frontend.RVC.set(true)
-    Frontend.FETCH_DATA_WIDTH.set(64)
+    Frontend.FETCH_DATA_WIDTH.set(32)
     Frontend.INSTRUCTION_WIDTH.set(32)
-    Frontend.DECODE_COUNT.set(2)
-    Global.COMMIT_COUNT.set(2)
+    Frontend.DECODE_COUNT.set(1)
+    Global.COMMIT_COUNT.set(1)
     ROB.SIZE.set(64)
   }
   def plugins(): Seq[Plugin] ={
@@ -28,7 +36,8 @@ object Config{
     plugins += new FetchCachePlugin(
       cacheSize = 4096,
       wayCount = 1,
-      injectionAt = 2
+      injectionAt = 2,
+      memDataWidth = 32
     )
     plugins += new AlignerPlugin()
     plugins += new DecompressorPlugin()

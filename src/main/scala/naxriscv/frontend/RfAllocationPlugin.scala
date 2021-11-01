@@ -22,7 +22,7 @@ class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationServi
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
     val decoder = getService[DecoderPlugin]
-    val stage = frontend.pipeline.renamed
+    val stage = frontend.pipeline.allocated
     import stage._
 
     val entryCount = getService[RegfileService](rf).getPhysicalDepth

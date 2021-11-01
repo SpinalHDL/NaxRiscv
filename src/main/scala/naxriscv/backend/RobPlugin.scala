@@ -42,8 +42,8 @@ class RobPlugin() extends Plugin with RobService{
     }
 
     val frontend = getService[FrontendPlugin]
-    when(frontend.pipeline.renamed.isFireing){
-      valids.subdivideIn(ROB.COLS bits).write(frontend.pipeline.renamed(ROB_ID) >> log2Up(ROB.COLS), B(0, ROB.COLS bits))
+    when(frontend.pipeline.allocated.isFireing){
+      valids.subdivideIn(ROB.COLS bits).write(frontend.pipeline.allocated(ROB_ID) >> log2Up(ROB.COLS), B(0, ROB.COLS bits))
     }
     frontend.release()
   }

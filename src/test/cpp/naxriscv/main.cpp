@@ -24,6 +24,10 @@ using namespace std;
 #define u64 uint64_t
 #define u8 uint8_t
 
+#include <stdio.h>
+#include <getopt.h>
+
+
 vluint64_t main_time = 0;
 
 
@@ -112,6 +116,18 @@ public:
 	}
 };
 
+
+//http://www.mario-konrad.ch/blog/programming/getopt.html
+#define ARG_MEM_HEX 1
+static const struct option long_options[] =
+{
+//        { "AAA", no_argument,       0, 'a' },
+//        { "CCC", required_argument, 0, 'c' },
+    { "mem_hex", required_argument, 0, ARG_MEM_HEX },
+    0
+};
+
+
 int main(int argc, char** argv, char** env){
     printf("Miaou\n");
     // This example started with the Verilator example files.
@@ -144,6 +160,32 @@ int main(int argc, char** argv, char** env){
 
 	vector<SimElement*> simElements;
 	simElements.push_back(new FetchCached(top, soc, true));
+
+
+
+
+
+    while (1)
+    {
+        int index = -1;
+        struct option * opt = 0;
+        int result = getopt_long(argc, argv,
+            "abc:d",
+            long_options, &index);
+        if (result == -1) break;
+        switch (result)
+        {
+            case ARG_MEM_HEX:
+                soc->memory.loadHexl(string(optarg));
+                break;
+        }
+    }
+    /* print all other parameters */
+    while (optind < argc)
+    {
+        printf("other parameter: <%s>\n", argv[optind++]);
+    }
+
 
     top->clk = 0;
 

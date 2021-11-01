@@ -28,6 +28,7 @@ case class FetchL1Bus(p : FetchCachePlugin) extends Bundle with IMasterSlave {
 
 class FetchCachePlugin(val cacheSize : Int,
                        val wayCount : Int,
+                       val memDataWidth : Int,
                        val lineSize : Int = 64,
                        val readAt : Int = 0,
                        val hitsAt : Int = 1,
@@ -35,8 +36,7 @@ class FetchCachePlugin(val cacheSize : Int,
                        val bankMuxesAt : Int = 1,
                        val bankMuxAt : Int = 2,
                        val controlAt : Int = 2,
-                       val injectionAt : Int = 2,
-                       val memDataWidth   : Int = 64) extends Plugin with FetchPipelineRequirements {
+                       val injectionAt : Int = 2) extends Plugin with FetchPipelineRequirements {
   override def stagesCountMin = injectionAt + 1
 
   val mem = create early master(FetchL1Bus(this))
@@ -52,7 +52,7 @@ class FetchCachePlugin(val cacheSize : Int,
 
     val doc = getService[DocPlugin]
     doc.property("FETCH_MEM_DATA_BITS", memDataWidth)
-    doc.property("FETCH_LINE_BYTES", memDataWidth)
+    doc.property("FETCH_LINE_BYTES", lineSize)
   }
 
   val logic = create late new Area{
@@ -227,14 +227,6 @@ class FetchCachePlugin(val cacheSize : Int,
       }
 
       {import hitStage._;   WAYS_HIT := B(WAYS_HITS).orR}
-
-      {
-        val maskStage = setup.pipeline.getStage(1)
-        import maskStage._
-        val sliceRangeLow = if (RVC) 1 else 2
-        val sliceRange = (sliceRangeLow + log2Up(SLICE_COUNT) - 1 downto sliceRangeLow)
-        MASK := (0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(FETCH_PC_VIRTUAL(sliceRange))
-      }
 
       val ctrl = new Area{
         import controlStage._

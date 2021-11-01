@@ -114,7 +114,7 @@ class RfTranslationPlugin() extends Plugin {
     val decoder = getService[DecoderService]
     val frontend = getService[FrontendPlugin]
 
-    val stage = frontend.pipeline.renamed
+    val stage = frontend.pipeline.allocated
     import stage._
 
     val impl = new TranslatorWithRollback(

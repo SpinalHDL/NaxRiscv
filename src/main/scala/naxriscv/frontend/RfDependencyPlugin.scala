@@ -127,7 +127,7 @@ class RfDependencyPlugin() extends Plugin {
     val wakers = getServicesOf[WakeService]
     val wakeIds = wakers.flatMap(_.wakeRobs)
 
-    val stage = frontend.pipeline.renamed
+    val stage = frontend.pipeline.allocated
     import stage._
 
     val impl = new DependencyStorage(

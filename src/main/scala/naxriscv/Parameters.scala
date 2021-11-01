@@ -40,7 +40,6 @@ object Frontend extends AreaObject {
   def SLICE_COUNT = FETCH_DATA_WIDTH/SLICE_WIDTH
 
   val WORD = Stageable(Bits(FETCH_DATA_WIDTH bits))
-  val MASK = Stageable(Bits(FETCH_DATA_WIDTH/SLICE_WIDTH bits))
 
   val DISPATCH_MASK = Stageable(Bool())
 

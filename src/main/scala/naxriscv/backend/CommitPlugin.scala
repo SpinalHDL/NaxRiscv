@@ -41,7 +41,7 @@ class CommitPlugin extends Plugin with CommitService{
 
       //Manage frontend ROB id allocation
       val frontend = getService[FrontendPlugin]
-      val stage = frontend.pipeline.renamed
+      val stage = frontend.pipeline.allocated
       stage(ROB_ID) := alloc.resized
       stage.haltIt(full)
 

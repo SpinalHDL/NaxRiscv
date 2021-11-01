@@ -35,14 +35,14 @@ class FrontendPlugin() extends Plugin {
     val aligned = newStage()
     val decompressed = newStage()
     val decoded = newStage()
-    val renamed = newStage()
+    val allocated = newStage()
 
     import Connection._
     for((m, s) <- (fetches.dropRight(1), fetches.tail).zipped){
       connect(m, s)(M2S(flushPreserveInput = m == fetches.head))
     }
 
-    connect(decoded, renamed)(M2S())
+    connect(decoded, allocated)(M2S())
   }
   pipeline.setCompositeName(this)
 
