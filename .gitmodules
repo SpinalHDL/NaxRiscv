@@ -1,0 +1,3 @@
+[submodule "ext/NaxSoftware"]
+	path = ext/NaxSoftware
+	url = https://github.com/SpinalHDL/NaxSoftware.git
