@@ -45,7 +45,7 @@ object Config{
     plugins += new RfTranslationPlugin()
     plugins += new RfDependencyPlugin()
     plugins += new RfAllocationPlugin(Riscv.integer.regfile)
-    plugins += new DisspatchPlugin(
+    plugins += new DispatchPlugin(
       slotCount = 32
     )
     plugins += new ExecuteUnit("ALU0")

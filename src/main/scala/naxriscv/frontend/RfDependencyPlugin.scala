@@ -65,7 +65,7 @@ class DependencyStorage(archDepth : Int,
         enable = p.valid
       )
       when(p.valid){
-        dependencies.enable(p.address) := True
+        dependencies.enable(p.data) := True
       }
     }
   }

@@ -32,11 +32,11 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
 
   val logic = create late new Area{
     val pushPort = Stream(ExecutionUnitPush())
-    pushPort.ready := True
+    val wake = pushPort.toFlow.stage().stage().stage()
 
     val wakePort = Flow(Frontend.ROB_ID)
-    wakePort.valid := False
-    wakePort.payload := 0
+    wakePort.valid := wake.valid
+    wakePort.payload := wake.robId
 
     setup.completion.valid := False
     setup.completion.id := 0

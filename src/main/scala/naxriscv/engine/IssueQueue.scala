@@ -50,23 +50,24 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
     val context = slotContextType()
   }
 
- //TODO event shift while compacting
+  val running = RegNext(True) init(False)
+  val clear = io.clear || !running
+
   val lines = for(line <- 0 until p.lineCount) yield new Area{
     val ways = for(way <- 0 until p.wayCount) yield new Area{
       val fire = Bool()
       val priority = line*p.wayCount+way
-      val sel = Reg(Bits(p.selCount bits))
+      val sel = Reg(Bits(p.selCount bits)) //Not zero when the given slot is valid
       val selComb = CombInit(sel)
       val context = Reg(slotContextType())
-      val triggers = Reg(Bits(priority + 1 bits)) //The msb bit is use to encore if the instruction will generate event
+      val triggers = Reg(Bits(priority + 1 bits)) //The msb bit is use ensure the slot is keept until it did the wakeup
       val ready = triggers(priority - 1 downto 0) === 0
 
-      when(fire){ selComb := 0 }
       sel := selComb
+      when(clear){ sel := 0 } // Lazy path
+      when(fire){ selComb := 0 }
     }
   }
-
-
 
   io.push.ready := lines.head.ways.map(!_.triggers.msb).andR
 
@@ -97,8 +98,6 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
   }
 
   val event = new Area{
-    val running = RegNext(True) init(False)
-    val clear = io.clear || !running
     val moved = !compaction.moveIt ? io.events | (io.events |>> p.wayCount)
     val value = clear ? B(p.slotCount bits, default -> true) | moved
   }
@@ -113,10 +112,10 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
   val slots = lines.map(_.ways).flatten
   val selector = for((schedule, scheduleId) <- io.schedules.zipWithIndex) yield new Area{
     val sp = p.schedules(scheduleId)
-    val slotsValid = (sp.eventOffset until p.slotCount by sp.eventFactor).map(i => slots(i).ready && slots(i).sel(sp.selId)).asBits()
+    val slotsValid = B((sp.eventOffset until p.slotCount by sp.eventFactor).map(i => slots(i).ready && slots(i).sel(sp.selId)))
     val selOh = OHMasking.firstV2(slotsValid, firstOrder =  LutInputs.get/2)
 
-    schedule.valid := slotsValid.orR
+    schedule.valid := slotsValid.orR && running
     schedule.event := selOh
   }
 

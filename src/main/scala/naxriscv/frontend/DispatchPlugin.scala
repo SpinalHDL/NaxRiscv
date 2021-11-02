@@ -13,7 +13,7 @@ import scala.collection.mutable.ArrayBuffer
 
 
 
-class DisspatchPlugin(slotCount : Int) extends Plugin with IssueService{
+class DispatchPlugin(slotCount : Int) extends Plugin with IssueService{
   val robWaits = ArrayBuffer[RobWait]()
   override def newRobWait() = {
     val e = RobWait()
@@ -62,20 +62,23 @@ class DisspatchPlugin(slotCount : Int) extends Plugin with IssueService{
 
 
     val ptr = new Area{
-      val older = Reg(ROB.ID_TYPE)  init(ROB.SIZE-slotCount + Frontend.DISPATCH_COUNT)
+      val next = Reg(ROB.ID_TYPE)  init(ROB.SIZE-slotCount + Frontend.DISPATCH_COUNT)
+      val current = Reg(ROB.ID_TYPE)  init(ROB.SIZE-slotCount)
       when(queue.io.push.fire){
-        older := older + 1
+        next := next + Frontend.DISPATCH_COUNT
+        current := current + Frontend.DISPATCH_COUNT
       }
       val rescheduling = commit.reschedulingPort
       queue.io.clear := rescheduling.valid
       when(rescheduling.valid){
-        older := rescheduling.nextRob - slotCount
+        next := rescheduling.nextRob - slotCount + Frontend.DISPATCH_COUNT
+        current := rescheduling.nextRob - slotCount
       }
     }
 
-    def g2l(robId : UInt) = (robId - ptr.older).resize(log2Up(slotCount))
-    def l2g(robId : UInt) = robId.resize(log2Up(ROB.SIZE))  + ptr.older
+
     val wake = new Area {
+      def g2l(robId : UInt) = (robId - ptr.current).resize(log2Up(slotCount))
       val sources = getServicesOf[WakeService]
       val ids = sources.flatMap(_.wakeRobs)
       val offseted = ids.map(f => f.translateWith(g2l(f.payload)))
@@ -84,6 +87,7 @@ class DisspatchPlugin(slotCount : Int) extends Plugin with IssueService{
     }
 
     val push = new Area{
+      def g2l(robId : UInt) = (robId - ptr.next).resize(log2Up(slotCount))
       queue.io.push.valid := isFireing
       stage.haltIt(!queue.io.push.ready) //Assume ready at 0 when not full
       val slots = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield new Area{
@@ -96,9 +100,11 @@ class DisspatchPlugin(slotCount : Int) extends Plugin with IssueService{
     }
 
     val pop = for((port, portId) <- queue.io.schedules.zipWithIndex) yield new Area{
+      def l2g(robId : UInt) = robId.resize(log2Up(ROB.SIZE))  + ptr.current
+
       val eu = eus(portId)
       val mapping = queue.p.schedules(portId)
-      val eventFull = (0 until slotCount).map(i => if(i % mapping.eventFactor == mapping.eventOffset) port.event(i/mapping.eventFactor) else False)
+      val eventFull = (0 until slotCount).map(i => if(i % mapping.eventFactor == mapping.eventOffset) port.event(i/mapping.eventFactor) else False).asBits()
       val robId = l2g(OHToUInt(eventFull))
 
       val euPort = eu.pushPort()
