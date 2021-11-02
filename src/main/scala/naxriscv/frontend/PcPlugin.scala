@@ -32,6 +32,9 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
     val pipeline = setup.pipeline.getPipeline()
     import stage._
 
+    val sliceRangeLow = if (RVC) 1 else 2
+    val sliceRange = (sliceRangeLow + log2Up(SLICE_COUNT) - 1 downto sliceRangeLow)
+
     val jump = new Area {
       val sortedByStage = jumpInfos.sortWith(_.priority > _.priority)
       val valids = sortedByStage.map(_.interface.valid)
@@ -56,13 +59,13 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
       val pcRegPropagate = False
       val booted = RegNext(True) init (False)
       val inc = RegInit(False) clearWhen(correction || pcRegPropagate) setWhen(output.fire) clearWhen(!output.valid && output.ready)
-      val pc = pcReg + (inc ## B"00").asUInt
+      val pc = pcReg + (inc.asUInt << sliceRange.high+1)
 
 
       val flushed = False
 
       if(RVC) when(inc) {
-        pc(1) := False
+        pc(sliceRange) := 0
       }
 
       when(jump.pcLoad.valid) {
