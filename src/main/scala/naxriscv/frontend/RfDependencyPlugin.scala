@@ -64,19 +64,23 @@ class DependencyStorage(archDepth : Int,
         data = p.data,
         enable = p.valid
       )
+      when(p.valid){
+        dependencies.enable(p.address) := True
+      }
     }
   }
 
 
   val commits = for(p <- io.commits) yield new Area{
     when(p.valid){
-      dependencies.enable(p.address) := True
+      dependencies.enable(p.address) := False
     }
   }
 
   val read = for(p <- io.reads) yield new Area{
     val translated = dependencies.dependency.readAsync(p.cmd.payload)
     val enabled = dependencies.enable(translated)
+    p.rsp.valid := p.cmd.valid
     p.rsp.enable := enabled
     p.rsp.rob := translated
   }
@@ -161,6 +165,7 @@ class RfDependencyPlugin() extends Plugin {
           val archRs = (Frontend.INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rsRange(rsId))
           val useRs = (decoder.READ_RS(rsId), slotId)
           val port = impl.io.reads(slotId*decoder.rsCount+rsId)
+          port.cmd.valid := isValid && (DISPATCH_MASK, slotId) && useRs
           port.cmd.payload := U(archRs)
           (setup.waits(rsId).ENABLE, slotId) := port.rsp.enable
           (setup.waits(rsId).ID    , slotId) := port.rsp.rob

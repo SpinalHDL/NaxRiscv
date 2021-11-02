@@ -154,7 +154,7 @@ class DecoderPlugin() extends Plugin with DecoderService{
     }
 
     for (i <- 0 until Frontend.DECODE_COUNT) {
-      implicit val offset = new StageableOffset(i)
+      implicit val offset = StageableOffset(i)
       regfiles.READ_RS(0) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs1, encodings.readRs1N)
       regfiles.READ_RS(1) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs2, encodings.readRs2N)
       regfiles.WRITE_RD   := Symplify(INSTRUCTION_DECOMPRESSED, encodings.writeRd, encodings.writeRdN)

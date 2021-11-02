@@ -10,7 +10,7 @@ object Stageable{
 class Stageable[T <: Data](gen : => T) extends HardType(gen) with Nameable {
 
 }
-class StageableOffset(val value : Any)
+case class StageableOffset(val value : Any)
 object StageableOffsetNone extends StageableOffset(null)
 case class StageableKey(stageable: Stageable[Data], key : Any){
   override def toString = {

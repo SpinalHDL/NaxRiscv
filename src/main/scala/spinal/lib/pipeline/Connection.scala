@@ -1,6 +1,6 @@
 package spinal.lib.pipeline
 
-import spinal.core.{Area, Bool, Data, Nameable, OverridedEqualsHashCode, when}
+import spinal.core._
 
 
 case class ConnectionPoint(valid : Bool, ready : Bool, payload : Seq[Data]) extends Nameable
@@ -36,10 +36,8 @@ object Connection{
            s : ConnectionPoint,
            flush : Bool, flushNext : Bool, flushNextHit : Bool) = new Area{
 
-      s.valid.setAsReg()
+      s.valid.setAsReg() init(False)
       s.payload.foreach(_.setAsReg())
-
-
 
       m.ready match {
         case null =>

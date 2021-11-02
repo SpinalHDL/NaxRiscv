@@ -10,6 +10,7 @@ import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.utilities.Plugin
+import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline.{ConnectionLogic, ConnectionPoint, Stageable}
 
 //case class CompactorCmd() extends Bundle {
@@ -45,7 +46,7 @@ class AlignerPlugin() extends Plugin{
       assert(flushNext == null)
       s.valid := extractors.map(_.valid).orR
       if(m.ready != null) m.ready := fireInput
-      when(logic.input.isFlushed){
+      if(flush != null) when(flush){
         buffer.mask := 0
       }
       (s.payload, m.payload).zipped.foreach(_ := _)
@@ -55,12 +56,14 @@ class AlignerPlugin() extends Plugin{
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     frontend.retain()
-    frontend.pipeline.connect(frontend.pipeline.fetches.last, frontend.pipeline.aligned)(new CustomConnector)
+    val buffer = frontend.pipeline.newStage()
+    frontend.pipeline.connect(frontend.pipeline.fetches.last, buffer)(new M2S())
+    frontend.pipeline.connect(buffer, frontend.pipeline.aligned)(new CustomConnector)
   }
 
   val MASK = Stageable(Bits(FETCH_DATA_WIDTH/SLICE_WIDTH bits))
   val logic = create late new Area {
-    val input = setup.frontend.pipeline.fetches.last
+    val input = setup.buffer
     val output = setup.frontend.pipeline.aligned
     val frontend = getService[FrontendPlugin]
 
@@ -122,14 +125,23 @@ class AlignerPlugin() extends Plugin{
       output(MASK_ALIGNED, i) := valid
     }
 
+    val fireOutput = CombInit(output.isFireing)
+    val fireInput = isValid && buffer.mask === 0 || fireOutput && slices.mask(0, SLICE_COUNT bits) === 0
 
-    val fire = CombInit(output.isFireing)
-    val fireInput = False
-    when(buffer.mask === 0 || fire && slices.mask(0, SLICE_COUNT bits) === 0) {
-      buffer.mask := slices.mask(SLICE_COUNT, SLICE_COUNT bits)
-      buffer.data := WORD
-      fireInput := True
+    when(fireOutput){
+      buffer.mask := slices.mask(0, SLICE_COUNT bits)
     }
+    when(fireInput){
+      buffer.mask := fireOutput ? slices.mask(SLICE_COUNT, SLICE_COUNT bits) | MASK
+      buffer.data := WORD
+    }
+//    val fireOutput = CombInit(output.isFireing)
+//    val fireInput = False
+//    when(buffer.mask === 0 || fireOutput && slices.mask(0, SLICE_COUNT bits) === 0) {
+//      buffer.mask := slices.mask(SLICE_COUNT, SLICE_COUNT bits)
+//      buffer.data := WORD
+//      fireInput := True
+//    }
 
     setup.frontend.release()
   }

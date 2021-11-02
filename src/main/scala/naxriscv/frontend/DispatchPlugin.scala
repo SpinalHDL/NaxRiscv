@@ -60,12 +60,14 @@ class DisspatchPlugin(slotCount : Int) extends Plugin with IssueService{
       slotContextType = NoData
     )
 
+
     val ptr = new Area{
-      val older = Reg(ROB.ID_TYPE)
+      val older = Reg(ROB.ID_TYPE)  init(ROB.SIZE-slotCount + Frontend.DISPATCH_COUNT)
       when(queue.io.push.fire){
         older := older + 1
       }
       val rescheduling = commit.reschedulingPort
+      queue.io.clear := rescheduling.valid
       when(rescheduling.valid){
         older := rescheduling.nextRob - slotCount
       }
@@ -83,11 +85,12 @@ class DisspatchPlugin(slotCount : Int) extends Plugin with IssueService{
 
     val push = new Area{
       queue.io.push.valid := isFireing
-      stage.haltIt(queue.io.push.ready) //Assume ready at 0 when not full
+      stage.haltIt(!queue.io.push.ready) //Assume ready at 0 when not full
       val slots = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield new Area{
         val slot = queue.io.push.slots(slotId)
+        val self   = (decoder.WRITE_RD, slotId) ? B(BigInt(1) << slotCount-Frontend.DISPATCH_COUNT+slotId, slotCount bits) | B(0)
         val events = robWaits.map(o => B(slotCount bits, default -> stage(o.ENABLE, slotId)) & UIntToOh(g2l(stage(o.ID, slotId))))
-        slot.event := events.reduceBalancedTree(_ | _)
+        slot.event := (self +: events).reduceBalancedTree(_ | _)
         slot.sel   := groups.map(g => stage(g.sel, slotId)).asBits()
       }
     }

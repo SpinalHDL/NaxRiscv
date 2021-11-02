@@ -34,6 +34,7 @@ case class ScheduleParameter(eventFactor : Int,
 }
 
 case class IssueQueueIo[T <: Data](p : IssueQueueParameter, slotContextType : HardType[T]) extends Bundle{
+  val clear = in Bool()
   val events = KeepAttribute(in(p.eventType()))
   val push = slave Stream(IssueQueuePush(p, slotContextType))
   val schedules = Vec(p.schedules.map(sp => master Stream(Schedule(sp, p.slotCount))))
@@ -95,10 +96,17 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
     }
   }
 
+  val event = new Area{
+    val running = RegNext(True) init(False)
+    val clear = io.clear || !running
+    val moved = !compaction.moveIt ? io.events | (io.events |>> p.wayCount)
+    val value = clear ? B(p.slotCount bits, default -> true) | moved
+  }
+
   //Apply io events
-  for(eventId <- 0 to p.slotCount-p.wayCount) {
-    when(compaction.moveIt ?  (if(eventId >= p.slotCount - p.wayCount) False else io.events(eventId+p.wayCount)) | io.events(eventId)){
-      lines.foreach(_.ways.filter(_.priority > eventId).foreach(_.triggers(eventId) := False))
+  for(eventId <- 0 until p.slotCount) {
+    when(event.value(eventId)){
+      lines.foreach(_.ways.filter(_.priority >= eventId).foreach(_.triggers(eventId) := False))
     }
   }
 

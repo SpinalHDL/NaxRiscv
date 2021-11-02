@@ -12,7 +12,7 @@ import scala.collection.mutable.ArrayBuffer
 
 class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationService{
   override def getAllocPort() = logic.allocator.io.pop
-  override def getFreePort() = logic.allocator.io.push
+  override def getFreePort() = logic.push.external
   var freePorts = ArrayBuffer
 
   val setup = create early new Area{
@@ -36,6 +36,11 @@ class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationServi
       popCount = Frontend.DISPATCH_COUNT
     )
 
+    val push = new Area{
+      val external = cloneOf(allocator.io.push)
+      allocator.io.push <> external
+    }
+
     val pop = new Area {
       val blocked = !allocator.io.pop.ready
       haltIt(blocked)
@@ -47,6 +52,21 @@ class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationServi
       }
     }
 
+
+    val init = new Area {
+      assert(isPow2(entryCount))
+      val counter = Reg(UInt(log2Up(entryCount*2) bits)) init (0)
+      val busy = !counter.msb
+      haltIt(busy)
+
+      when(busy) {
+        val port = allocator.io.push(0)
+        port.valid := True
+        port.payload := counter.resized
+
+        counter := counter + 1
+      }
+    }
     frontend.release()
   }
 }

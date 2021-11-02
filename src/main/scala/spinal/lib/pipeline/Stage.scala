@@ -1,7 +1,8 @@
 package spinal.lib.pipeline
 
 import naxriscv.utilities.Misc
-import spinal.core.{Area, Bool, ConditionalContext, Data, Nameable}
+import spinal.core._
+import spinal.idslplugin.Location
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -49,16 +50,20 @@ class Stage extends Nameable {
     }
   }
 
+  def nameFromLocation[T <: Data](that : T, prefix : String)(implicit loc: Location) : T ={
+    that.setCompositeName(this, prefix + "_" + loc.file + "_l" + loc.line, Nameable.REMOVABLE)
+  }
+
   implicit def stageablePiped[T <: Data](stageable: Stageable[T])(implicit key : StageableOffset = StageableOffsetNone) = Stage.this(stageable, key.value)
   implicit def stageablePiped2[T <: Data](stageable: Stageable[T]) = new {
     def of(key : Any) = Stage.this.apply(stageable, key)
   }
   implicit def stageablePiped3[T <: Data](key: Tuple2[Stageable[T], Any]) = Stage.this(key._1, key._2)
   //  implicit def stageablePiped2[T <: Data](stageable: Stageable[T]) = new DataPimper(Stage.this(stageable))
-  def haltIt() : Unit = haltIt(ConditionalContext.isTrue)
+  def haltIt()(implicit loc: Location) : Unit = haltIt(ConditionalContext.isTrue)
   def flushIt() : Unit = flushIt(ConditionalContext.isTrue)
   def flushNext() : Unit = flushNext(ConditionalContext.isTrue)
-  def haltIt(cond : Bool) : Unit = internals.request.halts += cond
+  def haltIt(cond : Bool)(implicit loc: Location) : Unit = internals.request.halts += nameFromLocation(CombInit(cond), "haltRequest")
   def flushIt(cond : Bool, root : Boolean = true) : Unit = {
     internals.request.flush += cond
     if(root) internals.request.flushRoot += cond
