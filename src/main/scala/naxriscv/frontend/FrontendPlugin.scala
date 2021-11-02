@@ -2,9 +2,10 @@ package naxriscv.frontend
 
 import spinal.core._
 import spinal.core.fiber._
-import naxriscv.pipeline.Connection._
-import naxriscv.pipeline._
+import spinal.lib.pipeline.Connection._
+import spinal.lib.pipeline._
 import naxriscv.utilities.Plugin
+import spinal.lib.pipeline.Pipeline
 
 trait FetchPipelineRequirements{
   def stagesCountMin : Int
@@ -37,7 +38,7 @@ class FrontendPlugin() extends Plugin {
     val decoded = newStage()
     val allocated = newStage()
 
-    import Connection._
+    import spinal.lib.pipeline.Connection._
     for((m, s) <- (fetches.dropRight(1), fetches.tail).zipped){
       connect(m, s)(M2S(flushPreserveInput = m == fetches.head))
     }

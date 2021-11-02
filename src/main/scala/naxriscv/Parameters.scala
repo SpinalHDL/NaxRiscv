@@ -1,7 +1,7 @@
 package naxriscv
 
-import naxriscv.pipeline.Stageable
 import spinal.core._
+import spinal.lib.pipeline.Stageable
 
 
 object ROB extends AreaObject{

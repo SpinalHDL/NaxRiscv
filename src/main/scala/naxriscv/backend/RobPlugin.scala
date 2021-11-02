@@ -5,10 +5,10 @@ import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.{RobCompletion, RobLineMask, RobService}
-import naxriscv.pipeline.Stageable
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
+import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable.ArrayBuffer
 

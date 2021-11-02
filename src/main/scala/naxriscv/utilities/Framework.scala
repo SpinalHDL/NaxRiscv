@@ -2,7 +2,7 @@ package naxriscv.utilities
 
 import spinal.core._
 import spinal.core.fiber.{Handle, Lock}
-import naxriscv.pipeline._
+import spinal.lib.pipeline._
 
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.{ClassTag, classTag}

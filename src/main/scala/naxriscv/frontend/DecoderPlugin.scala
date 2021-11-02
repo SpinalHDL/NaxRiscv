@@ -3,15 +3,18 @@ package naxriscv.frontend
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.interfaces.{DecoderService, Encoding, EuGroup, ExecuteUnitService, RegfileService, Riscv}
-import naxriscv.pipeline.Connection.DIRECT
-import naxriscv.pipeline.{Stageable, _}
+import naxriscv.interfaces.{DecoderService, Encoding, EuGroup, ExecuteUnitService, RegfileService, RfResource, Riscv}
+import spinal.lib.pipeline.Connection.DIRECT
+import spinal.lib.pipeline._
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.Plugin
+import spinal.lib.logic.{Masked, Symplify}
+import spinal.lib.pipeline.Stageable
 
-import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable._
+
+
 
 
 //case class DecoderParameter(decoderWidth : Int,
@@ -36,8 +39,9 @@ import scala.collection.mutable.ArrayBuffer
 
 
 class DecoderPlugin() extends Plugin with DecoderService{
-//  val defaults = mutable.LinkedHashMap[Stageable[_ <: BaseType], BaseType]()
-//  val encodings = mutable.LinkedHashMap[MaskedLiteral,ArrayBuffer[(Stageable[_ <: BaseType], BaseType)]]()
+
+//  val defaults = LinkedHashMap[Stageable[_ <: BaseType], BaseType]()
+//  val encodings = LinkedHashMap[MaskedLiteral,ArrayBuffer[(Stageable[_ <: BaseType], BaseType)]]()
 //
 //  override def add(encoding: Seq[(MaskedLiteral, Seq[(Stageable[_ <: BaseType], Any)])]): Unit = encoding.foreach(e => this.add(e._1,e._2))
 //  override def add(key: MaskedLiteral, values: Seq[(Stageable[_ <: BaseType], Any)]): Unit = {
@@ -59,13 +63,13 @@ class DecoderPlugin() extends Plugin with DecoderService{
 //      case e : BaseType => e
 //    }
 //  }
-  override def add(key: MaskedLiteral, values: Seq[(Stageable[_ <: BaseType], Any)]) = ???
-  override def add(encoding: Seq[(MaskedLiteral, Seq[(Stageable[_ <: BaseType], Any)])]) = ???
-  override def addDefault(key: Stageable[_ <: BaseType], value: Any) = ???
+//  override def add(key: MaskedLiteral, values: Seq[(Stageable[_ <: BaseType], Any)]) = ???
+//  override def add(encoding: Seq[(MaskedLiteral, Seq[(Stageable[_ <: BaseType], Any)])]) = ???
+//  override def addDefault(key: Stageable[_ <: BaseType], value: Any) = ???
 
-  val encodings = mutable.LinkedHashMap[ExecuteUnitService, ArrayBuffer[Encoding]]()
+  val euToEncodings = LinkedHashMap[ExecuteUnitService, ArrayBuffer[Encoding]]()
   override def addFunction(fu: ExecuteUnitService, enc: Encoding) = {
-    encodings.getOrElseUpdate(fu, ArrayBuffer[Encoding]()) += enc
+    euToEncodings.getOrElseUpdate(fu, ArrayBuffer[Encoding]()) += enc
   }
 
 
@@ -109,17 +113,55 @@ class DecoderPlugin() extends Plugin with DecoderService{
     val stage = frontend.pipeline.decoded
     import stage._
 
-    for(i <- 0 until Frontend.DECODE_COUNT) {
-      (regfiles.READ_RS(0), i) := False
-      (regfiles.READ_RS(1), i) := False
-      (regfiles.WRITE_RD, i) := False
-      for(group <- euGroups) (group.sel  , i) := False
-      (DISPATCH_MASK, i) := (MASK_ALIGNED, i)
-//      implicit val offset = new StageableOffset(i)
-//      Riscv.READ_RS1 := False
-//      Riscv.READ_RS2 := False
-//      Riscv.WRITE_RD := False
-//      setup.EU_SEL   := B(0)
+//    val spec = LinkedHashMap[Masked, Masked]()
+//    for(e <- encodings){
+//      val key = Masked(e.key)
+//      val value =
+//    }
+
+    val encodings = new Area{
+      val encs = LinkedHashSet[Encoding]() ++ euToEncodings.flatMap(_._2)
+      val all = LinkedHashSet[Masked]()
+      val readRs1, readRs2, writeRd = LinkedHashSet[Masked]()
+      for(e <- encs){
+        val masked = Masked(e.key)
+        all += masked
+        e.ressources.foreach {
+          case r: RfResource => r.enc match {
+            case Riscv.RS1 => readRs1 += masked
+            case Riscv.RS2 => readRs2 += masked
+            case Riscv.RD => writeRd += masked
+          }
+        }
+      }
+      val readRs1N = all -- readRs1
+      val readRs2N = all -- readRs2
+      val writeRdN = all -- writeRd
+
+      val groups, groupsN = LinkedHashMap[EuGroup, LinkedHashSet[Masked]]()
+      for(group <- euGroups){
+        val addTo = groups.getOrElseUpdate(group, LinkedHashSet[Masked]())
+        for(eu <- group.eus){
+          for(enc <- euToEncodings(eu)){
+            addTo += Masked(enc.key)
+          }
+        }
+        groupsN(group) = all -- addTo
+      }
+//      for((eu, encs) <- euToEncodings){
+//        val e = groups.getOrElseUpdate()
+//      }
+    }
+
+    for (i <- 0 until Frontend.DECODE_COUNT) {
+      implicit val offset = new StageableOffset(i)
+      regfiles.READ_RS(0) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs1, encodings.readRs1N)
+      regfiles.READ_RS(1) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs2, encodings.readRs2N)
+      regfiles.WRITE_RD   := Symplify(INSTRUCTION_DECOMPRESSED, encodings.writeRd, encodings.writeRdN)
+      for (group <- euGroups) {
+        group.sel := Symplify(INSTRUCTION_DECOMPRESSED, encodings.groups(group), encodings.groupsN(group))
+      }
+      DISPATCH_MASK := MASK_ALIGNED
     }
 
     frontend.release()

@@ -3,11 +3,11 @@ package naxriscv.frontend
 import naxriscv.{Frontend, ROB}
 import naxriscv.engine.{IssueQueue, IssueQueueParameter, ScheduleParameter}
 import naxriscv.interfaces.{CommitService, DecoderService, IssueService, RobWait, WakeService}
-import naxriscv.pipeline.Stageable
 import naxriscv.utilities.{Plugin, Service}
 import spinal.core._
 import spinal.core.fiber.Lock
 import spinal.lib._
+import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable.ArrayBuffer
 

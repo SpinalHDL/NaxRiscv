@@ -4,7 +4,7 @@ import spinal.core._
 import spinal.core.fiber._
 import spinal.lib._
 import naxriscv.interfaces.{JumpCmd, JumpService}
-import naxriscv.pipeline._
+import spinal.lib.pipeline._
 import naxriscv.utilities.Plugin
 import naxriscv._
 import naxriscv.Global._

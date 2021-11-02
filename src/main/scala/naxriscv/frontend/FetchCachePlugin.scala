@@ -4,8 +4,8 @@ import spinal.lib._
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.pipeline.Stageable
 import naxriscv.utilities._
+import spinal.lib.pipeline.Stageable
 
 case class FetchL1Cmd(p : FetchCachePlugin) extends Bundle{
   val address = UInt(Global.PHYSICAL_WIDTH bits)

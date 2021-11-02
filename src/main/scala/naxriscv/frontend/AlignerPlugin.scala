@@ -3,15 +3,14 @@ package naxriscv.frontend
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib._
-
-import naxriscv.pipeline._
+import spinal.lib.pipeline._
 
 import scala.collection.mutable.ArrayBuffer
-
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.utilities.Plugin
+import spinal.lib.pipeline.{ConnectionLogic, ConnectionPoint, Stageable}
 
 //case class CompactorCmd() extends Bundle {
 //  val data = WORD()

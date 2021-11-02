@@ -2,12 +2,11 @@ package naxriscv.frontend
 
 import spinal.core._
 import spinal.lib._
-import naxriscv.pipeline.Connection.DIRECT
+import spinal.lib.pipeline.Connection.DIRECT
 import naxriscv.utilities._
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.pipeline.{Stage, Stageable}
 
 
 

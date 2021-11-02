@@ -5,8 +5,9 @@ import spinal.lib._
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.pipeline._
+import spinal.lib.pipeline._
 import naxriscv.utilities.{AllocatorMultiPortPop, Service}
+import spinal.lib.pipeline.Stageable
 
 case class JumpPayload() extends Bundle {
   val pc = Global.PC()
@@ -33,9 +34,9 @@ case class EuGroup(eus : Seq[ExecuteUnitService],
                    sel: Stageable[Bool])
 
 trait DecoderService extends Service{
-  def add(key : MaskedLiteral,values : Seq[(Stageable[_ <: BaseType],Any)])
-  def add(encoding :Seq[(MaskedLiteral,Seq[(Stageable[_ <: BaseType],Any)])])
-  def addDefault(key : Stageable[_ <: BaseType], value : Any)
+//  def add(key : MaskedLiteral,values : Seq[(Stageable[_ <: BaseType],Any)])
+//  def add(encoding :Seq[(MaskedLiteral,Seq[(Stageable[_ <: BaseType],Any)])])
+//  def addDefault(key : Stageable[_ <: BaseType], value : Any)
   def addFunction(fu: ExecuteUnitService,
                   enc: Encoding) : Unit
 
