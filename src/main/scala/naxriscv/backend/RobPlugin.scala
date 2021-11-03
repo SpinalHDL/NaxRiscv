@@ -36,7 +36,7 @@ class RobPlugin() extends Plugin with RobService{
     writes += Write(key.asInstanceOf[Stageable[Data]], size, value, robId, enable)
   }
   override def readAsync[T <: Data](key: Stageable[T], size : Int, robId: UInt, skipFactor: Int = 1, skipOffset: Int = 0) : Vec[T] = {
-    val r = ReadAsync(key.asInstanceOf[Stageable[Data]], size, robId, skipFactor, skipOffset, Vec.fill(COMMIT_COUNT)(key()))
+    val r = ReadAsync(key.asInstanceOf[Stageable[Data]], size, robId, skipFactor, skipOffset, Vec.fill(size)(key()))
     readAsyncs += r
     r.rsp.asInstanceOf[Vec[T]]
   }
