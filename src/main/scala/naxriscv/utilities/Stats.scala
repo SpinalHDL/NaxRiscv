@@ -103,3 +103,13 @@ object SyntTest3 extends App{
 
   Bench(rtls, targets)
 }
+
+
+object RamPorts extends App{
+  def xor(w : Int, r : Int) = w*(w-1)+r*w
+
+  for(w <- List(2,3,4); r <- List(2,4,6)){
+    println(s"w=$w r=$r XOR ${xor(w,r)}")
+  }
+
+}

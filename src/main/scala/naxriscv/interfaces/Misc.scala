@@ -82,12 +82,47 @@ trait RfAllocationService extends Service {
 //  def rollbackToCommit() : Unit
 //}
 
+
+case class RegFileWrite(addressWidth : Int, dataWidth : Int, withReady : Boolean) extends Bundle with IMasterSlave {
+  val valid = Bool()
+  val ready = withReady generate Bool()
+  val address = UInt(addressWidth bits)
+  val data = Bits(dataWidth bits)
+
+  override def asMaster() = {
+    out(valid, address, data)
+    inWithNull(ready)
+  }
+}
+
+case class RegFileRead(addressWidth : Int, dataWidth : Int, withReady : Boolean, latency : Int) extends Bundle with IMasterSlave{
+  val valid = Bool()
+  val ready = withReady generate Bool()
+  val address = UInt(addressWidth bits)
+  val data = Bits(dataWidth bits)
+
+  override def asMaster() = {
+    out(valid, address)
+    inWithNull(ready, data)
+  }
+}
+
+case class RegFileBypass(addressWidth : Int, dataWidth : Int) extends Bundle with IMasterSlave{
+  val valid = Bool()
+  val address = UInt(addressWidth bits)
+  val data = Bits(dataWidth bits)
+
+  override def asMaster() = {
+    out(valid, address, data)
+  }
+}
+
 trait RegfileService extends Service{
   def getPhysicalDepth : Int
 
-//  def newRead() : Any
-//  def newWriteFlow() : Unit
-//  def newWriteStream() : Unit
+  def newRead(withReady : Boolean) : RegFileRead
+  def newWrite(withReady : Boolean) : RegFileWrite
+  def newBypass() : RegFileBypass
 }
 
 
@@ -185,7 +220,7 @@ object Riscv{
   val integer = new Area{
     val regfile = new RegfileSpec {
       override def sizeArch = 32
-      override def width = ???
+      override def width = Global.XLEN
       override def x0AlwaysZero = true
     }
 

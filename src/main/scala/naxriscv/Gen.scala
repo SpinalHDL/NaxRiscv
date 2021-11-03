@@ -19,6 +19,7 @@ object Config{
 //    Frontend.DECODE_COUNT.set(2)
 //    Global.COMMIT_COUNT.set(2)
 //    ROB.SIZE.set(64)
+//    Global.XLEN.set(32)
 
     Global.PHYSICAL_WIDTH.set(32)
     Frontend.RVC.set(true)
@@ -27,6 +28,7 @@ object Config{
     Frontend.DECODE_COUNT.set(1)
     Global.COMMIT_COUNT.set(1)
     ROB.SIZE.set(64)
+    Global.XLEN.set(32)
   }
   def plugins(): Seq[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
@@ -46,7 +48,6 @@ object Config{
     plugins += new RfTranslationPlugin()
     plugins += new RfDependencyPlugin()
     plugins += new RfAllocationPlugin(Riscv.integer.regfile)
-//    plugins += new RfAllocationRecyclePlugin(Riscv.integer.regfile)
     plugins += new DispatchPlugin(
       slotCount = 32
     )
@@ -56,7 +57,8 @@ object Config{
     plugins += new CommitPlugin()
     plugins += new RegFilePlugin(
       spec = Riscv.integer.regfile,
-      physicalDepth = 64
+      physicalDepth = 64,
+      bankCount = 1
     )
     plugins += new PlayPlugin()
     plugins
