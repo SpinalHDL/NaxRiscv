@@ -58,9 +58,11 @@ trait RobService extends Service{
   def robCompletion() : Flow[RobCompletion]
   def robLineValids() : RobLineMask
 
-  def writeLine[T <: Data](key: HardType[T], size : Int, value : Seq[T], robId : UInt, enable : Bool) : Unit //robid need to be aligned on value size
-  def readAsyncLine[T <: Data](key: HardType[T], size : Int, robId : UInt) : Vec[T]
-  def readAsync[T <: Data](key: HardType[T], robId : UInt, colFactor : Int = 1, colOffset : Int = 0) : Seq[T] //colFactor and colOffset may allow to reduce the port area
+  def write[T <: Data](key: Stageable[T], size : Int, value : Seq[T], robId : UInt, enable : Bool) : Unit //robid need to be aligned on value size
+  def readAsync[T <: Data](key: Stageable[T], size : Int, robId: UInt, skipFactor: Int = 1, skipOffset: Int = 0) : Vec[T]
+  def readAsyncSingle[T <: Data](key: Stageable[T], robId : UInt, skipFactor : Int = 1, skipOffset : Int = 0) : T = {
+    readAsync(key, 1, robId, skipFactor, skipOffset).head
+  }
 
   def retain() : Unit
   def release() : Unit

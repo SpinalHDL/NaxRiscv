@@ -26,22 +26,21 @@ class RobPlugin() extends Plugin with RobService{
   override def robLineValids() = { val e = RobLineMask(); robLineMaskPort += e; e }
   override def robCompletion() = { val c = Completion(Flow(RobCompletion())); completions += c; c.bus }
 
-  case class WriteLine(key: HardType[Data], size : Int, value: Seq[Data], robId: UInt, enable: Bool)
-  case class ReadAsyncLine(key: HardType[Data], size : Int, robId: UInt, rsp : Vec[Data])
+  case class Write(key: Stageable[Data], size : Int, value: Seq[Data], robId: UInt, enable: Bool)
+  case class ReadAsync(key: Stageable[Data], size : Int, robId: UInt, skipFactor: Int, skipOffset: Int, rsp : Vec[Data])
 
-  val writesLine = ArrayBuffer[WriteLine]()
-  val readAsyncsLine = ArrayBuffer[ReadAsyncLine]()
+  val writes = ArrayBuffer[Write]()
+  val readAsyncs = ArrayBuffer[ReadAsync]()
 
-  override def writeLine[T <: Data](key: HardType[T], size : Int, value: Seq[T], robId: UInt, enable: Bool) = {
-    writesLine += WriteLine(key.asInstanceOf[HardType[Data]], size, value, robId, enable)
+  override def write[T <: Data](key: Stageable[T], size : Int, value: Seq[T], robId: UInt, enable: Bool) = {
+    writes += Write(key.asInstanceOf[Stageable[Data]], size, value, robId, enable)
   }
-  override def readAsyncLine[T <: Data](key: HardType[T], size : Int, robId: UInt) : Vec[T] = {
-    val r = ReadAsyncLine(key.asInstanceOf[HardType[Data]], size, robId, Vec.fill(COMMIT_COUNT)(key()))
-    readAsyncsLine += r
+  override def readAsync[T <: Data](key: Stageable[T], size : Int, robId: UInt, skipFactor: Int = 1, skipOffset: Int = 0) : Vec[T] = {
+    val r = ReadAsync(key.asInstanceOf[Stageable[Data]], size, robId, skipFactor, skipOffset, Vec.fill(COMMIT_COUNT)(key()))
+    readAsyncs += r
     r.rsp.asInstanceOf[Vec[T]]
   }
 
-  override def readAsync[T <: Data](key: HardType[T], robId: UInt, colFactor: Int, colOffset: Int) = ???
 
   val lock = Lock()
   override def retain() = lock.retain()
@@ -73,29 +72,45 @@ class RobPlugin() extends Plugin with RobService{
     lock.await()
 
     val storage = new Area{
-      val keys = mutable.LinkedHashSet[HardType[Data]]()
-      keys ++= readAsyncsLine.map(_.key)
+      val keys = mutable.LinkedHashSet[Stageable[Data]]()
+      keys ++= readAsyncs.map(_.key)
       val e = for(key <- keys) yield new Area{
-        val wl = writesLine.filter(_.key == key)
-        val ral = readAsyncsLine.filter(_.key == key)
+        if(key.isNamed) this.setPartialName(key.getName())
+        val wl = writes.filter(_.key == key)
+        val ral = readAsyncs.filter(_.key == key)
         val writeSizeMin = wl.map(_.size).min
-        val ram = Mem.fill(ROB.SIZE/writeSizeMin)(Vec.fill(writeSizeMin)(key()))
-        assert(wl.size == 1)
+        val writeSizeMax = wl.map(_.size).max
+        val bankCount = writeSizeMax/writeSizeMin
+        val banks = Seq.fill(bankCount)(Mem.fill(ROB.SIZE/bankCount/writeSizeMin)(Vec.fill(writeSizeMin)(key())))
+
         for(e <- wl){
           assert(isPow2(e.size))
-          ram.write(
-            enable = e.enable,
-            address = e.robId >> log2Up(e.size),
-            data = Vec(e.value)
-          )
+          val ratio = writeSizeMax/e.size
+          val bankRange = log2Up(writeSizeMax) - 1 downto log2Up(e.size)
+          val address =  e.robId >> log2Up(writeSizeMax)
+          for((bank, bankId) <- banks.zipWithIndex) {
+            bank.write(
+              enable = e.enable && e.robId(bankRange) === bankId/ratio,
+              address = address,
+              data = Vec(e.value)
+            )
+          }
         }
 
         for(e <- ral){
           assert(isPow2(e.size))
-          assert(e.size == writeSizeMin)
-          e.rsp := ram.readAsync(
-            address = e.robId >> log2Up(e.size)
-          )
+          if(e.size > writeSizeMax){
+            ???
+          } else {
+            val address =  e.robId >> log2Up(writeSizeMax)
+            val reads = banks.map(_.readAsync(
+              address = address
+            ))
+            val cat = Cat(reads)
+            val sliceRange = log2Up(writeSizeMax) - 1 downto log2Up(e.size)
+            e.rsp.assignFromBits(cat.subdivideIn(widthOf(e.rsp) bits).read(e.robId(sliceRange)))
+            assert(e.skipFactor == 1)
+          }
         }
       }
     }

@@ -51,6 +51,7 @@ class CommitPlugin extends Plugin with CommitService{
 
     val reschedule = new Area {
       val valid = Reg(Bool()) init(False)
+      valid := False //TODO
       val trap = Reg(Bool())
       val age = Reg(UInt(ROB.ID_WIDTH bits))
       val pcTarget = Reg(Global.PC)

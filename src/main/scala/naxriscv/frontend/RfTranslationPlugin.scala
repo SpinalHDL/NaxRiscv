@@ -137,9 +137,9 @@ class RfTranslationPlugin() extends Plugin {
 
     val onCommit = new Area{
       val event = commit.onCommit()
-      val writeRd = rob.readAsyncLine(decoder.WRITE_RD, COMMIT_COUNT, event.robId)
-      val physRd = rob.readAsyncLine(decoder.PHYS_RD, COMMIT_COUNT, event.robId)
-      val archRd = rob.readAsyncLine(decoder.ARCH_RD, COMMIT_COUNT, event.robId)
+      val writeRd = rob.readAsync(decoder.WRITE_RD, COMMIT_COUNT, event.robId)
+      val physRd = rob.readAsync(decoder.PHYS_RD, COMMIT_COUNT, event.robId)
+      val archRd = rob.readAsync(decoder.ARCH_RD, COMMIT_COUNT, event.robId)
       for(slotId <- 0 until COMMIT_COUNT){
         val port = impl.io.commits(slotId)
         port.valid := event.mask(slotId) && writeRd(slotId)

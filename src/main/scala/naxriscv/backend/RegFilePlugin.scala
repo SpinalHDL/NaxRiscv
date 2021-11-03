@@ -86,6 +86,10 @@ object RegFileAsyncSynth extends App{
 4r 2w
 Artix 7 -> 162 Mhz 630 LUT 702 FF
 Artix 7 -> 367 Mhz 632 LUT 702 FF
+4r 1w
+Artix 7 -> 375 Mhz 176 LUT 585 FF
+Artix 7 -> 538 Mhz 176 LUT 585 FF
+
  */
 
 

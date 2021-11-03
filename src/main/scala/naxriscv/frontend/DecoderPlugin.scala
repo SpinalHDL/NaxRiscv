@@ -175,7 +175,7 @@ class DecoderPlugin() extends Plugin with DecoderService{
 
       def remapped[T <: Data](key : Stageable[T]) = (0 until Frontend.DISPATCH_COUNT).map(stage(key, _))
       def writeLine[T <: Data](key : Stageable[T]) = {
-        rob.writeLine(
+        rob.write(
           key = key,
           size = DISPATCH_COUNT,
           value = remapped(key),
@@ -187,7 +187,7 @@ class DecoderPlugin() extends Plugin with DecoderService{
       writeLine(regfiles.WRITE_RD)
       writeLine(regfiles.PHYS_RD)
       writeLine(INSTRUCTION_DECOMPRESSED)
-      rob.writeLine(
+      rob.write(
         key = regfiles.ARCH_RD,
         size = DISPATCH_COUNT,
         value = remapped(INSTRUCTION_DECOMPRESSED).map(e => U(e(Riscv.rdRange))),
@@ -197,7 +197,7 @@ class DecoderPlugin() extends Plugin with DecoderService{
       for(i <- 0 until 2) {
         writeLine(regfiles.READ_RS(i))
         writeLine(regfiles.PHYS_RS(i))
-        rob.writeLine(
+        rob.write(
           key = regfiles.ARCH_RS(i),
           size = DISPATCH_COUNT,
           value = remapped(INSTRUCTION_DECOMPRESSED).map(e => U(e(Riscv.rsRange(i)))),
