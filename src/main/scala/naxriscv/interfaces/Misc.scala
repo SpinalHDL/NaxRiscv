@@ -43,10 +43,12 @@ trait DecoderService extends Service{
   def euGroups : Seq[EuGroup]
 
   def READ_RS(id : Int)  : Stageable[Bool]
-  def PHYSICAL_RS(id : Int)  : Stageable[UInt]
+  def ARCH_RS(id : Int)  : Stageable[UInt]
+  def PHYS_RS(id : Int)  : Stageable[UInt]
 
   def WRITE_RD : Stageable[Bool]
-  def PHYSICAL_RD  : Stageable[UInt]
+  def PHYS_RD  : Stageable[UInt]
+  def ARCH_RD  : Stageable[UInt]
 
   def rsCount  : Int
   def rsPhysicalDepthMax : Int
@@ -55,6 +57,13 @@ trait DecoderService extends Service{
 trait RobService extends Service{
   def robCompletion() : Flow[RobCompletion]
   def robLineValids() : RobLineMask
+
+  def writeLine[T <: Data](key: HardType[T], size : Int, value : Seq[T], robId : UInt, enable : Bool) : Unit //robid need to be aligned on value size
+  def readAsyncLine[T <: Data](key: HardType[T], size : Int, robId : UInt) : Vec[T]
+  def readAsync[T <: Data](key: HardType[T], robId : UInt, colFactor : Int = 1, colOffset : Int = 0) : Seq[T] //colFactor and colOffset may allow to reduce the port area
+
+  def retain() : Unit
+  def release() : Unit
 }
 
 
@@ -91,10 +100,19 @@ case class RescheduleCmd() extends Bundle{
   val nextRob = ROB.ID_TYPE()
 }
 
+case class CommitFree() extends Bundle{
+  val robId = ROB.ID_TYPE()
+}
+case class CommitEvent() extends Bundle{
+  val robId = ROB.ID_TYPE()
+  val mask = Bits(COMMIT_COUNT bits)
+}
+
 trait CommitService  extends Service{
-  def onCommit() : Vec[Flow[CommitEntry]]
+  def onCommit() : CommitEvent
   def newCompletionPort(canTrap : Boolean, canJump : Boolean) : Flow[CompletionCmd]
   def reschedulingPort() : Flow[RescheduleCmd]
+  def freePort() : Flow[CommitFree]
 }
 
 trait RegfileSpec{

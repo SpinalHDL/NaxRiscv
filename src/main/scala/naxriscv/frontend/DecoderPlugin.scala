@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.interfaces.{DecoderService, Encoding, EuGroup, ExecuteUnitService, RegfileService, RfResource, Riscv}
+import naxriscv.interfaces.{DecoderService, Encoding, EuGroup, ExecuteUnitService, RegfileService, RfResource, Riscv, RobService}
 import spinal.lib.pipeline.Connection.DIRECT
 import spinal.lib.pipeline._
 import spinal.core._
@@ -74,21 +74,26 @@ class DecoderPlugin() extends Plugin with DecoderService{
 
 
   override def euGroups = logic.euGroups
-  override def READ_RS(id: Int) = logic.regfiles.READ_RS(id)
-  override def PHYSICAL_RS(id: Int) = logic.regfiles.ARCH_RS(id)
-  override def WRITE_RD = logic.regfiles.WRITE_RD
-  override def PHYSICAL_RD = logic.regfiles.ARCH_RD
-  override def rsCount = logic.regfiles.rsCount
+  override def READ_RS(id: Int) : Stageable[Bool] = logic.regfiles.READ_RS(id)
+  override def ARCH_RS(id: Int) : Stageable[UInt] = logic.regfiles.ARCH_RS(id)
+  override def PHYS_RS(id: Int) : Stageable[UInt] = logic.regfiles.PHYS_RS(id)
+  override def WRITE_RD : Stageable[Bool] = logic.regfiles.WRITE_RD
+  override def ARCH_RD : Stageable[UInt] = logic.regfiles.ARCH_RD
+  override def PHYS_RD : Stageable[UInt] = logic.regfiles.PHYS_RD
+  override def rsCount = 2
   override def rsPhysicalDepthMax = logic.regfiles.physicalMax
 
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     frontend.retain()
     frontend.pipeline.connect(frontend.pipeline.decompressed, frontend.pipeline.decoded)(new DIRECT)
+
+    getService[RobService].retain()
   }
 
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
+    val rob = getService[RobService]
 
     val executionUnits = getServicesOf[ExecuteUnitService]
     val euGroups = ArrayBuffer[EuGroup]()
@@ -103,9 +108,10 @@ class DecoderPlugin() extends Plugin with DecoderService{
     val regfiles = new Area {
       val plugins = getServicesOf[RegfileService]
       val physicalMax = plugins.map(_.getPhysicalDepth).max
-      val rsCount = 2
-      val ARCH_RS = List.fill(rsCount)(Stageable(UInt(log2Up(physicalMax) bits)))
-      val ARCH_RD = Stageable(UInt(log2Up(physicalMax) bits))
+      val ARCH_RS = List.fill(rsCount)(Stageable(UInt(5 bits)))
+      val ARCH_RD = Stageable(UInt(5 bits))
+      val PHYS_RS = List.fill(rsCount)(Stageable(UInt(log2Up(physicalMax) bits)))
+      val PHYS_RD = Stageable(UInt(log2Up(physicalMax) bits))
       val READ_RS = List.fill(rsCount)(Stageable(Bool()))
       val WRITE_RD = Stageable(Bool)
     }
@@ -164,6 +170,44 @@ class DecoderPlugin() extends Plugin with DecoderService{
       DISPATCH_MASK := MASK_ALIGNED
     }
 
+    val robCtx = new Area{
+      val stage = frontend.pipeline.allocated
+
+      def remapped[T <: Data](key : Stageable[T]) = (0 until Frontend.DISPATCH_COUNT).map(stage(key, _))
+      def writeLine[T <: Data](key : Stageable[T]) = {
+        rob.writeLine(
+          key = key,
+          size = DISPATCH_COUNT,
+          value = remapped(key),
+          robId = stage(ROB_ID),
+          enable = stage.isFireing
+        )
+      }
+
+      writeLine(regfiles.WRITE_RD)
+      writeLine(regfiles.PHYS_RD)
+      writeLine(INSTRUCTION_DECOMPRESSED)
+      rob.writeLine(
+        key = regfiles.ARCH_RD,
+        size = DISPATCH_COUNT,
+        value = remapped(INSTRUCTION_DECOMPRESSED).map(e => U(e(Riscv.rdRange))),
+        robId = stage(ROB_ID),
+        enable = stage.isFireing
+      )
+      for(i <- 0 until 2) {
+        writeLine(regfiles.READ_RS(i))
+        writeLine(regfiles.PHYS_RS(i))
+        rob.writeLine(
+          key = regfiles.ARCH_RS(i),
+          size = DISPATCH_COUNT,
+          value = remapped(INSTRUCTION_DECOMPRESSED).map(e => U(e(Riscv.rsRange(i)))),
+          robId = stage(ROB_ID),
+          enable = stage.isFireing
+        )
+      }
+    }
+
+    rob.release()
     frontend.release()
   }
 }

@@ -4,7 +4,7 @@ import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.compatibility.MultiPortWritesSymplifier
-import naxriscv.interfaces.{CommitService, DecoderService, RegfileService, RegfileSpec, Riscv}
+import naxriscv.interfaces.{CommitService, DecoderService, RegfileService, RegfileSpec, Riscv, RobService}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -106,13 +106,15 @@ object TranslatorWithRollback extends App{
 
 class RfTranslationPlugin() extends Plugin {
   val setup = create early new Area{
-    val frontend = getService[FrontendPlugin]
-    frontend.retain()
+    getService[FrontendPlugin].retain()
+    getService[RobService].retain()
   }
 
   val logic = create late new Area{
     val decoder = getService[DecoderService]
     val frontend = getService[FrontendPlugin]
+    val commit = getService[CommitService]
+    val rob = getService[RobService]
 
     val stage = frontend.pipeline.allocated
     import stage._
@@ -130,12 +132,51 @@ class RfTranslationPlugin() extends Plugin {
     val writes = for(slotId <- 0 until DISPATCH_COUNT) {
       impl.io.writes(slotId).valid := isFireing && (DISPATCH_MASK, slotId)
       impl.io.writes(slotId).address := U((INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rdRange))
-      impl.io.writes(slotId).data := stage(decoder.PHYSICAL_RD, slotId)
+      impl.io.writes(slotId).data := stage(decoder.PHYS_RD, slotId)
     }
 
-    val commits = for(slotId <- 0 until COMMIT_COUNT) {
-      //TODO
+    val onCommit = new Area{
+      val event = commit.onCommit()
+      val writeRd = rob.readAsyncLine(decoder.WRITE_RD, COMMIT_COUNT, event.robId)
+      val physRd = rob.readAsyncLine(decoder.PHYS_RD, COMMIT_COUNT, event.robId)
+      val archRd = rob.readAsyncLine(decoder.ARCH_RD, COMMIT_COUNT, event.robId)
+      for(slotId <- 0 until COMMIT_COUNT){
+        val port = impl.io.commits(slotId)
+        port.valid := event.mask(slotId) && writeRd(slotId)
+        port.address := archRd(slotId)
+        port.data := physRd(slotId)
+      }
     }
+
+//    val commit = new Area{
+//      case class Ctx() extends Bundle{
+//        val enable = Bool()
+//        val rd = UInt(log2Up(getService[RegfileService](rf).getPhysicalDepth) bits) //TODO
+//      }
+//      val contextRam = Seq.fill(Frontend.DISPATCH_COUNT)(Mem.fill(ROB.SIZE/Frontend.DISPATCH_COUNT)(Ctx()))
+//
+//      assert(Global.COMMIT_COUNT.get == Frontend.DISPATCH_COUNT)
+//      val store = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield new Area{
+//        assert(isPow2(Frontend.DISPATCH_COUNT))
+//
+//        val ctx = Ctx()
+//        ctx.enable := stage(decoder.WRITE_RD, slotId)
+//        ctx.rd     := stage(decoder.PHYSICAL_RD, slotId)
+//
+//        contextRam(slotId).write(
+//          enable = isFireing,
+//          address = Frontend.ROB_ID >> log2Up(Frontend.DISPATCH_COUNT),
+//          data = ctx
+//        )
+//      }
+//
+//      val port = commit.onCommit()
+//      for((sel, port) <- (port.mask.asBools, impl.io.commits).zipped){
+//        port.valid := sel
+//        port.address := event.payload
+//      }
+//    }
+
 
     val translation = new Area{
       for(slotId <- 0 until DISPATCH_COUNT) {
@@ -143,19 +184,20 @@ class RfTranslationPlugin() extends Plugin {
           val port = impl.io.reads(slotId*decoder.rsCount+rsId)
           val archRs = (Frontend.INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rsRange(rsId))
           port.cmd.payload := U(archRs)
-          (decoder.PHYSICAL_RS(rsId), slotId) := port.rsp.payload
+          (decoder.PHYS_RS(rsId), slotId) := port.rsp.payload
 
           //Slot bypass
           for(priorId <- 0 until slotId){
             val useRd = (decoder.WRITE_RD, priorId) && (DISPATCH_MASK, priorId)
             val writeRd = (Frontend.INSTRUCTION_DECOMPRESSED, priorId)(Riscv.rdRange)
             when(useRd && writeRd === archRs){
-              (decoder.PHYSICAL_RS(rsId), slotId) := stage(decoder.PHYSICAL_RS(rsId), priorId)
+              (decoder.PHYS_RS(rsId), slotId) := stage(decoder.PHYS_RS(rsId), priorId)
             }
           }
         }
       }
     }
     frontend.release()
+    rob.release()
   }
 }

@@ -71,7 +71,7 @@ class Stage extends Nameable {
   def flushNext(cond : Bool) : Unit =  internals.request.flushNext += cond
   def removeIt(): Unit = ???
   def isValid: Bool = internals.input.valid
-  def isFireing: Bool = isValid && isReady
+  def isFireing: Bool = signalCache(this -> "isFireing")(isValid && isReady)
   def isStuck: Bool = isValid && !isReady
   def isRemoved : Bool = {
     if(internals.arbitration.isRemoved == null) internals.arbitration.isRemoved = Misc.outsideCondScope(Bool())

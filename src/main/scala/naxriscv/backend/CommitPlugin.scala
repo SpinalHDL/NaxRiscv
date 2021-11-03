@@ -2,7 +2,7 @@ package naxriscv.backend
 
 import naxriscv.Frontend.ROB_ID
 import naxriscv.{Global, ROB}
-import naxriscv.interfaces.{CommitService, CompletionCmd, JumpService, RescheduleCmd, RfAllocationService, RobService}
+import naxriscv.interfaces.{CommitEvent, CommitFree, CommitService, CompletionCmd, JumpService, RescheduleCmd, RfAllocationService, RobService}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -12,7 +12,7 @@ import naxriscv.frontend.FrontendPlugin
 import scala.collection.mutable.ArrayBuffer
 
 class CommitPlugin extends Plugin with CommitService{
-  override def onCommit() = ???
+  override def onCommit() : CommitEvent = logic.commit.event
 
   val completions = ArrayBuffer[Flow[CompletionCmd]]()
   override def newCompletionPort(canTrap : Boolean, canJump : Boolean) = {
@@ -21,7 +21,7 @@ class CommitPlugin extends Plugin with CommitService{
     port
   }
   override def reschedulingPort() = logic.reschedule.port
-
+  override def freePort() = logic.free.port
 
   val setup = create early new Area{
     val jump = getService[JumpService].createJumpInterface(JumpService.Priorities.COMMIT) //Flush missing
@@ -76,6 +76,10 @@ class CommitPlugin extends Plugin with CommitService{
       val maskComb = CombInit(mask)
       mask := maskComb
 
+      val event = CommitEvent()
+      event.mask := 0
+      event.robId := ptr.commit.resized
+
       setup.jump.valid := False
       setup.jump.payload.assignDontCare()
       when(!ptr.empty) {
@@ -88,6 +92,7 @@ class CommitPlugin extends Plugin with CommitService{
               setup.jump.valid := True
               setup.jump.pc := reschedule.pcTarget
               ptr.commit := ptr.alloc //TODO likely buggy
+              event.mask(rowId) := True
             }
           }
         }
@@ -96,14 +101,13 @@ class CommitPlugin extends Plugin with CommitService{
           ptr.commit := ptr.commit + ROB.COLS.get
         }
       }
+
     }
 
     val free = new Area{
-      val allocator = getService[RfAllocationService].getFreePort()
-      for(port <- allocator){
-        port.valid := False
-        port.payload := 0
-      }
+      val port = Flow(CommitFree())
+      port.valid := ptr.canFree
+      port.robId := ptr.free.resized
       when(ptr.canFree){
         ptr.free := ptr.free + ROB.COLS.get
       }

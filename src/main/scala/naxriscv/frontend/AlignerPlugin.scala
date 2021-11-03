@@ -13,30 +13,6 @@ import naxriscv.utilities.Plugin
 import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline.{ConnectionLogic, ConnectionPoint, Stageable}
 
-//case class CompactorCmd() extends Bundle {
-//  val data = WORD()
-//  val mask = MASK()
-//}
-//
-//case class CompactorRspInstruction() extends Bundle {
-//  val valid = Bool()
-//  val value = INSTRUCTION()
-//}
-//
-//case class CompactorRsp() extends Bundle {
-//  val instructions = Vec.fill(FETCH_COUNT)(CompactorRspInstruction())
-//}
-//
-//
-//
-//
-//class CompactorLogic extends Component {
-//  val io = new Bundle {
-//    val input = Stream(CompactorCmd())
-//    val output = Stream(CompactorRsp())
-//  }
-//}
-
 class AlignerPlugin() extends Plugin{
 
   class CustomConnector extends ConnectionLogic{

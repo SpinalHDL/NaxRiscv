@@ -38,7 +38,7 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
     wakePort.valid := wake.valid
     wakePort.payload := wake.robId
 
-    setup.completion.valid := False
-    setup.completion.id := 0
+    setup.completion.valid := wake.valid
+    setup.completion.id := wake.robId
   }
 }

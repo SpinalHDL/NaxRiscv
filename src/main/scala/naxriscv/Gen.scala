@@ -1,6 +1,7 @@
 package naxriscv
 
 import naxriscv.backend.{CommitPlugin, RegFilePlugin, RobPlugin}
+import naxriscv.compatibility.MultiPortWritesSymplifier
 import spinal.core._
 import naxriscv.frontend._
 import naxriscv.interfaces.{ExecutionUnitPush, Riscv}
@@ -37,7 +38,7 @@ object Config{
       cacheSize = 4096,
       wayCount = 1,
       injectionAt = 2,
-      memDataWidth = 32
+      memDataWidth = Frontend.FETCH_DATA_WIDTH
     )
     plugins += new AlignerPlugin()
     plugins += new DecompressorPlugin()
@@ -45,6 +46,7 @@ object Config{
     plugins += new RfTranslationPlugin()
     plugins += new RfDependencyPlugin()
     plugins += new RfAllocationPlugin(Riscv.integer.regfile)
+//    plugins += new RfAllocationRecyclePlugin(Riscv.integer.regfile)
     plugins += new DispatchPlugin(
       slotCount = 32
     )
@@ -61,7 +63,10 @@ object Config{
   }
 }
 object Gen extends App{
-  val report = SpinalVerilog(new Component {
+  val spinalConfig = SpinalConfig()
+  spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
+
+  val report = spinalConfig.generateVerilog(new Component {
     setDefinitionName("NaxRiscv")
     Config.properties()
     val framework = new Framework(Config.plugins())
