@@ -42,33 +42,40 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
 
     val pushPort = Stream(ExecutionUnitPush())
 
-    case class Result() extends Bundle{
-      val robId = ROB.ID_TYPE()
-      val rd = UInt(log2Up(setup.rf.getPhysicalDepth) bits)
-      val value = Bits(32 bits)
-      val writeRd = Bool()
+    val front = new Area{
+      val input = pushPort.toFlow.stage()
+
+      val instruction = rob.readAsyncSingle(Frontend.INSTRUCTION_DECOMPRESSED, input.robId)
+      val physRs1 = rob.readAsyncSingle(decoder.PHYS_RS(0), input.robId)
+      val physRs2 = rob.readAsyncSingle(decoder.PHYS_RS(1), input.robId)
+      val readRs1 = rob.readAsyncSingle(decoder.READ_RS(0), input.robId)
+      val readRs2 = rob.readAsyncSingle(decoder.READ_RS(1), input.robId)
+
+      setup.rfReadRs1.valid := input.valid && readRs1
+      setup.rfReadRs1.address := physRs1
+      setup.rfReadRs2.valid := input.valid && readRs2
+      setup.rfReadRs2.address := physRs2
+
+      val output = input
     }
 
-    val instruction = rob.readAsyncSingle(Frontend.INSTRUCTION_DECOMPRESSED, pushPort.robId)
-    val physRs1 = rob.readAsyncSingle(decoder.PHYS_RS(0), pushPort.robId)
-    val physRs2 = rob.readAsyncSingle(decoder.PHYS_RS(1), pushPort.robId)
-    val readRs1 = rob.readAsyncSingle(decoder.READ_RS(0), pushPort.robId)
-    val readRs2 = rob.readAsyncSingle(decoder.READ_RS(1), pushPort.robId)
-
-    setup.rfReadRs1.valid := pushPort.valid && readRs1
-    setup.rfReadRs1.address := physRs1
-    setup.rfReadRs2.valid := pushPort.valid && readRs2
-    setup.rfReadRs2.address := physRs2
 
 
     val s0 = new Area{
-      val input = pushPort.toFlow.stage()
+      val input = front.output.stage()
 
       val rs1 = RegNext(setup.rfReadRs1.data)
       val rs2 = RegNext(setup.rfReadRs2.data)
       val instruction = rob.readAsyncSingle(Frontend.INSTRUCTION_DECOMPRESSED, input.robId)
       val imm = new IMM(instruction)
 
+
+      case class Result() extends Bundle{
+        val robId = ROB.ID_TYPE()
+        val rd = UInt(log2Up(setup.rf.getPhysicalDepth) bits)
+        val value = Bits(32 bits)
+        val writeRd = Bool()
+      }
 
       val result = Result()
       result.robId := input.robId

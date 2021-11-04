@@ -190,6 +190,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
           (setup.waits(rsId).ID    , slotId) := port.rsp.rob
 
           //Slot write bypass
+          //TODO maybe the bypass of the RfTranslationPlugin can be ignored ?
           for(priorId <- 0 until slotId){
             val useRd = (decoder.WRITE_RD, priorId) && (DISPATCH_MASK, priorId)
             val writeRd = (Frontend.INSTRUCTION_DECOMPRESSED, priorId)(Riscv.rdRange)
