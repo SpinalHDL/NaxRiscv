@@ -19,7 +19,8 @@ class RegFileAsync(addressWidth    : Int,
                    bankCount       : Int,
                    readsParameter  : Seq[RegFileReadParameter],
                    writesParameter : Seq[RegFileWriteParameter],
-                   bypasseCount    : Int) extends Component {
+                   bypasseCount    : Int,
+                   headZero        : Boolean) extends Component {
   val io = new Bundle {
     val writes = Vec(writesParameter.map(p => slave(RegFileWrite(addressWidth, dataWidth, p.withReady))))
     val reads = Vec(readsParameter.map(p => slave(RegFileRead(addressWidth, dataWidth, p.withReady, 0))))
@@ -56,6 +57,18 @@ class RegFileAsync(addressWidth    : Int,
       r.data := port.data
     }
   }
+
+  val init = headZero generate new Area{
+    val booted = RegNext(True) init(False)
+    when(!booted){
+      val bank = banks.head
+      val port = bank.writePort.head
+      port.valid := True
+      port.address := 0
+      port.data := 0
+    }
+
+  }
 }
 
 object RegFileAsyncSynth extends App{
@@ -71,7 +84,8 @@ object RegFileAsyncSynth extends App{
     bankCount       = 1,
     readsParameter  = Seq.fill(4)(RegFileReadParameter(withReady = false)),
     writesParameter = Seq.fill(1)(RegFileWriteParameter(withReady = false)),
-    bypasseCount    = 0
+    bypasseCount    = 0,
+    headZero        = true
   ))).printPruned())
   val targets = XilinxStdTargets().take(2)
 
@@ -119,7 +133,8 @@ class RegFilePlugin(spec : RegfileSpec,
       bankCount       = bankCount,
       readsParameter  = reads.map(e => RegFileReadParameter(withReady = e.withReady)),
       writesParameter = writes.map(e => RegFileWriteParameter(withReady = e.withReady)),
-      bypasseCount    = bypasses.size
+      bypasseCount    = bypasses.size,
+      headZero        = spec.x0AlwaysZero
     )
 
     (regfile.io.reads, reads).zipped.foreach(_ <> _)

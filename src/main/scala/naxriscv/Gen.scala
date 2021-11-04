@@ -89,5 +89,16 @@ object Gen extends App{
 
 //TODO fix bellow list
 /*
-- aligner flush connector from fetches.last stage
+- aligner flush connector from fetches.last stage (workarounded via a extra stage)
+
+ */
+
+//ASSUMPTIONS
+/*
+X0 init =>
+- RfTranslationPlugin entries are initialized to all point to physical 0
+- RfAllocationPlugin will reject physical 0 freedoom
+- RfAllocationPlugin will not init physical 0
+- RegFilePlugin will write physical 0 with 0
+
  */

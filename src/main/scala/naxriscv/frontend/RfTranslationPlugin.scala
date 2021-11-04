@@ -4,7 +4,7 @@ import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.compatibility.MultiPortWritesSymplifier
-import naxriscv.interfaces.{CommitService, DecoderService, RegfileService, RegfileSpec, Riscv, RobService}
+import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, RegfileService, RegfileSpec, Riscv, RobService}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -63,8 +63,7 @@ class TranslatorWithRollback[T <: Data](payloadType : HardType[T],
       }
     }
 
-    val booted = RegNext(True) init(False)
-    when(io.rollback || !booted){
+    when(io.rollback){
       updated := 0
     }
   }
@@ -104,7 +103,9 @@ object TranslatorWithRollback extends App{
 }
 
 
-class RfTranslationPlugin() extends Plugin {
+class RfTranslationPlugin() extends Plugin with InitCycles {
+  override def initCycles = 32
+
   val setup = create early new Area{
     getService[FrontendPlugin].retain()
     getService[RobService].retain()
@@ -119,8 +120,9 @@ class RfTranslationPlugin() extends Plugin {
     val stage = frontend.pipeline.allocated
     import stage._
 
+    val entryCount = decoder.rsPhysicalDepthMax
     val impl = new TranslatorWithRollback(
-      payloadType = UInt(log2Up(decoder.rsPhysicalDepthMax) bits),
+      payloadType = UInt(log2Up(entryCount) bits),
       depth       = 32,
       commitPorts = COMMIT_COUNT,
       writePorts  = DISPATCH_COUNT,
@@ -130,7 +132,7 @@ class RfTranslationPlugin() extends Plugin {
     impl.io.rollback := getService[CommitService].reschedulingPort().valid
 
     val writes = for(slotId <- 0 until DISPATCH_COUNT) {
-      impl.io.writes(slotId).valid := isFireing && (DISPATCH_MASK, slotId)
+      impl.io.writes(slotId).valid := isFireing && (DISPATCH_MASK, slotId) && (decoder.WRITE_RD, slotId)
       impl.io.writes(slotId).address := U((INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rdRange))
       impl.io.writes(slotId).data := stage(decoder.PHYS_RD, slotId)
     }
@@ -145,6 +147,23 @@ class RfTranslationPlugin() extends Plugin {
         port.valid := event.mask(slotId) && writeRd(slotId)
         port.address := archRd(slotId)
         port.data := physRd(slotId)
+      }
+    }
+
+    val init = new Area {
+      assert(isPow2(entryCount))
+      val counter = Reg(UInt(log2Up(32*2) bits)) init (0)
+      val busy = !counter.msb
+
+      when(busy) {
+        impl.io.rollback := True
+
+        val port = impl.io.commits(0)
+        port.valid := True
+        port.address := counter.resized
+        port.data    := 0 //NOTE is map all the registers to physical 0
+
+        counter := counter + 1
       }
     }
 

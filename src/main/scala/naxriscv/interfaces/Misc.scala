@@ -29,6 +29,9 @@ trait JumpService extends Service{
   def createJumpInterface(priority : Int = 0) : Flow[JumpCmd] //High priority win
 }
 
+trait InitCycles extends Service{
+  def initCycles : Int
+}
 
 case class EuGroup(eus : Seq[ExecuteUnitService],
                    sel: Stageable[Bool])

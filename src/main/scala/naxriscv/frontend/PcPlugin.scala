@@ -3,7 +3,7 @@ package naxriscv.frontend
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib._
-import naxriscv.interfaces.{JumpCmd, JumpService}
+import naxriscv.interfaces.{InitCycles, JumpCmd, JumpService}
 import spinal.lib.pipeline._
 import naxriscv.utilities.Plugin
 import naxriscv._
@@ -49,6 +49,14 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
       }
     }
 
+    val init = new Area{
+      val requests = getServicesOf[InitCycles]
+      val request = (0 +: requests.map(_.initCycles)).max
+      val counter = Reg(UInt(log2Up(request) + 1 bits))
+      val booted = counter.msb
+      counter := counter + U(!booted)
+    }
+
     val fetchPc = new Area{
       //PC calculation without Jump
       val output = Stream(UInt(32 bits))
@@ -57,7 +65,6 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
       val correctionReg = RegInit(False) setWhen(correction) clearWhen(output.fire)
       val corrected = correction || correctionReg
       val pcRegPropagate = False
-      val booted = RegNext(True) init (False)
       val inc = RegInit(False) clearWhen(correction || pcRegPropagate) setWhen(output.fire) clearWhen(!output.valid && output.ready)
       val pc = pcReg + (inc.asUInt << sliceRange.high+1)
 
@@ -74,7 +81,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
         flushed := True
       }
 
-      when(booted && (output.ready || correction || pcRegPropagate)){
+      when(init.booted && (output.ready || correction || pcRegPropagate)){
         pcReg := pc
       }
 
@@ -82,7 +89,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
       if(!RVC) pc(1) := False
 
       val fetcherHalt = False
-      output.valid := !fetcherHalt && booted
+      output.valid := !fetcherHalt && init.booted
       output.payload := pc
     }
 

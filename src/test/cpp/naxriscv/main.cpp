@@ -119,11 +119,13 @@ public:
 
 //http://www.mario-konrad.ch/blog/programming/getopt.html
 #define ARG_MEM_HEX 1
+#define ARG_TIMEOUT 2
 static const struct option long_options[] =
 {
 //        { "AAA", no_argument,       0, 'a' },
 //        { "CCC", required_argument, 0, 'c' },
     { "mem_hex", required_argument, 0, ARG_MEM_HEX },
+    { "timeout", required_argument, 0, ARG_TIMEOUT },
     0
 };
 
@@ -163,7 +165,7 @@ int main(int argc, char** argv, char** env){
 
 
 
-
+	vluint64_t timeout = -1;
 
     while (1)
     {
@@ -175,9 +177,8 @@ int main(int argc, char** argv, char** env){
         if (result == -1) break;
         switch (result)
         {
-            case ARG_MEM_HEX:
-                soc->memory.loadHexl(string(optarg));
-                break;
+            case ARG_MEM_HEX: soc->memory.loadHexl(string(optarg)); break;
+            case ARG_TIMEOUT: timeout = stoi(optarg); break;
         }
     }
     /* print all other parameters */
@@ -187,31 +188,44 @@ int main(int argc, char** argv, char** env){
     }
 
 
-    top->clk = 0;
+    try {
+        top->clk = 0;
 
-    for(SimElement* simElement : simElements) simElement->onReset();
-    while (!Verilated::gotFinish()) {
-        ++main_time;
-        #ifdef TRACE
-        tfp->dump(main_time);
-        if(main_time % 100000 == 0) tfp->flush();
-//        		if(i == TRACE_START && i != 0) cout << "**" << endl << "**" << endl << "**" << endl << "**" << endl << "**" << endl << "START TRACE" << endl;
-//        		if(i >= TRACE_START) tfp->dump(i);
-//        		#ifdef TRACE_SPORADIC
-//        		else if(i % 1000000 < 100) tfp->dump(i);
-//        		#endif
-        #endif
-        top->clk = !top->clk;
-        top->reset = (main_time < 10) ? 1 : 0;
-        if(!top->clk || top->reset){
-            top->eval();
-        } else {
-            for(SimElement* simElement : simElements) simElement->preCycle();
-            top->eval();
-            for(SimElement* simElement : simElements) simElement->postCycle();
+
+        for(SimElement* simElement : simElements) simElement->onReset();
+        while (!Verilated::gotFinish()) {
+            ++main_time;
+            if(main_time == timeout){
+                printf("simulation timeout");
+                throw std::exception();
+            }
+            #ifdef TRACE
+            tfp->dump(main_time);
+            if(main_time % 100000 == 0) tfp->flush();
+    //        		if(i == TRACE_START && i != 0) cout << "**" << endl << "**" << endl << "**" << endl << "**" << endl << "**" << endl << "START TRACE" << endl;
+    //        		if(i >= TRACE_START) tfp->dump(i);
+    //        		#ifdef TRACE_SPORADIC
+    //        		else if(i % 1000000 < 100) tfp->dump(i);
+    //        		#endif
+            #endif
+            top->clk = !top->clk;
+            top->reset = (main_time < 10) ? 1 : 0;
+            if(!top->clk || top->reset){
+                top->eval();
+            } else {
+                for(SimElement* simElement : simElements) simElement->preCycle();
+                top->eval();
+                for(SimElement* simElement : simElements) simElement->postCycle();
+            }
         }
-    }
 
+    } catch (const std::exception& e) {
+
+    }
+    #ifdef TRACE
+    tfp->flush();
+    tfp->close();
+    #endif
     top->final();
 
     //  Coverage analysis (since test passed)

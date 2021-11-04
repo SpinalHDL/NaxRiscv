@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.interfaces.{CommitService, RegfileService, RegfileSpec, RfAllocationService, Riscv, RobService}
+import naxriscv.interfaces.{CommitService, InitCycles, RegfileService, RegfileSpec, RfAllocationService, Riscv, RobService}
 import naxriscv.utilities.{AllocatorMultiPortMem, Plugin}
 import spinal.core._
 import spinal.lib.pipeline.StageableOffset
@@ -11,7 +11,9 @@ import spinal.lib.pipeline.StageableOffset
 import scala.collection.mutable.ArrayBuffer
 
 
-class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationService{
+class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationService with InitCycles {
+  override def initCycles = logic.entryCount
+
   override def getAllocPort() = logic.allocator.io.pop
   override def getFreePort() = ??? //logic.push.external
   var freePorts = ArrayBuffer
@@ -64,15 +66,20 @@ class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationServi
       for (slotId <- 0 until Global.COMMIT_COUNT) {
         allocator.io.push(slotId).valid := event.valid && writeRd(slotId)
         allocator.io.push(slotId).payload := event.commited(slotId) ? physicalRdOld(slotId) | physicalRdNew(slotId)
+
+        //Protect 0
+        if(rf.x0AlwaysZero) when(physicalRdOld(slotId) === 0) {
+          allocator.io.push(slotId).valid := False
+        }
       }
     }
 
 
     val init = new Area {
       assert(isPow2(entryCount))
-      val counter = Reg(UInt(log2Up(entryCount*2) bits)) init (0)
+      assert(rf.x0AlwaysZero)
+      val counter = Reg(UInt(log2Up(entryCount*2) bits)) init (1) // Note it start at 1 (x0 being zero)
       val busy = !counter.msb
-      haltIt(busy)
 
       when(busy) {
         val port = allocator.io.push(0)
