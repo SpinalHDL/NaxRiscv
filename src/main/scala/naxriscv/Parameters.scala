@@ -5,7 +5,8 @@ import spinal.lib.pipeline.Stageable
 
 
 object ROB extends AreaObject{
-  def COLS = Frontend.DECODE_COUNT
+  def COLS = Frontend.DISPATCH_COUNT
+  def LINES = SIZE/COLS
   val SIZE = ScopeProperty[Int]
   def ID_WIDTH = log2Up(SIZE.get)
   val ID_TYPE = HardType(UInt(ID_WIDTH bits))

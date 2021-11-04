@@ -1,6 +1,6 @@
 package naxriscv.backend
 
-import naxriscv.Frontend.ROB_ID
+import naxriscv.Frontend.{DISPATCH_MASK, ROB_ID}
 import naxriscv.{Global, ROB}
 import naxriscv.interfaces.{CommitEvent, CommitFree, CommitService, CompletionCmd, JumpService, RescheduleCmd, RfAllocationService, RobService}
 import naxriscv.utilities.Plugin
@@ -13,6 +13,7 @@ import scala.collection.mutable.ArrayBuffer
 
 class CommitPlugin extends Plugin with CommitService{
   override def onCommit() : CommitEvent = logic.commit.event
+  override def onCommitLine() =  logic.commit.lineEvent
 
   val completions = ArrayBuffer[Flow[CompletionCmd]]()
   override def newCompletionPort(canTrap : Boolean, canJump : Boolean) = {
@@ -27,15 +28,18 @@ class CommitPlugin extends Plugin with CommitService{
     val jump = getService[JumpService].createJumpInterface(JumpService.Priorities.COMMIT) //Flush missing
     val rob = getService[RobService]
     val robLineMask = rob.robLineValids()
+    rob.retain()
   }
 
   val logic = create late new Area {
+    val rob = getService[RobService]
+
     val ptr = new Area {
       val alloc, commit, free = Reg(UInt(ROB.ID_WIDTH + 1 bits)) init (0)
       val full = (alloc ^ free) === ROB.SIZE.get
       val empty = alloc === commit
       val canFree = free =/= commit
-      val commitLine = commit >> log2Up(ROB.COLS.get)
+      val commitLine = commit >> log2Up(ROB.COLS)
 
       setup.robLineMask.line := commit.resized
 
@@ -56,8 +60,8 @@ class CommitPlugin extends Plugin with CommitService{
       val age = Reg(UInt(ROB.ID_WIDTH bits))
       val pcTarget = Reg(Global.PC)
       val commit = new Area{
-        val (row, line) = age.splitAt(log2Up(ROB.COLS.get))
-        val lineHit = age >> log2Up(ROB.COLS.get) === ptr.commitLine
+        val (row, line) = age.splitAt(log2Up(ROB.COLS))
+        val lineHit = age >> log2Up(ROB.COLS) === ptr.commitLine
       }
 
       val port = Flow(RescheduleCmd())
@@ -73,6 +77,7 @@ class CommitPlugin extends Plugin with CommitService{
     val commit = new Area {
       var continue = True
       val force = False
+      val active = rob.readAsync(DISPATCH_MASK, ROB.COLS, ptr.commit.dropHigh(1).asUInt).asBits //TODO can be ignore if schedule width == 1
       val mask = Reg(Bits(ROB.COLS bits)) init ((1 << ROB.COLS) - 1)
       val maskComb = CombInit(mask)
       mask := maskComb
@@ -81,11 +86,17 @@ class CommitPlugin extends Plugin with CommitService{
       event.mask := 0
       event.robId := ptr.commit.resized
 
+
+      val lineEvent = Flow(CommitEvent())
+      lineEvent.valid := False
+      lineEvent.mask := active ^ maskComb
+      lineEvent.robId := ptr.commit.resized
+
       setup.jump.valid := False
       setup.jump.payload.assignDontCare()
       when(!ptr.empty) {
         for (rowId <- 0 until ROB.COLS) {
-          when(setup.robLineMask.mask(rowId) && mask(rowId) && continue) {
+          when(setup.robLineMask.mask(rowId) && mask(rowId) && active(rowId) && continue) {
             maskComb(rowId) := False
             when(reschedule.valid && reschedule.commit.lineHit && reschedule.commit.row === rowId){
               continue \= False
@@ -97,20 +108,26 @@ class CommitPlugin extends Plugin with CommitService{
             }
           }
         }
-        when(maskComb === 0 || force) {
+        when((maskComb & active) === 0 || force) {
           mask := (1 << ROB.COLS) - 1
-          ptr.commit := ptr.commit + ROB.COLS.get
+          ptr.commit := ptr.commit + ROB.COLS
+          lineEvent.valid := True
         }
       }
-
     }
 
     val free = new Area{
+      val lineEventStream = commit.lineEvent.toStream
+      val commited = lineEventStream.queueLowLatency(size = ROB.LINES, latency = 1)
+      val hit = commited.valid && commited.robId === ptr.free
+      commited.ready := ptr.canFree
+
       val port = Flow(CommitFree())
       port.valid := ptr.canFree
       port.robId := ptr.free.resized
+      port.commited := hit ? commited.mask | B(0)
       when(ptr.canFree){
-        ptr.free := ptr.free + ROB.COLS.get
+        ptr.free := ptr.free + ROB.COLS
       }
     }
 
@@ -120,5 +137,7 @@ class CommitPlugin extends Plugin with CommitService{
 
       }
     }
+
+    rob.release()
   }
 }

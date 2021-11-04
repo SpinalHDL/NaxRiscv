@@ -124,7 +124,7 @@ class RfTranslationPlugin() extends Plugin {
       depth       = 32,
       commitPorts = COMMIT_COUNT,
       writePorts  = DISPATCH_COUNT,
-      readPorts   = DISPATCH_COUNT*decoder.rsCount
+      readPorts   = DISPATCH_COUNT*(decoder.rsCount+1)
     )
 
     impl.io.rollback := getService[CommitService].reschedulingPort().valid
@@ -148,50 +148,32 @@ class RfTranslationPlugin() extends Plugin {
       }
     }
 
-//    val commit = new Area{
-//      case class Ctx() extends Bundle{
-//        val enable = Bool()
-//        val rd = UInt(log2Up(getService[RegfileService](rf).getPhysicalDepth) bits) //TODO
-//      }
-//      val contextRam = Seq.fill(Frontend.DISPATCH_COUNT)(Mem.fill(ROB.SIZE/Frontend.DISPATCH_COUNT)(Ctx()))
-//
-//      assert(Global.COMMIT_COUNT.get == Frontend.DISPATCH_COUNT)
-//      val store = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield new Area{
-//        assert(isPow2(Frontend.DISPATCH_COUNT))
-//
-//        val ctx = Ctx()
-//        ctx.enable := stage(decoder.WRITE_RD, slotId)
-//        ctx.rd     := stage(decoder.PHYSICAL_RD, slotId)
-//
-//        contextRam(slotId).write(
-//          enable = isFireing,
-//          address = Frontend.ROB_ID >> log2Up(Frontend.DISPATCH_COUNT),
-//          data = ctx
-//        )
-//      }
-//
-//      val port = commit.onCommit()
-//      for((sel, port) <- (port.mask.asBools, impl.io.commits).zipped){
-//        port.valid := sel
-//        port.address := event.payload
-//      }
-//    }
-
 
     val translation = new Area{
       for(slotId <- 0 until DISPATCH_COUNT) {
-        for(rsId <- 0 until decoder.rsCount) {
-          val port = impl.io.reads(slotId*decoder.rsCount+rsId)
+        val portRd = impl.io.reads(slotId*(1+decoder.rsCount))
+        val archRd = (Frontend.INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rdRange)
+        portRd.cmd.payload := U(archRd)
+        (decoder.PHYS_RD_FREE, slotId) := portRd.rsp.payload
+
+        val rs = for(rsId <- 0 until decoder.rsCount) yield new Area{
+          val id = rsId
+          val port = impl.io.reads(slotId*(1+decoder.rsCount)+rsId+1)
           val archRs = (Frontend.INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rsRange(rsId))
           port.cmd.payload := U(archRs)
           (decoder.PHYS_RS(rsId), slotId) := port.rsp.payload
+        }
 
-          //Slot bypass
-          for(priorId <- 0 until slotId){
-            val useRd = (decoder.WRITE_RD, priorId) && (DISPATCH_MASK, priorId)
-            val writeRd = (Frontend.INSTRUCTION_DECOMPRESSED, priorId)(Riscv.rdRange)
-            when(useRd && writeRd === archRs){
-              (decoder.PHYS_RS(rsId), slotId) := stage(decoder.PHYS_RS(rsId), priorId)
+        //Slot bypass
+        for(priorId <- 0 until slotId){
+          val useRd = (decoder.WRITE_RD, priorId) && (DISPATCH_MASK, priorId)
+          val writeRd = (Frontend.INSTRUCTION_DECOMPRESSED, priorId)(Riscv.rdRange)
+          when(useRd && writeRd === archRd){
+            (decoder.PHYS_RD_FREE, slotId) := stage(decoder.PHYS_RD, priorId)
+          }
+          for(e <- rs){
+            when(useRd && writeRd === e.archRs){
+              (decoder.PHYS_RS(e.id), slotId) := stage(decoder.PHYS_RS(e.id), priorId)
             }
           }
         }

@@ -59,10 +59,11 @@ class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationServi
     val push = new Area {
       val event = commit.freePort()
       val writeRd = rob.readAsync(decoder.WRITE_RD, COMMIT_COUNT, event.robId)
-      val physicalRd = rob.readAsync(decoder.PHYS_RD, COMMIT_COUNT, event.robId)
+      val physicalRdNew = rob.readAsync(decoder.PHYS_RD, COMMIT_COUNT, event.robId)
+      val physicalRdOld = rob.readAsync(decoder.PHYS_RD_FREE, COMMIT_COUNT, event.robId)
       for (slotId <- 0 until Global.COMMIT_COUNT) {
         allocator.io.push(slotId).valid := event.valid && writeRd(slotId)
-        allocator.io.push(slotId).payload := physicalRd(slotId)
+        allocator.io.push(slotId).payload := event.commited(slotId) ? physicalRdOld(slotId) | physicalRdNew(slotId)
       }
     }
 
@@ -81,6 +82,7 @@ class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationServi
         counter := counter + 1
       }
     }
+
     frontend.release()
     rob.release()
   }

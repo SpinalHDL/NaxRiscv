@@ -30,6 +30,7 @@ object Config{
     ROB.SIZE.set(64)
     Global.XLEN.set(32)
   }
+
   def plugins(): Seq[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()

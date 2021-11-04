@@ -48,6 +48,7 @@ trait DecoderService extends Service{
 
   def WRITE_RD : Stageable[Bool]
   def PHYS_RD  : Stageable[UInt]
+  def PHYS_RD_FREE : Stageable[UInt]
   def ARCH_RD  : Stageable[UInt]
 
   def rsCount  : Int
@@ -139,14 +140,17 @@ case class RescheduleCmd() extends Bundle{
 
 case class CommitFree() extends Bundle{
   val robId = ROB.ID_TYPE()
+  val commited = Bits(COMMIT_COUNT bits)
 }
 case class CommitEvent() extends Bundle{
   val robId = ROB.ID_TYPE()
   val mask = Bits(COMMIT_COUNT bits)
 }
 
+
 trait CommitService  extends Service{
   def onCommit() : CommitEvent
+  def onCommitLine() : Flow[CommitEvent]
   def newCompletionPort(canTrap : Boolean, canJump : Boolean) : Flow[CompletionCmd]
   def reschedulingPort() : Flow[RescheduleCmd]
   def freePort() : Flow[CommitFree]
