@@ -192,7 +192,7 @@ class RfTranslationPlugin() extends Plugin with InitCycles {
           }
           for(e <- rs){
             when(useRd && writeRd === e.archRs){
-              (decoder.PHYS_RS(e.id), slotId) := stage(decoder.PHYS_RS(e.id), priorId)
+              (decoder.PHYS_RS(e.id), slotId) := stage(decoder.PHYS_RD, priorId)
             }
           }
         }

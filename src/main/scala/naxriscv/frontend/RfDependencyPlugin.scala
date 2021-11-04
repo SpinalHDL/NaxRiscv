@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv.Frontend.{DISPATCH_MASK, ROB_ID}
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.compatibility.MultiPortWritesSymplifier
-import naxriscv.interfaces.{CommitService, DecoderService, WakeService, IssueService, RegfileService, RegfileSpec, Riscv}
+import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, RegfileService, RegfileSpec, Riscv, WakeService}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -11,23 +11,23 @@ import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
 
 import scala.collection.mutable.ArrayBuffer
 
-case class DependencyUpdate(archDepth : Int, physDepth : Int) extends Bundle{
-  val address = UInt(log2Up(archDepth) bits)
-  val data    = UInt(log2Up(physDepth) bits)
+case class DependencyUpdate(physDepth : Int, robDepth : Int) extends Bundle{
+  val physical = UInt(log2Up(physDepth) bits)
+  val rob = UInt(log2Up(robDepth) bits)
 }
 
 case class DependencyCommit(physDepth : Int) extends Bundle{
-  val address = UInt(log2Up(physDepth) bits)
+  val physical = UInt(log2Up(physDepth) bits)
 }
 
-case class DependencyReadRsp(physDepth : Int) extends Bundle{
+case class DependencyReadRsp(robDepth : Int) extends Bundle{
   val enable = Bool()
-  val rob = UInt(log2Up(physDepth) bits)
+  val rob = UInt(log2Up(robDepth) bits)
 }
 
-case class DependencyRead(archDepth : Int, physDepth : Int) extends Bundle with IMasterSlave {
-  val cmd = Flow(UInt(log2Up(archDepth) bits))
-  val rsp = Flow(DependencyReadRsp(physDepth))
+case class DependencyRead(physDepth : Int, robDepth : Int) extends Bundle with IMasterSlave {
+  val cmd = Flow(UInt(log2Up(physDepth) bits))
+  val rsp = Flow(DependencyReadRsp(robDepth))
 
   override def asMaster() = {
     master(cmd)
@@ -35,51 +35,51 @@ case class DependencyRead(archDepth : Int, physDepth : Int) extends Bundle with 
   }
 }
 
-class DependencyStorage(archDepth : Int,
-                        physDepth : Int,
+class DependencyStorage(physDepth : Int,
+                        robDepth : Int,
                         commitPorts : Int,
                         writePorts : Int,
                         readPorts : Int) extends Component {
   val io = new Bundle {
-    val clear = in Bool()
-    val writes = Vec.fill(writePorts)(slave(Flow(DependencyUpdate(archDepth, physDepth))))
+    val writes = Vec.fill(writePorts)(slave(Flow(DependencyUpdate(physDepth, robDepth))))
     val commits = Vec.fill(commitPorts)(slave(Flow(DependencyCommit(physDepth))))
-    val reads = Vec.fill(readPorts)(slave(DependencyRead(archDepth, physDepth)))
+    val reads = Vec.fill(readPorts)(slave(DependencyRead(physDepth, robDepth)))
   }
 
-  val dependencies = new Area{
-    val enable = Reg(Bits(physDepth bits))
-    val dependency = Mem.fill(archDepth)(UInt(log2Up(physDepth) bits))
-
-    val booted = RegNext(True) init(False)
-    when(io.clear || !booted){
-      enable := 0
+  val translation = new Area{
+    val storage = Mem.fill(physDepth)(UInt(log2Up(robDepth) bits))
+    for(p <- io.writes){
+      storage.write(
+        address = p.physical,
+        data = p.rob,
+        enable = p.valid
+      )
     }
   }
 
-  val writes = new Area{
+  val status = new Area{
+    val busy = Mem.fill(physDepth)(Bool())
     for(p <- io.writes){
-      dependencies.dependency.write(
-        address = p.address,
-        data = p.data,
+      busy.write(
+        address = p.physical,
+        data = True,
         enable = p.valid
       )
+    }
+    for(p <- io.commits) yield new Area{
       when(p.valid){
-        dependencies.enable(p.data) := True
+        busy.write(
+          address = p.physical,
+          data = False,
+          enable = p.valid
+        )
       }
     }
   }
 
-
-  val commits = for(p <- io.commits) yield new Area{
-    when(p.valid){
-      dependencies.enable(p.address) := False
-    }
-  }
-
   val read = for(p <- io.reads) yield new Area{
-    val translated = dependencies.dependency.readAsync(p.cmd.payload)
-    val enabled = dependencies.enable(translated)
+    val translated = translation.storage.readAsync(p.cmd.payload)
+    val enabled = status.busy.readAsync(p.cmd.payload)
     p.rsp.valid := p.cmd.valid
     p.rsp.enable := enabled
     p.rsp.rob := translated
@@ -95,8 +95,8 @@ object DependencyStorageSynth extends App{
 
   val rtls = ArrayBuffer[Rtl]()
   rtls += Rtl(spinalConfig.generateVerilog(Rtl.ffIo(new DependencyStorage(
-    archDepth   = 32,
     physDepth   = 64,
+    robDepth    = 64,
     commitPorts =  2,
     writePorts  =  2,
     readPorts   =  4
@@ -110,9 +110,14 @@ object DependencyStorageSynth extends App{
     //    ClockDomain.current.addTag(ClockDomainFasterTag(2, x2))
 //  }
 }
+/*
+Artix 7 -> 225 Mhz 180 LUT 303 FF
+Artix 7 -> 379 Mhz 180 LUT 303 FF
+ */
 
+class RfDependencyPlugin() extends Plugin with InitCycles{
+  override def initCycles = logic.entryCount
 
-class RfDependencyPlugin() extends Plugin {
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     val issue    = getService[IssueService]
@@ -134,9 +139,11 @@ class RfDependencyPlugin() extends Plugin {
     val stage = frontend.pipeline.allocated
     import stage._
 
+    val entryCount = decoder.rsPhysicalDepthMax
+
     val impl = new DependencyStorage(
-      archDepth   = 32,
-      physDepth   = decoder.rsPhysicalDepthMax,
+      robDepth    = ROB.SIZE,
+      physDepth   = entryCount,
       commitPorts = wakeIds.size,
       writePorts  = Global.COMMIT_COUNT,
       readPorts   = Frontend.DISPATCH_COUNT*decoder.rsCount
@@ -146,17 +153,29 @@ class RfDependencyPlugin() extends Plugin {
     for(slotId <- 0 until Frontend.DISPATCH_COUNT) {
       val port = impl.io.writes(slotId)
       port.valid := stage.isFireing && (decoder.WRITE_RD, slotId) && (DISPATCH_MASK, slotId)
-      port.address := U((Frontend.INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rdRange))
-      port.data := ROB_ID | slotId
+      port.physical := stage(decoder.PHYS_RD, slotId)
+      port.rob := ROB_ID | slotId
     }
 
     //Commit
     for((event, port) <- (wakeIds, impl.io.commits).zipped){
       port.valid := event.valid
-      port.address := event.payload
+      port.physical := event.payload
     }
 
-    impl.io.clear := getService[CommitService].reschedulingPort().valid
+    val init = new Area{
+      assert(isPow2(entryCount))
+      val counter = Reg(UInt(log2Up(entryCount*2) bits)) init (0)
+      val busy = !counter.msb
+
+      when(busy) {
+        val port = impl.io.commits.head
+        port.valid := True
+        port.physical := counter.resized
+
+        counter := counter + 1
+      }
+    }
 
     //Read
     val dependency = new Area{
@@ -166,7 +185,7 @@ class RfDependencyPlugin() extends Plugin {
           val useRs = (decoder.READ_RS(rsId), slotId)
           val port = impl.io.reads(slotId*decoder.rsCount+rsId)
           port.cmd.valid := isValid && (DISPATCH_MASK, slotId) && useRs
-          port.cmd.payload := U(archRs)
+          port.cmd.payload := stage(decoder.PHYS_RS(rsId), slotId)
           (setup.waits(rsId).ENABLE, slotId) := port.rsp.enable
           (setup.waits(rsId).ID    , slotId) := port.rsp.rob
 

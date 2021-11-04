@@ -1,5 +1,6 @@
 package naxriscv.units
 
+import naxriscv.interfaces.Riscv.IMM
 import naxriscv.{Frontend, ROB}
 import naxriscv.interfaces._
 import naxriscv.utilities.Plugin
@@ -40,7 +41,6 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
     val decoder = getService[DecoderService]
 
     val pushPort = Stream(ExecutionUnitPush())
-    val s0 = pushPort.toFlow.stage()
 
     case class Result() extends Bundle{
       val robId = ROB.ID_TYPE()
@@ -61,14 +61,31 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
     setup.rfReadRs2.address := physRs2
 
 
+    val s0 = new Area{
+      val input = pushPort.toFlow.stage()
 
-    val s0Result = Result()
-    s0Result.robId := s0.robId
-    s0Result.writeRd := rob.readAsyncSingle(decoder.WRITE_RD, s0.robId)
-    s0Result.rd := rob.readAsyncSingle(decoder.PHYS_RD, s0.robId)
-    s0Result.value := B(0xFF00 | s0.robId.resized).resized
+      val rs1 = RegNext(setup.rfReadRs1.data)
+      val rs2 = RegNext(setup.rfReadRs2.data)
+      val instruction = rob.readAsyncSingle(Frontend.INSTRUCTION_DECOMPRESSED, input.robId)
+      val imm = new IMM(instruction)
 
-    val wake = out(s0.translateWith(s0Result).stage().stage().stage())
+
+      val result = Result()
+      result.robId := input.robId
+      result.writeRd := rob.readAsyncSingle(decoder.WRITE_RD, input.robId)
+      result.rd := rob.readAsyncSingle(decoder.PHYS_RD, input.robId)
+      when(instruction(5)){
+        result.value := B(S(rs1) + S(rs2))
+      } otherwise {
+        result.value := B(S(rs1) + S(imm.i))
+      }
+
+
+      val output = input.translateWith(result)
+    }
+
+
+    val wake = out(s0.output.stage().stage().stage())
 
     setup.rfWriteRd.valid := wake.writeRd
     setup.rfWriteRd.address := wake.rd
