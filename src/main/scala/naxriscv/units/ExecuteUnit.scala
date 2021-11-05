@@ -1,7 +1,7 @@
 package naxriscv.units
 
 import naxriscv.interfaces.Riscv.IMM
-import naxriscv.{Frontend, ROB}
+import naxriscv.{Frontend, Global, ROB}
 import naxriscv.interfaces._
 import naxriscv.utilities.Plugin
 import spinal.core._
@@ -28,12 +28,15 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
 
   val setup = create early new Area{
     val rob = getService[RobService]
+    val rf = getService[RegfileService]
+
     val completion = rob.robCompletion()
 
-    val rf = getService[RegfileService]
     val rfReadRs1 = rf.newRead(withReady = false)
     val rfReadRs2 = rf.newRead(withReady = false)
     val rfWriteRd = rf.newWrite(withReady = false)
+
+    val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
   }
 
   val logic = create late new Area{
@@ -67,6 +70,7 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
       val rs1 = RegNext(setup.rfReadRs1.data)
       val rs2 = RegNext(setup.rfReadRs2.data)
       val instruction = rob.readAsyncSingle(Frontend.INSTRUCTION_DECOMPRESSED, input.robId)
+      val pc = rob.readAsyncSingle(Global.PC, input.robId)
       val imm = new IMM(instruction)
 
 
@@ -81,10 +85,20 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
       result.robId := input.robId
       result.writeRd := rob.readAsyncSingle(decoder.WRITE_RD, input.robId)
       result.rd := rob.readAsyncSingle(decoder.PHYS_RD, input.robId)
-      when(instruction(5)){
+      result.value.assignDontCare()
+
+      setup.reschedule.valid := False
+      setup.reschedule.trap := False
+      setup.reschedule.robId := input.robId
+      setup.reschedule.cause := 0
+      setup.reschedule.tval := 0
+      setup.reschedule.pcTarget := pc + U(imm.s_sext)
+      when(instruction(6)){
+        setup.reschedule.valid := rs1 === rs2
+      } elsewhen(instruction(5)){
         result.value := B(S(rs1) + S(rs2))
       } otherwise {
-        result.value := B(S(rs1) + S(imm.i))
+        result.value := B(S(rs1) + S(imm.i_sext))
       }
 
 

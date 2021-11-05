@@ -2,7 +2,7 @@ package naxriscv.backend
 
 import naxriscv.Frontend.{DISPATCH_MASK, ROB_ID}
 import naxriscv.{Global, ROB}
-import naxriscv.interfaces.{CommitEvent, CommitFree, CommitService, CompletionCmd, JumpService, RescheduleCmd, RfAllocationService, RobService}
+import naxriscv.interfaces.{CommitEvent, CommitFree, CommitService, ScheduleCmd, JumpService, RescheduleEvent, RfAllocationService, RobService}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -15,12 +15,8 @@ class CommitPlugin extends Plugin with CommitService{
   override def onCommit() : CommitEvent = logic.commit.event
   override def onCommitLine() =  logic.commit.lineEvent
 
-  val completions = ArrayBuffer[Flow[CompletionCmd]]()
-  override def newCompletionPort(canTrap : Boolean, canJump : Boolean) = {
-    val port = Flow(CompletionCmd(canTrap = canTrap, canJump = canJump))
-    completions += port
-    port
-  }
+  val completions = ArrayBuffer[Flow[ScheduleCmd]]()
+  override def newSchedulePort(canTrap : Boolean, canJump : Boolean) = completions.addRet(Flow(ScheduleCmd(canTrap = canTrap, canJump = canJump)))
   override def reschedulingPort() = logic.reschedule.port
   override def freePort() = logic.free.port
 
@@ -39,7 +35,7 @@ class CommitPlugin extends Plugin with CommitService{
       val full = (alloc ^ free) === ROB.SIZE.get
       val empty = alloc === commit
       val canFree = free =/= commit
-      val commitLine = commit >> log2Up(ROB.COLS)
+      val commitRow = commit >> log2Up(ROB.COLS)
 
       setup.robLineMask.line := commit.resized
 
@@ -55,32 +51,53 @@ class CommitPlugin extends Plugin with CommitService{
 
     val reschedule = new Area {
       val valid = Reg(Bool()) init(False)
-      valid := False //TODO
-      val trap = Reg(Bool())
-      val age = Reg(UInt(ROB.ID_WIDTH bits))
+      val trap     = Reg(Bool())
+      val robId    = Reg(UInt(ROB.ID_WIDTH bits))
       val pcTarget = Reg(Global.PC)
+      val cause    = Reg(UInt(Global.TRAP_CAUSE_WIDTH bits))
+      val tval     = Reg(Bits(Global.XLEN bits))
       val commit = new Area{
-        val (row, line) = age.splitAt(log2Up(ROB.COLS))
-        val lineHit = age >> log2Up(ROB.COLS) === ptr.commitLine
+        val (row, col) = robId.splitAt(log2Up(ROB.COLS))
+        val rowHit = U(row) === ptr.commitRow
       }
 
-      val port = Flow(RescheduleCmd())
+      val port = Flow(RescheduleEvent())
       port.valid := False
       port.nextRob := ptr.allocNext.resized
 
-      //TODO remove
-      age := 0
-      pcTarget := 0
-      trap := False
+
+
+      val portsLogic = if(completions.nonEmpty) new Area{
+        val ages = completions.map(c => c.robId - ptr.free)
+        val completionsWithAge = (completions, ages).zipped.map(_.valid -> _)
+        val hits = Bits(completions.size bits)
+        val fill = for((c, cId) <- completions.zipWithIndex) yield new Area {
+          val others = ArrayBuffer[(Bool, UInt)]()
+          others += valid -> robId
+          others ++= completionsWithAge.filter(_._1 != c.valid)
+          hits(cId) := c.valid && others.map(o => !o._1 || o._2 > ages(cId)).andR
+        }
+        when(hits.orR){
+          val canTrap = (0 until completions.size).filter(completions(_).canTrap)
+          val canJump = (0 until completions.size).filter(completions(_).canJump)
+          valid    := True
+          robId    := MuxOH.or(hits, completions.map(_.robId))
+          trap     := MuxOH.or(hits, completions.map(_.isTrap))
+          pcTarget := MuxOH.or(canJump.map(hits(_)), canJump.map(completions(_).pcTarget))
+          cause    := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).cause))
+          tval     := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).tval))
+        }
+      }
     }
 
     val commit = new Area {
       var continue = True
-      val force = False
+      val rescheduleHit = False
       val active = rob.readAsync(DISPATCH_MASK, ROB.COLS, ptr.commit.dropHigh(1).asUInt).asBits //TODO can be ignore if schedule width == 1
       val mask = Reg(Bits(ROB.COLS bits)) init ((1 << ROB.COLS) - 1)
       val maskComb = CombInit(mask)
       mask := maskComb
+      val lineCommited = (maskComb & active) === 0
 
       val event = CommitEvent()
       event.mask := 0
@@ -93,25 +110,30 @@ class CommitPlugin extends Plugin with CommitService{
       lineEvent.robId := ptr.commit.resized
 
       setup.jump.valid := False
-      setup.jump.payload.assignDontCare()
+      setup.jump.pc := reschedule.pcTarget //TODO another target for trap
       when(!ptr.empty) {
-        for (rowId <- 0 until ROB.COLS) {
-          when(setup.robLineMask.mask(rowId) && mask(rowId) && active(rowId) && continue) {
-            maskComb(rowId) := False
-            when(reschedule.valid && reschedule.commit.lineHit && reschedule.commit.row === rowId){
+        for (colId <- 0 until ROB.COLS) {
+          when(setup.robLineMask.mask(colId) && mask(colId) && active(colId) && continue) {
+            maskComb(colId) := False
+            when(reschedule.valid && reschedule.commit.rowHit && reschedule.commit.col === colId){
               continue \= False
-              force := True
+              rescheduleHit := True
               setup.jump.valid := True
               setup.jump.pc := reschedule.pcTarget
-              ptr.commit := ptr.alloc //TODO likely buggy
-              event.mask(rowId) := True
+              event.mask(colId) := True
+              reschedule.valid := False
             }
           }
         }
-        when((maskComb & active) === 0 || force) {
+        when(lineCommited || rescheduleHit) {
           mask := (1 << ROB.COLS) - 1
-          ptr.commit := ptr.commit + ROB.COLS
           lineEvent.valid := True
+        }
+        when(lineCommited){
+          ptr.commit := ptr.commit + ROB.COLS
+        }
+        when(setup.jump.valid){
+          ptr.commit := ptr.allocNext
         }
       }
     }
@@ -131,12 +153,6 @@ class CommitPlugin extends Plugin with CommitService{
       }
     }
 
-
-    val completion = for(c <- completions) yield new Area{
-      when(c.valid){
-
-      }
-    }
 
     rob.release()
   }

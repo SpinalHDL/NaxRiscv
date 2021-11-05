@@ -37,9 +37,6 @@ case class EuGroup(eus : Seq[ExecuteUnitService],
                    sel: Stageable[Bool])
 
 trait DecoderService extends Service{
-//  def add(key : MaskedLiteral,values : Seq[(Stageable[_ <: BaseType],Any)])
-//  def add(encoding :Seq[(MaskedLiteral,Seq[(Stageable[_ <: BaseType],Any)])])
-//  def addDefault(key : Stageable[_ <: BaseType], value : Any)
   def addFunction(fu: ExecuteUnitService,
                   enc: Encoding) : Unit
 
@@ -130,6 +127,9 @@ trait RegfileService extends Service{
   def newRead(withReady : Boolean) : RegFileRead
   def newWrite(withReady : Boolean) : RegFileWrite
   def newBypass() : RegFileBypass
+
+  def retain() : Unit
+  def release() : Unit
 }
 
 
@@ -138,9 +138,12 @@ trait RegfileService extends Service{
 //  def newWakeRobIdPort() : Stream[WakeRobId]
 //}
 
-case class RescheduleCmd() extends Bundle{
+case class RescheduleEvent() extends Bundle{
   val nextRob = ROB.ID_TYPE()
 }
+
+
+
 
 case class CommitFree() extends Bundle{
   val robId = ROB.ID_TYPE()
@@ -155,8 +158,8 @@ case class CommitEvent() extends Bundle{
 trait CommitService  extends Service{
   def onCommit() : CommitEvent
   def onCommitLine() : Flow[CommitEvent]
-  def newCompletionPort(canTrap : Boolean, canJump : Boolean) : Flow[CompletionCmd]
-  def reschedulingPort() : Flow[RescheduleCmd]
+  def newSchedulePort(canTrap : Boolean, canJump : Boolean) : Flow[ScheduleCmd]
+  def reschedulingPort() : Flow[RescheduleEvent]
   def freePort() : Flow[CommitFree]
 }
 
@@ -262,9 +265,14 @@ object Riscv{
       key = key,
       ressources = List(RS1, RD).map(regfile -> _)
     )
+    def TypeS(key : MaskedLiteral) = Encoding(
+      key = key,
+      ressources = List(RS1, RS2, RD).map(regfile -> _)
+    )
 
     val ADD  = TypeR(M"0000000----------000-----0110011")
     val ADDI = TypeI(M"-----------------000-----0010011")
+    def BEQ =  TypeS(M"-----------------000-----1100011")
   }
 }
 
@@ -301,13 +309,18 @@ case class CommitEntry() extends Bundle {
   val context = ???
 }
 
-case class CompletionCmd(canTrap : Boolean, canJump : Boolean) extends Bundle {
-  val robId = ROB.ID_TYPE()
+case class ScheduleCmd(canTrap : Boolean, canJump : Boolean) extends Bundle {
+  val robId    = ROB.ID_TYPE()
+  val trap     = (canTrap && canJump) generate Bool()
+  val pcTarget = canJump generate PC()
+  val cause    = canTrap generate UInt(Global.TRAP_CAUSE_WIDTH bits)
+  val tval     = canTrap generate Bits(Global.XLEN bits)
 
-  val jump = canJump generate Bool()
-  val trap = canTrap generate Bool()
-  val cause = canTrap generate UInt(Global.TRAP_CAUSE_WIDTH bits)
-  val arg = (canTrap || canJump) generate Bits(Global.XLEN bits) //Target PC if jump, payload if trap
+  def isTrap = (canTrap, canJump) match {
+    case (false, true) => False
+    case (true, false) => True
+    case (true, true) =>  trap
+  }
 }
 
 case class RobWait() extends Area with OverridedEqualsHashCode {

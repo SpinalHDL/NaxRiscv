@@ -10,6 +10,7 @@ class IntAluPlugin(fuId : Any) extends Plugin{
     val fu = getService[ExecuteUnit](fuId)
     fu.addFunction(Riscv.integer.ADD)
     fu.addFunction(Riscv.integer.ADDI)
+    fu.addFunction(Riscv.integer.BEQ)
   }
 
   val logic = create late new Area{

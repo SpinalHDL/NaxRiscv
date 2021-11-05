@@ -80,7 +80,7 @@ class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationServi
       assert(rf.x0AlwaysZero)
       val counter = Reg(UInt(log2Up(entryCount*2) bits)) init (1) // Note it start at 1 (x0 being zero)
       val busy = !counter.msb
-
+      
       when(busy) {
         val port = allocator.io.push(0)
         port.valid := True

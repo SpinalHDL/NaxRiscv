@@ -46,22 +46,23 @@ class AlignerPlugin() extends Plugin{
     import input._
 
 
-    {
+    val sliceRangeLow = if (RVC) 1 else 2
+    val sliceRange = (sliceRangeLow + log2Up(SLICE_COUNT) - 1) downto sliceRangeLow
+    val _ = {
       val maskStage = frontend.getStage(1)
       import maskStage._
-      val sliceRangeLow = if (RVC) 1 else 2
-      val sliceRange = (sliceRangeLow + log2Up(SLICE_COUNT) - 1 downto sliceRangeLow)
       MASK := (0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(FETCH_PC_VIRTUAL(sliceRange))
     }
 
     val buffer = new Area {
       val data = Reg(WORD)
       val mask = Reg(MASK) init (0)
+      val pc   = Reg(PC())
     }
 
     val slices = new Area {
       val data = (WORD ## buffer.data).subdivideIn(SLICE_WIDTH bits)
-      var mask = (input.isValid ? input(MASK) | B(0)) ## buffer.mask
+      var mask = (input.isValid ? input(MASK) | B(0)) ## buffer.mask //Which slice have valid data
       var used = B(0, SLICE_COUNT*2 bits)
     }
 
@@ -99,6 +100,10 @@ class AlignerPlugin() extends Plugin{
       slices.mask \= slices.mask & ~usage
       output(INSTRUCTION_ALIGNED,i) := instruction
       output(MASK_ALIGNED, i) := valid
+
+      val sliceOffset = OHToUInt(maskOh << i)
+      val pcWord = Vec(buffer.pc, output(FETCH_PC_VIRTUAL)).read(U(sliceOffset.msb))
+      output(PC, i) := (pcWord >> sliceRange.high+1) @@ U(sliceOffset.dropHigh(1)) @@ U(0, sliceRangeLow bits)
     }
 
     val fireOutput = CombInit(output.isFireing)
@@ -110,6 +115,7 @@ class AlignerPlugin() extends Plugin{
     when(fireInput){
       buffer.mask := fireOutput ? slices.mask(SLICE_COUNT, SLICE_COUNT bits) | MASK
       buffer.data := WORD
+      buffer.pc   := FETCH_PC_VIRTUAL
     }
 //    val fireOutput = CombInit(output.isFireing)
 //    val fireInput = False

@@ -3,6 +3,7 @@ package naxriscv.backend
 import naxriscv.compatibility.MultiPortWritesSymplifier
 import spinal.core._
 import spinal.lib._
+import spinal.core.fiber._
 import naxriscv.interfaces._
 import naxriscv.utilities.Plugin
 import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
@@ -116,6 +117,7 @@ class RegFilePlugin(spec : RegfileSpec,
 
   assert(isPow2(bankCount))
 
+  val lock = Lock()
   val addressWidth = log2Up(physicalDepth)
   val dataWidth = spec.width
   val reads = ArrayBuffer[RegFileRead]()
@@ -126,7 +128,13 @@ class RegFilePlugin(spec : RegfileSpec,
   override def newWrite(withReady : Boolean) = writes.addRet(RegFileWrite(addressWidth, dataWidth, withReady))
   override def newBypass() = bypasses.addRet(RegFileBypass(addressWidth, dataWidth))
 
+
+  override def retain() = lock.retain()
+  override def release() = lock.release()
+
   val logic = create late new Area{
+
+    lock.await()
     val regfile = new RegFileAsync(
       addressWidth    = addressWidth,
       dataWidth       = dataWidth,

@@ -17,56 +17,9 @@ import scala.collection.mutable.{LinkedHashSet, LinkedHashMap, ArrayBuffer}
 
 
 
-//case class DecoderParameter(decoderWidth : Int,
-//                            instructionWidth : Int)  {
-//
-//}
-
-//case class DecompressedInstruction() extends Bundle {
-//  val valid = Bool()
-//  val instruction = InstructionWidth.craft()
-//}
-//
-//
-//case class DecoderIo() extends Bundle {
-//  val instructions = slave Stream(Vec.fill(DecoderWidth)(DecompressedInstruction()))
-//}
-//
-//case class Decoder() extends Component {
-//
-//}
-
 
 
 class DecoderPlugin() extends Plugin with DecoderService{
-
-//  val defaults = LinkedHashMap[Stageable[_ <: BaseType], BaseType]()
-//  val encodings = LinkedHashMap[MaskedLiteral,ArrayBuffer[(Stageable[_ <: BaseType], BaseType)]]()
-//
-//  override def add(encoding: Seq[(MaskedLiteral, Seq[(Stageable[_ <: BaseType], Any)])]): Unit = encoding.foreach(e => this.add(e._1,e._2))
-//  override def add(key: MaskedLiteral, values: Seq[(Stageable[_ <: BaseType], Any)]): Unit = {
-//    val instructionModel = encodings.getOrElseUpdate(key,ArrayBuffer[(Stageable[_ <: BaseType], BaseType)]())
-//    values.map{case (a,b) => {
-//      assert(!instructionModel.contains(a), s"Over specification of $a")
-//      val value = b match {
-//        case e: SpinalEnumElement[_] => e()
-//        case e: BaseType => e
-//      }
-//      instructionModel += (a->value)
-//    }}
-//  }
-//
-//  override def addDefault(key: Stageable[_  <: BaseType], value: Any): Unit = {
-//    assert(!defaults.contains(key))
-//    defaults(key) = value match{
-//      case e : SpinalEnumElement[_] => e()
-//      case e : BaseType => e
-//    }
-//  }
-//  override def add(key: MaskedLiteral, values: Seq[(Stageable[_ <: BaseType], Any)]) = ???
-//  override def add(encoding: Seq[(MaskedLiteral, Seq[(Stageable[_ <: BaseType], Any)])]) = ???
-//  override def addDefault(key: Stageable[_ <: BaseType], value: Any) = ???
-
   val euToEncodings = LinkedHashMap[ExecuteUnitService, ArrayBuffer[Encoding]]()
   override def addFunction(fu: ExecuteUnitService, enc: Encoding) = {
     euToEncodings.getOrElseUpdate(fu, ArrayBuffer[Encoding]()) += enc
@@ -121,11 +74,6 @@ class DecoderPlugin() extends Plugin with DecoderService{
     val stage = frontend.pipeline.decoded
     import stage._
 
-//    val spec = LinkedHashMap[Masked, Masked]()
-//    for(e <- encodings){
-//      val key = Masked(e.key)
-//      val value =
-//    }
 
     val encodings = new Area{
       val encs = LinkedHashSet[Encoding]() ++ euToEncodings.flatMap(_._2)
@@ -156,9 +104,6 @@ class DecoderPlugin() extends Plugin with DecoderService{
         }
         groupsN(group) = all -- addTo
       }
-//      for((eu, encs) <- euToEncodings){
-//        val e = groups.getOrElseUpdate()
-//      }
     }
 
     for (i <- 0 until Frontend.DECODE_COUNT) {
@@ -188,6 +133,7 @@ class DecoderPlugin() extends Plugin with DecoderService{
         )
       }
 
+      writeLine(PC)
       writeLine(regfiles.WRITE_RD)
       writeLine(regfiles.PHYS_RD)
       writeLine(regfiles.PHYS_RD_FREE)
