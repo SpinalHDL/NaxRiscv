@@ -12,23 +12,23 @@ import scala.collection.mutable.ArrayBuffer
 
 object Config{
   def properties() = {
-//    Global.PHYSICAL_WIDTH.set(32)
-//    Frontend.RVC.set(true)
-//    Frontend.FETCH_DATA_WIDTH.set(64)
-//    Frontend.INSTRUCTION_WIDTH.set(32)
-//    Frontend.DECODE_COUNT.set(2)
-//    Global.COMMIT_COUNT.set(2)
-//    ROB.SIZE.set(64)
-//    Global.XLEN.set(32)
-
     Global.PHYSICAL_WIDTH.set(32)
     Frontend.RVC.set(true)
-    Frontend.FETCH_DATA_WIDTH.set(32)
+    Frontend.FETCH_DATA_WIDTH.set(64)
     Frontend.INSTRUCTION_WIDTH.set(32)
-    Frontend.DECODE_COUNT.set(1)
-    Global.COMMIT_COUNT.set(1)
+    Frontend.DECODE_COUNT.set(2)
+    Global.COMMIT_COUNT.set(2)
     ROB.SIZE.set(64)
     Global.XLEN.set(32)
+
+//    Global.PHYSICAL_WIDTH.set(32)
+//    Frontend.RVC.set(true)
+//    Frontend.FETCH_DATA_WIDTH.set(32)
+//    Frontend.INSTRUCTION_WIDTH.set(32)
+//    Frontend.DECODE_COUNT.set(1)
+//    Global.COMMIT_COUNT.set(1)
+//    ROB.SIZE.set(64)
+//    Global.XLEN.set(32)
   }
 
   def plugins(): Seq[Plugin] ={

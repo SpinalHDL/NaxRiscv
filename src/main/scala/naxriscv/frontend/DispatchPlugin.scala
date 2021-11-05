@@ -60,7 +60,6 @@ class DispatchPlugin(slotCount : Int) extends Plugin with IssueService{
       slotContextType = NoData
     )
 
-
     val ptr = new Area{
       val next = Reg(ROB.ID_TYPE)  init(ROB.SIZE-slotCount + Frontend.DISPATCH_COUNT)
       val current = Reg(ROB.ID_TYPE)  init(ROB.SIZE-slotCount)

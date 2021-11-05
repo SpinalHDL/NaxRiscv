@@ -42,11 +42,12 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
   val logic = create late new Area{
     val rob = getService[RobService]
     val decoder = getService[DecoderService]
+    val flush = getService[CommitService].reschedulingPort().valid
 
     val pushPort = Stream(ExecutionUnitPush())
 
     val front = new Area{
-      val input = pushPort.toFlow.stage()
+      val input = pushPort.toFlow.m2sPipe(flush = flush)
 
       val instruction = rob.readAsyncSingle(Frontend.INSTRUCTION_DECOMPRESSED, input.robId)
       val physRs1 = rob.readAsyncSingle(decoder.PHYS_RS(0), input.robId)
@@ -65,7 +66,7 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
 
 
     val s0 = new Area{
-      val input = front.output.stage()
+      val input = front.output.m2sPipe(flush = flush)
 
       val rs1 = RegNext(setup.rfReadRs1.data)
       val rs2 = RegNext(setup.rfReadRs2.data)
@@ -79,6 +80,8 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
         val rd = UInt(log2Up(setup.rf.getPhysicalDepth) bits)
         val value = Bits(32 bits)
         val writeRd = Bool()
+        val branch = Bool()
+        val pcTarget = Global.PC()
       }
 
       val result = Result()
@@ -87,14 +90,10 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
       result.rd := rob.readAsyncSingle(decoder.PHYS_RD, input.robId)
       result.value.assignDontCare()
 
-      setup.reschedule.valid := False
-      setup.reschedule.trap := False
-      setup.reschedule.robId := input.robId
-      setup.reschedule.cause := 0
-      setup.reschedule.tval := 0
-      setup.reschedule.pcTarget := pc + U(imm.s_sext)
+      result.branch := False
+      result.pcTarget := pc + U(imm.s_sext)
       when(instruction(6)){
-        setup.reschedule.valid := rs1 === rs2
+        result.branch := rs1 === rs2
       } elsewhen(instruction(5)){
         result.value := B(S(rs1) + S(rs2))
       } otherwise {
@@ -106,17 +105,24 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
     }
 
 
-    val wake = out(s0.output.stage().stage().stage())
+    val delayed = out(s0.output.m2sPipe(flush = flush).m2sPipe(flush = flush).m2sPipe(flush = flush))
 
-    setup.rfWriteRd.valid := wake.writeRd
-    setup.rfWriteRd.address := wake.rd
-    setup.rfWriteRd.data := wake.value
+    setup.rfWriteRd.valid := delayed.valid && delayed.writeRd
+    setup.rfWriteRd.address := delayed.rd
+    setup.rfWriteRd.data := delayed.value
 
     val wakePort = Flow(Frontend.ROB_ID)
-    wakePort.valid := wake.valid
-    wakePort.payload := wake.robId
+    wakePort.valid := delayed.valid
+    wakePort.payload := delayed.robId
 
-    setup.completion.valid := wake.valid
-    setup.completion.id := wake.robId
+    setup.completion.valid := delayed.valid
+    setup.completion.id := delayed.robId
+
+    setup.reschedule.valid := delayed.valid &&  delayed.branch
+    setup.reschedule.trap := False
+    setup.reschedule.robId := delayed.robId
+    setup.reschedule.cause := 0
+    setup.reschedule.tval := 0
+    setup.reschedule.pcTarget := delayed.pcTarget
   }
 }

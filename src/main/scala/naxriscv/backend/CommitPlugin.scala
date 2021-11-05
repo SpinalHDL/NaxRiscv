@@ -17,7 +17,7 @@ class CommitPlugin extends Plugin with CommitService{
 
   val completions = ArrayBuffer[Flow[ScheduleCmd]]()
   override def newSchedulePort(canTrap : Boolean, canJump : Boolean) = completions.addRet(Flow(ScheduleCmd(canTrap = canTrap, canJump = canJump)))
-  override def reschedulingPort() = logic.reschedule.port
+  override def reschedulingPort() = logic.commit.reschedulePort
   override def freePort() = logic.free.port
 
   val setup = create early new Area{
@@ -50,7 +50,7 @@ class CommitPlugin extends Plugin with CommitService{
     }
 
     val reschedule = new Area {
-      val valid = Reg(Bool()) init(False)
+      val valid    = Reg(Bool()) init(False)
       val trap     = Reg(Bool())
       val robId    = Reg(UInt(ROB.ID_WIDTH bits))
       val pcTarget = Reg(Global.PC)
@@ -61,11 +61,7 @@ class CommitPlugin extends Plugin with CommitService{
         val rowHit = U(row) === ptr.commitRow
       }
 
-      val port = Flow(RescheduleEvent())
-      port.valid := False
-      port.nextRob := ptr.allocNext.resized
-
-
+      val age = robId - ptr.free
 
       val portsLogic = if(completions.nonEmpty) new Area{
         val ages = completions.map(c => c.robId - ptr.free)
@@ -73,7 +69,7 @@ class CommitPlugin extends Plugin with CommitService{
         val hits = Bits(completions.size bits)
         val fill = for((c, cId) <- completions.zipWithIndex) yield new Area {
           val others = ArrayBuffer[(Bool, UInt)]()
-          others += valid -> robId
+          others += valid -> age
           others ++= completionsWithAge.filter(_._1 != c.valid)
           hits(cId) := c.valid && others.map(o => !o._1 || o._2 > ages(cId)).andR
         }
@@ -103,25 +99,27 @@ class CommitPlugin extends Plugin with CommitService{
       event.mask := 0
       event.robId := ptr.commit.resized
 
-
       val lineEvent = Flow(CommitEvent())
       lineEvent.valid := False
       lineEvent.mask := active ^ maskComb
       lineEvent.robId := ptr.commit.resized
 
-      setup.jump.valid := False
+      val reschedulePort = Flow(RescheduleEvent())
+      reschedulePort.valid := rescheduleHit
+      reschedulePort.nextRob := ptr.allocNext.resized
+
+      setup.jump.valid := rescheduleHit
       setup.jump.pc := reschedule.pcTarget //TODO another target for trap
+      reschedule.valid clearWhen(rescheduleHit)
+
       when(!ptr.empty) {
         for (colId <- 0 until ROB.COLS) {
           when(setup.robLineMask.mask(colId) && mask(colId) && active(colId) && continue) {
             maskComb(colId) := False
+            event.mask(colId) := True
             when(reschedule.valid && reschedule.commit.rowHit && reschedule.commit.col === colId){
               continue \= False
               rescheduleHit := True
-              setup.jump.valid := True
-              setup.jump.pc := reschedule.pcTarget
-              event.mask(colId) := True
-              reschedule.valid := False
             }
           }
         }

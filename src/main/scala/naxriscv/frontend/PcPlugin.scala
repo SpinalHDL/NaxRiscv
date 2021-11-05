@@ -27,7 +27,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
     pipeline.lock.retain()
   }
 
-  val logic = create late{
+  val logic = create late new Area{
     val stage = setup.pipeline.getStage(0)
     val pipeline = setup.pipeline.getPipeline()
     import stage._

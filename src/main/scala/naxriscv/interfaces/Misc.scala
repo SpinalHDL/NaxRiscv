@@ -267,7 +267,7 @@ object Riscv{
     )
     def TypeS(key : MaskedLiteral) = Encoding(
       key = key,
-      ressources = List(RS1, RS2, RD).map(regfile -> _)
+      ressources = List(RS1, RS2).map(regfile -> _)
     )
 
     val ADD  = TypeR(M"0000000----------000-----0110011")

@@ -1,5 +1,6 @@
 package naxriscv.frontend
 
+import naxriscv.interfaces.CommitService
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib.pipeline.Connection._
@@ -48,6 +49,8 @@ class FrontendPlugin() extends Plugin {
   pipeline.setCompositeName(this)
 
   val builder = create late new Area{
+    pipeline.allocated.flushIt(getService[CommitService].reschedulingPort().valid)
+
     lock.await()
     pipeline.build()
   }

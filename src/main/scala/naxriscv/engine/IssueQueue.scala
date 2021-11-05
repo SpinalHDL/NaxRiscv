@@ -64,7 +64,7 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
       val ready = triggers(priority - 1 downto 0) === 0
 
       sel := selComb
-      when(clear){ sel := 0 } // Lazy path
+//      when(clear){ sel := 0 } // Lazy path
       when(fire){ selComb := 0 }
     }
   }
@@ -121,5 +121,9 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
 
   for((slot, slotIdx) <- slots.zipWithIndex){
     slot.fire := selector.filter(s => slotIdx % s.sp.eventFactor == s.sp.eventOffset).map(s => s.selOh(slotIdx/s.sp.eventFactor)).orR
+  }
+
+  when(clear){
+    lines.foreach(_.ways.foreach(_.sel := 0))
   }
 }

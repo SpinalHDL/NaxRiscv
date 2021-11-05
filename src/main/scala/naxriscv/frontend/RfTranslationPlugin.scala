@@ -172,6 +172,7 @@ class RfTranslationPlugin() extends Plugin with InitCycles {
       for(slotId <- 0 until DISPATCH_COUNT) {
         val portRd = impl.io.reads(slotId*(1+decoder.rsCount))
         val archRd = (Frontend.INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rdRange)
+        portRd.cmd.valid := (decoder.WRITE_RD, slotId)
         portRd.cmd.payload := U(archRd)
         (decoder.PHYS_RD_FREE, slotId) := portRd.rsp.payload
 
@@ -179,6 +180,7 @@ class RfTranslationPlugin() extends Plugin with InitCycles {
           val id = rsId
           val port = impl.io.reads(slotId*(1+decoder.rsCount)+rsId+1)
           val archRs = (Frontend.INSTRUCTION_DECOMPRESSED, slotId) (Riscv.rsRange(rsId))
+          port.cmd.valid := (decoder.READ_RS(rsId), slotId)
           port.cmd.payload := U(archRs)
           (decoder.PHYS_RS(rsId), slotId) := port.rsp.payload
         }
