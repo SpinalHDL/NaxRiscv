@@ -22,12 +22,12 @@ class PlayPlugin extends Plugin{
 //    out(stage.isValid)
 //    out(stage(Frontend.WORD))
 //    out(frontend.pipeline.allocated(INSTRUCTION_DECOMPRESSED, 0))
-    for(i <- 0 until DISPATCH_COUNT) {
-      val stage = frontend.pipeline.allocated
-      import stage._
-      out(Delay(stage(decode.PHYS_RS(0), i), 3))
-      out(Delay(stage(decode.PHYS_RS(1), i), 3))
-    }
+//    for(i <- 0 until DISPATCH_COUNT) {
+//      val stage = frontend.pipeline.allocated
+//      import stage._
+//      out(Delay(stage(decode.PHYS_RS(0), i), 3))
+//      out(Delay(stage(decode.PHYS_RS(1), i), 3))
+//    }
     frontend.release()
   }
 }

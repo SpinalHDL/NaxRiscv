@@ -5,7 +5,7 @@ import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.{RobCompletion, RobLineMask, RobService}
-import naxriscv.utilities.Plugin
+import naxriscv.utilities.{DocPlugin, Plugin}
 import spinal.core._
 import spinal.core.fiber.Lock
 import spinal.lib._
@@ -116,6 +116,7 @@ class RobPlugin() extends Plugin with RobService{
     }
 
 
+    getService[DocPlugin].property("ROB_SIZE", ROB.SIZE.get)
     frontend.release()
   }
 

@@ -13,7 +13,7 @@ class DocPlugin extends Plugin {
 
     writer.println("#pragma once\n")
     for(p <- properties){
-      writer.println(s"#define ${p._1} ${p._2}")
+      writer.println(s"#define ${p._1.toUpperCase} ${p._2}")
     }
     writer.flush()
     writer.close()

@@ -2,8 +2,8 @@ package naxriscv.backend
 
 import naxriscv.Frontend.{DISPATCH_MASK, ROB_ID}
 import naxriscv.{Global, ROB}
-import naxriscv.interfaces.{CommitEvent, CommitFree, CommitService, ScheduleCmd, JumpService, RescheduleEvent, RfAllocationService, RobService}
-import naxriscv.utilities.Plugin
+import naxriscv.interfaces.{CommitEvent, CommitFree, CommitService, JumpService, RescheduleEvent, RfAllocationService, RobService, ScheduleCmd}
+import naxriscv.utilities.{DocPlugin, Plugin}
 import spinal.core._
 import spinal.lib._
 import naxriscv.Global._
@@ -13,7 +13,7 @@ import scala.collection.mutable.ArrayBuffer
 
 class CommitPlugin extends Plugin with CommitService{
   override def onCommit() : CommitEvent = logic.commit.event
-  override def onCommitLine() =  logic.commit.lineEvent
+//  override def onCommitLine() =  logic.commit.lineEvent
 
   val completions = ArrayBuffer[Flow[ScheduleCmd]]()
   override def newSchedulePort(canTrap : Boolean, canJump : Boolean) = completions.addRet(Flow(ScheduleCmd(canTrap = canTrap, canJump = canJump)))
@@ -52,13 +52,14 @@ class CommitPlugin extends Plugin with CommitService{
     val reschedule = new Area {
       val valid    = Reg(Bool()) init(False)
       val trap     = Reg(Bool())
+      val skipCommit = Reg(Bool())
       val robId    = Reg(UInt(ROB.ID_WIDTH bits))
       val pcTarget = Reg(Global.PC)
       val cause    = Reg(UInt(Global.TRAP_CAUSE_WIDTH bits))
       val tval     = Reg(Bits(Global.XLEN bits))
       val commit = new Area{
         val (row, col) = robId.splitAt(log2Up(ROB.COLS))
-        val rowHit = U(row) === ptr.commitRow
+        val rowHit = valid && U(row) === ptr.commitRow
       }
 
       val age = robId - ptr.free
@@ -82,6 +83,7 @@ class CommitPlugin extends Plugin with CommitService{
           pcTarget := MuxOH.or(canJump.map(hits(_)), canJump.map(completions(_).pcTarget))
           cause    := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).cause))
           tval     := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).tval))
+          skipCommit := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).doesSkipCommit))
         }
       }
     }
@@ -90,12 +92,13 @@ class CommitPlugin extends Plugin with CommitService{
       var continue = True
       val rescheduleHit = False
       val active = rob.readAsync(DISPATCH_MASK, ROB.COLS, ptr.commit.dropHigh(1).asUInt).asBits //TODO can be ignore if schedule width == 1
-      val mask = Reg(Bits(ROB.COLS bits)) init ((1 << ROB.COLS) - 1)
+      val mask = Reg(Bits(ROB.COLS bits)) init ((1 << ROB.COLS) - 1) //Bit set to zero after completion
       val maskComb = CombInit(mask)
       mask := maskComb
       val lineCommited = (maskComb & active) === 0
 
       val event = CommitEvent()
+      event.setName("commit").addAttribute(Verilator.public)
       event.mask := 0
       event.robId := ptr.commit.resized
 
@@ -105,6 +108,7 @@ class CommitPlugin extends Plugin with CommitService{
       lineEvent.robId := ptr.commit.resized
 
       val reschedulePort = Flow(RescheduleEvent())
+      reschedulePort.setName("reschedule").addAttribute(Verilator.public)
       reschedulePort.valid := rescheduleHit
       reschedulePort.nextRob := ptr.allocNext.resized
 
@@ -113,15 +117,41 @@ class CommitPlugin extends Plugin with CommitService{
       reschedule.valid clearWhen(rescheduleHit)
 
       when(!ptr.empty) {
-        for (colId <- 0 until ROB.COLS) {
-          when(setup.robLineMask.mask(colId) && mask(colId) && active(colId) && continue) {
-            maskComb(colId) := False
-            event.mask(colId) := True
-            when(reschedule.valid && reschedule.commit.rowHit && reschedule.commit.col === colId){
+        for (colId <- 0 until ROB.COLS) new Area{
+          setName(s"CommitPlugin_commit_slot_$colId")
+          val enable = mask(colId) && active(colId)
+          val hold = !setup.robLineMask.mask(colId)
+          val rescheduleHitSlot = reschedule.commit.rowHit && reschedule.commit.col === colId
+
+          when(enable){
+            when(continue){
+              when(!hold || (rescheduleHitSlot && !reschedule.skipCommit)) {
+                maskComb(colId) := False
+                event.mask(colId) := True
+              }
+              when(rescheduleHitSlot){
+                rescheduleHit := True
+              }
+            }
+            when(hold || rescheduleHitSlot){
               continue \= False
-              rescheduleHit := True
             }
           }
+
+//          when(setup.robLineMask.mask(colId) && mask(colId) && active(colId) && continue) {
+//            maskComb(colId) := False
+//            event.mask(colId) := True
+//            when(reschedule.commit.rowHit && reschedule.commit.col === colId){
+//              continue \= False
+//              rescheduleHit := True
+//              when(reschedule.skipCommit){
+//                maskComb(colId) := True
+//                event.mask(colId) := False
+//              }
+//            }
+//          } otherwise {
+//            continue \= False
+//          }
         }
         when(lineCommited || rescheduleHit) {
           mask := (1 << ROB.COLS) - 1
@@ -152,6 +182,7 @@ class CommitPlugin extends Plugin with CommitService{
     }
 
 
+    getService[DocPlugin].property("COMMIT_COUNT", COMMIT_COUNT.get)
     rob.release()
   }
 }

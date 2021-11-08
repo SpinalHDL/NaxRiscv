@@ -2,6 +2,7 @@
 #include <verilated.h>
 #include "verilated_fst_c.h"
 #include "VNaxRiscv.h"
+#include "VNaxRiscv_NaxRiscv.h"
 
 #include <stdio.h>
 #include <iostream>
@@ -27,6 +28,18 @@ using namespace std;
 #include <stdio.h>
 #include <getopt.h>
 
+
+
+#define CALL(x,y,z) MAP_ ## x(y,z)
+#define MAP_1(prefix, postfix) prefix ## 0 ## postfix
+#define MAP_2(prefix, postfix) MAP_1(prefix, postfix), prefix ## 1 ## postfix
+#define MAP_3(prefix, postfix) MAP_2(prefix, postfix), prefix ## 2 ## postfix
+#define MAP_4(prefix, postfix) MAP_3(prefix, postfix), prefix ## 3 ## postfix
+#define MAP_5(prefix, postfix) MAP_4(prefix, postfix), prefix ## 4 ## postfix
+#define MAP_6(prefix, postfix) MAP_5(prefix, postfix), prefix ## 5 ## postfix
+#define MAP_7(prefix, postfix) MAP_6(prefix, postfix), prefix ## 6 ## postfix
+#define MAP_8(prefix, postfix) MAP_7(prefix, postfix), prefix ## 7 ## postfix
+#define MAP(type, name, prefix, count, postfix) type name[] = {CALL(count, prefix, postfix)};
 
 vluint64_t main_time = 0;
 
@@ -83,14 +96,6 @@ public:
 		this->stall = stall;
 	}
 
-//  output reg          FetchCachePlugin_mem_cmd_valid,
-//  input               FetchCachePlugin_mem_cmd_ready,
-//  output reg [31:0]   FetchCachePlugin_mem_cmd_payload_address,
-//  input               FetchCachePlugin_mem_rsp_valid,
-//  input      [63:0]   FetchCachePlugin_mem_rsp_payload_data,
-//  input               FetchCachePlugin_mem_rsp_payload_error,
-//
-  
 	virtual void onReset(){
 		nax->FetchCachePlugin_mem_cmd_ready = 1;
 		nax->FetchCachePlugin_mem_rsp_valid = 0;
@@ -122,8 +127,6 @@ public:
 #define ARG_TIMEOUT 2
 static const struct option long_options[] =
 {
-//        { "AAA", no_argument,       0, 'a' },
-//        { "CCC", required_argument, 0, 'c' },
     { "mem_hex", required_argument, 0, ARG_MEM_HEX },
     { "timeout", required_argument, 0, ARG_TIMEOUT },
     0
@@ -187,6 +190,8 @@ int main(int argc, char** argv, char** env){
         printf("other parameter: <%s>\n", argv[optind++]);
     }
 
+    MAP(CData*, integer_write_valid, &top->NaxRiscv->integer_write_,  INTEGER_WRITE_COUNT, _valid);
+    MAP(IData*, integer_write_data,  &top->NaxRiscv->integer_write_,  INTEGER_WRITE_COUNT, _data);
 
     try {
         top->clk = 0;
@@ -214,6 +219,11 @@ int main(int argc, char** argv, char** env){
                 top->eval();
             } else {
                 for(SimElement* simElement : simElements) simElement->preCycle();
+                for(int i = 0;i < INTEGER_WRITE_COUNT;i++){
+                    if(*integer_write_valid[i]){
+                        printf("RF write %d at %d\n", *integer_write_data[i], main_time);
+                    }
+                }
                 top->eval();
                 for(SimElement* simElement : simElements) simElement->postCycle();
             }
@@ -227,9 +237,6 @@ int main(int argc, char** argv, char** env){
     tfp->close();
     #endif
     top->final();
-
-    //  Coverage analysis (since test passed)
-
 
     delete top;
     top = NULL;

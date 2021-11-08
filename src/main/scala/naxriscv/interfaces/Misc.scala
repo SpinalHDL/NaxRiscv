@@ -92,9 +92,21 @@ case class RegFileWrite(addressWidth : Int, dataWidth : Int, withReady : Boolean
   val ready = withReady generate Bool()
   val address = UInt(addressWidth bits)
   val data = Bits(dataWidth bits)
+  val robId = ROB.ID_TYPE()
+
+  def fire = if(withReady) valid && ready else valid
+
+  def asWithoutReady() = {
+    val ret = RegFileWrite(addressWidth, dataWidth, false)
+    ret.valid := this.fire
+    ret.address := this.address
+    ret.data := this.data
+    ret.robId := this.robId
+    ret
+  }
 
   override def asMaster() = {
-    out(valid, address, data)
+    out(valid, address, data, robId)
     inWithNull(ready)
   }
 }
@@ -128,6 +140,8 @@ trait RegfileService extends Service{
   def newWrite(withReady : Boolean) : RegFileWrite
   def newBypass() : RegFileBypass
 
+  def getWrites() : Seq[RegFileWrite]
+
   def retain() : Unit
   def release() : Unit
 }
@@ -157,7 +171,7 @@ case class CommitEvent() extends Bundle{
 
 trait CommitService  extends Service{
   def onCommit() : CommitEvent
-  def onCommitLine() : Flow[CommitEvent]
+//  def onCommitLine() : Flow[CommitEvent]
   def newSchedulePort(canTrap : Boolean, canJump : Boolean) : Flow[ScheduleCmd]
   def reschedulingPort() : Flow[RescheduleEvent]
   def freePort() : Flow[CommitFree]
@@ -167,6 +181,7 @@ trait RegfileSpec{
   def sizeArch : Int
   def width : Int
   def x0AlwaysZero : Boolean
+  def getName() : String
 
   def ->(access : RfAccess) = RfResource(this, access)
 }
@@ -253,6 +268,7 @@ object Riscv{
       override def sizeArch = 32
       override def width = Global.XLEN
       override def x0AlwaysZero = true
+      override def getName() = "integer"
     }
 
     def toResource(accesses : Seq[RfAccess]) = accesses.map(regfile -> _)
@@ -315,7 +331,13 @@ case class ScheduleCmd(canTrap : Boolean, canJump : Boolean) extends Bundle {
   val pcTarget = canJump generate PC()
   val cause    = canTrap generate UInt(Global.TRAP_CAUSE_WIDTH bits)
   val tval     = canTrap generate Bits(Global.XLEN bits)
+  val skipCommit = canTrap generate Bool() //when trap is set, should be set for regular exception, but cleared for let's say a ebreak
 
+  def doesSkipCommit = (canTrap, canJump) match {
+    case (false, _) => False
+    case (true,  false) => skipCommit
+    case (true,  true) => trap && skipCommit
+  }
   def isTrap = (canTrap, canJump) match {
     case (false, true) => False
     case (true, false) => True

@@ -5,7 +5,7 @@ import spinal.core._
 import spinal.lib._
 import spinal.core.fiber._
 import naxriscv.interfaces._
-import naxriscv.utilities.Plugin
+import naxriscv.utilities.{DocPlugin, Plugin}
 import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
 
 import scala.collection.mutable.ArrayBuffer
@@ -129,6 +129,8 @@ class RegFilePlugin(spec : RegfileSpec,
   override def newBypass() = bypasses.addRet(RegFileBypass(addressWidth, dataWidth))
 
 
+  override def getWrites() = writes
+
   override def retain() = lock.retain()
   override def release() = lock.release()
 
@@ -148,6 +150,11 @@ class RegFilePlugin(spec : RegfileSpec,
     (regfile.io.reads, reads).zipped.foreach(_ <> _)
     (regfile.io.writes, writes).zipped.foreach(_ <> _)
     (regfile.io.bypasses, bypasses).zipped.foreach(_ <> _)
+
+    //Used for tracing in verilator sim
+    val writeEvents = Vec(writes.map(e => e.asWithoutReady()))
+    writeEvents.setName(spec.getName()+"_write").addAttribute(Verilator.public)
+    getService[DocPlugin].property(writeEvents.getName() +"_count", writeEvents.size)
   }
 }
 

@@ -105,9 +105,10 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
     }
 
 
-    val delayed = out(s0.output.m2sPipe(flush = flush).m2sPipe(flush = flush).m2sPipe(flush = flush))
+    val delayed = s0.output.m2sPipe(flush = flush).m2sPipe(flush = flush).m2sPipe(flush = flush)
 
     setup.rfWriteRd.valid := delayed.valid && delayed.writeRd
+    setup.rfWriteRd.robId := delayed.robId
     setup.rfWriteRd.address := delayed.rd
     setup.rfWriteRd.data := delayed.value
 
@@ -124,5 +125,6 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
     setup.reschedule.cause := 0
     setup.reschedule.tval := 0
     setup.reschedule.pcTarget := delayed.pcTarget
+    setup.reschedule.skipCommit := False
   }
 }

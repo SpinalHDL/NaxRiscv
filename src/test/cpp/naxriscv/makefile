@@ -5,6 +5,7 @@ NAX_VERILOG?=${GEN_FOLDER}/NaxRiscv.v
 NAX_HEADER?=${GEN_FOLDER}/nax.h
 
 TRACE?=no
+LOCKSTEP?=yes
 ADDCFLAGS += -CFLAGS -Iobj_dir
 
 ifeq ($(DEBUG),yes)
@@ -16,6 +17,11 @@ endif
 ifeq ($(TRACE),yes)
 	VERILATOR_ARGS += --trace-fst
 	ADDCFLAGS += -CFLAGS -DTRACE
+endif
+
+
+ifeq ($(LOCKSTEP),yes)
+	ADDCFLAGS += -CFLAGS -DLOCKSTEP
 endif
 
 
