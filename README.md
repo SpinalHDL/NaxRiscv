@@ -8,3 +8,6 @@ An out of order RISC-V core currently characterised by :
 - Decentralized hardware elaboration (No toplevel, composed of plugins)
 - Frontend implemented around a pipelining framework to ease customisation
 
+# Running simulation
+
+See src/test/cpp/naxriscv/README.md

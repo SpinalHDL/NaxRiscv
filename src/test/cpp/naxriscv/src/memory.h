@@ -64,7 +64,7 @@ public:
 		return get(address);
 	}*/
 
-	void loadHexl(string path) {
+	void loadHex(string path) {
     	FILE *fp = fopen(&path[0], "r");
     	if(fp == 0){
     		cout << path << " not found" << endl;
@@ -78,7 +78,7 @@ public:
     	uint32_t size = ftell(fp);
     	fseek(fp, 0, SEEK_SET);
     	char* content = new char[size];
-    	fread(content, 1, size, fp);
+    	if (fread(content, 1, size, fp));
     	fclose(fp);
 
     	int offset = 0;

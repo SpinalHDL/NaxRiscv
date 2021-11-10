@@ -1,3 +1,6 @@
 [submodule "ext/NaxSoftware"]
 	path = ext/NaxSoftware
 	url = https://github.com/SpinalHDL/NaxSoftware.git
+[submodule "ext/riscv-isa-sim"]
+	path = ext/riscv-isa-sim
+	url = https://github.com/SpinalHDL/riscv-isa-sim.git

@@ -87,6 +87,14 @@ object Gen extends App{
 //}
 
 
+//ROADMAP
+/*
+- Lockstep simulation
+- ALU qui wakeup issue queue ahead of rf write
+- Regfile bypass
+- Having a proper microcode instead of direct RISC-V ?
+ */
+
 //TODO fix bellow list
 /*
 - aligner flush connector from fetches.last stage (workarounded via a extra stage)

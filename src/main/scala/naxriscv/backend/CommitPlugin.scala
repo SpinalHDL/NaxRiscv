@@ -1,6 +1,6 @@
 package naxriscv.backend
 
-import naxriscv.Frontend.{DISPATCH_MASK, ROB_ID}
+import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, ROB_ID}
 import naxriscv.{Global, ROB}
 import naxriscv.interfaces.{CommitEvent, CommitFree, CommitService, JumpService, RescheduleEvent, RfAllocationService, RobService, ScheduleCmd}
 import naxriscv.utilities.{DocPlugin, Plugin}
@@ -44,6 +44,13 @@ class CommitPlugin extends Plugin with CommitService{
       val stage = frontend.pipeline.allocated
       stage(ROB_ID) := alloc.resized
       stage.haltIt(full)
+
+      val whitebox = new Area{
+        setName("robToPc")
+        val valid = Verilator.public(CombInit(stage.isFireing))
+        val robId = Verilator.public(CombInit(stage(ROB_ID)))
+        val pc = (0 until DISPATCH_COUNT).map(i => Verilator.public(CombInit(stage(PC, i))))
+      }
 
       val allocNext = alloc + (stage.isFireing ? U(ROB.COLS) | U(0))
       alloc := allocNext
@@ -183,6 +190,7 @@ class CommitPlugin extends Plugin with CommitService{
 
 
     getService[DocPlugin].property("COMMIT_COUNT", COMMIT_COUNT.get)
+    getService[DocPlugin].property("DISPATCH_COUNT", DISPATCH_COUNT)
     rob.release()
   }
 }

@@ -20,6 +20,7 @@
 
 using namespace std;
 
+#include "type.h"
 #include "memory.h"
 #include "nax.h"
 #define u64 uint64_t
@@ -28,7 +29,10 @@ using namespace std;
 #include <stdio.h>
 #include <getopt.h>
 
+#define RvAddress u32
+#define RvData u32
 
+#define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
 
 #define CALL(x,y,z) MAP_ ## x(y,z)
 #define MAP_1(prefix, postfix) prefix ## 0 ## postfix
@@ -40,18 +44,27 @@ using namespace std;
 #define MAP_7(prefix, postfix) MAP_6(prefix, postfix), prefix ## 6 ## postfix
 #define MAP_8(prefix, postfix) MAP_7(prefix, postfix), prefix ## 7 ## postfix
 #define MAP(type, name, prefix, count, postfix) type name[] = {CALL(count, prefix, postfix)};
+#define MAP_INIT(prefix, count, postfix) CALL(count, prefix, postfix)
 
 vluint64_t main_time = 0;
 
+#define failure() throw std::exception();
 
 #define TEXTIFY(A) #A
 void breakMe(){
     int a = 0;
 }
-#define assertEq(x,ref) if(x != ref) {\
-	printf("\n*** %s is %d but should be %d ***\n\n",TEXTIFY(x),x,ref);\
+
+#define assertEq(message, x,ref) if((RvData)x != (RvData)ref) {\
+	printf("\n*** %s DUT=%x REF=%x ***\n\n",message,(RvData)x,(RvData)ref);\
 	breakMe();\
-	throw std::exception();\
+	failure();\
+}
+
+#define assertTrue(message, x) if(!x) {\
+    printf("\n*** %s ***\n\n",message);\
+    breakMe();\
+    failure();\
 }
 
 class Soc{
@@ -103,7 +116,7 @@ public:
 
 	virtual void preCycle(){
 		if (nax->FetchCachePlugin_mem_cmd_valid && nax->FetchCachePlugin_mem_cmd_ready && pendingCount == 0) {
-			assertEq(nax->FetchCachePlugin_mem_cmd_payload_address & (FETCH_MEM_DATA_BYTES-1),0);
+			assertEq("FETCH MISSALIGNED", nax->FetchCachePlugin_mem_cmd_payload_address & (FETCH_MEM_DATA_BYTES-1),0);
 			pendingCount = FETCH_LINE_BYTES;
 			address = nax->FetchCachePlugin_mem_cmd_payload_address;
 		}
@@ -133,8 +146,105 @@ static const struct option long_options[] =
 };
 
 
+#include "processor.h"
+#include "simif.h"
+
+class sim_wrap : public simif_t{
+public:
+
+    Memory memory;
+    // should return NULL for MMIO addresses
+    virtual char* addr_to_mem(reg_t addr)  {
+//        printf("addr_to_mem %lx\n", addr);
+        return (char*)memory.get(addr);
+    }
+    // used for MMIO addresses
+    virtual bool mmio_load(reg_t addr, size_t len, uint8_t* bytes)  {
+        printf("mmio_load %lx %ld\n", addr, len);
+        return true;
+    }
+    virtual bool mmio_store(reg_t addr, size_t len, const uint8_t* bytes)  {
+        printf("mmio_store %lx %ld\n", addr, len);
+        return true;
+    }
+    // Callback for processors to let the simulation know they were reset.
+    virtual void proc_reset(unsigned id)  {
+//        printf("proc_reset %d\n", id);
+    }
+
+    virtual const char* get_symbol(uint64_t addr)  {
+        printf("get_symbol %lx\n", addr);
+        return NULL;
+    }
+};
+
+class RobCtx{
+public:
+    IData pc;
+    bool integerWriteValid;
+    RvData integerWriteData;
+
+    void clear(){
+        integerWriteValid = false;
+    }
+};
+
+class NaxWhitebox : public SimElement{
+public:
+
+    VNaxRiscv_NaxRiscv* nax;
+    RobCtx robCtx[ROB_SIZE];
+    IData *robToPc[DISPATCH_COUNT];
+    CData *integer_write_valid[INTEGER_WRITE_COUNT];
+    CData *integer_write_robId[INTEGER_WRITE_COUNT];
+    IData *integer_write_data[INTEGER_WRITE_COUNT];
+
+
+    NaxWhitebox(VNaxRiscv_NaxRiscv* nax): robToPc{MAP_INIT(&nax->robToPc_pc_,  DISPATCH_COUNT,)},
+            integer_write_valid{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _valid)},
+            integer_write_robId{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _robId)},
+            integer_write_data{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _data)} {
+        this->nax = nax;
+    }
+
+
+    virtual void onReset(){
+        for(int i = 0;i < ROB_SIZE;i++){
+            robCtx[i].clear();
+        }
+    }
+
+    virtual void preCycle(){
+        if(nax->robToPc_valid){
+            for(int i = 0;i < DISPATCH_COUNT;i++){
+                robCtx[nax->robToPc_robId + i].pc = *robToPc[i];
+            }
+        }
+        for(int i = 0;i < INTEGER_WRITE_COUNT;i++){
+            if(*integer_write_valid[i]){
+                auto robId = *integer_write_robId[i];
+//                printf("RF write rob=%d %d at %ld\n", robId, *integer_write_data[i], main_time);
+                robCtx[robId].integerWriteValid = true;
+                robCtx[robId].integerWriteData = *integer_write_data[i];
+            }
+        }
+    }
+
+    virtual void postCycle(){
+
+    }
+};
+
+
 int main(int argc, char** argv, char** env){
+
     printf("Miaou\n");
+
+//    const char* isa, const char* priv, const char* varch,
+//                  simif_t* sim, uint32_t id, bool halt_on_reset,
+//                  FILE *log_file, std::ostream& sout_
+//
+
     // This example started with the Verilator example files.
     // Please see those examples for commented sources, here:
     // https://github.com/verilator/verilator/tree/master/examples
@@ -159,12 +269,24 @@ int main(int argc, char** argv, char** env){
     #endif
 
 
+    NaxWhitebox whitebox(top->NaxRiscv);
+
     Soc *soc;
-
     soc = new Soc();
-
 	vector<SimElement*> simElements;
-	simElements.push_back(new FetchCached(top, soc, true));
+    simElements.push_back(new FetchCached(top, soc, true));
+    simElements.push_back(&whitebox);
+
+
+
+
+    FILE *fptr;
+    fptr = fopen("spike.log","w");
+    std::ofstream outfile ("spike.log2",std::ofstream::binary);
+    sim_wrap wrap;
+
+    processor_t proc("RV32IM", "MSU", "", &wrap, 0, false, fptr, outfile);
+    proc.enable_log_commits();
 
 
 
@@ -180,7 +302,7 @@ int main(int argc, char** argv, char** env){
         if (result == -1) break;
         switch (result)
         {
-            case ARG_MEM_HEX: soc->memory.loadHexl(string(optarg)); break;
+            case ARG_MEM_HEX: wrap.memory.loadHex(string(optarg)); soc->memory.loadHex(string(optarg)); break;
             case ARG_TIMEOUT: timeout = stoi(optarg); break;
         }
     }
@@ -190,8 +312,23 @@ int main(int argc, char** argv, char** env){
         printf("other parameter: <%s>\n", argv[optind++]);
     }
 
-    MAP(CData*, integer_write_valid, &top->NaxRiscv->integer_write_,  INTEGER_WRITE_COUNT, _valid);
-    MAP(IData*, integer_write_data,  &top->NaxRiscv->integer_write_,  INTEGER_WRITE_COUNT, _data);
+
+
+    auto internal = top->NaxRiscv;
+
+
+
+    state_t *state = proc.get_state();
+    state->pc = 0x80000000l;
+//    for(int i = 0;i < 30;i++){
+//        if(i == 20){
+//            state->mip->write_with_mask(1 << 11, 1 << 11);
+//        }
+//        proc.step(1);
+//        printf("%d PC= %lx\n", i,  state->pc);
+//    }
+
+
 
     try {
         top->clk = 0;
@@ -219,9 +356,32 @@ int main(int argc, char** argv, char** env){
                 top->eval();
             } else {
                 for(SimElement* simElement : simElements) simElement->preCycle();
-                for(int i = 0;i < INTEGER_WRITE_COUNT;i++){
-                    if(*integer_write_valid[i]){
-                        printf("RF write %d at %d\n", *integer_write_data[i], main_time);
+
+
+                for(int i = 0;i < COMMIT_COUNT;i++){
+                    if(CHECK_BIT(internal->commit_mask, i)){
+                        int robId = internal->commit_robId + i;
+//                        printf("Commit %d %x\n", robId, whitebox.robCtx[robId].pc);
+                        proc.step(1);
+                        assertEq("MISSMATCH PC", whitebox.robCtx[robId].pc,  state->last_inst_pc);
+                        for (auto item : state->log_reg_write) {
+                            if (item.first == 0)
+                              continue;
+
+                            int rd = item.first >> 4;
+                            switch (item.first & 0xf) {
+                            case 0: //integer
+                                assertTrue("INTEGER WRITE MISSING", whitebox.robCtx[robId].integerWriteValid);
+                                assertEq("INTEGER WRITE DATA", whitebox.robCtx[robId].integerWriteData, item.second.v[0]);
+                              break;
+                            default:
+                                printf("???");
+                                failure();
+                                break;
+                            }
+                        }
+
+                        whitebox.robCtx[robId].clear();
                     }
                 }
                 top->eval();
@@ -230,8 +390,9 @@ int main(int argc, char** argv, char** env){
         }
 
     } catch (const std::exception& e) {
-
+        printf("REF PC=%lx\n", state->last_inst_pc);
     }
+
     #ifdef TRACE
     tfp->flush();
     tfp->close();
