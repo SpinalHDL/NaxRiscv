@@ -12,7 +12,8 @@ import naxriscv.utilities.Plugin
 import spinal.lib.logic.{Masked, Symplify}
 import spinal.lib.pipeline.Stageable
 
-import scala.collection.mutable.{LinkedHashSet, LinkedHashMap, ArrayBuffer}
+import scala.collection.mutable
+import scala.collection.mutable.{ArrayBuffer, LinkedHashMap, LinkedHashSet}
 
 
 
@@ -21,8 +22,10 @@ import scala.collection.mutable.{LinkedHashSet, LinkedHashMap, ArrayBuffer}
 
 class DecoderPlugin() extends Plugin with DecoderService{
   val euToEncodings = LinkedHashMap[ExecuteUnitService, ArrayBuffer[Encoding]]()
+  val encodings = LinkedHashSet[Encoding]()
   override def addFunction(fu: ExecuteUnitService, enc: Encoding) = {
     euToEncodings.getOrElseUpdate(fu, ArrayBuffer[Encoding]()) += enc
+    encodings += enc
   }
 
 
@@ -51,13 +54,40 @@ class DecoderPlugin() extends Plugin with DecoderService{
 
     val executionUnits = getServicesOf[ExecuteUnitService]
     val euGroups = ArrayBuffer[EuGroup]()
-    //TODO merges
-    for(eu <- executionUnits){
+
+    def groupBy[T, K](that : Seq[T])(by : T => K) : LinkedHashMap[K, ArrayBuffer[T]] = {
+      val ret = LinkedHashMap[K, ArrayBuffer[T]]()
+      for(e <- that) {
+        val k = by(e)
+        ret.getOrElseUpdate(k, ArrayBuffer[T]()) += e
+      }
+      ret
+    }
+
+    //Create groups of similar execution units
+    val euSimilar = groupBy(executionUnits)(eu => euToEncodings(eu))
+    for((enc, eus) <- euSimilar){
       euGroups += EuGroup(
-        Seq(eu),
-        Stageable(Bool()).setName(eu.euName() + "_SEL")
+        eus.toList,
+        Stageable(Bool()).setName(eus.map(_.euName()).mkString("_") + "_SEL"),
+        encodings = enc
       )
     }
+
+    //Find for each implemented encoding, which are the EuGroup implementing it
+    val encToGroups = mutable.LinkedHashMap[Encoding, ArrayBuffer[EuGroup]]()
+    for(g <- euGroups; enc <- g.encodings) encToGroups.getOrElseUpdate(enc, ArrayBuffer[EuGroup]()) += g
+
+    //figure out EuGroup implementing common encodings
+    val partitions = groupBy(encToGroups.toSeq)(_._2).map(e => e._1 -> e._2.map(_._1))
+    for(p <- partitions){
+      assert(DISPATCH_COUNT % p._1.map(_.eus.size).sum == 0, "Can't handle execution units partition with dynamic mapping")
+    }
+
+    for(groups <- encToGroups.values){
+      assert(groups.size == 1, "Multiple groups implementing the same opcode not yet supported")
+    }
+
 
     val regfiles = new Area {
       val plugins = getServicesOf[RegfileService]

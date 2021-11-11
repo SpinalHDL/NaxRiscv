@@ -5,6 +5,7 @@ import naxriscv.interfaces._
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
+import spinal.lib.pipeline.Pipeline
 
 class ExecutionUnitShared(euId : String) extends Plugin with ExecuteUnitService with WakeService {
 
@@ -20,6 +21,8 @@ class ExecutionUnitShared(euId : String) extends Plugin with ExecuteUnitService 
 
   override def wakeRobs = Seq(logic.wakePort)
 
+
+
   override def addFunction(enc: Encoding) = {
     val decoder = getService[DecoderService]
     decoder.addFunction(this, enc)
@@ -28,6 +31,12 @@ class ExecutionUnitShared(euId : String) extends Plugin with ExecuteUnitService 
   val setup = create early new Area{
     val rob = getService[RobService]
     val completion = rob.robCompletion()
+  }
+
+  val pipeline = create late new Pipeline{
+    val executeSages = 2
+    val push, withRobId, withContext, withRegfile = newStage()
+    val execute = List.fill(executeSages)(newStage())
   }
 
   val logic = create late new Area{
@@ -40,5 +49,8 @@ class ExecutionUnitShared(euId : String) extends Plugin with ExecuteUnitService 
 
     setup.completion.valid := wake.valid
     setup.completion.id := wake.robId
+
+
+
   }
 }

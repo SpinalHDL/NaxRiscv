@@ -80,19 +80,25 @@ class RobPlugin() extends Plugin with RobService{
         val ral = readAsyncs.filter(_.key == key)
         val writeSizeMin = wl.map(_.size).min
         val writeSizeMax = wl.map(_.size).max
-        val bankCount = writeSizeMax/writeSizeMin
-        val banks = Seq.fill(bankCount)(Mem.fill(ROB.SIZE/bankCount/writeSizeMin)(Vec.fill(writeSizeMin)(key())))
+        val readSizeMin = ral.map(_.size).min
+        val sizeMin = readSizeMin min writeSizeMin
+        val bankCount = writeSizeMax/sizeMin
+        val banks = Seq.fill(bankCount)(Mem.fill(ROB.SIZE/bankCount/sizeMin)(Vec.fill(sizeMin)(key())))
 
+        if(key.getName() == "Frontend_INSTRUCTION_DECOMPRESSED"){
+          println("miaou")
+        }
         for(e <- wl){
           assert(isPow2(e.size))
-          val ratio = writeSizeMax/e.size
+          val ratio = e.size / sizeMin
           val bankRange = log2Up(writeSizeMax) - 1 downto log2Up(e.size)
-          val address =  e.robId >> log2Up(writeSizeMax)
+          val address =  e.robId >> log2Up(bankCount*sizeMin)
+          val groupedData = e.value.grouped(sizeMin).toSeq
           for((bank, bankId) <- banks.zipWithIndex) {
             bank.write(
               enable = e.enable && e.robId(bankRange) === bankId/ratio,
               address = address,
-              data = Vec(e.value)
+              data = Vec(groupedData(bankId % groupedData.size))
             )
           }
         }
@@ -101,15 +107,24 @@ class RobPlugin() extends Plugin with RobService{
           assert(isPow2(e.size))
           if(e.size > writeSizeMax){
             ???
-          } else {
-            val address =  e.robId >> log2Up(writeSizeMax)
+          } else if(e.skipFactor == 1){
+            val address =  e.robId >> log2Up(bankCount*sizeMin)
             val reads = banks.map(_.readAsync(
               address = address
             ))
             val cat = Cat(reads)
             val sliceRange = log2Up(writeSizeMax) - 1 downto log2Up(e.size)
             e.rsp.assignFromBits(cat.subdivideIn(widthOf(e.rsp) bits).read(e.robId(sliceRange)))
-            assert(e.skipFactor == 1)
+          } else {
+            assert(e.size == 1)
+            val address =  e.robId >> log2Up(bankCount*sizeMin)
+            val banksIds = (0 until bankCount).filter(v => v % e.skipFactor == e.skipOffset)
+            val reads = banksIds.map(banks(_)).map(_.readAsync(
+              address = address
+            ))
+            val cat = Cat(reads)
+            val sliceRange = log2Up(writeSizeMax) - 1 downto log2Up(e.size*e.skipFactor)
+            e.rsp.assignFromBits(cat.subdivideIn(widthOf(e.rsp) bits).read(e.robId(sliceRange)))
           }
         }
       }

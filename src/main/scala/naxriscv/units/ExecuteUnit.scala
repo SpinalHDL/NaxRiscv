@@ -8,7 +8,7 @@ import spinal.core._
 import spinal.lib._
 
 class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with WakeService {
-
+  setName(euId)
   override def uniqueIds = List(euId)
 
   override def hasFixedLatency = ???
@@ -45,22 +45,41 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
     val flush = getService[CommitService].reschedulingPort().valid
 
     val pushPort = Stream(ExecutionUnitPush())
+    val euGroup = decoder.euGroups.find(_.eus.contains(ExecuteUnit.this)).get
+    val sf = euGroup.eus.size
+    val so = euGroup.eus.indexOf(ExecuteUnit.this)
+
+    case class Front() extends Bundle{
+      val robId = ROB.ID_TYPE()
+      val instruction = Frontend.INSTRUCTION_DECOMPRESSED()
+      val pc = Global.PC()
+      val rs1 = Bits(Global.XLEN bits)
+      val rs2 = Bits(Global.XLEN bits)
+    }
+
 
     val front = new Area{
       val input = pushPort.toFlow.m2sPipe(flush = flush)
 
-      val instruction = rob.readAsyncSingle(Frontend.INSTRUCTION_DECOMPRESSED, input.robId)
-      val physRs1 = rob.readAsyncSingle(decoder.PHYS_RS(0), input.robId)
-      val physRs2 = rob.readAsyncSingle(decoder.PHYS_RS(1), input.robId)
-      val readRs1 = rob.readAsyncSingle(decoder.READ_RS(0), input.robId)
-      val readRs2 = rob.readAsyncSingle(decoder.READ_RS(1), input.robId)
+      val physRs1 = rob.readAsyncSingle(decoder.PHYS_RS(0), input.robId, sf, so)
+      val physRs2 = rob.readAsyncSingle(decoder.PHYS_RS(1), input.robId, sf, so)
+      val readRs1 = rob.readAsyncSingle(decoder.READ_RS(0), input.robId, sf, so)
+      val readRs2 = rob.readAsyncSingle(decoder.READ_RS(1), input.robId, sf, so)
 
       setup.rfReadRs1.valid := input.valid && readRs1
       setup.rfReadRs1.address := physRs1
       setup.rfReadRs2.valid := input.valid && readRs2
       setup.rfReadRs2.address := physRs2
 
-      val output = input
+
+      val result = Front()
+      result.instruction := rob.readAsyncSingle(Frontend.INSTRUCTION_DECOMPRESSED, input.robId, sf, so)
+      result.pc :=  rob.readAsyncSingle(Global.PC, input.robId, sf, so)
+      result.rs1 := setup.rfReadRs1.data
+      result.rs2 := setup.rfReadRs2.data
+      result.robId := input.robId
+
+      val output = input.translateWith(result)
     }
 
 
@@ -68,11 +87,7 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
     val s0 = new Area{
       val input = front.output.m2sPipe(flush = flush)
 
-      val rs1 = RegNext(setup.rfReadRs1.data)
-      val rs2 = RegNext(setup.rfReadRs2.data)
-      val instruction = rob.readAsyncSingle(Frontend.INSTRUCTION_DECOMPRESSED, input.robId)
-      val pc = rob.readAsyncSingle(Global.PC, input.robId)
-      val imm = new IMM(instruction)
+      val imm = new IMM(input.instruction)
 
 
       case class Result() extends Bundle{
@@ -86,18 +101,18 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
 
       val result = Result()
       result.robId := input.robId
-      result.writeRd := rob.readAsyncSingle(decoder.WRITE_RD, input.robId)
-      result.rd := rob.readAsyncSingle(decoder.PHYS_RD, input.robId)
+      result.writeRd := rob.readAsyncSingle(decoder.WRITE_RD, input.robId, sf, so)
+      result.rd := rob.readAsyncSingle(decoder.PHYS_RD, input.robId, sf, so)
       result.value.assignDontCare()
 
       result.branch := False
-      result.pcTarget := pc + U(imm.s_sext)
-      when(instruction(6)){
-        result.branch := rs1 === rs2
-      } elsewhen(instruction(5)){
-        result.value := B(S(rs1) + S(rs2))
+      result.pcTarget := input.pc + U(imm.s_sext)
+      when(input.instruction(6)){
+        result.branch := input.rs1 === input.rs2
+      } elsewhen(input.instruction(5)){
+        result.value := B(S(input.rs1) + S(input.rs2))
       } otherwise {
-        result.value := B(S(rs1) + S(imm.i_sext))
+        result.value := B(S(input.rs1) + S(imm.i_sext))
       }
 
 

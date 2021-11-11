@@ -5,7 +5,7 @@ import naxriscv.compatibility.MultiPortWritesSymplifier
 import spinal.core._
 import naxriscv.frontend._
 import naxriscv.interfaces.{ExecutionUnitPush, Riscv}
-import naxriscv.units.{ExecuteUnit, IntAluPlugin}
+import naxriscv.units.{ExecuteUnit, IntAluPlugin, MulPlugin}
 import naxriscv.utilities._
 
 import scala.collection.mutable.ArrayBuffer
@@ -54,6 +54,12 @@ object Config{
     )
     plugins += new ExecuteUnit("ALU0")
     plugins += new IntAluPlugin("ALU0")
+    plugins += new ExecuteUnit("ALU1")
+    plugins += new IntAluPlugin("ALU1")
+//    plugins += new ExecuteUnit("ALU2")
+//    plugins += new IntAluPlugin("ALU2", false)
+//    plugins += new ExecuteUnit("ALU3")
+//    plugins += new MulPlugin("ALU3")
     plugins += new RobPlugin()
     plugins += new CommitPlugin()
     plugins += new RegFilePlugin(
@@ -89,10 +95,11 @@ object Gen extends App{
 
 //ROADMAP
 /*
-- Lockstep simulation
-- ALU qui wakeup issue queue ahead of rf write
+- ALU wakeup issue queue ahead of rf write
 - Regfile bypass
 - Having a proper microcode instead of direct RISC-V ?
+- Execution unit API
+  -
  */
 
 //TODO fix bellow list
