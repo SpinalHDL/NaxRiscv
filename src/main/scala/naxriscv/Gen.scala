@@ -1,7 +1,7 @@
 package naxriscv
 
 import naxriscv.backend.{CommitPlugin, RegFilePlugin, RobPlugin}
-import naxriscv.compatibility.MultiPortWritesSymplifier
+import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
 import naxriscv.frontend._
 import naxriscv.interfaces.{ExecutionUnitPush, Riscv}
@@ -71,9 +71,12 @@ object Config{
     plugins
   }
 }
+
+// ramstyle = "MLAB, no_rw_check"
 object Gen extends App{
-  val spinalConfig = SpinalConfig()
+  val spinalConfig = SpinalConfig(inlineRom = true)
   spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
+//  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
 
   val report = spinalConfig.generateVerilog(new Component {
     setDefinitionName("NaxRiscv")

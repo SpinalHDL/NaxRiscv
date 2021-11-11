@@ -49,6 +49,24 @@ case class RamMwXor[T <: Data](payloadType : HardType[T], depth : Int, writePort
   }
 }
 
+case class RamMr[T <: Data](payloadType : HardType[T], depth : Int, readPorts : Int) extends Component {
+  val io = new Bundle {
+    val write = slave(Flow(MemWriteCmd(payloadType, depth)))
+    val read = Vec.fill(readPorts)(slave(MemRead(payloadType, depth)))
+  }
+
+  val banks = for(read <- io.read) yield new Area{
+    val ram = Mem.fill(depth)(payloadType)
+    ram.initBigInt((0 until depth).map(_ => BigInt(0)))
+    ram.write(
+      enable = io.write.valid,
+      address = io.write.address,
+      data = io.write.data
+    )
+    read.rsp := ram.readAsync(read.cmd.payload)
+  }
+}
+
 object RamMwXorSynth extends App{
   LutInputs.set(6)
 
@@ -107,6 +125,42 @@ class MultiPortWritesSymplifier extends PhaseMemBlackboxing{
         dst.address.assignFrom(src.address)
         dst.data.assignFrom(src.data)
       }
+
+
+      for((reworked, old) <- (c.io.read, readsAsync).zipped){
+        reworked.cmd.payload.assignFrom(old.address)
+        wrapConsumers(typo, old, reworked.rsp)
+      }
+
+      mem.removeStatement()
+      mem.foreachStatements(s => s.removeStatement())
+
+      ctx.foreach(_.restore())
+    }
+  }
+}
+
+
+class MultiPortReadSymplifier extends PhaseMemBlackboxing{
+  override def doBlackboxing(pc: PhaseContext, typo: MemTopology) = {
+    if(typo.writes.size == 1 && typo.readsSync.size == 0 && typo.readsAsync.size > 1){
+      typo.writes.foreach(w => assert(w.mask == null))
+      typo.writes.foreach(w => assert(w.clockDomain == typo.writes.head.clockDomain))
+      val cd = typo.writes.head.clockDomain
+
+      import typo._
+
+      val ctx = List(mem.parentScope.push(), cd.push())
+
+      val c = RamMr(
+        payloadType = Bits(mem.width bits),
+        depth       = mem.wordCount,
+        readPorts   = readsAsync.size
+      ).setCompositeName(mem)
+
+      c.io.write.valid.assignFrom(typo.writes.head.writeEnable)
+      c.io.write.address.assignFrom(typo.writes.head.address)
+      c.io.write.data.assignFrom(typo.writes.head.data)
 
 
       for((reworked, old) <- (c.io.read, readsAsync).zipped){
