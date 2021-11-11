@@ -1,7 +1,7 @@
 # Building riscv-isa-sim (spike)
 
 ```shell
-cd ext/riscv-isa-sim
+cd $NAXRISCV/ext/riscv-isa-sim
 mkdir build
 cd build
 ../configure --prefix=$RISCV --enable-commitlog 
@@ -12,17 +12,20 @@ g++ --shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/l
 # Generate NaxRiscv
 
 ```shell
+cd $NAXRISCV
 sbt "runMain naxriscv.Gen"
 ```
 
 # Compile the simulator
 
 ```shell
+cd $NAXRISCV/src/cpp/test/naxriscv
 make compile TRACE=yes
 ```
 
 # Run the simulation
 
 ```shell
+cd $NAXRISCV/src/cpp/test/naxriscv
 ./obj_dir/VNaxRiscv --timeout 1000 --mem_hex ../../../../ext/NaxSoftware/baremetal/play/build/play.hex
 ```

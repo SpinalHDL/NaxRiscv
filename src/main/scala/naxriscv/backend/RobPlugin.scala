@@ -85,9 +85,6 @@ class RobPlugin() extends Plugin with RobService{
         val bankCount = writeSizeMax/sizeMin
         val banks = Seq.fill(bankCount)(Mem.fill(ROB.SIZE/bankCount/sizeMin)(Vec.fill(sizeMin)(key())))
 
-        if(key.getName() == "Frontend_INSTRUCTION_DECOMPRESSED"){
-          println("miaou")
-        }
         for(e <- wl){
           assert(isPow2(e.size))
           val ratio = e.size / sizeMin
