@@ -28,11 +28,12 @@ class ExecutionUnitBase(euId : String) extends Plugin with ExecuteUnitService wi
 
   override def wakeRobs = Nil//Seq(logic.wakePort)
 
-  val encodings = ArrayBuffer[Encoding]()
+  val microOps = ArrayBuffer[MicroOp]()
 
-  override def addFunction(enc: Encoding) = {
-    getService[DecoderService].addFunction(this, enc)
-    encodings += enc
+
+  override def addMicroOp(microOp: MicroOp) = {
+    getService[DecoderService].addEuOp(this, microOp)
+    microOps += microOp
   }
 
   val setup = create early new Area{
@@ -71,16 +72,16 @@ class ExecutionUnitBase(euId : String) extends Plugin with ExecuteUnitService wi
 
 
     //Figure out which register file are in use
-    val ressources = mutable.LinkedHashSet[EncodingResource]()
-    for(e <- encodings; r <- e.ressources) ressources += r
+    val ressources = mutable.LinkedHashSet[Resource]()
+    for(e <- microOps; r <- e.resources) ressources += r
 
     //Allocate all the ressources
     val rfReads = mutable.LinkedHashMap[RfResource, RegFileRead]()
     ressources.foreach {
-      case r : RfResource if r.enc.isInstanceOf[RfRead] => {
+      case r : RfResource if r.access.isInstanceOf[RfRead] => {
         rfReads(r) = getService[RegfileService](r.rf).newRead(withReady)
       }
-      case r : RfResource if r.enc.isInstanceOf[RfWrite] => {
+      case r : RfResource if r.access.isInstanceOf[RfWrite] => {
 
       }
     }

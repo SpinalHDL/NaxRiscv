@@ -1,6 +1,6 @@
 package naxriscv.units
 
-import naxriscv.interfaces.Riscv
+import naxriscv.riscv.Rvi
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.Plugin
@@ -8,9 +8,9 @@ import naxriscv.utilities.Plugin
 class IntAluPlugin(fuId : Any, withAddi : Boolean = true) extends Plugin{
   val setup = create early new Area{
     val fu = getService[ExecuteUnit](fuId)
-    fu.addFunction(Riscv.integer.ADD)
-    if(withAddi)fu.addFunction(Riscv.integer.ADDI)
-    fu.addFunction(Riscv.integer.BEQ)
+    fu.addMicroOp(Rvi.ADD)
+    if(withAddi)fu.addMicroOp(Rvi.ADDI)
+    fu.addMicroOp(Rvi.BEQ)
   }
 
   val logic = create late new Area{

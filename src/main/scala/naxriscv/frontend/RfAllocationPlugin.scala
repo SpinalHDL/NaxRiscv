@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.interfaces.{CommitService, InitCycles, RegfileService, RegfileSpec, RfAllocationService, Riscv, RobService}
+import naxriscv.interfaces.{CommitService, InitCycles, RegfileService, RegfileSpec, RfAllocationService, RobService}
 import naxriscv.utilities.{AllocatorMultiPortMem, Plugin}
 import spinal.core._
 import spinal.lib.pipeline.StageableOffset

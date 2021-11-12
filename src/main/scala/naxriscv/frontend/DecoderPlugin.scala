@@ -3,7 +3,8 @@ package naxriscv.frontend
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.interfaces.{DecoderService, Encoding, EuGroup, ExecuteUnitService, RegfileService, RfResource, Riscv, RobService}
+import naxriscv.interfaces.{DecoderService, EuGroup, ExecuteUnitService, MicroOp, RD, RS1, RS2, RegfileService, RfResource, RobService, SingleDecoding}
+import naxriscv.riscv.Const
 import spinal.lib.pipeline.Connection.DIRECT
 import spinal.lib.pipeline._
 import spinal.core._
@@ -21,11 +22,18 @@ import scala.collection.mutable.{ArrayBuffer, LinkedHashMap, LinkedHashSet}
 
 
 class DecoderPlugin() extends Plugin with DecoderService{
-  val euToEncodings = LinkedHashMap[ExecuteUnitService, ArrayBuffer[Encoding]]()
-  val encodings = LinkedHashSet[Encoding]()
-  override def addFunction(fu: ExecuteUnitService, enc: Encoding) = {
-    euToEncodings.getOrElseUpdate(fu, ArrayBuffer[Encoding]()) += enc
-    encodings += enc
+  val euToMicroOps = LinkedHashMap[ExecuteUnitService, ArrayBuffer[MicroOp]]()
+  val microOps = LinkedHashSet[MicroOp]()
+  val singleDecodings = LinkedHashSet[SingleDecoding]()
+
+
+  override def addEuOp(fu: ExecuteUnitService, microOp: MicroOp) = {
+    euToMicroOps.getOrElseUpdate(fu, ArrayBuffer[MicroOp]()) += microOp
+    microOps += microOp
+    microOp match {
+      case sd : SingleDecoding => singleDecodings += sd
+      case _ =>
+    }
   }
 
 
@@ -58,26 +66,26 @@ class DecoderPlugin() extends Plugin with DecoderService{
 
 
     //Create groups of similar execution units
-    val euSimilar = executionUnits.groupByLinked(eu => euToEncodings(eu))
-    for((enc, eus) <- euSimilar){
+    val euSimilar = executionUnits.groupByLinked(eu => euToMicroOps(eu))
+    for((microOps, eus) <- euSimilar){
       euGroups += EuGroup(
         eus.toList,
         Stageable(Bool()).setName(eus.map(_.euName()).mkString("_") + "_SEL"),
-        encodings = enc
+        microOps = microOps
       )
     }
 
-    //Find for each implemented encoding, which are the EuGroup implementing it
-    val encToGroups = mutable.LinkedHashMap[Encoding, ArrayBuffer[EuGroup]]()
-    for(g <- euGroups; enc <- g.encodings) encToGroups.getOrElseUpdate(enc, ArrayBuffer[EuGroup]()) += g
+    //Find for each implemented microop, which are the EuGroup implementing it
+    val microOpToGroups = mutable.LinkedHashMap[MicroOp, ArrayBuffer[EuGroup]]()
+    for(g <- euGroups; microOps <- g.microOps) microOpToGroups.getOrElseUpdate(microOps, ArrayBuffer[EuGroup]()) += g
 
-    //figure out EuGroup implementing common encodings
-    val partitions = encToGroups.toSeq.groupByLinked(_._2).map(e => e._1 -> e._2.map(_._1))
+    //figure out EuGroup implementing common microOps
+    val partitions = microOpToGroups.toSeq.groupByLinked(_._2).map(e => e._1 -> e._2.map(_._1))
     for(p <- partitions){
       assert(DISPATCH_COUNT % p._1.map(_.eus.size).sum == 0, "Can't handle execution units partition with dynamic mapping")
     }
 
-    for(groups <- encToGroups.values){
+    for(groups <- microOpToGroups.values){
       assert(groups.size == 1, "Multiple groups implementing the same opcode not yet supported")
     }
 
@@ -99,17 +107,16 @@ class DecoderPlugin() extends Plugin with DecoderService{
 
 
     val encodings = new Area{
-      val encs = LinkedHashSet[Encoding]() ++ euToEncodings.flatMap(_._2)
       val all = LinkedHashSet[Masked]()
       val readRs1, readRs2, writeRd = LinkedHashSet[Masked]()
-      for(e <- encs){
+      for(e <- singleDecodings){
         val masked = Masked(e.key)
         all += masked
-        e.ressources.foreach {
-          case r: RfResource => r.enc match {
-            case Riscv.RS1 => readRs1 += masked
-            case Riscv.RS2 => readRs2 += masked
-            case Riscv.RD => writeRd += masked
+        e.resources.foreach {
+          case r: RfResource => r.access match {
+            case RS1 => readRs1 += masked
+            case RS2 => readRs2 += masked
+            case RD => writeRd += masked
           }
         }
       }
@@ -121,8 +128,8 @@ class DecoderPlugin() extends Plugin with DecoderService{
       for(group <- euGroups){
         val addTo = groups.getOrElseUpdate(group, LinkedHashSet[Masked]())
         for(eu <- group.eus){
-          for(enc <- euToEncodings(eu)){
-            addTo += Masked(enc.key)
+          for(enc <- euToMicroOps(eu)) enc match {
+            case sd : SingleDecoding => addTo += Masked(sd.key)
           }
         }
         groupsN(group) = all -- addTo
@@ -131,7 +138,7 @@ class DecoderPlugin() extends Plugin with DecoderService{
 
     for (i <- 0 until Frontend.DECODE_COUNT) {
       implicit val offset = StageableOffset(i)
-      val rdZero = INSTRUCTION_DECOMPRESSED(Riscv.rdRange) === 0
+      val rdZero = INSTRUCTION_DECOMPRESSED(Const.rdRange) === 0
       regfiles.READ_RS(0) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs1, encodings.readRs1N)
       regfiles.READ_RS(1) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs2, encodings.readRs2N)
       regfiles.WRITE_RD   := Symplify(INSTRUCTION_DECOMPRESSED, encodings.writeRd, encodings.writeRdN) && !rdZero
@@ -161,12 +168,12 @@ class DecoderPlugin() extends Plugin with DecoderService{
       writeLine(regfiles.PHYS_RD)
       writeLine(regfiles.PHYS_RD_FREE)
       writeLine(INSTRUCTION_DECOMPRESSED)
-      writeLine(regfiles.ARCH_RD, remapped(INSTRUCTION_DECOMPRESSED).map(e => U(e(Riscv.rdRange))))
+      writeLine(regfiles.ARCH_RD, remapped(INSTRUCTION_DECOMPRESSED).map(e => U(e(Const.rdRange))))
 
       for(i <- 0 until 2) {
         writeLine(regfiles.READ_RS(i))
         writeLine(regfiles.PHYS_RS(i))
-        writeLine(regfiles.ARCH_RS(i), remapped(INSTRUCTION_DECOMPRESSED).map(e => U(e(Riscv.rsRange(i)))))
+        writeLine(regfiles.ARCH_RS(i), remapped(INSTRUCTION_DECOMPRESSED).map(e => U(e(Const.rsRange(i)))))
       }
 
       writeLine(DISPATCH_MASK)

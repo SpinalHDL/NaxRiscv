@@ -1,7 +1,41 @@
 package naxriscv.sandbox.syntax
 
-import naxriscv.interfaces.RegfileSpec
+import naxriscv.interfaces.{RegfileSpec}
+import naxriscv.units.ExecuteUnit
 import spinal.core._
+//object Miaou{
+//  class Resource
+//  class Arg(mapping : Seq[Any]) extends Resource
+//  class RfAccess
+//  class RfRead extends RfAccess
+//  class RfWrite extends RfAccess
+//  class RegFileSpec
+//  class RfResource(rf : RegFileSpec, access : RfAccess) extends Resource
+//
+//  val RS1 = new RfRead
+//  val RS2 = new RfRead
+//  val RD  = new RfWrite
+//
+//  val INT = new RegFileSpec
+//  val INT_RS1 = new RfResource(INT, RS1)
+//  val INT_RS2 = new RfResource(INT, RS2)
+//  val INT_RD = new RfResource(INT, RD)
+//  val TypeIArg = new Arg(List((31 downto 20) -> (11 downto 0)))
+//
+//  val RISCV_ADD = DirectTranslation(M"101011", List(INT_RS1, INT_RS2, INT_RD, TypeIArg))
+//
+//  class MicroOp
+//  case class DirectTranslation(key : MaskedLiteral, ressources : Seq[Resource]) extends MicroOp
+//  case class MultiTranslation(key : MaskedLiteral, uop : Seq[MicroOp]) extends MicroOp
+//
+//
+//
+//  trait RiscvDecoderService{
+//    def addTranslation(dt : DirectTranslation)
+//    def addDispatch(dt : MicroOp, eu : ExecuteUnit)
+//  }
+//
+//}
 
 //class Spec {
 //

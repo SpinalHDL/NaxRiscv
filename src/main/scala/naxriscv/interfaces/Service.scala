@@ -37,11 +37,10 @@ trait InitCycles extends Service{
 //A EuGroup is composed of ExecuteUnitService which all exactly implement the same instructions
 case class EuGroup(eus : Seq[ExecuteUnitService],
                    sel: Stageable[Bool],
-                   encodings : Seq[Encoding])
+                   microOps : Seq[MicroOp])
 
 trait DecoderService extends Service{
-  def addFunction(fu: ExecuteUnitService,
-                  enc: Encoding) : Unit
+  def addEuOp(fu: ExecuteUnitService, microOp : MicroOp) : Unit
 
   def euGroups : Seq[EuGroup]
 
@@ -83,12 +82,6 @@ trait RfAllocationService extends Service {
   def getAllocPort() : AllocatorMultiPortPop[UInt]
   def getFreePort() : Vec[Flow[UInt]]
 }
-
-//trait RenamerService extends Service {
-//  def newTranslationPort() : Any
-//  def rollbackToCommit() : Unit
-//}
-
 
 case class RegFileWrite(addressWidth : Int, dataWidth : Int, withReady : Boolean) extends Bundle with IMasterSlave {
   val valid = Bool()
@@ -150,11 +143,6 @@ trait RegfileService extends Service{
 }
 
 
-//trait WakeService extends Service{
-//  def newWakeOhPort() : Stream[WakeOh]
-//  def newWakeRobIdPort() : Stream[WakeRobId]
-//}
-
 case class RescheduleEvent() extends Bundle{
   val nextRob = ROB.ID_TYPE()
 }
@@ -180,33 +168,6 @@ trait CommitService  extends Service{
   def freePort() : Flow[CommitFree]
 }
 
-trait RegfileSpec{
-  def sizeArch : Int
-  def width : Int
-  def x0AlwaysZero : Boolean
-  def getName() : String
-
-  def ->(access : RfAccess) = RfResource(this, access)
-}
-
-trait EncodingResource{
-
-}
-
-case class RfResource(rf : RegfileSpec, enc : RfAccess) extends EncodingResource
-
-
-case class Encoding(
-   key : MaskedLiteral,
-   ressources : Seq[EncodingResource]
-)
-
-//trait FunctionalUnitDatabase {
-////  def retain() : Unit
-////  def release() : Unit
-//  def register(fu)
-//}
-
 case class ExecutionUnitPush() extends Bundle{
   val robId = ROB_ID()
 }
@@ -227,84 +188,7 @@ trait ExecuteUnitService extends Service with LockedService{
   def hasFixedLatency : Boolean
   def getFixedLatency : Int
   def pushPort() : Stream[ExecutionUnitPush]
-  def addFunction(enc : Encoding)
-}
-
-
-trait RfAccess {
-  def decode(i : Bits) : UInt
-}
-trait RfRead extends RfAccess
-trait RfWrite extends RfAccess
-
-
-
-object Riscv{
-
-  def funct7Range = 31 downto 25
-  def rdRange = 11 downto 7
-  def funct3Range = 14 downto 12
-  def rs2Range = 24 downto 20
-  def rs1Range = 19 downto 15
-  def rs3Range = 31 downto 27
-  def csrRange = 31 downto 20
-  def rsRange(id : Int) = List(rs1Range, rs2Range,rs3Range)(id)
-
-  case class IMM(instruction  : Bits) extends Area{
-    // immediates
-    def i = instruction(31 downto 20)
-    def h = instruction(31 downto 24)
-    def s = instruction(31 downto 25) ## instruction(11 downto 7)
-    def b = instruction(31) ## instruction(7) ## instruction(30 downto 25) ## instruction(11 downto 8)
-    def u = instruction(31 downto 12) ## U"x000"
-    def j = instruction(31) ## instruction(19 downto 12) ## instruction(20) ## instruction(30 downto 21)
-    def z = instruction(19 downto 15)
-
-    // sign-extend immediates
-    def i_sext = B((19 downto 0) -> i(11)) ## i
-    def h_sext = B((23 downto 0) -> h(7))  ## h
-    def s_sext = B((19 downto 0) -> s(11)) ## s
-    def b_sext = B((18 downto 0) -> b(11)) ## b ## False
-    def j_sext = B((10 downto 0) -> j(19)) ## j ## False
-  }
-
-  val RS1 = new RfRead{
-    def decode(i : Bits) = i(19 downto 15).asUInt
-  }
-  val RS2 = new RfRead{
-    def decode(i : Bits) = i(24 downto 20).asUInt
-  }
-  val RD = new RfWrite{
-    def decode(i : Bits) = i(11 downto 7).asUInt
-  }
-  val integer = new Area{
-    val regfile = new RegfileSpec {
-      override def sizeArch = 32
-      override def width = Global.XLEN
-      override def x0AlwaysZero = true
-      override def getName() = "integer"
-    }
-
-    def toResource(accesses : Seq[RfAccess]) = accesses.map(regfile -> _)
-
-    def TypeR(key : MaskedLiteral) = Encoding(
-      key = key,
-      ressources = List(RS1, RS2, RD).map(regfile -> _)
-    )
-    def TypeI(key : MaskedLiteral) = Encoding(
-      key = key,
-      ressources = List(RS1, RD).map(regfile -> _)
-    )
-    def TypeS(key : MaskedLiteral) = Encoding(
-      key = key,
-      ressources = List(RS1, RS2).map(regfile -> _)
-    )
-
-    val ADD  = TypeR(M"0000000----------000-----0110011")
-    val ADDI = TypeI(M"-----------------000-----0010011")
-    val MUL  = TypeR(M"0000001----------000-----0110011")
-    def BEQ =  TypeS(M"-----------------000-----1100011")
-  }
+  def addMicroOp(enc : MicroOp)
 }
 
 case class RobCompletion() extends Bundle {

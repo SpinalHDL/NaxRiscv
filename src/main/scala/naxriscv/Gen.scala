@@ -4,7 +4,7 @@ import naxriscv.backend.{CommitPlugin, RegFilePlugin, RobPlugin}
 import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
 import naxriscv.frontend._
-import naxriscv.interfaces.{ExecutionUnitPush, Riscv}
+import naxriscv.interfaces.{ExecutionUnitPush}
 import naxriscv.units.{ExecuteUnit, IntAluPlugin, MulPlugin}
 import naxriscv.utilities._
 
@@ -48,7 +48,7 @@ object Config{
     plugins += new DecoderPlugin()
     plugins += new RfTranslationPlugin()
     plugins += new RfDependencyPlugin()
-    plugins += new RfAllocationPlugin(Riscv.integer.regfile)
+    plugins += new RfAllocationPlugin(riscv.IntRegFile)
     plugins += new DispatchPlugin(
       slotCount = 32
     )
@@ -63,7 +63,7 @@ object Config{
     plugins += new RobPlugin()
     plugins += new CommitPlugin()
     plugins += new RegFilePlugin(
-      spec = Riscv.integer.regfile,
+      spec = riscv.IntRegFile,
       physicalDepth = 64,
       bankCount = 1
     )

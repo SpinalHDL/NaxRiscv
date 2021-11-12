@@ -1,8 +1,8 @@
 package naxriscv.units
 
-import naxriscv.interfaces.Riscv.IMM
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.interfaces._
+import naxriscv.riscv.IMM
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -21,9 +21,8 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
 
   override def wakeRobs = Seq(logic.wakePort)
 
-  override def addFunction(enc: Encoding) = {
-    val decoder = getService[DecoderService]
-    decoder.addFunction(this, enc)
+  def addMicroOp(enc: MicroOp) = {
+    getService[DecoderService].addEuOp(this, enc)
   }
 
   val setup = create early new Area{
