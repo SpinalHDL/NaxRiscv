@@ -1,8 +1,7 @@
-package naxriscv.engine
+package naxriscv.frontend
 
 import spinal.core._
 import spinal.lib._
-import naxriscv.sandbox.matrix3.ScheduleParameter
 
 case class IssueQueueParameter(slotCount : Int,
                                wayCount : Int,

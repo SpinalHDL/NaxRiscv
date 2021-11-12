@@ -1,11 +1,11 @@
-package naxriscv.engine
+package naxriscv.frontend
 
 import spinal.core._
 import spinal.lib.NoData
 import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
 
 import scala.collection.mutable.ArrayBuffer
-class Integration(wp : IssueQueueParameter) extends Component{
+class IssueQueueTop(wp : IssueQueueParameter) extends Component{
   val IssueQueue = new IssueQueue(wp, new NoData)
 
   IssueQueue.io.events := IssueQueue.io.schedules.map(_.event).zipWithIndex.map{case (v, i) => if(true) v else RegNext(v)}.reduce(_ | _) //Assume always ready
@@ -16,11 +16,11 @@ class Integration(wp : IssueQueueParameter) extends Component{
   schedules.map(_.ready.setAsDirectionLess() := True)
 }
 
-object IntegrationSynthBench extends App{
+object IssueQueueTopSynthBench extends App{
   LutInputs.set(6)
 
   val rtls = ArrayBuffer[Rtl]()
-  rtls += Rtl(SpinalVerilog(Rtl.ffIo(new Integration(
+  rtls += Rtl(SpinalVerilog(Rtl.ffIo(new IssueQueueTop(
     IssueQueueParameter(
       slotCount    = 32,
       wayCount     = 2,
@@ -28,7 +28,7 @@ object IntegrationSynthBench extends App{
       schedules = List.tabulate(2)(i => ScheduleParameter(1, 0, i))
     )
   ).setDefinitionName("miaou32"))))
-  rtls += Rtl(SpinalVerilog(Rtl.ffIo(new Integration(
+  rtls += Rtl(SpinalVerilog(Rtl.ffIo(new IssueQueueTop(
     IssueQueueParameter(
       slotCount    = 48,
       wayCount     = 2,
@@ -36,7 +36,7 @@ object IntegrationSynthBench extends App{
       schedules = List.tabulate(2)(i => ScheduleParameter(1, 0, i))
     )
   ).setDefinitionName("miaou48"))))
-  rtls += Rtl(SpinalVerilog(Rtl.ffIo(new Integration(
+  rtls += Rtl(SpinalVerilog(Rtl.ffIo(new IssueQueueTop(
     IssueQueueParameter(
       slotCount    = 64,
       wayCount     = 2,

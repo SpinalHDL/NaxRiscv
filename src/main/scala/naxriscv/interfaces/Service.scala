@@ -39,7 +39,7 @@ case class EuGroup(eus : Seq[ExecuteUnitService],
                    sel: Stageable[Bool],
                    microOps : Seq[MicroOp])
 
-trait DecoderService extends Service{
+trait DecoderService extends Service with LockedService {
   def addEuOp(fu: ExecuteUnitService, microOp : MicroOp) : Unit
 
   def euGroups : Seq[EuGroup]
@@ -47,6 +47,10 @@ trait DecoderService extends Service{
   def READ_RS(id : Int)  : Stageable[Bool]
   def ARCH_RS(id : Int)  : Stageable[UInt]
   def PHYS_RS(id : Int)  : Stageable[UInt]
+
+  def READ_RS(id : RfRead)  : Stageable[Bool]
+  def ARCH_RS(id : RfRead)  : Stageable[UInt]
+  def PHYS_RS(id : RfRead)  : Stageable[UInt]
 
   def WRITE_RD : Stageable[Bool]
   def PHYS_RD  : Stageable[UInt]

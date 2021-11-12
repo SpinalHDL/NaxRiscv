@@ -1,7 +1,6 @@
 package naxriscv.frontend
 
 import naxriscv.{Frontend, ROB}
-import naxriscv.engine.{IssueQueue, IssueQueueParameter, ScheduleParameter}
 import naxriscv.interfaces.{CommitService, DecoderService, IssueService, RobWait, WakeService}
 import naxriscv.utilities.{Plugin, Service}
 import spinal.core._

@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.interfaces.{DecoderService, EuGroup, ExecuteUnitService, MicroOp, RD, RS1, RS2, RegfileService, RfResource, RobService, SingleDecoding}
+import naxriscv.interfaces.{DecoderService, EuGroup, ExecuteUnitService, LockedImpl, MicroOp, RD, RS1, RS2, RS3, RegfileService, RfRead, RfResource, RobService, SingleDecoding}
 import naxriscv.riscv.Const
 import spinal.lib.pipeline.Connection.DIRECT
 import spinal.lib.pipeline._
@@ -21,7 +21,7 @@ import scala.collection.mutable.{ArrayBuffer, LinkedHashMap, LinkedHashSet}
 
 
 
-class DecoderPlugin() extends Plugin with DecoderService{
+class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
   val euToMicroOps = LinkedHashMap[ExecuteUnitService, ArrayBuffer[MicroOp]]()
   val microOps = LinkedHashSet[MicroOp]()
   val singleDecodings = LinkedHashSet[SingleDecoding]()
@@ -36,11 +36,19 @@ class DecoderPlugin() extends Plugin with DecoderService{
     }
   }
 
+  def rsToId(id : RfRead) = id match {
+    case RS1 => 0
+    case RS2 => 1
+    case RS3 => 2
+  }
 
   override def euGroups = logic.euGroups
   override def READ_RS(id: Int) : Stageable[Bool] = logic.regfiles.READ_RS(id)
   override def ARCH_RS(id: Int) : Stageable[UInt] = logic.regfiles.ARCH_RS(id)
   override def PHYS_RS(id: Int) : Stageable[UInt] = logic.regfiles.PHYS_RS(id)
+  override def READ_RS(id: RfRead) : Stageable[Bool] = READ_RS(rsToId(id))
+  override def ARCH_RS(id: RfRead) : Stageable[UInt] = ARCH_RS(rsToId(id))
+  override def PHYS_RS(id: RfRead) : Stageable[UInt] = PHYS_RS(rsToId(id))
   override def WRITE_RD : Stageable[Bool] = logic.regfiles.WRITE_RD
   override def ARCH_RD : Stageable[UInt] = logic.regfiles.ARCH_RD
   override def PHYS_RD : Stageable[UInt] = logic.regfiles.PHYS_RD
@@ -57,6 +65,8 @@ class DecoderPlugin() extends Plugin with DecoderService{
   }
 
   val logic = create late new Area{
+    lock.await()
+
     val frontend = getService[FrontendPlugin]
     val rob = getService[RobService]
 

@@ -2,9 +2,9 @@ package naxriscv.riscv
 
 import naxriscv.Global
 import naxriscv.interfaces._
-import spinal.core.MaskedLiteral
+import spinal.core.{AreaObject, MaskedLiteral}
 
-object IntRegFile extends RegfileSpec {
+object IntRegFile extends RegfileSpec with AreaObject {
   override def sizeArch = 32
   override def width = Global.XLEN
   override def x0AlwaysZero = true

@@ -23,6 +23,11 @@ class Pipeline extends Area{
     s
   }
 
+  def addStage(s : Stage): Stage ={
+    stages += s
+    s
+  }
+
   def connect(m : Stage, s : Stage)(logics : ConnectionLogic*) = {
     val c = new ConnectionModel
     connections += c
