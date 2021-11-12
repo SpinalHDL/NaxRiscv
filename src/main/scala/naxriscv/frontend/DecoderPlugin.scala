@@ -55,17 +55,10 @@ class DecoderPlugin() extends Plugin with DecoderService{
     val executionUnits = getServicesOf[ExecuteUnitService]
     val euGroups = ArrayBuffer[EuGroup]()
 
-    def groupBy[T, K](that : Seq[T])(by : T => K) : LinkedHashMap[K, ArrayBuffer[T]] = {
-      val ret = LinkedHashMap[K, ArrayBuffer[T]]()
-      for(e <- that) {
-        val k = by(e)
-        ret.getOrElseUpdate(k, ArrayBuffer[T]()) += e
-      }
-      ret
-    }
+
 
     //Create groups of similar execution units
-    val euSimilar = groupBy(executionUnits)(eu => euToEncodings(eu))
+    val euSimilar = executionUnits.groupByLinked(eu => euToEncodings(eu))
     for((enc, eus) <- euSimilar){
       euGroups += EuGroup(
         eus.toList,
@@ -79,7 +72,7 @@ class DecoderPlugin() extends Plugin with DecoderService{
     for(g <- euGroups; enc <- g.encodings) encToGroups.getOrElseUpdate(enc, ArrayBuffer[EuGroup]()) += g
 
     //figure out EuGroup implementing common encodings
-    val partitions = groupBy(encToGroups.toSeq)(_._2).map(e => e._1 -> e._2.map(_._1))
+    val partitions = encToGroups.toSeq.groupByLinked(_._2).map(e => e._1 -> e._2.map(_._1))
     for(p <- partitions){
       assert(DISPATCH_COUNT % p._1.map(_.eus.size).sum == 0, "Can't handle execution units partition with dynamic mapping")
     }

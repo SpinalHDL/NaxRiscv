@@ -7,6 +7,7 @@ import naxriscv.Global._
 import naxriscv.Frontend._
 import spinal.lib.pipeline._
 import naxriscv.utilities.{AllocatorMultiPortPop, Service}
+import spinal.core.fiber.Lock
 import spinal.lib.pipeline.Stageable
 
 case class JumpPayload() extends Bundle {
@@ -210,7 +211,18 @@ case class ExecutionUnitPush() extends Bundle{
   val robId = ROB_ID()
 }
 
-trait ExecuteUnitService extends Service{
+trait LockedService {
+  def retain()
+  def release()
+}
+
+trait LockedImpl extends LockedService{
+  val lock = Lock()
+  override def retain() = lock.retain()
+  override def release() = lock.release()
+}
+
+trait ExecuteUnitService extends Service with LockedService{
   def euName() : String
   def hasFixedLatency : Boolean
   def getFixedLatency : Int

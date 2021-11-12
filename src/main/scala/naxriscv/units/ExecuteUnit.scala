@@ -7,7 +7,7 @@ import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
 
-class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with WakeService {
+class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with WakeService with LockedImpl {
   setName(euId)
   override def uniqueIds = List(euId)
 
@@ -40,6 +40,8 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
   }
 
   val logic = create late new Area{
+    lock.await()
+
     val rob = getService[RobService]
     val decoder = getService[DecoderService]
     val flush = getService[CommitService].reschedulingPort().valid

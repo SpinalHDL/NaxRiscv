@@ -135,8 +135,8 @@ class RegFilePlugin(spec : RegfileSpec,
   override def release() = lock.release()
 
   val logic = create late new Area{
-
     lock.await()
+
     val regfile = new RegFileAsync(
       addressWidth    = addressWidth,
       dataWidth       = dataWidth,
