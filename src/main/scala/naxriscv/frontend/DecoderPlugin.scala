@@ -146,6 +146,11 @@ class DecoderPlugin() extends Plugin with DecoderService{
         group.sel := Symplify(INSTRUCTION_DECOMPRESSED, encodings.groups(group), encodings.groupsN(group))
       }
       DISPATCH_MASK := MASK_ALIGNED
+
+      regfiles.ARCH_RD := U(INSTRUCTION_DECOMPRESSED(Const.rdRange))
+      for(i <- 0 until rsCount) {
+        regfiles.ARCH_RS(i) := U(INSTRUCTION_DECOMPRESSED(Const.rsRange(i)))
+      }
     }
 
     val robCtx = new Area{
@@ -168,12 +173,12 @@ class DecoderPlugin() extends Plugin with DecoderService{
       writeLine(regfiles.PHYS_RD)
       writeLine(regfiles.PHYS_RD_FREE)
       writeLine(INSTRUCTION_DECOMPRESSED)
-      writeLine(regfiles.ARCH_RD, remapped(INSTRUCTION_DECOMPRESSED).map(e => U(e(Const.rdRange))))
+      writeLine(regfiles.ARCH_RD)
 
-      for(i <- 0 until 2) {
+      for(i <- 0 until rsCount) {
         writeLine(regfiles.READ_RS(i))
         writeLine(regfiles.PHYS_RS(i))
-        writeLine(regfiles.ARCH_RS(i), remapped(INSTRUCTION_DECOMPRESSED).map(e => U(e(Const.rsRange(i)))))
+        writeLine(regfiles.ARCH_RS(i))
       }
 
       writeLine(DISPATCH_MASK)

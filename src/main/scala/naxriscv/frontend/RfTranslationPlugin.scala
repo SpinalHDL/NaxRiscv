@@ -133,7 +133,7 @@ class RfTranslationPlugin() extends Plugin with InitCycles {
 
     val writes = for(slotId <- 0 until DISPATCH_COUNT) {
       impl.io.writes(slotId).valid := isFireing && (DISPATCH_MASK, slotId) && (decoder.WRITE_RD, slotId)
-      impl.io.writes(slotId).address := U((INSTRUCTION_DECOMPRESSED, slotId) (riscv.Const.rdRange))
+      impl.io.writes(slotId).address := stage(decoder.ARCH_RD, slotId)
       impl.io.writes(slotId).data := stage(decoder.PHYS_RD, slotId)
     }
 
@@ -171,24 +171,24 @@ class RfTranslationPlugin() extends Plugin with InitCycles {
     val translation = new Area{
       for(slotId <- 0 until DISPATCH_COUNT) {
         val portRd = impl.io.reads(slotId*(1+decoder.rsCount))
-        val archRd = (Frontend.INSTRUCTION_DECOMPRESSED, slotId) (riscv.Const.rdRange)
+        val archRd = stage(decoder.ARCH_RD, slotId)
         portRd.cmd.valid := (decoder.WRITE_RD, slotId)
-        portRd.cmd.payload := U(archRd)
+        portRd.cmd.payload := archRd
         (decoder.PHYS_RD_FREE, slotId) := portRd.rsp.payload
 
         val rs = for(rsId <- 0 until decoder.rsCount) yield new Area{
           val id = rsId
           val port = impl.io.reads(slotId*(1+decoder.rsCount)+rsId+1)
-          val archRs = (Frontend.INSTRUCTION_DECOMPRESSED, slotId) (riscv.Const.rsRange(rsId))
+          val archRs = stage(decoder.ARCH_RS(rsId), slotId)
           port.cmd.valid := (decoder.READ_RS(rsId), slotId)
-          port.cmd.payload := U(archRs)
+          port.cmd.payload := archRs
           (decoder.PHYS_RS(rsId), slotId) := port.rsp.payload
         }
 
         //Slot bypass
         for(priorId <- 0 until slotId){
           val useRd = (decoder.WRITE_RD, priorId) && (DISPATCH_MASK, priorId)
-          val writeRd = (Frontend.INSTRUCTION_DECOMPRESSED, priorId)(riscv.Const.rdRange)
+          val writeRd = (decoder.ARCH_RD, priorId)
           when(useRd && writeRd === archRd){
             (decoder.PHYS_RD_FREE, slotId) := stage(decoder.PHYS_RD, priorId)
           }

@@ -181,7 +181,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
     val dependency = new Area{
       for(slotId <- 0 until Frontend.DISPATCH_COUNT) {
         for(rsId <- 0 until decoder.rsCount) {
-          val archRs = (Frontend.INSTRUCTION_DECOMPRESSED, slotId) (riscv.Const.rsRange(rsId))
+          val archRs = (decoder.ARCH_RS(rsId), slotId)
           val useRs = (decoder.READ_RS(rsId), slotId)
           val port = impl.io.reads(slotId*decoder.rsCount+rsId)
           port.cmd.valid := isValid && (DISPATCH_MASK, slotId) && useRs
@@ -193,7 +193,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
           //TODO maybe the bypass of the RfTranslationPlugin can be ignored ?
           for(priorId <- 0 until slotId){
             val useRd = (decoder.WRITE_RD, priorId) && (DISPATCH_MASK, priorId)
-            val writeRd = (Frontend.INSTRUCTION_DECOMPRESSED, priorId)(riscv.Const.rdRange)
+            val writeRd = (decoder.ARCH_RD, priorId)
             when(useRd && writeRd === archRs){
               (setup.waits(rsId).ENABLE, slotId) := True
               (setup.waits(rsId).ID    , slotId) := ROB_ID | priorId
