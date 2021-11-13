@@ -1,6 +1,6 @@
 package naxriscv.units
 
-import naxriscv.{Frontend, ROB}
+import naxriscv.{Frontend, Global, ROB}
 import naxriscv.interfaces._
 import naxriscv.utilities.Plugin
 import spinal.core._
@@ -40,17 +40,31 @@ class ExecutionUnitBase(euId : String,
   def getStageable(r : RfResource) : Stageable[Bits] = pipeline.rfReadData(r)
   def getExecute(id : Int) : Stage = idToexecuteStages.getOrElseUpdate(id, new Stage().setCompositeName(pipeline, s"execute_$id"))
 
-  val microOps = ArrayBuffer[MicroOp]()
+  case class WriteBackKey(rf : RegfileSpec, access : RfAccess, stage : Stage)
+  val writeBacksSpec = mutable.LinkedHashMap[WriteBackKey, ArrayBuffer[Flow[Bits]]]()
+  def newWriteback(rf : RegfileSpec, access : RfAccess, stage : Stage) : Flow[Bits] = {
+    val ret = Flow(Bits(rf.width bits))
+    writeBacksSpec.getOrElseUpdate(WriteBackKey(rf, access, stage), ArrayBuffer[Flow[Bits]]()) += ret
+    ret
+  }
 
+  val microOps = ArrayBuffer[MicroOp]()
+  val stagesCompletions = mutable.LinkedHashMap[Int, ArrayBuffer[MicroOp]]()
 
   override def addMicroOp(microOp: MicroOp) = {
     getService[DecoderService].addEuOp(this, microOp)
     microOps += microOp
   }
+  def addMicroOp(microOp: MicroOp, completionStage : Int) = {
+    getService[DecoderService].addEuOp(this, microOp)
+    microOps += microOp
+    stagesCompletions.getOrElseUpdate(completionStage, ArrayBuffer[MicroOp]()) += microOp
+  }
 
   val setup = create early new Area{
     getService[DecoderService].retain()
     getServicesOf[RegfileService].foreach(_.retain())
+    getService[RobService].retain()
     val completion = getService[RobService].robCompletion()
   }
 
@@ -98,6 +112,7 @@ class ExecutionUnitBase(euId : String,
     val rfReadPorts = mutable.LinkedHashMap[RfResource, RegFileRead]()
     val rfReads = mutable.LinkedHashSet[RfRead]()
     val rfReadData = mutable.LinkedHashMap[RfResource, Stageable[Bits]]()
+    var implementRd = false
     ressources.foreach {
       case r : RfResource if r.access.isInstanceOf[RfRead] => {
         val port = getService[RegfileService](r.rf).newRead(withReady)
@@ -107,7 +122,7 @@ class ExecutionUnitBase(euId : String,
         rfReadData(r) = Stageable(Bits(r.rf.width bits)).setName(s"${euId}_${name}")
         rfReads += r.access.asInstanceOf[RfRead]
       }
-      case r : RfResource if r.access.isInstanceOf[RfWrite] =>
+      case r : RfResource if r.access.isInstanceOf[RfWrite] => implementRd = true
     }
 
     // Implement the fetch pipeline
@@ -134,6 +149,13 @@ class ExecutionUnitBase(euId : String,
         readAndInsert(decoder.PHYS_RS(e))
         readAndInsert(decoder.READ_RS(e))
       }
+      if(implementRd){
+        readAndInsert(decoder.PHYS_RD)
+        readAndInsert(decoder.WRITE_RD)
+      }
+      if(ressources.contains(PC_READ)){
+        readAndInsert(Global.PC)
+      }
     }
 
     val readRf = new Area{
@@ -148,9 +170,24 @@ class ExecutionUnitBase(euId : String,
       }
     }
 
+    val writeBack = for((spec, writes) <- writeBacksSpec) yield new Area{
+      val rfService = getService[RegfileService](spec.rf)
+      val port = rfService.newWrite(withReady)
+      port.valid := spec.stage.isFireing && spec.stage(decoder.WRITE_RD)
+      port.robId := spec.stage(ROB_ID)
+      port.address := spec.stage(decoder.PHYS_RD)
+      port.data := MuxOH.or(writes.map(_.valid), writes.map(_.payload))
+    }
+
+    val completion = for((stageId, microOp) <- stagesCompletions) yield new Area{
+      val port = rob.robCompletion()
+      port.valid := ???
+      port.id := executeStages(stageId)(ROB_ID)
+    }
+
 
     getServicesOf[RegfileService].foreach(_.release())
-
+    rob.release()
     this.build()
   }
 

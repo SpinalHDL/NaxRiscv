@@ -14,6 +14,7 @@ object RS1 extends RfRead with AreaObject
 object RS2 extends RfRead with AreaObject
 object RS3 extends RfRead with AreaObject
 object RD  extends RfWrite with AreaObject
+object PC_READ  extends Resource with AreaObject
 
 class MicroOp(val resources : Seq[Resource])
 case class SingleDecoding(key : MaskedLiteral, override val resources : Seq[Resource]) extends MicroOp(resources)

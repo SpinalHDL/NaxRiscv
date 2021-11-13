@@ -107,7 +107,7 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
       result.value.assignDontCare()
 
       result.branch := False
-      result.pcTarget := input.pc + U(imm.s_sext)
+      result.pcTarget := input.pc + U(imm.b_sext)
       when(input.instruction(6)){
         result.branch := input.rs1 === input.rs2
       } elsewhen(input.instruction(5)){
