@@ -5,7 +5,7 @@ import spinal.lib._
 
 import scala.collection.mutable
 
-//TODO WARNING NOT ATOMIC !!!!
+
 object Symplify{
   val cacheKey = ScopeProperty.apply(mutable.LinkedHashMap[Bits,mutable.LinkedHashMap[Masked,Bool]]())
   val cache = cacheKey.get
@@ -15,7 +15,8 @@ object Symplify{
   def logicOf(input : Bits,terms : Seq[Masked]) : Bool = terms.map(t => getCache(input).getOrElseUpdate(t,t === input)).asBits.orR
 
   //Decode 'input' by using an mapping[key, decoding] specification
-  def apply(input: Bits, mapping: Iterable[(Masked, Masked)],resultWidth : Int) : Bits = {
+
+  def apply(input: Bits, mapping: Iterable[(Masked, Masked)], resultWidth : Int) : Bits = {
     val addrWidth = widthOf(input)
     (for(bitId <- 0 until resultWidth) yield{
       val trueTerm = mapping.filter { case (k,t) => (t.care.testBit(bitId) && t.value.testBit(bitId))}.map(_._1)

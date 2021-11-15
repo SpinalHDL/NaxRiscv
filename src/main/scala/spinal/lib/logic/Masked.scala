@@ -1,9 +1,16 @@
 package spinal.lib.logic
 
-import spinal.core.{Bits, Bool, MaskedLiteral, assert}
+import spinal.core._
+import spinal.core.internals.Literal
 
 object Masked{
   def apply(ml : MaskedLiteral) : Masked = Masked(ml.value, ml.careAbout)
+  def apply(lit : Any) : Masked = lit match {
+    case e: SpinalEnumElement[_] => Masked(e.spinalEnum.defaultEncoding.getValue(e), (BigInt(1) << e.spinalEnum.defaultEncoding.getWidth(e.spinalEnum))-1)
+    case bt: BaseType => bt.head.source match {
+      case lit : Literal => Masked(lit.getValue(), (BigInt(1) << widthOf(bt))-1)
+    }
+  }
 }
 
 case class Masked(value : BigInt,care : BigInt){
