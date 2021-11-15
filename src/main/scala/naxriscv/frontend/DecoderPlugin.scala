@@ -158,6 +158,9 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       }
       DISPATCH_MASK := MASK_ALIGNED
 
+      MICRO_OP := INSTRUCTION_DECOMPRESSED
+      terminal(INSTRUCTION_DECOMPRESSED, i)
+
       regfiles.ARCH_RD := U(INSTRUCTION_DECOMPRESSED(Const.rdRange))
       for(i <- 0 until rsCount) {
         regfiles.ARCH_RS(i) := U(INSTRUCTION_DECOMPRESSED(Const.rsRange(i)))
@@ -180,10 +183,10 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       }
 
       writeLine(PC)
+      writeLine(MICRO_OP)
       writeLine(regfiles.WRITE_RD)
       writeLine(regfiles.PHYS_RD)
       writeLine(regfiles.PHYS_RD_FREE)
-      writeLine(INSTRUCTION_DECOMPRESSED)
       writeLine(regfiles.ARCH_RD)
 
       for(i <- 0 until rsCount) {

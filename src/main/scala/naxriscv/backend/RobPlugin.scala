@@ -78,6 +78,7 @@ class RobPlugin() extends Plugin with RobService{
         if(key.isNamed) this.setPartialName(key.getName())
         val wl = writes.filter(_.key == key)
         val ral = readAsyncs.filter(_.key == key)
+        if(wl.isEmpty) SpinalError(s"RobPlugin has not writes for ${key}")
         val writeSizeMin = wl.map(_.size).min
         val writeSizeMax = wl.map(_.size).max
         val readSizeMin = ral.map(_.size).min

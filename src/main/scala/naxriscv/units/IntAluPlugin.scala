@@ -5,11 +5,11 @@ import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.Plugin
 
-class IntAluPlugin(fuId : Any, withAddi : Boolean = true) extends Plugin{
+class IntAluPlugin(fuId : Any, withAdd : Boolean = true) extends Plugin{
   val setup = create early new Area{
     val fu = getService[ExecuteUnit](fuId)
-    fu.addMicroOp(Rvi.ADD)
-    if(withAddi)fu.addMicroOp(Rvi.ADDI)
+    if(withAdd)fu.addMicroOp(Rvi.ADD)
+    if(withAdd)fu.addMicroOp(Rvi.ADDI)
     fu.addMicroOp(Rvi.BEQ)
   }
 

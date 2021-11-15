@@ -47,6 +47,7 @@ object Frontend extends AreaObject {
   val MASK_ALIGNED = Stageable(Bool())
   val INSTRUCTION_ALIGNED = Stageable(Bits(INSTRUCTION_WIDTH bits))
   val INSTRUCTION_DECOMPRESSED = Stageable(Bits(INSTRUCTION_WIDTH bits))
+  val MICRO_OP = Stageable(Bits(INSTRUCTION_WIDTH bits))
   val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
 
 

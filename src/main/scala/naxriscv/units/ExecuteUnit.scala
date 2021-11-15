@@ -52,7 +52,7 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
 
     case class Front() extends Bundle{
       val robId = ROB.ID_TYPE()
-      val instruction = Frontend.INSTRUCTION_DECOMPRESSED()
+      val instruction = Frontend.MICRO_OP()
       val pc = Global.PC()
       val rs1 = Bits(Global.XLEN bits)
       val rs2 = Bits(Global.XLEN bits)
@@ -74,7 +74,7 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
 
 
       val result = Front()
-      result.instruction := rob.readAsyncSingle(Frontend.INSTRUCTION_DECOMPRESSED, input.robId, sf, so)
+      result.instruction := rob.readAsyncSingle(Frontend.MICRO_OP, input.robId, sf, so)
       result.pc :=  rob.readAsyncSingle(Global.PC, input.robId, sf, so)
       result.rs1 := setup.rfReadRs1.data
       result.rs2 := setup.rfReadRs2.data

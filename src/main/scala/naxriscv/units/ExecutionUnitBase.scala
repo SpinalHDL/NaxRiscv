@@ -5,6 +5,7 @@ import naxriscv.interfaces._
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
+import spinal.lib.logic.{DecodingSpec, Masked, Symplify}
 import spinal.lib.pipeline.Connection.{DIRECT, M2S}
 import spinal.lib.pipeline.{Pipeline, Stage, Stageable}
 
@@ -19,25 +20,24 @@ class ExecutionUnitBase(euId : String,
                         robIdStage : Int = 1,
                         contextStage : Int = 1,
                         rfReadStage : Int = 1,
+                        decodeStage : Int = 1,
                         executeStage : Int = 2) extends Plugin with ExecuteUnitService with WakeService with LockedImpl{
 
   override def uniqueIds = List(euId)
-
   override def hasFixedLatency = ???
-
   override def getFixedLatency = ???
-
   override def pushPort() = pipeline.push.port
-
   override def euName() = euId
-
   override def wakeRobs = Nil//Seq(logic.wakePort)
 
   val idToexecuteStages = mutable.LinkedHashMap[Int, Stage]()
+  val rfStageables = mutable.LinkedHashMap[RfResource, Stageable[Bits]]()
 
   def apply(rf : RegfileSpec, access : RfAccess) = getStageable(rf -> access)
   def apply(r : RfResource) = getStageable(r)
-  def getStageable(r : RfResource) : Stageable[Bits] = pipeline.rfReadData(r)
+  def getStageable(r : RfResource) : Stageable[Bits] = {
+    rfStageables.getOrElseUpdate(r, Stageable(Bits(r.rf.width bits)).setCompositeName(this, s"${r.rf.getName()}_${r.access.getName()}"))
+  }
   def getExecute(id : Int) : Stage = idToexecuteStages.getOrElseUpdate(id, new Stage().setCompositeName(pipeline, s"execute_$id"))
 
   case class WriteBackKey(rf : RegfileSpec, access : RfAccess, stage : Stage)
@@ -61,11 +61,25 @@ class ExecutionUnitBase(euId : String,
     stagesCompletions.getOrElseUpdate(completionStage, ArrayBuffer[MicroOp]()) += microOp
   }
 
+  val decodingSpecs = mutable.LinkedHashMap[Stageable[_ <: BaseType], DecodingSpec[Stageable[_ <: BaseType]]]()
+  def getDecodingSpec(key : Stageable[_ <: BaseType]) = decodingSpecs.getOrElseUpdate(key, new DecodingSpec(key))
+  def addDecodingDefault(key : Stageable[_ <: BaseType], value : BaseType) : Unit = {
+    getDecodingSpec(key).setDefault(Masked(value))
+  }
+
+  def DecodeList(e : (Stageable[_ <: BaseType],Any)*) = List(e :_*)
+  def addDecoding(microOp: MicroOp, values : Seq[(Stageable[_ <: BaseType],Any)]) : Unit = {
+    val op = Masked(microOp.key)
+    for((key, value) <- values) {
+      getDecodingSpec(key).addNeeds(op, Masked(value))
+    }
+  }
+
   val setup = create early new Area{
     getService[DecoderService].retain()
     getServicesOf[RegfileService].foreach(_.retain())
     getService[RobService].retain()
-    val completion = getService[RobService].robCompletion()
+//    val completion = getService[RobService].robCompletion()
   }
 
   val pipeline = create late new Pipeline{
@@ -79,7 +93,7 @@ class ExecutionUnitBase(euId : String,
     getService[DecoderService].release()
 
     //Create and connect execute stages
-    val executeStageCount = idToexecuteStages.map(_._1).max
+    val executeStageCount = idToexecuteStages.map(_._1).max + 1
     val executeStages = ArrayBuffer[Stage]()
     for(i <- 0 until executeStageCount) {
       val s = getExecute(i)
@@ -111,15 +125,13 @@ class ExecutionUnitBase(euId : String,
     //Allocate all the resources
     val rfReadPorts = mutable.LinkedHashMap[RfResource, RegFileRead]()
     val rfReads = mutable.LinkedHashSet[RfRead]()
-    val rfReadData = mutable.LinkedHashMap[RfResource, Stageable[Bits]]()
     var implementRd = false
     ressources.foreach {
       case r : RfResource if r.access.isInstanceOf[RfRead] => {
         val port = getService[RegfileService](r.rf).newRead(withReady)
-        val name = s"{r.rf.getName()}_${r.access.getName()}"
+        val name = s"${r.rf.getName()}_${r.access.getName()}"
         port.setCompositeName(this, s"rfReads_${name}")
         rfReadPorts(r) = port
-        rfReadData(r) = Stageable(Bits(r.rf.width bits)).setName(s"${euId}_${name}")
         rfReads += r.access.asInstanceOf[RfRead]
       }
       case r : RfResource if r.access.isInstanceOf[RfWrite] => implementRd = true
@@ -144,7 +156,7 @@ class ExecutionUnitBase(euId : String,
       def read[T <: Data](key : Stageable[T]) = rob.readAsyncSingle(key, ROB_ID, sf, so)
       def readAndInsert[T <: Data](key : Stageable[T]) = stage(key) := read(key)
 
-      readAndInsert(Frontend.INSTRUCTION_DECOMPRESSED)
+      readAndInsert(Frontend.MICRO_OP)
       for(e <- rfReads){
         readAndInsert(decoder.PHYS_RS(e))
         readAndInsert(decoder.READ_RS(e))
@@ -158,6 +170,16 @@ class ExecutionUnitBase(euId : String,
       }
     }
 
+    val decoding = new Area{
+      val stage = fetch(decodeStage)
+      import stage._
+
+      val coverAll = microOps.map(e => Masked(e.key))
+      for((key, spec) <- decodingSpecs){
+        key.assignFromBits(spec.build(Frontend.MICRO_OP, coverAll))
+      }
+    }
+
     val readRf = new Area{
       val stage = fetch(rfReadStage)
       import stage._
@@ -165,8 +187,8 @@ class ExecutionUnitBase(euId : String,
       for((rf, port) <- rfReadPorts){
         val id = rf.access.asInstanceOf[RfRead]
         port.valid := decoder.READ_RS(id)
-        port.address := decoder.ARCH_RS(id)
-        rfReadData(rf) := port.data
+        port.address := decoder.PHYS_RS(id)
+        getStageable(rf) := port.data
       }
     }
 
@@ -181,7 +203,7 @@ class ExecutionUnitBase(euId : String,
 
     val completion = for((stageId, microOp) <- stagesCompletions) yield new Area{
       val port = rob.robCompletion()
-      port.valid := ???
+      port.valid := False
       port.id := executeStages(stageId)(ROB_ID)
     }
 
