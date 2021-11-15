@@ -30,6 +30,7 @@ class Stage extends Nameable {
       var isFlushingNext : Bool = null
       var isHalted : Bool = null
       var isHaltedByOthers : Bool = null
+      var propagateReady = false
     }
 
     val request = new {
@@ -43,6 +44,7 @@ class Stage extends Nameable {
 
     val stageableToData = mutable.LinkedHashMap[StageableKey, Data]()
     val stageableOverloadedToData = mutable.LinkedHashMap[StageableKey, Data]()
+    val stageableTerminal = mutable.LinkedHashSet[StageableKey]()
 
     def outputOf(key : StageableKey) = stageableOverloadedToData.get(key) match {
       case Some(x) => x
@@ -104,12 +106,19 @@ class Stage extends Nameable {
       key.stageable()
     })
   }
+  def terminal(key : StageableKey) : StageableKey = {
+    internals.stageableTerminal += key
+    key
+  }
 
   def apply[T <: Data](key : Stageable[T]) : T = {
     apply(StageableKey(key.asInstanceOf[Stageable[Data]], null)).asInstanceOf[T]
   }
   def apply[T <: Data](key : Stageable[T], key2 : Any) : T = {
     apply(StageableKey(key.asInstanceOf[Stageable[Data]], key2)).asInstanceOf[T]
+  }
+  def terminal[T <: Data](key : Stageable[T], key2 : Any) : StageableKey = {
+    terminal(StageableKey(key.asInstanceOf[Stageable[Data]], key2))
   }
   def overloaded[T <: Data](key : Stageable[T]) : T = {
     apply(StageableKey(key.asInstanceOf[Stageable[Data]], null)).asInstanceOf[T]

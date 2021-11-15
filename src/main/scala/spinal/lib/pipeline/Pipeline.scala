@@ -67,8 +67,10 @@ class Pipeline extends Area{
       stageDriver(c.s) = c
     }
 
+
     //Fill payload holes in the pipeline
     def propagateData(key : StageableKey, stage : Stage): Boolean ={
+      if(stage.internals.stageableTerminal.contains(key)) return false
       stage.stageableToData.get(key) match {
         case None => {
           val hits = ArrayBuffer[Stage]()
@@ -94,6 +96,7 @@ class Pipeline extends Area{
 
     def propagateRequirements(stage : Stage): Unit ={
       if(stage.request.halts.nonEmpty){
+        stage.arbitration.propagateReady = true
         stage.isReady //Force creation
       }
       def orR(l : Seq[Bool]) : Bool = l.size match {
@@ -115,7 +118,7 @@ class Pipeline extends Area{
       }
       stageDriver.get(stage) match {
         case Some(c : ConnectionModel) => {
-          if(c.s.input.ready != null && c.m.output.ready == null){
+          if(c.s.arbitration.propagateReady && c.m.output.ready == null){
             c.m.output.ready = Bool()
             if(c.m.input.ready == null){
               c.m.input.ready = Bool()
@@ -144,6 +147,7 @@ class Pipeline extends Area{
       }
 
       for(m <- stageMasters(stage)){
+        if(stage.internals.arbitration.propagateReady) m.internals.arbitration.propagateReady = true
         propagateRequirements(m)
       }
     }
@@ -196,7 +200,7 @@ class Pipeline extends Area{
 
     //Interconnect stages
     for(c <- connections){
-      val stageables = c.m.stageableToData.keys.filter(c.s.stageableToData.contains(_))
+      val stageables = (c.m.stageableToData.keys).filter(key => c.s.stageableToData.contains(key) && !c.m.stageableTerminal.contains(key))
       var m = ConnectionPoint(c.m.output.valid, c.m.output.ready, stageables.map(c.m.outputOf(_)).toList)
       for((l, id) <- c.logics.zipWithIndex){
 
