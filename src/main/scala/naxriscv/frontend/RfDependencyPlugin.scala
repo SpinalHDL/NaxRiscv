@@ -137,7 +137,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
     val wakers = getServicesOf[WakeService]
     val wakeIds = wakers.flatMap(_.wakeRobs)
 
-    val stage = frontend.pipeline.allocated
+    val stage = frontend.pipeline.dispatch
     import stage._
 
     val entryCount = decoder.rsPhysicalDepthMax

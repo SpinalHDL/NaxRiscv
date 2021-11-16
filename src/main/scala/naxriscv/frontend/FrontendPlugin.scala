@@ -38,6 +38,7 @@ class FrontendPlugin() extends Plugin {
     val decompressed = newStage()
     val decoded = newStage()
     val allocated = newStage()
+    val dispatch = newStage()
 
     import spinal.lib.pipeline.Connection._
     for((m, s) <- (fetches.dropRight(1), fetches.tail).zipped){
@@ -45,6 +46,7 @@ class FrontendPlugin() extends Plugin {
     }
 
     connect(decoded, allocated)(M2S())
+    connect(allocated, dispatch)(M2S())
   }
   pipeline.setCompositeName(this)
 

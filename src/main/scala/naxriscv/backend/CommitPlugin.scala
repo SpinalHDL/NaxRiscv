@@ -66,7 +66,7 @@ class CommitPlugin extends Plugin with CommitService{
       val tval     = Reg(Bits(Global.XLEN bits))
       val commit = new Area{
         val (row, col) = robId.splitAt(log2Up(ROB.COLS))
-        val rowHit = valid && U(row) === ptr.commitRow
+        val rowHit = valid && U(row) === ptr.commitRow.resized
       }
 
       val age = robId - ptr.free
@@ -144,21 +144,6 @@ class CommitPlugin extends Plugin with CommitService{
               continue \= False
             }
           }
-
-//          when(setup.robLineMask.mask(colId) && mask(colId) && active(colId) && continue) {
-//            maskComb(colId) := False
-//            event.mask(colId) := True
-//            when(reschedule.commit.rowHit && reschedule.commit.col === colId){
-//              continue \= False
-//              rescheduleHit := True
-//              when(reschedule.skipCommit){
-//                maskComb(colId) := True
-//                event.mask(colId) := False
-//              }
-//            }
-//          } otherwise {
-//            continue \= False
-//          }
         }
         when(lineCommited || rescheduleHit) {
           mask := (1 << ROB.COLS) - 1

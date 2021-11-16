@@ -38,7 +38,7 @@ class DispatchPlugin(slotCount : Int) extends Plugin with IssueService{
     val decoder = getService[DecoderService]
     val groups = decoder.euGroups
 
-    val stage = frontend.pipeline.allocated
+    val stage = frontend.pipeline.dispatch
     import stage._
 
     val eus =  groups.flatMap(_.eus)

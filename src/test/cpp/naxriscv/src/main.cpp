@@ -330,9 +330,9 @@ int main(int argc, char** argv, char** env){
 
 
 
+    u64 commits = 0;
     try {
         top->clk = 0;
-
 
         for(SimElement* simElement : simElements) simElement->onReset();
         while (!Verilated::gotFinish()) {
@@ -361,6 +361,7 @@ int main(int argc, char** argv, char** env){
                 for(int i = 0;i < COMMIT_COUNT;i++){
                     if(CHECK_BIT(internal->commit_mask, i)){
                         int robId = internal->commit_robId + i;
+                        commits += 1;
 //                        printf("Commit %d %x\n", robId, whitebox.robCtx[robId].pc);
                         proc.step(1);
                         assertEq("MISSMATCH PC", whitebox.robCtx[robId].pc,  state->last_inst_pc);
@@ -390,7 +391,13 @@ int main(int argc, char** argv, char** env){
         }
 
     } catch (const std::exception& e) {
+        ++main_time;
+        #ifdef TRACE
+        tfp->dump(main_time);
+        if(main_time % 100000 == 0) tfp->flush();
+        #endif
         printf("REF PC=%lx\n", state->last_inst_pc);
+        printf("Commits=%d\n", commits);
     }
 
     #ifdef TRACE
