@@ -16,8 +16,8 @@ case class DependencyUpdate(physDepth : Int, robDepth : Int) extends Bundle{
   val robId = UInt(log2Up(robDepth) bits)
 }
 
-case class DependencyCommit(physDepth : Int) extends Bundle{
-  val robId = UInt(log2Up(physDepth) bits)
+case class DependencyCommit(robDepth : Int) extends Bundle{
+  val robId = UInt(log2Up(robDepth) bits)
 }
 
 case class DependencyReadRsp(robDepth : Int) extends Bundle{
@@ -42,7 +42,7 @@ class DependencyStorage(physDepth : Int,
                         readPorts : Int) extends Component {
   val io = new Bundle {
     val writes = Vec.fill(writePorts)(slave(Flow(DependencyUpdate(physDepth, robDepth))))
-    val commits = Vec.fill(commitPorts)(slave(Flow(DependencyCommit(physDepth))))
+    val commits = Vec.fill(commitPorts)(slave(Flow(DependencyCommit(robDepth))))
     val reads = Vec.fill(readPorts)(slave(DependencyRead(physDepth, robDepth)))
   }
 
@@ -79,7 +79,7 @@ class DependencyStorage(physDepth : Int,
 
   val read = for(p <- io.reads) yield new Area{
     val robId = translation.physToRob.readAsync(p.cmd.payload)
-    val enabled = status.busy.readAsync(robId) //TODO this is realy a long combinatorial path
+    val enabled = status.busy.readAsync(robId) //TODO this is a long combinatorial path
     p.rsp.valid := p.cmd.valid
     p.rsp.enable := enabled
     p.rsp.rob := robId
