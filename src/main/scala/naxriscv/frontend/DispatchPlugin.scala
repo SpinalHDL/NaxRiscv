@@ -1,5 +1,6 @@
 package naxriscv.frontend
 
+import naxriscv.Frontend.DISPATCH_MASK
 import naxriscv.{Frontend, ROB}
 import naxriscv.interfaces.{CommitService, DecoderService, IssueService, RobWait, WakeService}
 import naxriscv.utilities.{Plugin, Service}
@@ -90,10 +91,10 @@ class DispatchPlugin(slotCount : Int) extends Plugin with IssueService{
       stage.haltIt(!queue.io.push.ready) //Assume ready at 0 when not full
       val slots = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield new Area{
         val slot = queue.io.push.slots(slotId)
-        val self   = (decoder.WRITE_RD, slotId) ? B(BigInt(1) << slotCount-Frontend.DISPATCH_COUNT+slotId, slotCount bits) | B(0)
+        val self   = ((decoder.WRITE_RD, slotId) && (DISPATCH_MASK, slotId)) ? B(BigInt(1) << slotCount-Frontend.DISPATCH_COUNT+slotId, slotCount bits) | B(0)
         val events = robWaits.map(o => B(slotCount bits, default -> stage(o.ENABLE, slotId)) & UIntToOh(g2l(stage(o.ID, slotId))))
         slot.event := (self +: events).reduceBalancedTree(_ | _)
-        slot.sel   := groups.map(g => stage(g.sel, slotId)).asBits()
+        slot.sel   := (DISPATCH_MASK, slotId) ? groups.map(g => stage(g.sel, slotId)).asBits() | B(0)
       }
     }
 

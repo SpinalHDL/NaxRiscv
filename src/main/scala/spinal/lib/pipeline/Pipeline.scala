@@ -167,14 +167,14 @@ class Pipeline extends Area{
     //Name stuff
     for(s <- stages){
       import s.internals._
-      s.internals.output.valid.setCompositeName(s, "valid_output")
-      if(s.internals.output.ready != null) s.internals.output.ready.setCompositeName(s, "ready_output")
-      s.internals.input.valid.setCompositeName(s, "valid")
-      if(s.internals.input.ready != null) s.internals.input.ready.setCompositeName(s, "ready")
-      if(arbitration.isFlushed != null) arbitration.isFlushed.setCompositeName(s, "isFlushed")
-      if(arbitration.isFlushingNext != null) arbitration.isFlushingNext.setCompositeName(s, "isFlushingNext")
-      if(arbitration.isHalted != null) arbitration.isFlushingNext.setCompositeName(s, "isHalted")
-      if(arbitration.isHaltedByOthers != null) arbitration.isFlushingNext.setCompositeName(s, "isHaltedByOthers")
+      s.internals.output.valid.setCompositeName(s, "valid_output", true)
+      if(s.internals.output.ready != null) s.internals.output.ready.setCompositeName(s, "ready_output", true)
+      s.internals.input.valid.setCompositeName(s, "valid", true)
+      if(s.internals.input.ready != null) s.internals.input.ready.setCompositeName(s, "ready", true)
+      if(arbitration.isFlushed != null) arbitration.isFlushed.setCompositeName(s, "isFlushed", true)
+      if(arbitration.isFlushingNext != null) arbitration.isFlushingNext.setCompositeName(s, "isFlushingNext", true)
+      if(arbitration.isHalted != null) arbitration.isFlushingNext.setCompositeName(s, "isHalted", true)
+      if(arbitration.isHaltedByOthers != null) arbitration.isFlushingNext.setCompositeName(s, "isHaltedByOthers", true)
     }
 
     //Internal connections
@@ -211,9 +211,9 @@ class Pipeline extends Area{
         }
         val area = l.on(m, s, clFlush(l), clFlushNext(l), clFlushNextHit(l))
         if(c.logics.size != 1)
-          area.setCompositeName(c, s"level_$id")
+          area.setCompositeName(c, s"level_$id", true)
         else
-          area.setCompositeName(c)
+          area.setCompositeName(c, true)
         m = s
       }
 
@@ -222,7 +222,7 @@ class Pipeline extends Area{
     //Name stuff
     for(stage <- stages){
       for((key, value) <- stage.internals.stageableToData){
-        value.setCompositeName(stage, s"${key}")
+        value.setCompositeName(stage, s"${key}", true)
       }
     }
 

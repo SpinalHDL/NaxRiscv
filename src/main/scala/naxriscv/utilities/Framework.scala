@@ -13,6 +13,7 @@ trait Service{
 
 trait Plugin extends Area with Service{
   this.setName(ClassName(this))
+  def withPrefix(prefix : String) = setName(prefix + "_" + getName())
 
   val framework = Handle[Framework]()
 

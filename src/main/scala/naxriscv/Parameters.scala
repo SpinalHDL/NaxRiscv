@@ -9,7 +9,7 @@ object ROB extends AreaObject{
   def LINES = SIZE/COLS
   val SIZE = ScopeProperty[Int]
   def ID_WIDTH = log2Up(SIZE.get)
-  val ID_TYPE = HardType(UInt(ID_WIDTH bits))
+  val ID_TYPE = Stageable(UInt(ID_WIDTH bits))
   def lineRange = ID_WIDTH-1 downto log2Up(COLS)
 }
 
@@ -29,6 +29,7 @@ object Global extends AreaObject {
 
 object Frontend extends AreaObject {
   val RVC = ScopeProperty[Boolean]
+  val INSTRUCTION_SLICE_COUNT = Stageable(UInt(if(RVC) 1 bits else 0 bits)) // minus one => RVC => 0, normal => 1
   val FETCH_DATA_WIDTH = ScopeProperty[Int]
   val INSTRUCTION_WIDTH = ScopeProperty[Int]
   val BRANCH_HISTORY_WIDTH = ScopeProperty[Int]

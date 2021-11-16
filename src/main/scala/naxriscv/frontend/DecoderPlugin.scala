@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.interfaces.{DecoderService, EuGroup, ExecuteUnitService, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, RfRead, RfResource, RobService, SingleDecoding}
+import naxriscv.interfaces.{DecoderService, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, RfRead, RfResource, RobService, SingleDecoding}
 import naxriscv.riscv.Const
 import spinal.lib.pipeline.Connection.DIRECT
 import spinal.lib.pipeline._
@@ -129,6 +129,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
             case RD => writeRd += masked
           }
           case PC_READ =>
+          case INSTRUCTION_SIZE =>
         }
       }
       val readRs1N = all -- readRs1
@@ -184,6 +185,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
 
       writeLine(PC)
       writeLine(MICRO_OP)
+      writeLine(INSTRUCTION_SLICE_COUNT)
       writeLine(regfiles.WRITE_RD)
       writeLine(regfiles.PHYS_RD)
       writeLine(regfiles.PHYS_RD_FREE)

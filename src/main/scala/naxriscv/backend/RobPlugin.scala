@@ -52,6 +52,8 @@ class RobPlugin() extends Plugin with RobService{
 
 
   val logic = create late new Area{
+    lock.await()
+
     val lineCount = ROB.SIZE/ROB.COLS
     val valids = Reg(Bits(ROB.SIZE bits)) init(0)
     for(p <- robLineMaskPort){
@@ -69,7 +71,6 @@ class RobPlugin() extends Plugin with RobService{
     }
 
 
-    lock.await()
 
     val storage = new Area{
       val keys = mutable.LinkedHashSet[Stageable[Data]]()

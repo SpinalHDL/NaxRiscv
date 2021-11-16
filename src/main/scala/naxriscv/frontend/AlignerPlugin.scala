@@ -89,9 +89,10 @@ class AlignerPlugin() extends Plugin{
 
 
     val extractors = for (i <- 0 until DECODE_COUNT) yield new Area {
-      val maskOh = OHMasking.firstV2(slices.mask.drop(i));
+      val maskOh = OHMasking.firstV2(slices.mask.drop(i))
       val usage = MuxOH.or(maskOh, decoders.drop(i).map(_.usage))
       val notEnoughData = MuxOH.or(maskOh, decoders.drop(i).map(_.notEnoughData))
+      val rvc = MuxOH.or(maskOh, decoders.drop(i).map(_.rvc))
       val slice0 = MuxOH.or(maskOh, slices.data.drop(i))
       val slice1 = MuxOH.or(maskOh.dropHigh(1), slices.data.drop(i + 1))
       val instruction = slice1 ## slice0
@@ -100,6 +101,7 @@ class AlignerPlugin() extends Plugin{
       slices.mask \= slices.mask & ~usage
       output(INSTRUCTION_ALIGNED,i) := instruction
       output(MASK_ALIGNED, i) := valid
+      output(INSTRUCTION_SLICE_COUNT, i) := (if(RVC) U(!rvc) else U(0))
 
       val sliceOffset = OHToUInt(maskOh << i)
       val pcWord = Vec(buffer.pc, output(FETCH_PC_VIRTUAL)).read(U(sliceOffset.msb))

@@ -1,7 +1,7 @@
 package naxriscv.sandbox.syntax
 
 import naxriscv.interfaces.{RegfileSpec}
-import naxriscv.units.ExecuteUnit
+import naxriscv.units.ExecuteUnitDemo
 import spinal.core._
 //object Miaou{
 //  class Resource

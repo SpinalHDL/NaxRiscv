@@ -1,7 +1,7 @@
 package naxriscv.units
 
 import naxriscv.{Frontend, Global, ROB}
-import naxriscv.interfaces._
+import naxriscv.interfaces.{MicroOp, _}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -12,7 +12,7 @@ import spinal.lib.pipeline.{Pipeline, Stage, Stageable}
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-object ExecutionUnitKeys{
+object ExecutionUnitKeys extends AreaObject {
   val ROB_ID = Stageable(ROB.ID_TYPE)
 }
 
@@ -22,6 +22,7 @@ class ExecutionUnitBase(euId : String,
                         rfReadStage : Int = 1,
                         decodeStage : Int = 1,
                         executeStage : Int = 2) extends Plugin with ExecuteUnitService with WakeService with LockedImpl{
+  withPrefix(euId)
 
   override def uniqueIds = List(euId)
   override def hasFixedLatency = ???
@@ -49,7 +50,18 @@ class ExecutionUnitBase(euId : String,
   }
 
   val microOps = ArrayBuffer[MicroOp]()
-  val stagesCompletions = mutable.LinkedHashMap[Int, ArrayBuffer[MicroOp]]()
+
+  class StageCompletionSpec(stage : Int){
+    val sel = Stageable(Bool).setCompositeName(ExecutionUnitBase.this, s"completion_SEL_E$stage")
+    val microOps = ArrayBuffer[MicroOp]()
+    addDecodingDefault(sel, False)
+  }
+  val stagesCompletions = mutable.LinkedHashMap[Int, StageCompletionSpec]()
+  def addStaticCompletion(microOp: MicroOp, completionStage : Int): Unit ={
+    val completion = stagesCompletions.getOrElseUpdate(completionStage, new StageCompletionSpec(completionStage))
+    completion.microOps += microOp
+    addDecoding(microOp, DecodeList(completion.sel -> True))
+  }
 
   override def addMicroOp(microOp: MicroOp) = {
     getService[DecoderService].addEuOp(this, microOp)
@@ -58,7 +70,7 @@ class ExecutionUnitBase(euId : String,
   def addMicroOp(microOp: MicroOp, completionStage : Int) = {
     getService[DecoderService].addEuOp(this, microOp)
     microOps += microOp
-    stagesCompletions.getOrElseUpdate(completionStage, ArrayBuffer[MicroOp]()) += microOp
+    addStaticCompletion(microOp,  completionStage)
   }
 
   val decodingSpecs = mutable.LinkedHashMap[Stageable[_ <: BaseType], DecodingSpec[Stageable[_ <: BaseType]]]()
@@ -79,7 +91,6 @@ class ExecutionUnitBase(euId : String,
     getService[DecoderService].retain()
     getServicesOf[RegfileService].foreach(_.retain())
     getService[RobService].retain()
-//    val completion = getService[RobService].robCompletion()
   }
 
   val pipeline = create late new Pipeline{
@@ -101,7 +112,7 @@ class ExecutionUnitBase(euId : String,
       if(i == 0){
         connect(fetch.last, s)(DIRECT())
       } else {
-        connect(fetch.last, s)(M2S())
+        connect(getExecute(i-1), s)(M2S())
       }
       executeStages += s
     }
@@ -135,6 +146,8 @@ class ExecutionUnitBase(euId : String,
         rfReads += r.access.asInstanceOf[RfRead]
       }
       case r : RfResource if r.access.isInstanceOf[RfWrite] => implementRd = true
+      case PC_READ =>
+      case INSTRUCTION_SIZE =>
     }
 
     // Implement the fetch pipeline
@@ -167,6 +180,9 @@ class ExecutionUnitBase(euId : String,
       }
       if(ressources.contains(PC_READ)){
         readAndInsert(Global.PC)
+      }
+      if(ressources.contains(INSTRUCTION_SIZE)){
+        readAndInsert(Frontend.INSTRUCTION_SLICE_COUNT)
       }
     }
 
@@ -201,10 +217,11 @@ class ExecutionUnitBase(euId : String,
       port.data := MuxOH.or(writes.map(_.valid), writes.map(_.payload))
     }
 
-    val completion = for((stageId, microOp) <- stagesCompletions) yield new Area{
+    val completion = for((stageId, spec) <- stagesCompletions) yield new Area{
+      val stage = executeStages(stageId)
       val port = rob.robCompletion()
-      port.valid := False
-      port.id := executeStages(stageId)(ROB_ID)
+      port.valid := stage.isFireing && stage(spec.sel)
+      port.id := stage(ROB_ID)
     }
 
 

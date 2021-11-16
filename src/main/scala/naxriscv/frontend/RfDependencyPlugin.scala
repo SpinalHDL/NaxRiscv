@@ -13,11 +13,11 @@ import scala.collection.mutable.ArrayBuffer
 
 case class DependencyUpdate(physDepth : Int, robDepth : Int) extends Bundle{
   val physical = UInt(log2Up(physDepth) bits)
-  val rob = UInt(log2Up(robDepth) bits)
+  val robId = UInt(log2Up(robDepth) bits)
 }
 
 case class DependencyCommit(physDepth : Int) extends Bundle{
-  val physical = UInt(log2Up(physDepth) bits)
+  val robId = UInt(log2Up(physDepth) bits)
 }
 
 case class DependencyReadRsp(robDepth : Int) extends Bundle{
@@ -47,11 +47,11 @@ class DependencyStorage(physDepth : Int,
   }
 
   val translation = new Area{
-    val storage = Mem.fill(physDepth)(UInt(log2Up(robDepth) bits))
+    val physToRob = Mem.fill(physDepth)(UInt(log2Up(robDepth) bits))
     for(p <- io.writes){
-      storage.write(
+      physToRob.write(
         address = p.physical,
-        data = p.rob,
+        data = p.robId,
         enable = p.valid
       )
     }
@@ -59,17 +59,17 @@ class DependencyStorage(physDepth : Int,
 
   val status = new Area{
     val busy = Mem.fill(physDepth)(Bool())
-    for(p <- io.writes){
+    val write = for(p <- io.writes){
       busy.write(
-        address = p.physical,
+        address = p.robId,
         data = True,
         enable = p.valid
       )
     }
-    for(p <- io.commits) yield new Area{
+    val commit = for(p <- io.commits) yield new Area{
       when(p.valid){
         busy.write(
-          address = p.physical,
+          address = p.robId,
           data = False,
           enable = p.valid
         )
@@ -78,11 +78,11 @@ class DependencyStorage(physDepth : Int,
   }
 
   val read = for(p <- io.reads) yield new Area{
-    val translated = translation.storage.readAsync(p.cmd.payload)
-    val enabled = status.busy.readAsync(p.cmd.payload)
+    val robId = translation.physToRob.readAsync(p.cmd.payload)
+    val enabled = status.busy.readAsync(robId) //TODO this is realy a long combinatorial path
     p.rsp.valid := p.cmd.valid
     p.rsp.enable := enabled
-    p.rsp.rob := translated
+    p.rsp.rob := robId
   }
 }
 
@@ -115,6 +115,7 @@ Artix 7 -> 225 Mhz 180 LUT 303 FF
 Artix 7 -> 379 Mhz 180 LUT 303 FF
  */
 
+//TODO Currently, the depedencies completion (busy mem) require some expensive translations
 class RfDependencyPlugin() extends Plugin with InitCycles{
   override def initCycles = logic.entryCount
 
@@ -154,13 +155,13 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
       val port = impl.io.writes(slotId)
       port.valid := stage.isFireing && (decoder.WRITE_RD, slotId) && (DISPATCH_MASK, slotId)
       port.physical := stage(decoder.PHYS_RD, slotId)
-      port.rob := ROB_ID | slotId
+      port.robId := ROB_ID | slotId
     }
 
     //Commit
     for((event, port) <- (wakeIds, impl.io.commits).zipped){
       port.valid := event.valid
-      port.physical := event.payload
+      port.robId := event.payload
     }
 
     val init = new Area{
@@ -171,7 +172,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
       when(busy) {
         val port = impl.io.commits.head
         port.valid := True
-        port.physical := counter.resized
+        port.robId := counter.resized
 
         counter := counter + 1
       }

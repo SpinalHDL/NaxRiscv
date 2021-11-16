@@ -1,32 +1,77 @@
 package naxriscv.units
 
-import naxriscv.riscv.Rvi
-import spinal.core._
-import spinal.lib._
+import naxriscv.Frontend
+import naxriscv.interfaces._
+import naxriscv.riscv._
 import naxriscv.utilities.Plugin
+import spinal.core.{U, _}
+import spinal.lib.Flow
+import spinal.lib.pipeline.Stageable
 
-class IntAluPlugin(fuId : Any, withAdd : Boolean = true) extends Plugin{
+object IntAluPlugin extends AreaObject {
+  val AluBitwiseCtrlEnum = new SpinalEnum(binarySequential){
+    val XOR, OR, AND = newElement()
+  }
+  val AluCtrlEnum = new  SpinalEnum(binarySequential){
+    val ADD_SUB, SLT_SLTU, BITWISE = newElement()
+  }
+
+ val ALU_BITWISE_CTRL = Stageable(AluBitwiseCtrlEnum())
+ val ALU_CTRL = Stageable(AluCtrlEnum())
+
+  val SEL = Stageable(Bool())
+  val TYPE_I = Stageable(Bool())
+}
+
+class IntAluPlugin(euId : String) extends Plugin with WakeService{
+  withPrefix(euId)
+
+  import IntAluPlugin._
+  val aluStage = 0
+  val branchStage = 1
+
+
+  override def wakeRobs = List(logic.process.wakePort)
+
   val setup = create early new Area{
-    val fu = getService[ExecuteUnit](fuId)
-    if(withAdd)fu.addMicroOp(Rvi.ADD)
-    if(withAdd)fu.addMicroOp(Rvi.ADDI)
-    fu.addMicroOp(Rvi.BEQ)
+    val eu = getService[ExecutionUnitBase](euId)
+    eu.retain()
+    eu.addMicroOp(Rvi.ADD, aluStage)
+    eu.addMicroOp(Rvi.ADDI, aluStage)
+//    eu.addMicroOp(Rvi.BEQ, branchStage)
+
+    val baseline = eu.DecodeList(SEL -> True)
+    val immediateActions = baseline ++ eu.DecodeList(TYPE_I -> True)
+    val nonImmediateActions = baseline ++ eu.DecodeList(TYPE_I -> False)
+
+
+
+    eu.addDecodingDefault(SEL, False)
+    eu.addDecoding(Rvi.ADD,  nonImmediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    eu.addDecoding(Rvi.ADDI, immediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
   }
 
   val logic = create late new Area{
-/*
-      val bitwise = input(ALU_BITWISE_CTRL).mux(
-        AluBitwiseCtrlEnum.AND  -> (input(SRC1) & input(SRC2)),
-        AluBitwiseCtrlEnum.OR   -> (input(SRC1) | input(SRC2)),
-        AluBitwiseCtrlEnum.XOR  -> (input(SRC1) ^ input(SRC2))
-      )
+    val eu = getService[ExecutionUnitBase](euId)
+    val process = new Area {
+      val stage = eu.getExecute(0)
 
-      // mux results
-      insert(REGFILE_WRITE_DATA) := input(ALU_CTRL).mux(
-        AluCtrlEnum.BITWISE  -> bitwise,
-        AluCtrlEnum.SLT_SLTU -> input(SRC_LESS).asBits(32 bit),
-        AluCtrlEnum.ADD_SUB  -> input(SRC_ADD_SUB)
-      )
- */
+      import stage._
+
+      val src1 = S(eu(IntRegFile, RS1))
+      val src2 = TYPE_I ? IMM(Frontend.MICRO_OP).i_sext | S(eu(IntRegFile, RS2))
+
+      val result = src1 + src2
+
+      val wb = eu.newWriteback(IntRegFile, RD, stage)
+      wb.valid := SEL
+      wb.payload := B(result)
+
+      //TODO remove it
+      val wakePort = Flow(Frontend.ROB_ID)
+      wakePort.valid := isFireing && SEL
+      wakePort.payload := ExecutionUnitKeys.ROB_ID
+    }
+    eu.release()
   }
 }

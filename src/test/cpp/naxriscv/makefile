@@ -15,7 +15,11 @@ ADDCFLAGS += -CFLAGS -I${SPIKE}/riscv
 ADDCFLAGS += -CFLAGS -I${SPIKE}/softfloat
 ADDCFLAGS += -CFLAGS -I${SPIKE_BUILD}
 
-
+FLAGS += --autoflush
+FLAGS += --output-split 5000
+FLAGS += --output-split-cfuncs 500
+FLAGS += --output-split-ctrace 500
+FLAGS +=  --x-assign unique
 
 SRCS=src/main.cpp
 SRCS+=${SPIKE_BUILD}/package.so # g++ -shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/opt/riscv/lib  -o package.so spike.o  libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex

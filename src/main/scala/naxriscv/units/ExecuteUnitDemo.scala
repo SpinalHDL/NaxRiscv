@@ -2,12 +2,12 @@ package naxriscv.units
 
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.interfaces._
-import naxriscv.riscv.IMM
+import naxriscv.riscv.{IMM, Rvi}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
 
-class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with WakeService with LockedImpl {
+class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin with ExecuteUnitService with WakeService with LockedImpl {
   setName(euId)
   override def uniqueIds = List(euId)
 
@@ -36,6 +36,10 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
     val rfWriteRd = rf.newWrite(withReady = false)
 
     val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
+
+    if(withAdd)addMicroOp(Rvi.ADD)
+    if(withAdd)addMicroOp(Rvi.ADDI)
+    addMicroOp(Rvi.BEQ)
   }
 
   val logic = create late new Area{
@@ -46,9 +50,9 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
     val flush = getService[CommitService].reschedulingPort().valid
 
     val pushPort = Stream(ExecutionUnitPush())
-    val euGroup = decoder.euGroups.find(_.eus.contains(ExecuteUnit.this)).get
+    val euGroup = decoder.euGroups.find(_.eus.contains(ExecuteUnitDemo.this)).get
     val sf = euGroup.eus.size
-    val so = euGroup.eus.indexOf(ExecuteUnit.this)
+    val so = euGroup.eus.indexOf(ExecuteUnitDemo.this)
 
     case class Front() extends Bundle{
       val robId = ROB.ID_TYPE()
@@ -113,7 +117,7 @@ class ExecuteUnit(euId : String) extends Plugin with ExecuteUnitService with Wak
       } elsewhen(input.instruction(5)){
         result.value := B(S(input.rs1) + S(input.rs2))
       } otherwise {
-        result.value := B(S(input.rs1) + S(imm.i_sext))
+        result.value := B(S(input.rs1) + imm.i_sext)
       }
 
 

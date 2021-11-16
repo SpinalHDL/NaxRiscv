@@ -1,4 +1,5 @@
 package naxriscv.riscv
+import naxriscv.Global
 import spinal.core._
 
 object Const {
@@ -23,10 +24,12 @@ case class IMM(instruction  : Bits) extends Area{
   def z = instruction(19 downto 15)
 
   // sign-extend immediates
-  def i_sext = B((19 downto 0) -> i(11)) ## i
-  def h_sext = B((23 downto 0) -> h(7))  ## h
-  def s_sext = B((19 downto 0) -> s(11)) ## s
-  def b_sext = B((18 downto 0) -> b(11)) ## b ## False
-  def j_sext = B((10 downto 0) -> j(19)) ## j ## False
+  def i_sext = S(B((19 downto 0) -> i(11)) ## i)
+  def h_sext = S(B((23 downto 0) -> h(7))  ## h)
+  def s_sext = S(B((19 downto 0) -> s(11)) ## s)
+  def b_sext = S(B((18 downto 0) -> b(11)) ## b ## False)
+  def j_sext = S(B((10 downto 0) -> j(19)) ## j ## False)
+
+  assert(Global.XLEN.get == 32)
 }
 

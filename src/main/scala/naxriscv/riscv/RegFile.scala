@@ -20,7 +20,7 @@ object IntRegFile extends RegfileSpec with AreaObject {
   )
   def TypeB(key : MaskedLiteral) = SingleDecoding(
     key = key,
-    resources = List(RS1, RS2).map(this -> _) :+ PC_READ
+    resources = List(RS1, RS2).map(this -> _) :+ PC_READ :+ INSTRUCTION_SIZE
   )
 }
 
