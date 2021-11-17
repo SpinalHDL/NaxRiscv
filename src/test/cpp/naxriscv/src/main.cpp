@@ -235,6 +235,56 @@ public:
     }
 };
 
+#ifdef ALLOCATOR_CHECKS
+#include "VNaxRiscv_AllocatorMultiPortMem.h"
+
+class NaxAllocatorChecker : public SimElement{
+public:
+    VNaxRiscv_AllocatorMultiPortMem* dut;
+    bool busy[INTEGER_PHYSICAL_DEPTH];
+    CData *push_valid[COMMIT_COUNT];
+    CData *push_payload[COMMIT_COUNT];
+    CData *pop_values[DISPATCH_COUNT];
+
+    NaxAllocatorChecker(VNaxRiscv_NaxRiscv* nax): dut(nax->RfAllocationPlugin_logic_allocator),
+        push_valid{MAP_INIT(&dut->io_push_,  COMMIT_COUNT, _valid)},
+        push_payload{MAP_INIT(&dut->io_push_,  COMMIT_COUNT, _payload)},
+        pop_values{MAP_INIT(&dut->io_pop_values_,  DISPATCH_COUNT, )} {
+    }
+
+
+    virtual void onReset(){
+        for(int i = 0;i < INTEGER_PHYSICAL_DEPTH;i++){
+            busy[i] = true;
+        }
+    }
+
+    virtual void preCycle(){
+        for(int i = 0;i < COMMIT_COUNT;i+=1){
+            if(*push_valid[i]){
+                int phys = *push_payload[i];
+                assertTrue("Double free", busy[phys]);
+                busy[phys] = false;
+            }
+        }
+        if(dut->io_pop_fire){
+            for(int i = 0;i < DISPATCH_COUNT;i+=1){
+                if(CHECK_BIT(dut->io_pop_mask,i)){
+                    int phys = *pop_values[i];
+                    assertTrue("Double alloc", !busy[phys]);
+                    busy[phys] = true;
+                }
+            }
+        }
+    }
+
+    virtual void postCycle(){
+
+    }
+};
+
+#endif
+
 
 int main(int argc, char** argv, char** env){
 
@@ -276,8 +326,9 @@ int main(int argc, char** argv, char** env){
 	vector<SimElement*> simElements;
     simElements.push_back(new FetchCached(top, soc, true));
     simElements.push_back(&whitebox);
-
-
+#ifdef ALLOCATOR_CHECKS
+    simElements.push_back(new NaxAllocatorChecker(top->NaxRiscv));
+#endif
 
 
     FILE *fptr;
@@ -331,6 +382,7 @@ int main(int argc, char** argv, char** env){
 
 
     u64 commits = 0;
+    int robIdChecked = 0;
     try {
         top->clk = 0;
 
@@ -361,6 +413,7 @@ int main(int argc, char** argv, char** env){
                 for(int i = 0;i < COMMIT_COUNT;i++){
                     if(CHECK_BIT(internal->commit_mask, i)){
                         int robId = internal->commit_robId + i;
+                        robIdChecked = robId;
                         commits += 1;
 //                        printf("Commit %d %x\n", robId, whitebox.robCtx[robId].pc);
                         proc.step(1);
@@ -398,6 +451,7 @@ int main(int argc, char** argv, char** env){
         #endif
         printf("REF PC=%lx\n", state->last_inst_pc);
         printf("Commits=%ld\n", commits);
+        printf("ROB_ID=%d\n", robIdChecked);
         printf("FAILURE\n");
     }
 

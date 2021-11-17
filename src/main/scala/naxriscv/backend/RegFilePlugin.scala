@@ -154,7 +154,9 @@ class RegFilePlugin(spec : RegfileSpec,
     //Used for tracing in verilator sim
     val writeEvents = Vec(writes.map(e => e.asWithoutReady()))
     writeEvents.setName(spec.getName()+"_write").addAttribute(Verilator.public)
-    getService[DocPlugin].property(writeEvents.getName() +"_count", writeEvents.size)
+    val doc = getService[DocPlugin]
+    doc.property(writeEvents.getName() +"_count", writeEvents.size)
+    doc.property(spec.getName() +"_PHYSICAL_DEPTH", physicalDepth)
   }
 }
 

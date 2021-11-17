@@ -161,7 +161,7 @@ class CommitPlugin extends Plugin with CommitService{
     val free = new Area{
       val lineEventStream = commit.lineEvent.toStream
       val commited = lineEventStream.queueLowLatency(size = ROB.LINES, latency = 1)
-      val hit = commited.valid && commited.robId === ptr.free
+      val hit = commited.valid && commited.robId === ptr.free.resized
       commited.ready := ptr.canFree
 
       val port = Flow(CommitFree())
