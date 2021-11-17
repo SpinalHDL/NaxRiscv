@@ -1,34 +1,28 @@
 package naxriscv.frontend
 
-import naxriscv.Frontend.DISPATCH_MASK
+import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, MICRO_OP}
 import naxriscv.{Frontend, ROB}
-import naxriscv.interfaces.{CommitService, DecoderService, IssueService, RobWait, WakeService}
+import naxriscv.interfaces.{CommitService, DecoderService, IssueService, LockedImpl, MicroOp, RobWait, WakeService}
 import naxriscv.utilities.{Plugin, Service}
 import spinal.core._
 import spinal.core.fiber.Lock
 import spinal.lib._
+import spinal.lib.logic.{DecodingSpec, Masked, Symplify}
 import spinal.lib.pipeline.Stageable
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 
 
-class DispatchPlugin(slotCount : Int) extends Plugin with IssueService{
+class DispatchPlugin(slotCount : Int) extends Plugin with IssueService with LockedImpl{
   val robWaits = ArrayBuffer[RobWait]()
-  override def newRobWait() = {
-    val e = RobWait()
-    robWaits += e
-    e
-  }
+  override def newRobDependency() = robWaits.addRet(RobWait())
 
-  val lock = Lock()
-  override def retain() = lock.retain()
-  override def release() = lock.release()
 
   val setup = create early new Area{
     getService[FrontendPlugin].retain()
   }
-
 
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
@@ -44,6 +38,35 @@ class DispatchPlugin(slotCount : Int) extends Plugin with IssueService{
     val eus =  groups.flatMap(_.eus)
     val eusSel = groups.map(g => g.eus.map(_ -> g.sel)).flatten
 
+    val globalStaticLatencies = new Area{
+      val raw = eus.flatMap(_.staticLatencies())
+      val perLatency = raw.groupByLinked(_.latency).mapValues(_.map(_.microOp))
+      val perMicroOp = raw.groupByLinked(_.microOp)
+      for((op, spec) <- perMicroOp){
+        assert(spec.size <= 1, s"The microOp ${op} has multiple static latencies")
+      }
+
+      val latencies = perLatency.keys
+      val allTerms = decoder.euGroups.flatMap(_.microOps).distinctLinked.map(e => Masked(e.key))
+      val latenciesStageable = mutable.LinkedHashMap[Int, Stageable[Bool]]()
+      for(latency <- perLatency.keys.toList.sorted) {
+        val key = Stageable(Bool()).setName(s"LATENCY_$latency")
+        latenciesStageable(latency) = key
+
+        val trueTerms = perLatency(latency).map(op => Masked(op.key))
+        val falseTerms = allTerms -- trueTerms
+        val stage = frontend.pipeline.decoded
+        for(slotId <- 0 until DISPATCH_COUNT) {
+          stage(key, slotId) := Symplify.apply(stage(MICRO_OP, slotId), trueTerms, falseTerms)
+        }
+      }
+      val toBits = latenciesStageable.keys.toList.sorted.zipWithIndex.toMap
+      val fromBits = toBits.map(e => e._2 -> e._1).toMap
+    }
+
+    case class Context() extends Bundle{
+      val staticWake = Bits(globalStaticLatencies.latencies.size bits)
+    }
     val queue = new IssueQueue(
       p = IssueQueueParameter(
         slotCount  = slotCount,
@@ -57,8 +80,9 @@ class DispatchPlugin(slotCount : Int) extends Plugin with IssueService{
           )
         )).flatten
       ),
-      slotContextType = NoData
+      slotContextType = Context()
     )
+    val queueStaticWakeTransposed = (0 until globalStaticLatencies.latencies.size).map(i => queue.io.contexts.map(_.staticWake(i)).asBits())
 
     val ptr = new Area{
       val next = Reg(ROB.ID_TYPE)  init(ROB.SIZE-slotCount + Frontend.DISPATCH_COUNT)
@@ -75,16 +99,6 @@ class DispatchPlugin(slotCount : Int) extends Plugin with IssueService{
       }
     }
 
-
-    val wake = new Area {
-      def g2l(robId : UInt) = (robId - ptr.current).resize(log2Up(slotCount))
-      val sources = getServicesOf[WakeService]
-      val ids = sources.flatMap(_.wakeRobs)
-      val offseted = ids.map(f => f.translateWith(g2l(f.payload)))
-      val masks = offseted.map(o => B(slotCount bits, default -> o.valid) & UIntToOh(o.payload))
-      queue.io.events := masks.reduceBalancedTree(_ | _)
-    }
-
     val push = new Area{
       def g2l(robId : UInt) = (robId - ptr.next).resize(log2Up(slotCount))
       queue.io.push.valid := isFireing
@@ -95,8 +109,13 @@ class DispatchPlugin(slotCount : Int) extends Plugin with IssueService{
         val events = robWaits.map(o => B(slotCount bits, default -> stage(o.ENABLE, slotId)) & UIntToOh(g2l(stage(o.ID, slotId))))
         slot.event := (self +: events).reduceBalancedTree(_ | _)
         slot.sel   := (DISPATCH_MASK, slotId) ? groups.map(g => stage(g.sel, slotId)).asBits() | B(0)
+        for(latency <- globalStaticLatencies.latencies){
+          val bitId = globalStaticLatencies.toBits(latency)
+          slot.context.staticWake(bitId) := (globalStaticLatencies.latenciesStageable(latency), slotId)
+        }
       }
     }
+
 
     val pop = for((port, portId) <- queue.io.schedules.zipWithIndex) yield new Area{
       def l2g(robId : UInt) = robId.resize(log2Up(ROB.SIZE))  + ptr.current
@@ -104,17 +123,39 @@ class DispatchPlugin(slotCount : Int) extends Plugin with IssueService{
       val eu = eus(portId)
       val mapping = queue.p.schedules(portId)
       val eventFull = (0 until slotCount).map(i => if(i % mapping.eventFactor == mapping.eventOffset) port.event(i/mapping.eventFactor) else False).asBits()
-      val robId = l2g(OHToUInt(eventFull))
+      val offset = OHToUInt(eventFull)
+      val robId = l2g(offset)
 
       val euPort = eu.pushPort()
       euPort.arbitrationFrom(port)
       euPort.robId := robId
+
+      val statics = eu.staticLatencies()
+      val perLatency = statics.groupByLinked(_.latency).mapValues(_.map(_.microOp))
+      def self = this
+      val wake = for((latency, microOps) <- perLatency) yield new Area{
+        setCompositeName(self, s"wake_L$latency")
+        val lat = latency
+        val mask = port.fire ? eventFull | B(0)
+      }
     }
 
-//    val events = KeepAttribute(in(p.eventType()))
-//    val push = slave Stream(IssueQueuePush(p, slotContextType))
-//    val schedules = Vec(p.schedules.map(sp => master Stream(Schedule(sp, p.slotCount))))
-
+    val wake = new Area {
+      val dynamic = new Area {
+        def g2l(robId: UInt) = (robId - ptr.current).resize(log2Up(slotCount))
+        val sources = getServicesOf[WakeService]
+        val ids = sources.flatMap(_.wakeRobs)
+        val offseted = ids.map(f => f.translateWith(g2l(f.payload)))
+        val masks = offseted.map(o => B(slotCount bits, default -> o.valid) & UIntToOh(o.payload))
+      }
+      val statics = for(latency <- globalStaticLatencies.latencies) yield new Area{
+        val popMasks = pop.flatMap(_.wake.filter(_.lat == latency).map(_.mask))
+        val popMask = popMasks.reduceBalancedTree(_ | _) & queueStaticWakeTransposed(globalStaticLatencies.toBits(latency))
+        val history = History(popMask, 0 to latency-1) //TODO miss shifts
+        val mask = history(latency - 1)
+      }
+      queue.io.events := (dynamic.masks ++ statics.map(_.mask)).reduceBalancedTree(_ | _) //Todo squezing first the dynamic one with some KEEP attribut may help synthesis timings for statics
+    }
     frontend.release()
   }
 }

@@ -26,10 +26,14 @@ class ExecutionUnitBase(euId : String,
 
   override def uniqueIds = List(euId)
   override def hasFixedLatency = ???
-  override def getFixedLatency = ???
+  override def getFixedLatencies = ???
   override def pushPort() = pipeline.push.port
   override def euName() = euId
   override def wakeRobs = Nil//Seq(logic.wakePort)
+  override def staticLatencies() = {
+    lock.await()
+    staticLatenciesStorage
+  }
 
   val idToexecuteStages = mutable.LinkedHashMap[Int, Stage]()
   val rfStageables = mutable.LinkedHashMap[RfResource, Stageable[Bits]]()
@@ -54,13 +58,19 @@ class ExecutionUnitBase(euId : String,
   class StageCompletionSpec(stage : Int){
     val sel = Stageable(Bool).setCompositeName(ExecutionUnitBase.this, s"completion_SEL_E$stage")
     val microOps = ArrayBuffer[MicroOp]()
-    addDecodingDefault(sel, False)
+    setDecodingDefault(sel, False)
   }
   val stagesCompletions = mutable.LinkedHashMap[Int, StageCompletionSpec]()
-  def addStaticCompletion(microOp: MicroOp, completionStage : Int): Unit ={
+  def setStaticCompletion(microOp: MicroOp, completionStage : Int): Unit ={
     val completion = stagesCompletions.getOrElseUpdate(completionStage, new StageCompletionSpec(completionStage))
     completion.microOps += microOp
     addDecoding(microOp, DecodeList(completion.sel -> True))
+  }
+
+
+  val staticLatenciesStorage = ArrayBuffer[StaticLatency]()
+  def setStaticWake(microOp: MicroOp, latency : Int): Unit ={
+    staticLatenciesStorage += StaticLatency(microOp, latency)
   }
 
   override def addMicroOp(microOp: MicroOp) = {
@@ -70,16 +80,26 @@ class ExecutionUnitBase(euId : String,
   def addMicroOp(microOp: MicroOp, completionStage : Int) = {
     getService[DecoderService].addEuOp(this, microOp)
     microOps += microOp
-    addStaticCompletion(microOp,  completionStage)
+    setStaticCompletion(microOp,  completionStage)
+  }
+  def add(microOp: MicroOp) ={
+    addMicroOp(microOp)
+    new {
+      def completionStage(stage : Int) : this.type = {
+        setStaticCompletion(microOp,  stage)
+        this
+      }
+    }
   }
 
   val decodingSpecs = mutable.LinkedHashMap[Stageable[_ <: BaseType], DecodingSpec[Stageable[_ <: BaseType]]]()
   def getDecodingSpec(key : Stageable[_ <: BaseType]) = decodingSpecs.getOrElseUpdate(key, new DecodingSpec(key))
-  def addDecodingDefault(key : Stageable[_ <: BaseType], value : BaseType) : Unit = {
+  def setDecodingDefault(key : Stageable[_ <: BaseType], value : BaseType) : Unit = {
     getDecodingSpec(key).setDefault(Masked(value))
   }
 
   def DecodeList(e : (Stageable[_ <: BaseType],Any)*) = List(e :_*)
+  type DecodeListType = Seq[(Stageable[_ <: BaseType],Any)]
   def addDecoding(microOp: MicroOp, values : Seq[(Stageable[_ <: BaseType],Any)]) : Unit = {
     val op = Masked(microOp.key)
     for((key, value) <- values) {
@@ -156,6 +176,7 @@ class ExecutionUnitBase(euId : String,
       val port = Stream(ExecutionUnitPush())
       stage.valid := port.valid
       stage(ROB_ID) := port.robId
+      port.ready := stage.isReady
     }
 
     val robId = new Area{
@@ -228,6 +249,7 @@ class ExecutionUnitBase(euId : String,
     getServicesOf[RegfileService].foreach(_.release())
     rob.release()
     this.build()
+    assert(!(fetch(0).internals.arbitration.propagateReady && staticLatenciesStorage.nonEmpty), s"ExecutionUnit id=${euId} has static latencies but its pipeline can be halted")
   }
 
 }

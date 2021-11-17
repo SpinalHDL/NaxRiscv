@@ -20,7 +20,9 @@ object INSTRUCTION_SIZE  extends Resource with AreaObject
 abstract class MicroOp(val resources : Seq[Resource]){
   def key : MaskedLiteral
 }
-case class SingleDecoding(key : MaskedLiteral, override val resources : Seq[Resource]) extends MicroOp(resources)
+case class SingleDecoding(key : MaskedLiteral, override val resources : Seq[Resource]) extends MicroOp(resources){
+  override def toString = s"SingleDecoding $key"
+}
 case class MultiDecoding(key : MaskedLiteral, uop : Seq[MicroOp])
 
 trait RegfileSpec extends Nameable{

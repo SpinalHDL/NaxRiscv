@@ -10,6 +10,8 @@ import naxriscv.utilities.{AllocatorMultiPortPop, Service}
 import spinal.core.fiber.Lock
 import spinal.lib.pipeline.Stageable
 
+import scala.collection.mutable.ArrayBuffer
+
 case class JumpPayload() extends Bundle {
   val pc = Global.PC()
   val branchHistory = Frontend.BRANCH_HISTORY()
@@ -187,11 +189,14 @@ trait LockedImpl extends LockedService{
   override def release() = lock.release()
 }
 
+case class StaticLatency(microOp: MicroOp, latency : Int)
+
 trait ExecuteUnitService extends Service with LockedService{
   def euName() : String
   def hasFixedLatency : Boolean
-  def getFixedLatency : Int
+  def getFixedLatencies : Int
   def pushPort() : Stream[ExecutionUnitPush]
+  def staticLatencies() : ArrayBuffer[StaticLatency] = ArrayBuffer[StaticLatency]()
   def addMicroOp(enc : MicroOp)
 }
 
@@ -253,13 +258,15 @@ case class RobWait() extends Area with OverridedEqualsHashCode {
   val ENABLE = Stageable(Bool())
 }
 
-trait IssueService extends Service{
-  def newRobWait() : RobWait
-  def retain() : Unit
-  def release() : Unit
+trait IssueService extends Service with LockedService {
+  def newRobDependency() : RobWait
 }
 
 
 trait WakeService extends Service{
   def wakeRobs : Seq[Flow[UInt]]
+}
+
+trait WakeWithBypassService extends Service{
+  def wakeRobsWithBypass : Seq[Flow[UInt]]
 }

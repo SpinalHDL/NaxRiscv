@@ -36,19 +36,21 @@ class IntAluPlugin(euId : String) extends Plugin with WakeService{
   val setup = create early new Area{
     val eu = getService[ExecutionUnitBase](euId)
     eu.retain()
-    eu.addMicroOp(Rvi.ADD, aluStage)
-    eu.addMicroOp(Rvi.ADDI, aluStage)
-//    eu.addMicroOp(Rvi.BEQ, branchStage)
+
+    def add(microOp: MicroOp, decoding : eu.DecodeListType) = {
+      eu.addMicroOp(microOp)
+      eu.setStaticCompletion(microOp, aluStage)
+//      eu.setStaticWake(microOp, aluStage+2)
+      eu.addDecoding(microOp, decoding)
+    }
 
     val baseline = eu.DecodeList(SEL -> True)
     val immediateActions = baseline ++ eu.DecodeList(TYPE_I -> True)
     val nonImmediateActions = baseline ++ eu.DecodeList(TYPE_I -> False)
 
-
-
-    eu.addDecodingDefault(SEL, False)
-    eu.addDecoding(Rvi.ADD,  nonImmediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
-    eu.addDecoding(Rvi.ADDI, immediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    eu.setDecodingDefault(SEL, False)
+    add(Rvi.ADD, nonImmediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    add(Rvi.ADDI, immediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
   }
 
   val logic = create late new Area{

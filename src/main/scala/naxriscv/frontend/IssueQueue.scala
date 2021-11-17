@@ -37,17 +37,13 @@ case class IssueQueueIo[T <: Data](p : IssueQueueParameter, slotContextType : Ha
   val events = KeepAttribute(in(p.eventType()))
   val push = slave Stream(IssueQueuePush(p, slotContextType))
   val schedules = Vec(p.schedules.map(sp => master Stream(Schedule(sp, p.slotCount))))
+  val contexts = out(Vec.fill(p.slotCount)(slotContextType()))
 }
 
 
 
 class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardType[T]) extends Component{
   val io = IssueQueueIo(p, slotContextType)
-
-  case class IssueQueuePop() extends Bundle{
-    val sel = Bits(p.selCount bits)
-    val context = slotContextType()
-  }
 
   val running = RegNext(True) init(False)
   val clear = io.clear || !running
@@ -58,13 +54,14 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
       val priority = line*p.wayCount+way
       val sel = Reg(Bits(p.selCount bits)) //Not zero when the given slot is valid
       val selComb = CombInit(sel)
-      val context = Reg(slotContextType())
       val triggers = Reg(Bits(priority + 1 bits)) //The msb bit is use ensure the slot is keept until it did the wakeup
       val ready = triggers(priority - 1 downto 0) === 0
 
       sel := selComb
-//      when(clear){ sel := 0 } // Lazy path
       when(fire){ selComb := 0 }
+
+      val context = Reg(slotContextType())
+      io.contexts(line*p.wayCount + way) := context
     }
   }
 

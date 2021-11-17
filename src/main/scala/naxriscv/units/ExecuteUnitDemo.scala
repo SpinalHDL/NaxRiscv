@@ -13,7 +13,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
 
   override def hasFixedLatency = ???
 
-  override def getFixedLatency = ???
+  override def getFixedLatencies = ???
 
   override def pushPort() = logic.pushPort
 

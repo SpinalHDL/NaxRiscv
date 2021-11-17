@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv.Frontend.{DISPATCH_MASK, ROB_ID}
 import naxriscv.{Frontend, Global, ROB, riscv}
 import naxriscv.compatibility.MultiPortWritesSymplifier
-import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, RegfileService, RegfileSpec, WakeService}
+import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, RegfileService, RegfileSpec, WakeService, WakeWithBypassService}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -115,7 +115,7 @@ Artix 7 -> 225 Mhz 180 LUT 303 FF
 Artix 7 -> 379 Mhz 180 LUT 303 FF
  */
 
-//TODO Currently, the depedencies completion (busy mem) require some expensive translations
+//Tracking depedeancies using physical registers avoid rollbacks, but require arch to phys translation first
 class RfDependencyPlugin() extends Plugin with InitCycles{
   override def initCycles = logic.entryCount
 
@@ -126,7 +126,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
     frontend.retain()
     issue.retain()
 
-    val waits = List.fill(decoder.rsCount)(issue.newRobWait())
+    val waits = List.fill(decoder.rsCount)(issue.newRobDependency())
 
     issue.release()
   }
@@ -134,9 +134,9 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
   val logic = create late new Area{
     val decoder = getService[DecoderService]
     val frontend = getService[FrontendPlugin]
-    val wakers = getServicesOf[WakeService]
-    val wakeIds = wakers.flatMap(_.wakeRobs)
-
+    val wakeWithoutBypass = getServicesOf[WakeService].flatMap(_.wakeRobs)
+    val wakeWithBypass = getServicesOf[WakeWithBypassService].flatMap(_.wakeRobsWithBypass)
+    val wakeIds = wakeWithoutBypass++wakeWithBypass
     val stage = frontend.pipeline.dispatch
     import stage._
 
@@ -200,7 +200,11 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
               (setup.waits(rsId).ID    , slotId) := ROB_ID | priorId
             }
           }
-
+          for(wake <- wakeWithBypass){
+            when(wake.valid && wake.payload === port.rsp.rob){
+              (setup.waits(rsId).ENABLE, slotId) := False
+            }
+          }
           when(!useRs){
             (setup.waits(rsId).ENABLE, slotId) := False
           }

@@ -29,12 +29,17 @@ class BranchPlugin(euId : String) extends Plugin {
   val setup = create early new Area{
     val eu = getService[ExecutionUnitBase](euId)
     eu.retain()
-    eu.addMicroOp(Rvi.BEQ, branchStage)
+
+    def add(microOp: MicroOp, decoding : eu.DecodeListType) = {
+      eu.addMicroOp(microOp)
+      eu.setStaticCompletion(microOp, branchStage)
+      eu.addDecoding(microOp, decoding)
+    }
 
     val baseline = eu.DecodeList(SEL -> True)
 
-    eu.addDecodingDefault(SEL, False)
-    eu.addDecoding(Rvi.BEQ,  baseline)
+    eu.setDecodingDefault(SEL, False)
+    add(Rvi.BEQ,  baseline)
 
     val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
   }

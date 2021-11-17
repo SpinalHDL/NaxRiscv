@@ -338,7 +338,7 @@ int main(int argc, char** argv, char** env){
         while (!Verilated::gotFinish()) {
             ++main_time;
             if(main_time == timeout){
-                printf("simulation timeout");
+                printf("simulation timeout\n");
                 throw std::exception();
             }
             #ifdef TRACE
@@ -397,7 +397,8 @@ int main(int argc, char** argv, char** env){
         if(main_time % 100000 == 0) tfp->flush();
         #endif
         printf("REF PC=%lx\n", state->last_inst_pc);
-        printf("Commits=%d\n", commits);
+        printf("Commits=%ld\n", commits);
+        printf("FAILURE\n");
     }
 
     #ifdef TRACE
