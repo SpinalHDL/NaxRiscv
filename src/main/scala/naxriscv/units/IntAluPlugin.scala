@@ -23,7 +23,7 @@ object IntAluPlugin extends AreaObject {
   val TYPE_I = Stageable(Bool())
 }
 
-class IntAluPlugin(euId : String) extends Plugin with WakeService{
+class IntAluPlugin(euId : String, staticLatency : Boolean = false) extends Plugin with WakeService{
   withPrefix(euId)
 
   import IntAluPlugin._
@@ -31,7 +31,7 @@ class IntAluPlugin(euId : String) extends Plugin with WakeService{
   val branchStage = 1
 
 
-  override def wakeRobs = List(logic.process.wakePort)
+  override def wakeRobs = if(!staticLatency) List(logic.process.wake.port) else Nil
 
   val setup = create early new Area{
     val eu = getService[ExecutionUnitBase](euId)
@@ -40,7 +40,7 @@ class IntAluPlugin(euId : String) extends Plugin with WakeService{
     def add(microOp: MicroOp, decoding : eu.DecodeListType) = {
       eu.addMicroOp(microOp)
       eu.setStaticCompletion(microOp, aluStage)
-//      eu.setStaticWake(microOp, aluStage+2)
+      if(staticLatency) eu.setStaticWake(microOp, aluStage+2) //TODO not 2
       eu.addDecoding(microOp, decoding)
     }
 
@@ -70,9 +70,11 @@ class IntAluPlugin(euId : String) extends Plugin with WakeService{
       wb.payload := B(result)
 
       //TODO remove it
-      val wakePort = Flow(Frontend.ROB_ID)
-      wakePort.valid := isFireing && SEL
-      wakePort.payload := ExecutionUnitKeys.ROB_ID
+      val wake = !staticLatency generate new Area{
+        val port = Flow(Frontend.ROB_ID)
+        port.valid := isFireing && SEL
+        port.payload := ExecutionUnitKeys.ROB_ID
+      }
     }
     eu.release()
   }
