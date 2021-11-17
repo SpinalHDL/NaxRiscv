@@ -8,14 +8,18 @@ import spinal.core._
 import spinal.core.fiber.Lock
 import spinal.lib._
 import spinal.lib.logic.{DecodingSpec, Masked, Symplify}
-import spinal.lib.pipeline.Stageable
+import spinal.lib.pipeline.Connection.M2S
+import spinal.lib.pipeline.{Pipeline, Stageable}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 
 
-class DispatchPlugin(slotCount : Int) extends Plugin with IssueService with LockedImpl{
+class DispatchPlugin(slotCount : Int = 0,
+                     uintAt : Int = 0,
+                     robIdAt : Int = 1,
+                     euAt : Int = 1) extends Plugin with IssueService with LockedImpl{
   val robWaits = ArrayBuffer[RobWait]()
   override def newRobDependency() = robWaits.addRet(RobWait())
 
@@ -117,18 +121,45 @@ class DispatchPlugin(slotCount : Int) extends Plugin with IssueService with Lock
     }
 
 
-    val pop = for((port, portId) <- queue.io.schedules.zipWithIndex) yield new Area{
-      def l2g(robId : UInt) = robId.resize(log2Up(ROB.SIZE))  + ptr.current
+    val pop = for((port, portId) <- queue.io.schedules.zipWithIndex) yield new Pipeline{
+      val stagesList = List.fill(euAt+1)(newStage())
+      for((m,s) <- (stagesList.dropRight(1), stagesList.drop(1)).zipped){
+        connect(m, s)(M2S())
+      }
+
 
       val eu = eus(portId)
       val mapping = queue.p.schedules(portId)
-      val eventFull = (0 until slotCount).map(i => if(i % mapping.eventFactor == mapping.eventOffset) port.event(i/mapping.eventFactor) else False).asBits()
-      val offset = OHToUInt(eventFull)
-      val robId = l2g(offset)
+
+      val keys = new Area{
+        setName("")
+        val OH = Stageable(cloneOf(port.event))
+        val UINT = Stageable(UInt(log2Up(slotCount) bits))
+        val ROB_ID = Stageable(ROB.ID_TYPE)
+        val OFFSET = Stageable(cloneOf(ptr.current))
+      }
+
+      val entryStage = stagesList(0)
+      val uintStage = stagesList(uintAt)
+      val robIdStage = stagesList(robIdAt)
+      val euStage = stagesList(euAt)
+
+      entryStage.valid := port.valid
+      entryStage(keys.OH) := port.event
+      entryStage(keys.OFFSET) := ptr.current
+      port.ready := entryStage.isReady
+
+      val eventFull = (0 until slotCount).map(i => if(i % mapping.eventFactor == mapping.eventOffset) uintStage(keys.OH)(i/mapping.eventFactor) else False).asBits()
+      uintStage(keys.UINT) :=  OHToUInt(eventFull)
+      robIdStage(keys.ROB_ID) := robIdStage(keys.UINT).resize(log2Up(ROB.SIZE)) + robIdStage(keys.OFFSET)
 
       val euPort = eu.pushPort()
-      euPort.arbitrationFrom(port)
-      euPort.robId := robId
+      euPort.valid := euStage.isValid
+      euPort.robId := euStage(keys.ROB_ID)
+      if(euPort.withReady) euStage.haltIt(!euPort.ready)
+
+      val flush = getService[CommitService].reschedulingPort().valid
+      euStage.flushIt(flush, root = false)
 
       val statics = eu.staticLatencies()
       val perLatency = statics.groupByLinked(_.latency).mapValues(_.map(_.microOp))
@@ -138,6 +169,8 @@ class DispatchPlugin(slotCount : Int) extends Plugin with IssueService with Lock
         val lat = latency
         val mask = port.fire ? eventFull | B(0)
       }
+
+      this.build()
     }
 
     val wake = new Area {

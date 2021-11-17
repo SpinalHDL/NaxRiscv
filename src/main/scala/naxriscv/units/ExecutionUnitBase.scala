@@ -17,11 +17,11 @@ object ExecutionUnitKeys extends AreaObject {
 }
 
 class ExecutionUnitBase(euId : String,
-                        robIdStage : Int = 1,
-                        contextStage : Int = 1,
-                        rfReadStage : Int = 1,
-                        decodeStage : Int = 1,
-                        executeStage : Int = 2) extends Plugin with ExecuteUnitService with WakeService with LockedImpl{
+                        robIdStage : Int = 0,
+                        contextStage : Int = 0,
+                        rfReadStage : Int = 0,
+                        decodeStage : Int = 0,
+                        executeStage : Int = 1) extends Plugin with ExecuteUnitService with WakeService with LockedImpl{
   withPrefix(euId)
 
   override def uniqueIds = List(euId)
@@ -173,10 +173,10 @@ class ExecutionUnitBase(euId : String,
     // Implement the fetch pipeline
     val push = new Area{
       val stage = fetch(0)
-      val port = Stream(ExecutionUnitPush())
+      val port = ExecutionUnitPush(withReady = staticLatenciesStorage.isEmpty)
       stage.valid := port.valid
       stage(ROB_ID) := port.robId
-      port.ready := stage.isReady
+      if(port.withReady) port.ready := stage.isReady
     }
 
     val robId = new Area{

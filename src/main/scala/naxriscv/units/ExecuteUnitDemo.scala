@@ -49,7 +49,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
     val decoder = getService[DecoderService]
     val flush = getService[CommitService].reschedulingPort().valid
 
-    val pushPort = Stream(ExecutionUnitPush())
+    val pushPort = ExecutionUnitPush(withReady = true)
     val euGroup = decoder.euGroups.find(_.eus.contains(ExecuteUnitDemo.this)).get
     val sf = euGroup.eus.size
     val so = euGroup.eus.indexOf(ExecuteUnitDemo.this)
@@ -64,7 +64,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
 
 
     val front = new Area{
-      val input = pushPort.toFlow.m2sPipe(flush = flush)
+      val input = pushPort.toStream.toFlow.m2sPipe(flush = flush)
 
       val physRs1 = rob.readAsyncSingle(decoder.PHYS_RS(0), input.robId, sf, so)
       val physRs2 = rob.readAsyncSingle(decoder.PHYS_RS(1), input.robId, sf, so)

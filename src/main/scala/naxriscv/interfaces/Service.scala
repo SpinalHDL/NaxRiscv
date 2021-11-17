@@ -174,8 +174,18 @@ trait CommitService  extends Service{
   def freePort() : Flow[CommitFree]
 }
 
-case class ExecutionUnitPush() extends Bundle{
+case class ExecutionUnitPush(withReady : Boolean, withValid : Boolean = true) extends Bundle{
+  val valid = withValid generate Bool()
+  val ready = withReady generate Bool()
   val robId = ROB_ID()
+
+  def toStream ={
+    val ret = Stream(ExecutionUnitPush(false, false))
+    ret.valid := valid
+    ready := ret.ready
+    ret.payload := this
+    ret
+  }
 }
 
 trait LockedService {
@@ -195,7 +205,7 @@ trait ExecuteUnitService extends Service with LockedService{
   def euName() : String
   def hasFixedLatency : Boolean
   def getFixedLatencies : Int
-  def pushPort() : Stream[ExecutionUnitPush]
+  def pushPort() : ExecutionUnitPush
   def staticLatencies() : ArrayBuffer[StaticLatency] = ArrayBuffer[StaticLatency]()
   def addMicroOp(enc : MicroOp)
 }
