@@ -113,10 +113,11 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
 
     schedule.valid := slotsValid.orR && running
     schedule.event := selOh
+    val ready = schedule.ready
   }
 
   for((slot, slotIdx) <- slots.zipWithIndex){
-    slot.fire := selector.filter(s => slotIdx % s.sp.eventFactor == s.sp.eventOffset).map(s => s.selOh(slotIdx/s.sp.eventFactor)).orR
+    slot.fire := selector.filter(s => slotIdx % s.sp.eventFactor == s.sp.eventOffset).map(s => s.ready && s.selOh(slotIdx/s.sp.eventFactor)).orR
   }
 
   when(clear){
