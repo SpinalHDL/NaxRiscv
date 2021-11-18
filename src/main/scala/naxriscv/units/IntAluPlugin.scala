@@ -23,12 +23,11 @@ object IntAluPlugin extends AreaObject {
   val TYPE_I = Stageable(Bool())
 }
 
-class IntAluPlugin(euId : String, staticLatency : Boolean = false) extends Plugin with WakeService{
+class IntAluPlugin(euId : String, staticLatency : Boolean = true) extends Plugin with WakeService{
   withPrefix(euId)
 
   import IntAluPlugin._
   val aluStage = 0
-  val branchStage = 1
 
 
   override def wakeRobs = if(!staticLatency) List(logic.process.wake.port) else Nil
@@ -40,7 +39,7 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = false) extends Plugi
     def add(microOp: MicroOp, decoding : eu.DecodeListType) = {
       eu.addMicroOp(microOp)
       eu.setStaticCompletion(microOp, aluStage)
-      if(staticLatency) eu.setStaticWake(microOp, aluStage+2) //TODO not 2
+      if(staticLatency) eu.setStaticWake(microOp, aluStage+1) //TODO should not have +1 (need bypass)
       eu.addDecoding(microOp, decoding)
     }
 
@@ -56,7 +55,7 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = false) extends Plugi
   val logic = create late new Area{
     val eu = getService[ExecutionUnitBase](euId)
     val process = new Area {
-      val stage = eu.getExecute(0)
+      val stage = eu.getExecute(aluStage)
 
       import stage._
 
@@ -69,7 +68,6 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = false) extends Plugi
       wb.valid := SEL
       wb.payload := B(result)
 
-      //TODO remove it
       val wake = !staticLatency generate new Area{
         val port = Flow(Frontend.ROB_ID)
         port.valid := isFireing && SEL

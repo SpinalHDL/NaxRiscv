@@ -383,6 +383,7 @@ int main(int argc, char** argv, char** env){
 
     u64 commits = 0;
     int robIdChecked = 0;
+    int cycleSinceLastCommit = 0;
     try {
         top->clk = 0;
 
@@ -409,9 +410,13 @@ int main(int argc, char** argv, char** env){
             } else {
                 for(SimElement* simElement : simElements) simElement->preCycle();
 
-
+                if(cycleSinceLastCommit == 200){
+                    printf("NO PROGRESS the cpu hasn't commited anything since too long\n");
+                }
+                cycleSinceLastCommit += 1;
                 for(int i = 0;i < COMMIT_COUNT;i++){
                     if(CHECK_BIT(internal->commit_mask, i)){
+                        cycleSinceLastCommit = 0;
                         int robId = internal->commit_robId + i;
                         robIdChecked = robId;
                         commits += 1;
@@ -451,7 +456,7 @@ int main(int argc, char** argv, char** env){
         #endif
         printf("REF PC=%lx\n", state->last_inst_pc);
         printf("Commits=%ld\n", commits);
-        printf("ROB_ID=%d\n", robIdChecked);
+        printf("ROB_ID=x%x\n", robIdChecked);
         printf("FAILURE\n");
     }
 

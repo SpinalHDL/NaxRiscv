@@ -51,7 +51,7 @@ class FrontendPlugin() extends Plugin {
   pipeline.setCompositeName(this)
 
   val builder = create late new Area{
-    pipeline.allocated.flushIt(getService[CommitService].reschedulingPort().valid)
+    pipeline.dispatch.flushIt(getService[CommitService].reschedulingPort().valid)
 
     lock.await()
     pipeline.build()

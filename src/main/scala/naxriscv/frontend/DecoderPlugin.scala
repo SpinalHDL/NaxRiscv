@@ -43,18 +43,18 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
   }
 
   override def euGroups = logic.euGroups
-  override def READ_RS(id: Int) : Stageable[Bool] = logic.regfiles.READ_RS(id)
-  override def ARCH_RS(id: Int) : Stageable[UInt] = logic.regfiles.ARCH_RS(id)
-  override def PHYS_RS(id: Int) : Stageable[UInt] = logic.regfiles.PHYS_RS(id)
+  override def READ_RS(id: Int) : Stageable[Bool] = logic.keys.READ_RS(id)
+  override def ARCH_RS(id: Int) : Stageable[UInt] = logic.keys.ARCH_RS(id)
+  override def PHYS_RS(id: Int) : Stageable[UInt] = logic.keys.PHYS_RS(id)
   override def READ_RS(id: RfRead) : Stageable[Bool] = READ_RS(rsToId(id))
   override def ARCH_RS(id: RfRead) : Stageable[UInt] = ARCH_RS(rsToId(id))
   override def PHYS_RS(id: RfRead) : Stageable[UInt] = PHYS_RS(rsToId(id))
-  override def WRITE_RD : Stageable[Bool] = logic.regfiles.WRITE_RD
-  override def ARCH_RD : Stageable[UInt] = logic.regfiles.ARCH_RD
-  override def PHYS_RD : Stageable[UInt] = logic.regfiles.PHYS_RD
-  override def PHYS_RD_FREE : Stageable[UInt] = logic.regfiles.PHYS_RD_FREE
+  override def WRITE_RD : Stageable[Bool] = logic.keys.WRITE_RD
+  override def ARCH_RD : Stageable[UInt] = logic.keys.ARCH_RD
+  override def PHYS_RD : Stageable[UInt] = logic.keys.PHYS_RD
+  override def PHYS_RD_FREE : Stageable[UInt] = logic.keys.PHYS_RD_FREE
   override def rsCount = 2
-  override def rsPhysicalDepthMax = logic.regfiles.physicalMax
+  override def rsPhysicalDepthMax = logic.keys.physicalMax
 
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
@@ -100,7 +100,8 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
     }
 
 
-    val regfiles = new Area {
+    val keys = new Area {
+      setName("")
       val plugins = getServicesOf[RegfileService]
       val physicalMax = plugins.map(_.getPhysicalDepth).max
       val ARCH_RS = List.fill(rsCount)(Stageable(UInt(5 bits)))
@@ -151,9 +152,9 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
     for (i <- 0 until Frontend.DECODE_COUNT) {
       implicit val offset = StageableOffset(i)
       val rdZero = INSTRUCTION_DECOMPRESSED(Const.rdRange) === 0
-      regfiles.READ_RS(0) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs1, encodings.readRs1N)
-      regfiles.READ_RS(1) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs2, encodings.readRs2N)
-      regfiles.WRITE_RD   := Symplify(INSTRUCTION_DECOMPRESSED, encodings.writeRd, encodings.writeRdN) && !rdZero
+      keys.READ_RS(0) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs1, encodings.readRs1N)
+      keys.READ_RS(1) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs2, encodings.readRs2N)
+      keys.WRITE_RD   := Symplify(INSTRUCTION_DECOMPRESSED, encodings.writeRd, encodings.writeRdN) && !rdZero
       for (group <- euGroups) {
         group.sel := Symplify(INSTRUCTION_DECOMPRESSED, encodings.groups(group), encodings.groupsN(group))
       }
@@ -162,9 +163,9 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       MICRO_OP := INSTRUCTION_DECOMPRESSED
       terminal(INSTRUCTION_DECOMPRESSED, i)
 
-      regfiles.ARCH_RD := U(INSTRUCTION_DECOMPRESSED(Const.rdRange))
+      keys.ARCH_RD := U(INSTRUCTION_DECOMPRESSED(Const.rdRange))
       for(i <- 0 until rsCount) {
-        regfiles.ARCH_RS(i) := U(INSTRUCTION_DECOMPRESSED(Const.rsRange(i)))
+        keys.ARCH_RS(i) := U(INSTRUCTION_DECOMPRESSED(Const.rsRange(i)))
       }
     }
 
@@ -186,15 +187,15 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       writeLine(PC)
       writeLine(MICRO_OP)
       writeLine(INSTRUCTION_SLICE_COUNT)
-      writeLine(regfiles.WRITE_RD)
-      writeLine(regfiles.PHYS_RD)
-      writeLine(regfiles.PHYS_RD_FREE)
-      writeLine(regfiles.ARCH_RD)
+      writeLine(keys.WRITE_RD)
+      writeLine(keys.PHYS_RD)
+      writeLine(keys.PHYS_RD_FREE)
+      writeLine(keys.ARCH_RD)
 
       for(i <- 0 until rsCount) {
-        writeLine(regfiles.READ_RS(i))
-        writeLine(regfiles.PHYS_RS(i))
-        writeLine(regfiles.ARCH_RS(i))
+        writeLine(keys.READ_RS(i))
+        writeLine(keys.PHYS_RS(i))
+        writeLine(keys.ARCH_RS(i))
       }
 
       writeLine(DISPATCH_MASK)

@@ -1,11 +1,13 @@
 package naxriscv.frontend
 
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, MICRO_OP}
+import naxriscv.backend.RobPlugin
 import naxriscv.{Frontend, ROB}
-import naxriscv.interfaces.{CommitService, DecoderService, IssueService, LockedImpl, MicroOp, RobWait, WakeService}
+import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, LockedImpl, MicroOp, RobWait, WakeService, WakeWithBypassService}
 import naxriscv.utilities.{Plugin, Service}
 import spinal.core._
 import spinal.core.fiber.Lock
+import spinal.lib
 import spinal.lib._
 import spinal.lib.logic.{DecodingSpec, Masked, Symplify}
 import spinal.lib.pipeline.Connection.M2S
@@ -18,19 +20,24 @@ import scala.collection.mutable.ArrayBuffer
 
 class DispatchPlugin(slotCount : Int = 0,
                      uintAt : Int = 0,
+                     staticHitAt : Int = 0,
                      robIdAt : Int = 1,
-                     euAt : Int = 1) extends Plugin with IssueService with LockedImpl{
+                     euAt : Int = 1) extends Plugin with IssueService with LockedImpl with WakeWithBypassService with InitCycles{
   val robWaits = ArrayBuffer[RobWait]()
   override def newRobDependency() = robWaits.addRet(RobWait())
+  override def wakeRobsWithBypass = logic.pop.flatMap(_.wake.map(_.bypassed))
 
+  override def initCycles = if(logic.globalStaticLatencies.latencies.isEmpty) 0 else logic.globalStaticLatencies.latencies.max + 4 //For sanity in some test configs withs absurd static latencies
 
   val setup = create early new Area{
     getService[FrontendPlugin].retain()
+    getService[RobPlugin].retain()
   }
 
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
     val commit = getService[CommitService]
+    val rob = getService[RobPlugin]
     lock.await()
 
     val decoder = getService[DecoderService]
@@ -41,6 +48,8 @@ class DispatchPlugin(slotCount : Int = 0,
 
     val eus =  groups.flatMap(_.eus)
     val eusSel = groups.map(g => g.eus.map(_ -> g.sel)).flatten
+
+    val rescheduling = commit.reschedulingPort
 
     val globalStaticLatencies = new Area{
       val raw = eus.flatMap(_.staticLatencies())
@@ -86,7 +95,8 @@ class DispatchPlugin(slotCount : Int = 0,
       ),
       slotContextType = Context()
     )
-    val queueStaticWakeTransposed = (0 until globalStaticLatencies.latencies.size).map(i => queue.io.contexts.map(_.staticWake(i)).asBits())
+    val queueStaticWakeTransposed = Vec.tabulate(globalStaticLatencies.latencies.size)(i => queue.io.contexts.map(_.staticWake(i)).asBits())
+    val queueStaticWakeTransposedHistory = History(queueStaticWakeTransposed, 0 to staticHitAt)
 
     val ptr = new Area{
       val next = Reg(ROB.ID_TYPE)  init(ROB.SIZE-slotCount + Frontend.DISPATCH_COUNT)
@@ -95,7 +105,7 @@ class DispatchPlugin(slotCount : Int = 0,
         next := next + Frontend.DISPATCH_COUNT
         current := current + Frontend.DISPATCH_COUNT
       }
-      val rescheduling = commit.reschedulingPort
+
       queue.io.clear := rescheduling.valid
       when(rescheduling.valid){
         next := rescheduling.nextRob - slotCount + Frontend.DISPATCH_COUNT
@@ -122,14 +132,17 @@ class DispatchPlugin(slotCount : Int = 0,
 
 
     val pop = for((port, portId) <- queue.io.schedules.zipWithIndex) yield new Pipeline{
-      val stagesList = List.fill(euAt+1)(newStage())
+      val eu = eus(portId)
+      val mapping = queue.p.schedules(portId)
+
+      val statics = eu.staticLatencies()
+      val perLatency = statics.groupByLinked(_.latency).mapValues(_.map(_.microOp))
+
+      val stageCount = (perLatency.keys.toSeq.map(_ + 1) :+ euAt).max + 1
+      val stagesList = List.fill(stageCount)(newStage())
       for((m,s) <- (stagesList.dropRight(1), stagesList.drop(1)).zipped){
         connect(m, s)(M2S())
       }
-
-
-      val eu = eus(portId)
-      val mapping = queue.p.schedules(portId)
 
       val keys = new Area{
         setName("")
@@ -141,6 +154,7 @@ class DispatchPlugin(slotCount : Int = 0,
 
       val entryStage = stagesList(0)
       val uintStage = stagesList(uintAt)
+      val staticHitStage = stagesList(staticHitAt)
       val robIdStage = stagesList(robIdAt)
       val euStage = stagesList(euAt)
 
@@ -149,25 +163,32 @@ class DispatchPlugin(slotCount : Int = 0,
       entryStage(keys.OFFSET) := ptr.current
       port.ready := entryStage.isReady
 
-      val eventFull = (0 until slotCount).map(i => if(i % mapping.eventFactor == mapping.eventOffset) uintStage(keys.OH)(i/mapping.eventFactor) else False).asBits()
-      uintStage(keys.UINT) :=  OHToUInt(eventFull)
+      def eventFull(v : Bits) = (0 until slotCount).map(i => if(i % mapping.eventFactor == mapping.eventOffset) v(i/mapping.eventFactor) else False).asBits()
+      uintStage(keys.UINT) :=  OHToUInt(eventFull(uintStage(keys.OH)))
       robIdStage(keys.ROB_ID) := robIdStage(keys.UINT).resize(log2Up(ROB.SIZE)) + robIdStage(keys.OFFSET)
+
+      val staticsFilter = for((latency, key) <- globalStaticLatencies.latenciesStageable){
+        staticHitStage(key) := (staticHitStage(keys.OH) & queueStaticWakeTransposedHistory(staticHitAt)(globalStaticLatencies.toBits(latency))).orR
+      }
 
       val euPort = eu.pushPort()
       euPort.valid := euStage.isValid
       euPort.robId := euStage(keys.ROB_ID)
       if(euPort.withReady) euStage.haltIt(!euPort.ready)
 
-      val flush = getService[CommitService].reschedulingPort().valid
-      euStage.flushIt(flush, root = false)
+      stagesList.last.flushIt(rescheduling.valid, root = false)
 
-      val statics = eu.staticLatencies()
-      val perLatency = statics.groupByLinked(_.latency).mapValues(_.map(_.microOp))
+
       def self = this
       val wake = for((latency, microOps) <- perLatency) yield new Area{
         setCompositeName(self, s"wake_L$latency")
         val lat = latency
-        val mask = port.fire ? eventFull | B(0)
+        val mask = port.fire ? eventFull(port.event) | B(0)
+
+        val bypassed = Flow(ROB.ID_TYPE)
+        val stage = stagesList(latency+1)
+        bypassed.valid := stage.valid && stage(globalStaticLatencies.latenciesStageable(latency))
+        bypassed.payload := stage(keys.ROB_ID)
       }
 
       this.build()
@@ -184,11 +205,17 @@ class DispatchPlugin(slotCount : Int = 0,
       val statics = for(latency <- globalStaticLatencies.latencies) yield new Area{
         val popMasks = pop.flatMap(_.wake.filter(_.lat == latency).map(_.mask))
         val popMask = popMasks.reduceBalancedTree(_ | _) & queueStaticWakeTransposed(globalStaticLatencies.toBits(latency))
-        val history = History(popMask, 0 to latency-1) //TODO miss shifts
-        val mask = history(latency - 1)
+        val history = Vec.fill(latency+1)(cloneOf(popMask))
+        history(0) := popMask
+        for(i <- 1 until latency+1){
+          history(i).setAsReg()
+          history(i) := (queue.io.push.valid ? (history(i-1) |>> DISPATCH_COUNT) | history(i-1)) //Queue compression
+        }
+        val mask = history(latency)
       }
       queue.io.events := (dynamic.masks ++ statics.map(_.mask)).reduceBalancedTree(_ | _) //Todo squezing first the dynamic one with some KEEP attribut may help synthesis timings for statics
     }
     frontend.release()
+    rob.release()
   }
 }

@@ -95,7 +95,7 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
 
   val event = new Area{
     val moved = !compaction.moveIt ? io.events | (io.events |>> p.wayCount)
-    val value = clear ? B(p.slotCount bits, default -> true) | moved
+    val value = clear ? B(p.slotCount bits, default -> true) | moved //TODO each entry could track if it is a active one or not, this would relax the timings
   }
 
   //Apply io events

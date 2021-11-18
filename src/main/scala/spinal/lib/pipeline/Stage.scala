@@ -98,12 +98,12 @@ class Stage extends Nameable {
 
   def apply(key : StageableKey) : Data = {
     internals.stageableToData.getOrElseUpdate(key, Misc.outsideCondScope{
-      key.stageable()
+      key.stageable()//.setCompositeName(this, s"${key}")
     })
   }
   def overloaded(key : StageableKey) : Data = {
     internals.stageableOverloadedToData.getOrElseUpdate(key, Misc.outsideCondScope{
-      key.stageable()
+      key.stageable()//.setCompositeName(this, s"${key}_overloaded")
     })
   }
   def terminal(key : StageableKey) : StageableKey = {

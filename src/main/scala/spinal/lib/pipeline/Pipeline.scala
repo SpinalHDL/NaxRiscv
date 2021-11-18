@@ -222,7 +222,10 @@ class Pipeline extends Area{
     //Name stuff
     for(stage <- stages){
       for((key, value) <- stage.internals.stageableToData){
-        value.setCompositeName(stage, s"${key}", true)
+        value.setCompositeName(stage, s"${key}")
+      }
+      for((key, value) <- stage.internals.stageableOverloadedToData){
+        value.setCompositeName(stage, s"${key}_overloaded")
       }
     }
 
