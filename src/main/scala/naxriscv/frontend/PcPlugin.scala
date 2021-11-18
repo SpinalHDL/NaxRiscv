@@ -52,7 +52,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
     val init = new Area{
       val requests = getServicesOf[InitCycles]
       val request = (0 +: requests.map(_.initCycles)).max
-      val counter = Reg(UInt(log2Up(request) + 1 bits))
+      val counter = Reg(UInt(log2Up(request) + 1 bits)) init(0)
       val booted = counter.msb
       counter := counter + U(!booted)
     }
