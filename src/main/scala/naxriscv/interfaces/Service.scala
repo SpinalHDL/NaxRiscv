@@ -89,7 +89,7 @@ trait RfAllocationService extends Service {
   def getFreePort() : Vec[Flow[UInt]]
 }
 
-case class RegFileWrite(addressWidth : Int, dataWidth : Int, withReady : Boolean) extends Bundle with IMasterSlave {
+case class RegFileWrite(addressWidth : Int, dataWidth : Int, withReady : Boolean, latency : Int = 1) extends Bundle with IMasterSlave {
   val valid = Bool()
   val ready = withReady generate Bool()
   val address = UInt(addressWidth bits)
@@ -139,7 +139,7 @@ trait RegfileService extends Service{
   def getPhysicalDepth : Int
 
   def newRead(withReady : Boolean) : RegFileRead
-  def newWrite(withReady : Boolean) : RegFileWrite
+  def newWrite(withReady : Boolean, latency : Int) : RegFileWrite
   def newBypass() : RegFileBypass
 
   def getWrites() : Seq[RegFileWrite]

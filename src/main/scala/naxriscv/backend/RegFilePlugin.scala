@@ -28,8 +28,6 @@ class RegFileAsync(addressWidth    : Int,
     val bypasses = Vec.fill(bypasseCount)(slave(RegFileBypass(addressWidth, dataWidth)))
   }
 
-  assert(bypasseCount == 0)
-
   val bankShift = log2Up(bankCount)
   val writePortCount = io.writes.count(!_.withReady)
   val readPortCount  = io.reads.count(!_.withReady)
@@ -56,6 +54,14 @@ class RegFileAsync(addressWidth    : Int,
 //      port.valid := r.valid && r.address(bankShift-1 downto 0) === bankId
       port.address := r.address >> bankShift
       r.data := port.data
+    }
+
+    val bypass = new Area{
+      val hits = io.bypasses.map(b => b.valid && b.address === r.address)
+      val hitsValue = MuxOH.or(hits, io.bypasses.map(_.data))
+      when(hits.orR){
+        r.data := hitsValue
+      }
     }
   }
 
@@ -125,8 +131,8 @@ class RegFilePlugin(spec : RegfileSpec,
   val bypasses = ArrayBuffer[RegFileBypass]()
 
   override def newRead(withReady : Boolean) = reads.addRet(RegFileRead(addressWidth, dataWidth, withReady, 0))
-  override def newWrite(withReady : Boolean) = writes.addRet(RegFileWrite(addressWidth, dataWidth, withReady))
-  override def newBypass() = bypasses.addRet(RegFileBypass(addressWidth, dataWidth))
+  override def newWrite(withReady : Boolean, latency : Int) = writes.addRet(RegFileWrite(addressWidth, dataWidth, withReady, latency))
+  override def newBypass() : RegFileBypass = bypasses.addRet(RegFileBypass(addressWidth, dataWidth))
 
 
   override def getWrites() = writes
@@ -136,6 +142,13 @@ class RegFilePlugin(spec : RegfileSpec,
 
   val logic = create late new Area{
     lock.await()
+
+    val writeBypasses = for(write <- writes; if write.latency == 0) yield new Area{
+      val port = newBypass()
+      port.valid := write.valid
+      port.address := write.address
+      port.data := write.data
+    }
 
     val regfile = new RegFileAsync(
       addressWidth    = addressWidth,

@@ -34,7 +34,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
 
     val rfReadRs1 = rf.newRead(withReady = false)
     val rfReadRs2 = rf.newRead(withReady = false)
-    val rfWriteRd = rf.newWrite(withReady = false)
+    val rfWriteRd = rf.newWrite(withReady = false, latency = 1)
 
     val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
 

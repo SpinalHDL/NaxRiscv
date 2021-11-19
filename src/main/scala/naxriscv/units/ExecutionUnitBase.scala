@@ -46,10 +46,16 @@ class ExecutionUnitBase(euId : String,
   def getExecute(id : Int) : Stage = idToexecuteStages.getOrElseUpdate(id, new Stage().setCompositeName(pipeline, s"execute_$id"))
 
   case class WriteBackKey(rf : RegfileSpec, access : RfAccess, stage : Stage)
-  val writeBacksSpec = mutable.LinkedHashMap[WriteBackKey, ArrayBuffer[Flow[Bits]]]()
-  def newWriteback(rf : RegfileSpec, access : RfAccess, stage : Stage) : Flow[Bits] = {
+  case class WriteBackSpec(){
+    var latency = Int.MaxValue
+    val ports = ArrayBuffer[Flow[Bits]]()
+  }
+  val writeBacksSpec = mutable.LinkedHashMap[WriteBackKey, WriteBackSpec]()
+  def newWriteback(rf : RegfileSpec, access : RfAccess, stage : Stage, latency : Int) : Flow[Bits] = {
     val ret = Flow(Bits(rf.width bits))
-    writeBacksSpec.getOrElseUpdate(WriteBackKey(rf, access, stage), ArrayBuffer[Flow[Bits]]()) += ret
+    val spec = writeBacksSpec.getOrElseUpdate(WriteBackKey(rf, access, stage), WriteBackSpec())
+    spec.ports += ret
+    spec.latency = spec.latency min latency
     ret
   }
 
@@ -225,13 +231,20 @@ class ExecutionUnitBase(euId : String,
       }
     }
 
-    val writeBack = for((spec, writes) <- writeBacksSpec) yield new Area{
-      val rfService = getService[RegfileService](spec.rf)
-      val port = rfService.newWrite(withReady)
-      port.valid := spec.stage.isFireing && spec.stage(decoder.WRITE_RD)
-      port.robId := spec.stage(ROB_ID)
-      port.address := spec.stage(decoder.PHYS_RD)
-      port.data := MuxOH.or(writes.map(_.valid), writes.map(_.payload))
+    val writeBack = for((key, spec) <- writeBacksSpec) yield new Area{
+      val rfService = getService[RegfileService](key.rf)
+      val write = rfService.newWrite(withReady, spec.latency)
+      write.valid := key.stage.isFireing && key.stage(decoder.WRITE_RD)
+      write.robId := key.stage(ROB_ID)
+      write.address := key.stage(decoder.PHYS_RD)
+      write.data := MuxOH.or(spec.ports.map(_.valid), spec.ports.map(_.payload))
+
+//      val bypass = (spec.latency == 0) generate new Area{
+//        val port = rfService.newBypass()
+//        port.valid := write.valid
+//        port.address := write.address
+//        port.data := write.data
+//      }
     }
 
     val completion = for((stageId, spec) <- stagesCompletions) yield new Area{

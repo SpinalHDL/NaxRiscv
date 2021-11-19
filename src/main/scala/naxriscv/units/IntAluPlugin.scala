@@ -40,7 +40,7 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true) extends Plugin
     def add(microOp: MicroOp, decoding : eu.DecodeListType) = {
       eu.addMicroOp(microOp)
       eu.setStaticCompletion(microOp, aluStage)
-      if(staticLatency) eu.setStaticWake(microOp, aluStage+1) //TODO should not have +1 (need bypass)
+      if(staticLatency) eu.setStaticWake(microOp, aluStage)
       eu.addDecoding(microOp, decoding)
     }
 
@@ -66,7 +66,7 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true) extends Plugin
 
       val result = src1 + src2
 
-      val wb = eu.newWriteback(IntRegFile, RD, stage)
+      val wb = eu.newWriteback(IntRegFile, RD, stage, if(staticLatency) 0 else 1)
       wb.valid := SEL
       wb.payload := B(result)
 
