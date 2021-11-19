@@ -16,6 +16,7 @@ ADDCFLAGS += -CFLAGS -I${SPIKE}/riscv
 ADDCFLAGS += -CFLAGS -I${SPIKE}/softfloat
 ADDCFLAGS += -CFLAGS -I${SPIKE_BUILD}
 
+
 FLAGS += --autoflush
 FLAGS += --output-split 5000
 FLAGS += --output-split-cfuncs 500
@@ -34,9 +35,9 @@ SRCS+=${SPIKE_BUILD}/package.so # g++ -shared -L. -Wl,--export-dynamic -L/usr/li
 #SRCS+=${SPIKE_BUILD}/libfdt.a
 
 ifeq ($(DEBUG),yes)
-	ADDCFLAGS += -CFLAGS -O0 -CFLAGS -g
+	ADDCFLAGS += -O0 -CFLAGS -O0 -CFLAGS -g 
 else
-	ADDCFLAGS += -CFLAGS -O3  -O3
+	ADDCFLAGS += -O3  -CFLAGS -O3  -O3
 endif
 
 ifeq ($(TRACE),yes)

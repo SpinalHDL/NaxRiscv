@@ -9,6 +9,14 @@ make -j$(nproc)
 g++ --shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/lib  -o package.so spike.o  libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
 ```
 
+# Install ELFIO
+
+```
+git clone git clone https://github.com/serge1/ELFIO.git
+cd ELFIO
+sudo cp -R elfio /usr/include
+```
+
 # Generate NaxRiscv
 
 ```shell

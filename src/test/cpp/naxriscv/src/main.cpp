@@ -22,6 +22,7 @@ using namespace std;
 
 #include "type.h"
 #include "memory.h"
+#include "elf.h"
 #include "nax.h"
 #define u64 uint64_t
 #define u8 uint8_t
@@ -135,15 +136,6 @@ public:
 };
 
 
-//http://www.mario-konrad.ch/blog/programming/getopt.html
-#define ARG_MEM_HEX 1
-#define ARG_TIMEOUT 2
-static const struct option long_options[] =
-{
-    { "mem_hex", required_argument, 0, ARG_MEM_HEX },
-    { "timeout", required_argument, 0, ARG_TIMEOUT },
-    0
-};
 
 
 #include "processor.h"
@@ -285,6 +277,25 @@ public:
 
 #endif
 
+//http://www.mario-konrad.ch/blog/programming/getopt.html
+enum ARG
+{
+    ARG_MEM_HEX = 1,
+    ARG_MEM_ELF,
+    ARG_START_SYMBOL,
+    ARG_TIMEOUT
+};
+
+
+static const struct option long_options[] =
+{
+    { "mem_hex", required_argument, 0, ARG_MEM_HEX },
+    { "mem_elf", required_argument, 0, ARG_MEM_ELF },
+    { "start_symbol", required_argument, 0, ARG_START_SYMBOL },
+    { "timeout", required_argument, 0, ARG_TIMEOUT },
+    0
+};
+
 
 int main(int argc, char** argv, char** env){
 
@@ -343,6 +354,9 @@ int main(int argc, char** argv, char** env){
 
 	vluint64_t timeout = -1;
 
+    Elf *elf = NULL;
+    char *startSymbol = NULL;
+    u64 startPc = 0x80000000l;
     while (1)
     {
         int index = -1;
@@ -354,6 +368,17 @@ int main(int argc, char** argv, char** env){
         switch (result)
         {
             case ARG_MEM_HEX: wrap.memory.loadHex(string(optarg)); soc->memory.loadHex(string(optarg)); break;
+            case ARG_MEM_ELF: {
+                elf = new Elf(optarg);
+                elf->visitBytes([&](u8 data, u64 address) {
+                    wrap.memory.write(address, 1, &data);
+                    soc->memory.write(address, 1, &data);
+                });
+            }break;
+            case ARG_START_SYMBOL: {
+                startSymbol = (char*)malloc(strlen(optarg) + 1);
+                strcpy(startSymbol, optarg);
+            }break;
             case ARG_TIMEOUT: timeout = stoi(optarg); break;
         }
     }
@@ -362,15 +387,24 @@ int main(int argc, char** argv, char** env){
     {
         printf("other parameter: <%s>\n", argv[optind++]);
     }
+    if(startSymbol){
+        if(!elf){
+            printf("You need to specify a elf file to use the start symbol\n");
+            exit(1);
+        }
+        startPc = elf->getSymbolAddress(startSymbol);
+    }
 
+
+    state_t *state = proc.get_state();
+    state->pc = startPc;
 
 
     auto internal = top->NaxRiscv;
 
 
 
-    state_t *state = proc.get_state();
-    state->pc = 0x80000000l;
+
 //    for(int i = 0;i < 30;i++){
 //        if(i == 20){
 //            state->mip->write_with_mask(1 << 11, 1 << 11);
@@ -405,6 +439,7 @@ int main(int argc, char** argv, char** env){
             #endif
             top->clk = !top->clk;
             top->reset = (main_time < 10) ? 1 : 0;
+            if(main_time < 11 && startPc != 0x80000000) top->NaxRiscv->PcPlugin_logic_fetchPc_pcReg = startPc;
             if(!top->clk || top->reset){
                 top->eval();
             } else {
