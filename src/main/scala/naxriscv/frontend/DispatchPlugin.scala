@@ -23,7 +23,8 @@ class DispatchPlugin(slotCount : Int = 0,
                      staticHitAt : Int = 0,
                      robIdAt : Int = 1,
                      physRdAt : Int = 1,
-                     euAt : Int = 1) extends Plugin with IssueService with LockedImpl with WakeRegFileService with InitCycles{
+                     euAt : Int = 1,
+                     readContextLayer0Factor : Int = LutInputs.get/2) extends Plugin with IssueService with LockedImpl with WakeRegFileService with InitCycles{
   val robWaits = ArrayBuffer[RobWait]()
   override def newRobDependency() = robWaits.addRet(RobWait())
   override def wakeRegFile = logic.pop.flatMap(_.wake.map(_.bypassed))
@@ -165,7 +166,7 @@ class DispatchPlugin(slotCount : Int = 0,
       def eventFull(v : Bits) = (0 until slotCount).map(i => if(i % mapping.eventFactor == mapping.eventOffset) v(i/mapping.eventFactor) else False).asBits()
       def filter[T](v : Seq[T]) = (for(i <- 0 until slotCount; if i % mapping.eventFactor == mapping.eventOffset) yield v(i))
       def readContext[T <: Data](key : Stageable[T], latency : Int)(extract : Context => T): Unit ={
-        val factor = LutInputs.get/2
+        val factor = readContextLayer0Factor
         val inputs = filter(queue.io.contexts).map(extract(_).asBits)
         val oh = port.event
         latency match {
