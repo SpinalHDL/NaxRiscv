@@ -1,5 +1,6 @@
 package naxriscv.units
 
+import naxriscv.Frontend.MICRO_OP
 import naxriscv.{Frontend, Global}
 import naxriscv.interfaces._
 import naxriscv.riscv._
@@ -15,6 +16,13 @@ object BranchPlugin extends AreaObject {
   val PC_TRUE = Stageable(Global.PC)
   val PC_FALSE = Stageable(Global.PC)
   val PC_BRANCH = Stageable(Global.PC)
+  val UNSIGNED = Stageable(Bool())
+  val EQ = Stageable(Bool())
+  val LESS = Stageable(Bool())
+  object BranchCtrlEnum extends SpinalEnum(binarySequential){
+    val INC,B,JAL,JALR = newElement()
+  }
+  object BRANCH_CTRL extends Stageable(BranchCtrlEnum())
 }
 
 class BranchPlugin(euId : String) extends Plugin {
@@ -39,7 +47,14 @@ class BranchPlugin(euId : String) extends Plugin {
     val baseline = eu.DecodeList(SEL -> True)
 
     eu.setDecodingDefault(SEL, False)
-    add(Rvi.BEQ,  baseline)
+//    add(Rvi.JAL , baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.JAL, ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+//    add(Rvi.JALR, baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.JALR, ALU_CTRL -> AluCtrlEnum.ADD_SUB, RS1_USE -> True))
+    add(Rvi.BEQ , baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BNE , baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BLT , baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B, UNSIGNED -> False))
+    add(Rvi.BGE , baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B, UNSIGNED -> False))
+    add(Rvi.BLTU, baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B, UNSIGNED -> True))
+    add(Rvi.BGEU, baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B, UNSIGNED -> True))
 
     val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
   }
@@ -56,7 +71,22 @@ class BranchPlugin(euId : String) extends Plugin {
       val src1 = S(eu(IntRegFile, RS1))
       val src2 = S(eu(IntRegFile, RS2))
 
-      COND := src1 === src2
+      val sub = src1 - src2
+      LESS := (src1.msb === src2.msb) ? sub.msb | Mux(UNSIGNED, src2.msb, src1.msb)
+      EQ := src1 === src2
+
+      COND := BRANCH_CTRL.mux(
+        BranchCtrlEnum.INC  -> False,
+        BranchCtrlEnum.JAL  -> True,
+        BranchCtrlEnum.JALR -> True,
+        BranchCtrlEnum.B    -> MICRO_OP(14 downto 12).mux(
+          B"000"  -> EQ,
+          B"001"  -> !EQ,
+          M"1-1"  -> !LESS,
+          default -> LESS
+        )
+      )
+
       PC_TRUE := U(S(Global.PC) + IMM(Frontend.MICRO_OP).b_sext)
       val slices = Frontend.INSTRUCTION_SLICE_COUNT+1
       PC_FALSE := Global.PC + (slices << sliceShift)
