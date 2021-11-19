@@ -134,10 +134,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
   val logic = create late new Area{
     val decoder = getService[DecoderService]
     val frontend = getService[FrontendPlugin]
-    val wakeWithoutBypass = getServicesOf[WakeRegFileService].flatMap(_.wakeRegFile)
-    val wakeWithBypass = getServicesOf[WakeWithBypassService].flatMap(_.wakeRobsWithBypass)
-    val wakeIds = wakeWithoutBypass
-    assert(wakeWithBypass.isEmpty) //TODO
+    val wakeIds = getServicesOf[WakeRegFileService].flatMap(_.wakeRegFile)
     val stage = frontend.pipeline.dispatch
     import stage._
 
@@ -201,8 +198,8 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
               (setup.waits(rsId).ID    , slotId) := ROB_ID | priorId
             }
           }
-          for(wake <- wakeWithBypass){
-            when(wake.valid && wake.payload === port.rsp.rob){
+          for(wake <- wakeIds; if wake.needBypass){
+            when(wake.valid && wake.physical === port.cmd.payload){
               (setup.waits(rsId).ENABLE, slotId) := False
             }
           }

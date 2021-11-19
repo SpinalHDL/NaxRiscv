@@ -23,7 +23,7 @@ object IntAluPlugin extends AreaObject {
   val TYPE_I = Stageable(Bool())
 }
 
-class IntAluPlugin(euId : String, staticLatency : Boolean = false) extends Plugin with WakeRobService with WakeRegFileService {
+class IntAluPlugin(euId : String, staticLatency : Boolean = true) extends Plugin with WakeRobService with WakeRegFileService {
   withPrefix(euId)
 
   import IntAluPlugin._
@@ -73,7 +73,7 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = false) extends Plugi
       val wake = !staticLatency generate new Area{
         val fire = isFireing && SEL
         val rob = Flow(WakeRob())
-        val rf = Flow(WakeRegFile(decode.PHYS_RD))
+        val rf = Flow(WakeRegFile(decode.PHYS_RD, needBypass = false))
 
         rob.valid := fire
         rob.robId := ExecutionUnitKeys.ROB_ID

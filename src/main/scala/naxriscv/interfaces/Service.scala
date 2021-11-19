@@ -174,13 +174,15 @@ trait CommitService  extends Service{
   def freePort() : Flow[CommitFree]
 }
 
-case class ExecutionUnitPush(withReady : Boolean, withValid : Boolean = true) extends Bundle{
+//TODO reduce area usage if physRdType isn't needed by some execution units
+case class ExecutionUnitPush(physRdType : Stageable[UInt], withReady : Boolean, withValid : Boolean = true) extends Bundle{
   val valid = withValid generate Bool()
   val ready = withReady generate Bool()
   val robId = ROB_ID()
+  val physRd = physRdType()
 
   def toStream ={
-    val ret = Stream(ExecutionUnitPush(false, false))
+    val ret = Stream(ExecutionUnitPush(physRdType, false, false))
     ret.valid := valid
     ready := ret.ready
     ret.payload := this
@@ -276,7 +278,7 @@ case class WakeRob() extends Bundle {
   val robId = ROB.ID_TYPE()
 }
 
-case class WakeRegFile(physicalType : HardType[UInt]) extends Bundle {
+case class WakeRegFile(physicalType : HardType[UInt], needBypass : Boolean) extends Bundle {
   val physical = physicalType()
 }
 

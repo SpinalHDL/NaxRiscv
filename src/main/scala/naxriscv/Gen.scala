@@ -78,6 +78,7 @@ object Config{
 
 // ramstyle = "MLAB, no_rw_check"
 object Gen extends App{
+  LutInputs.set(6)
   val spinalConfig = SpinalConfig(inlineRom = true)
   spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
 //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)

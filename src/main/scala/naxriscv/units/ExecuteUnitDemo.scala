@@ -50,7 +50,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
     val decoder = getService[DecoderService]
     val flush = getService[CommitService].reschedulingPort().valid
 
-    val pushPort = ExecutionUnitPush(withReady = true)
+    val pushPort = ExecutionUnitPush(physRdType = decoder.PHYS_RD, withReady = true)
     val euGroup = decoder.euGroups.find(_.eus.contains(ExecuteUnitDemo.this)).get
     val sf = euGroup.eus.size
     val so = euGroup.eus.indexOf(ExecuteUnitDemo.this)

@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, MICRO_OP}
 import naxriscv.backend.RobPlugin
 import naxriscv.{Frontend, ROB}
-import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, LockedImpl, MicroOp, RobWait, WakeRobService, WakeWithBypassService}
+import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, LockedImpl, MicroOp, RobWait, WakeRegFile, WakeRegFileService, WakeRobService, WakeWithBypassService}
 import naxriscv.utilities.{Plugin, Service}
 import spinal.core._
 import spinal.core.fiber.Lock
@@ -22,10 +22,11 @@ class DispatchPlugin(slotCount : Int = 0,
                      uintAt : Int = 0,
                      staticHitAt : Int = 0,
                      robIdAt : Int = 1,
-                     euAt : Int = 1) extends Plugin with IssueService with LockedImpl with WakeWithBypassService with InitCycles{
+                     physRdAt : Int = 1,
+                     euAt : Int = 1) extends Plugin with IssueService with LockedImpl with WakeRegFileService with InitCycles{
   val robWaits = ArrayBuffer[RobWait]()
   override def newRobDependency() = robWaits.addRet(RobWait())
-  override def wakeRobsWithBypass = logic.pop.flatMap(_.wake.map(_.bypassed))
+  override def wakeRegFile = logic.pop.flatMap(_.wake.map(_.bypassed))
 
   override def initCycles = if(logic.globalStaticLatencies.latencies.isEmpty) 0 else logic.globalStaticLatencies.latencies.max + 4 //For sanity in some test configs withs absurd static latencies
 
@@ -54,9 +55,9 @@ class DispatchPlugin(slotCount : Int = 0,
     val globalStaticLatencies = new Area{
       val raw = eus.flatMap(_.staticLatencies())
       val perLatency = raw.groupByLinked(_.latency).mapValues(_.map(_.microOp))
-      val perMicroOp = raw.groupByLinked(_.microOp)
-      for((op, spec) <- perMicroOp){
-        assert(spec.size <= 1, s"The microOp ${op} has multiple static latencies")
+      val perMicroOp = raw.groupByLinked(_.microOp).mapValues(_.map(_.latency))
+      for((op, latencies) <- perMicroOp){
+        assert(latencies.distinct.size <= 1, s"The microOp ${op} has multiple static latencies")
       }
 
       val latencies = perLatency.keys
@@ -79,6 +80,7 @@ class DispatchPlugin(slotCount : Int = 0,
 
     case class Context() extends Bundle{
       val staticWake = Bits(globalStaticLatencies.latencies.size bits)
+      val physRd = decoder.PHYS_RD()
     }
     val queue = new IssueQueue(
       p = IssueQueueParameter(
@@ -123,6 +125,7 @@ class DispatchPlugin(slotCount : Int = 0,
         val events = robWaits.map(o => B(slotCount bits, default -> stage(o.ENABLE, slotId)) & UIntToOh(g2l(stage(o.ID, slotId))))
         slot.event := (self +: events).reduceBalancedTree(_ | _)
         slot.sel   := (DISPATCH_MASK, slotId) ? groups.map(g => stage(g.sel, slotId)).asBits() | B(0)
+        slot.context.physRd := stage(decoder.PHYS_RD, slotId)
         for(latency <- globalStaticLatencies.latencies){
           val bitId = globalStaticLatencies.toBits(latency)
           slot.context.staticWake(bitId) := (globalStaticLatencies.latenciesStageable(latency), slotId)
@@ -146,7 +149,7 @@ class DispatchPlugin(slotCount : Int = 0,
 
       val keys = new Area{
         setName("")
-        val OH = Stageable(cloneOf(port.event))
+        val OH = Stageable(Bits(slotCount bits))
         val UINT = Stageable(UInt(log2Up(slotCount) bits))
         val ROB_ID = Stageable(ROB.ID_TYPE)
         val OFFSET = Stageable(cloneOf(ptr.current))
@@ -156,24 +159,53 @@ class DispatchPlugin(slotCount : Int = 0,
       val uintStage = stagesList(uintAt)
       val staticHitStage = stagesList(staticHitAt)
       val robIdStage = stagesList(robIdAt)
+      val physRdStage = stagesList(physRdAt)
       val euStage = stagesList(euAt)
 
+      def eventFull(v : Bits) = (0 until slotCount).map(i => if(i % mapping.eventFactor == mapping.eventOffset) v(i/mapping.eventFactor) else False).asBits()
+      def filter[T](v : Seq[T]) = (for(i <- 0 until slotCount; if i % mapping.eventFactor == mapping.eventOffset) yield v(i))
+      def readContext[T <: Data](key : Stageable[T], latency : Int)(extract : Context => T): Unit ={
+        val factor = LutInputs.get/2
+        val inputs = filter(queue.io.contexts).map(extract(_).asBits)
+        val oh = port.event
+        latency match {
+          case 0 => entryStage(key) := MuxOH.or(oh, inputs).as(key)
+          case _ => {
+            val layer0 = new Area{
+              val ohGroups = oh.subdivideIn(factor bits, strict = false).toList
+              val inputsGroups = inputs.grouped(factor).toList
+              val groups = Vec((ohGroups, inputsGroups).zipped.map(MuxOH.or(_, _)))
+              val key0 = Stageable(groups).setCompositeName(DispatchPlugin.this, s"${eu.euName}_readContext_${key.getName}")
+              entryStage(key0) := groups
+            }
+
+            val layer1 = new Area{
+              val stage = stagesList(1)
+              stage(key) := stage(layer0.key0).reduceBalancedTree(_ | _).as(key)
+            }
+          }
+        }
+      }
+
+      val portEventFull = eventFull(port.event)
       entryStage.valid := port.valid
-      entryStage(keys.OH) := port.event
+      entryStage(keys.OH) := portEventFull
       entryStage(keys.OFFSET) := ptr.current
       port.ready := entryStage.isReady
 
-      def eventFull(v : Bits) = (0 until slotCount).map(i => if(i % mapping.eventFactor == mapping.eventOffset) v(i/mapping.eventFactor) else False).asBits()
-      uintStage(keys.UINT) :=  OHToUInt(eventFull(uintStage(keys.OH)))
+      uintStage(keys.UINT) :=  OHToUInt(uintStage(keys.OH))
       robIdStage(keys.ROB_ID) := robIdStage(keys.UINT).resize(log2Up(ROB.SIZE)) + robIdStage(keys.OFFSET)
 
       val staticsFilter = for((latency, key) <- globalStaticLatencies.latenciesStageable){
         staticHitStage(key) := (staticHitStage(keys.OH) & queueStaticWakeTransposedHistory(staticHitAt)(globalStaticLatencies.toBits(latency))).orR
       }
 
+      readContext(decoder.PHYS_RD, physRdAt)(_.physRd)
+
       val euPort = eu.pushPort()
       euPort.valid := euStage.isValid
       euPort.robId := euStage(keys.ROB_ID)
+      euPort.physRd := euStage(decoder.PHYS_RD)
       if(euPort.withReady) euStage.haltIt(!euPort.ready)
 
       stagesList.last.flushIt(rescheduling.valid, root = false)
@@ -183,12 +215,12 @@ class DispatchPlugin(slotCount : Int = 0,
       val wake = for((latency, microOps) <- perLatency) yield new Area{
         setCompositeName(self, s"wake_L$latency")
         val lat = latency
-        val mask = port.fire ? eventFull(port.event) | B(0)
+        val mask = port.fire ? portEventFull | B(0)
 
-        val bypassed = Flow(ROB.ID_TYPE)
+        val bypassed = Flow(WakeRegFile(decoder.PHYS_RD, needBypass = true))
         val stage = stagesList(latency+1)
         bypassed.valid := stage.valid && stage(globalStaticLatencies.latenciesStageable(latency))
-        bypassed.payload := stage(keys.ROB_ID)
+        bypassed.physical := stage(decoder.PHYS_RD)
       }
 
       this.build()

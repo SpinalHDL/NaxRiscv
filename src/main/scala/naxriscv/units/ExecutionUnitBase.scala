@@ -17,7 +17,6 @@ object ExecutionUnitKeys extends AreaObject {
 }
 
 class ExecutionUnitBase(euId : String,
-                        robIdStage : Int = 0,
                         contextStage : Int = 0,
                         rfReadStage : Int = 0,
                         decodeStage : Int = 0,
@@ -174,14 +173,11 @@ class ExecutionUnitBase(euId : String,
     // Implement the fetch pipeline
     val push = new Area{
       val stage = fetch(0)
-      val port = ExecutionUnitPush(withReady = staticLatenciesStorage.isEmpty)
+      val port = ExecutionUnitPush(withReady = staticLatenciesStorage.isEmpty, physRdType = decoder.PHYS_RD)
       stage.valid := port.valid
       stage(ROB_ID) := port.robId
+      if(implementRd) stage(decoder.PHYS_RD) := port.physRd
       if(port.withReady) port.ready := stage.isReady
-    }
-
-    val robId = new Area{
-      val stage = fetch(robIdStage)
     }
 
     val context = new Area{
@@ -197,7 +193,6 @@ class ExecutionUnitBase(euId : String,
         readAndInsert(decoder.READ_RS(e))
       }
       if(implementRd){
-        readAndInsert(decoder.PHYS_RD)
         readAndInsert(decoder.WRITE_RD)
       }
       if(ressources.contains(PC_READ)){
