@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, MICRO_OP}
 import naxriscv.backend.RobPlugin
 import naxriscv.{Frontend, ROB}
-import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, LockedImpl, MicroOp, RobWait, WakeService, WakeWithBypassService}
+import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, LockedImpl, MicroOp, RobWait, WakeRobService, WakeWithBypassService}
 import naxriscv.utilities.{Plugin, Service}
 import spinal.core._
 import spinal.core.fiber.Lock
@@ -197,9 +197,9 @@ class DispatchPlugin(slotCount : Int = 0,
     val wake = new Area {
       val dynamic = new Area {
         def g2l(robId: UInt) = (robId - ptr.current).resize(log2Up(slotCount))
-        val sources = getServicesOf[WakeService]
+        val sources = getServicesOf[WakeRobService]
         val ids = sources.flatMap(_.wakeRobs)
-        val offseted = ids.map(f => f.translateWith(g2l(f.payload)))
+        val offseted = ids.map(f => f.translateWith(g2l(f.robId)))
         val masks = offseted.map(o => B(slotCount bits, default -> o.valid) & UIntToOh(o.payload))
       }
       val statics = for(latency <- globalStaticLatencies.latencies) yield new Area{

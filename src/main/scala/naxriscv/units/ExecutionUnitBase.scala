@@ -21,7 +21,7 @@ class ExecutionUnitBase(euId : String,
                         contextStage : Int = 0,
                         rfReadStage : Int = 0,
                         decodeStage : Int = 0,
-                        executeStage : Int = 1) extends Plugin with ExecuteUnitService with WakeService with LockedImpl{
+                        executeStage : Int = 1) extends Plugin with ExecuteUnitService with WakeRegFileService with LockedImpl{
   withPrefix(euId)
 
   override def uniqueIds = List(euId)
@@ -29,7 +29,8 @@ class ExecutionUnitBase(euId : String,
   override def getFixedLatencies = ???
   override def pushPort() = pipeline.push.port
   override def euName() = euId
-  override def wakeRobs = Nil//Seq(logic.wakePort)
+
+  override def wakeRegFile = Nil //Seq(logic.wakePort)
   override def staticLatencies() = {
     lock.await()
     staticLatenciesStorage

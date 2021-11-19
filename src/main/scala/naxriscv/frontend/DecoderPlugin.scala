@@ -43,18 +43,18 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
   }
 
   override def euGroups = logic.euGroups
-  override def READ_RS(id: Int) : Stageable[Bool] = logic.keys.READ_RS(id)
-  override def ARCH_RS(id: Int) : Stageable[UInt] = logic.keys.ARCH_RS(id)
-  override def PHYS_RS(id: Int) : Stageable[UInt] = logic.keys.PHYS_RS(id)
+  override def READ_RS(id: Int) : Stageable[Bool] = setup.keys.READ_RS(id)
+  override def ARCH_RS(id: Int) : Stageable[UInt] = setup.keys.ARCH_RS(id)
+  override def PHYS_RS(id: Int) : Stageable[UInt] = setup.keys.PHYS_RS(id)
   override def READ_RS(id: RfRead) : Stageable[Bool] = READ_RS(rsToId(id))
   override def ARCH_RS(id: RfRead) : Stageable[UInt] = ARCH_RS(rsToId(id))
   override def PHYS_RS(id: RfRead) : Stageable[UInt] = PHYS_RS(rsToId(id))
-  override def WRITE_RD : Stageable[Bool] = logic.keys.WRITE_RD
-  override def ARCH_RD : Stageable[UInt] = logic.keys.ARCH_RD
-  override def PHYS_RD : Stageable[UInt] = logic.keys.PHYS_RD
-  override def PHYS_RD_FREE : Stageable[UInt] = logic.keys.PHYS_RD_FREE
+  override def WRITE_RD : Stageable[Bool] = setup.keys.WRITE_RD
+  override def ARCH_RD : Stageable[UInt] = setup.keys.ARCH_RD
+  override def PHYS_RD : Stageable[UInt] = setup.keys.PHYS_RD
+  override def PHYS_RD_FREE : Stageable[UInt] = setup.keys.PHYS_RD_FREE
   override def rsCount = 2
-  override def rsPhysicalDepthMax = logic.keys.physicalMax
+  override def rsPhysicalDepthMax = setup.keys.physicalMax
 
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
@@ -62,7 +62,21 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
     frontend.pipeline.connect(frontend.pipeline.decompressed, frontend.pipeline.decoded)(new DIRECT)
 
     getService[RobService].retain()
+
+    val keys = new Area {
+      setName("")
+      val plugins = getServicesOf[RegfileService]
+      val physicalMax = plugins.map(_.getPhysicalDepth).max
+      val ARCH_RS = List.fill(rsCount)(Stageable(UInt(5 bits)))
+      val ARCH_RD = Stageable(UInt(5 bits))
+      val PHYS_RS = List.fill(rsCount)(Stageable(UInt(log2Up(physicalMax) bits)))
+      val PHYS_RD = Stageable(UInt(log2Up(physicalMax) bits))
+      val PHYS_RD_FREE = Stageable(UInt(log2Up(physicalMax) bits))
+      val READ_RS = List.fill(rsCount)(Stageable(Bool()))
+      val WRITE_RD = Stageable(Bool)
+    }
   }
+
 
   val logic = create late new Area{
     lock.await()
@@ -99,19 +113,6 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       assert(groups.size == 1, "Multiple groups implementing the same opcode not yet supported")
     }
 
-
-    val keys = new Area {
-      setName("")
-      val plugins = getServicesOf[RegfileService]
-      val physicalMax = plugins.map(_.getPhysicalDepth).max
-      val ARCH_RS = List.fill(rsCount)(Stageable(UInt(5 bits)))
-      val ARCH_RD = Stageable(UInt(5 bits))
-      val PHYS_RS = List.fill(rsCount)(Stageable(UInt(log2Up(physicalMax) bits)))
-      val PHYS_RD = Stageable(UInt(log2Up(physicalMax) bits))
-      val PHYS_RD_FREE = Stageable(UInt(log2Up(physicalMax) bits))
-      val READ_RS = List.fill(rsCount)(Stageable(Bool()))
-      val WRITE_RD = Stageable(Bool)
-    }
 
     val stage = frontend.pipeline.decoded
     import stage._
@@ -152,9 +153,9 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
     for (i <- 0 until Frontend.DECODE_COUNT) {
       implicit val offset = StageableOffset(i)
       val rdZero = INSTRUCTION_DECOMPRESSED(Const.rdRange) === 0
-      keys.READ_RS(0) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs1, encodings.readRs1N)
-      keys.READ_RS(1) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs2, encodings.readRs2N)
-      keys.WRITE_RD   := Symplify(INSTRUCTION_DECOMPRESSED, encodings.writeRd, encodings.writeRdN) && !rdZero
+      setup.keys.READ_RS(0) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs1, encodings.readRs1N)
+      setup.keys.READ_RS(1) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs2, encodings.readRs2N)
+      setup.keys.WRITE_RD   := Symplify(INSTRUCTION_DECOMPRESSED, encodings.writeRd, encodings.writeRdN) && !rdZero
       for (group <- euGroups) {
         group.sel := Symplify(INSTRUCTION_DECOMPRESSED, encodings.groups(group), encodings.groupsN(group))
       }
@@ -163,9 +164,9 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       MICRO_OP := INSTRUCTION_DECOMPRESSED
       terminal(INSTRUCTION_DECOMPRESSED, i)
 
-      keys.ARCH_RD := U(INSTRUCTION_DECOMPRESSED(Const.rdRange))
+      setup.keys.ARCH_RD := U(INSTRUCTION_DECOMPRESSED(Const.rdRange))
       for(i <- 0 until rsCount) {
-        keys.ARCH_RS(i) := U(INSTRUCTION_DECOMPRESSED(Const.rsRange(i)))
+        setup.keys.ARCH_RS(i) := U(INSTRUCTION_DECOMPRESSED(Const.rsRange(i)))
       }
     }
 
@@ -187,15 +188,15 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       writeLine(PC)
       writeLine(MICRO_OP)
       writeLine(INSTRUCTION_SLICE_COUNT)
-      writeLine(keys.WRITE_RD)
-      writeLine(keys.PHYS_RD)
-      writeLine(keys.PHYS_RD_FREE)
-      writeLine(keys.ARCH_RD)
+      writeLine(setup.keys.WRITE_RD)
+      writeLine(setup.keys.PHYS_RD)
+      writeLine(setup.keys.PHYS_RD_FREE)
+      writeLine(setup.keys.ARCH_RD)
 
       for(i <- 0 until rsCount) {
-        writeLine(keys.READ_RS(i))
-        writeLine(keys.PHYS_RS(i))
-        writeLine(keys.ARCH_RS(i))
+        writeLine(setup.keys.READ_RS(i))
+        writeLine(setup.keys.PHYS_RS(i))
+        writeLine(setup.keys.ARCH_RS(i))
       }
 
       writeLine(DISPATCH_MASK)

@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv.Frontend.{DISPATCH_MASK, ROB_ID}
 import naxriscv.{Frontend, Global, ROB, riscv}
 import naxriscv.compatibility.MultiPortWritesSymplifier
-import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, RegfileService, RegfileSpec, WakeService, WakeWithBypassService}
+import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, RegfileService, RegfileSpec, WakeRegFileService, WakeWithBypassService}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -16,8 +16,8 @@ case class DependencyUpdate(physDepth : Int, robDepth : Int) extends Bundle{
   val robId = UInt(log2Up(robDepth) bits)
 }
 
-case class DependencyCommit(robDepth : Int) extends Bundle{
-  val robId = UInt(log2Up(robDepth) bits)
+case class DependencyCommit(physicalDepth : Int) extends Bundle{
+  val physical = UInt(log2Up(physicalDepth) bits)
 }
 
 case class DependencyReadRsp(robDepth : Int) extends Bundle{
@@ -42,7 +42,7 @@ class DependencyStorage(physDepth : Int,
                         readPorts : Int) extends Component {
   val io = new Bundle {
     val writes = Vec.fill(writePorts)(slave(Flow(DependencyUpdate(physDepth, robDepth))))
-    val commits = Vec.fill(commitPorts)(slave(Flow(DependencyCommit(robDepth))))
+    val commits = Vec.fill(commitPorts)(slave(Flow(DependencyCommit(physDepth))))
     val reads = Vec.fill(readPorts)(slave(DependencyRead(physDepth, robDepth)))
   }
 
@@ -61,7 +61,7 @@ class DependencyStorage(physDepth : Int,
     val busy = Mem.fill(physDepth)(Bool())
     val write = for(p <- io.writes){
       busy.write(
-        address = p.robId,
+        address = p.physical,
         data = True,
         enable = p.valid
       )
@@ -69,7 +69,7 @@ class DependencyStorage(physDepth : Int,
     val commit = for(p <- io.commits) yield new Area{
       when(p.valid){
         busy.write(
-          address = p.robId,
+          address = p.physical,
           data = False,
           enable = p.valid
         )
@@ -79,7 +79,7 @@ class DependencyStorage(physDepth : Int,
 
   val read = for(p <- io.reads) yield new Area{
     val robId = translation.physToRob.readAsync(p.cmd.payload)
-    val enabled = status.busy.readAsync(robId) //TODO this is a long combinatorial path
+    val enabled = status.busy.readAsync(p.cmd.payload) //TODO as it was optimize, maybe we do not need the [dispatch] stage anymore in the frontend plugin
     p.rsp.valid := p.cmd.valid
     p.rsp.enable := enabled
     p.rsp.rob := robId
@@ -134,9 +134,10 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
   val logic = create late new Area{
     val decoder = getService[DecoderService]
     val frontend = getService[FrontendPlugin]
-    val wakeWithoutBypass = getServicesOf[WakeService].flatMap(_.wakeRobs)
+    val wakeWithoutBypass = getServicesOf[WakeRegFileService].flatMap(_.wakeRegFile)
     val wakeWithBypass = getServicesOf[WakeWithBypassService].flatMap(_.wakeRobsWithBypass)
-    val wakeIds = wakeWithoutBypass++wakeWithBypass
+    val wakeIds = wakeWithoutBypass
+    assert(wakeWithBypass.isEmpty) //TODO
     val stage = frontend.pipeline.dispatch
     import stage._
 
@@ -161,7 +162,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
     //Commit
     for((event, port) <- (wakeIds, impl.io.commits).zipped){
       port.valid := event.valid
-      port.robId := event.payload
+      port.physical := event.physical
     }
 
     val init = new Area{
@@ -172,7 +173,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
       when(busy) {
         val port = impl.io.commits.head
         port.valid := True
-        port.robId := counter.resized
+        port.physical := counter.resized
 
         counter := counter + 1
       }

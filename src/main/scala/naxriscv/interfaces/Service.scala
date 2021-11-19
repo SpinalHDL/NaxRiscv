@@ -272,9 +272,20 @@ trait IssueService extends Service with LockedService {
   def newRobDependency() : RobWait
 }
 
+case class WakeRob() extends Bundle {
+  val robId = ROB.ID_TYPE()
+}
 
-trait WakeService extends Service{
-  def wakeRobs : Seq[Flow[UInt]]
+case class WakeRegFile(physicalType : HardType[UInt]) extends Bundle {
+  val physical = physicalType()
+}
+
+trait WakeRobService extends Service{
+  def wakeRobs : Seq[Flow[WakeRob]]
+}
+
+trait WakeRegFileService extends Service{
+  def wakeRegFile : Seq[Flow[WakeRegFile]]
 }
 
 trait WakeWithBypassService extends Service{

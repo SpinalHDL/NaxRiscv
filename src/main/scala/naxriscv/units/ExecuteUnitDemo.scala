@@ -7,7 +7,7 @@ import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
 
-class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin with ExecuteUnitService with WakeService with LockedImpl {
+class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin with ExecuteUnitService with WakeRobService with WakeRegFileService with LockedImpl {
   setName(euId)
   override def uniqueIds = List(euId)
 
@@ -19,7 +19,8 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
 
   override def euName() = euId
 
-  override def wakeRobs = Seq(logic.wakePort)
+  override def wakeRobs = ??? //Seq(logic.wakePort)
+  override def wakeRegFile = ???
 
   def addMicroOp(enc: MicroOp) = {
     getService[DecoderService].addEuOp(this, enc)
