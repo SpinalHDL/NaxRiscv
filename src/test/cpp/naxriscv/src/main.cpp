@@ -17,6 +17,7 @@
 #include <iomanip>
 #include <queue>
 #include <time.h>
+#include <map>
 
 using namespace std;
 
@@ -49,7 +50,9 @@ using namespace std;
 
 vluint64_t main_time = 0;
 
+class successException : public std::exception { };
 #define failure() throw std::exception();
+#define success() throw successException();
 
 #define TEXTIFY(A) #A
 void breakMe(){
@@ -283,6 +286,8 @@ enum ARG
     ARG_MEM_HEX = 1,
     ARG_MEM_ELF,
     ARG_START_SYMBOL,
+    ARG_PASS_SYMBOL,
+    ARG_FAIL_SYMBOL,
     ARG_TIMEOUT
 };
 
@@ -292,10 +297,18 @@ static const struct option long_options[] =
     { "mem_hex", required_argument, 0, ARG_MEM_HEX },
     { "mem_elf", required_argument, 0, ARG_MEM_ELF },
     { "start_symbol", required_argument, 0, ARG_START_SYMBOL },
+    { "pass_symbol", required_argument, 0, ARG_PASS_SYMBOL },
+    { "fail_symbol", required_argument, 0, ARG_FAIL_SYMBOL },
     { "timeout", required_argument, 0, ARG_TIMEOUT },
     0
 };
 
+u64 startPc = 0x80000000l;
+map<RvData, vector<function<void(RvData)>>> pcToEvent;
+void addPcEvent(RvData pc, function<void(RvData)> func){
+    if(pcToEvent.count(pc) == 0) pcToEvent[pc] = vector<function<void(RvData)>>();
+    pcToEvent[pc].push_back(func);
+}
 
 int main(int argc, char** argv, char** env){
 
@@ -355,8 +368,6 @@ int main(int argc, char** argv, char** env){
 	vluint64_t timeout = -1;
 
     Elf *elf = NULL;
-    char *startSymbol = NULL;
-    u64 startPc = 0x80000000l;
     while (1)
     {
         int index = -1;
@@ -375,10 +386,9 @@ int main(int argc, char** argv, char** env){
                     soc->memory.write(address, 1, &data);
                 });
             }break;
-            case ARG_START_SYMBOL: {
-                startSymbol = (char*)malloc(strlen(optarg) + 1);
-                strcpy(startSymbol, optarg);
-            }break;
+            case ARG_START_SYMBOL: startPc = elf->getSymbolAddress(optarg); break;
+            case ARG_PASS_SYMBOL: addPcEvent(elf->getSymbolAddress(optarg), [&](RvData pc){ success();}); break;
+            case ARG_FAIL_SYMBOL: addPcEvent(elf->getSymbolAddress(optarg), [&](RvData pc){ failure();}); break;
             case ARG_TIMEOUT: timeout = stoi(optarg); break;
         }
     }
@@ -387,13 +397,7 @@ int main(int argc, char** argv, char** env){
     {
         printf("other parameter: <%s>\n", argv[optind++]);
     }
-    if(startSymbol){
-        if(!elf){
-            printf("You need to specify a elf file to use the start symbol\n");
-            exit(1);
-        }
-        startPc = elf->getSymbolAddress(startSymbol);
-    }
+
 
 
     state_t *state = proc.get_state();
@@ -457,7 +461,8 @@ int main(int argc, char** argv, char** env){
                         commits += 1;
 //                        printf("Commit %d %x\n", robId, whitebox.robCtx[robId].pc);
                         proc.step(1);
-                        assertEq("MISSMATCH PC", whitebox.robCtx[robId].pc,  state->last_inst_pc);
+                        RvData pc = state->last_inst_pc;
+                        assertEq("MISSMATCH PC", whitebox.robCtx[robId].pc,  pc);
                         for (auto item : state->log_reg_write) {
                             if (item.first == 0)
                               continue;
@@ -475,6 +480,11 @@ int main(int argc, char** argv, char** env){
                             }
                         }
 
+                        if(pcToEvent.count(pc) != 0){
+                            for(auto event : pcToEvent[pc]){
+                                event(pc);
+                            }
+                        }
                         whitebox.robCtx[robId].clear();
                     }
                 }
@@ -482,7 +492,8 @@ int main(int argc, char** argv, char** env){
                 for(SimElement* simElement : simElements) simElement->postCycle();
             }
         }
-
+    }catch (const successException e) {
+        printf("SUCCESS\n");
     } catch (const std::exception& e) {
         ++main_time;
         #ifdef TRACE
@@ -490,11 +501,13 @@ int main(int argc, char** argv, char** env){
         if(main_time % 100000 == 0) tfp->flush();
         #endif
         printf("REF PC=%lx\n", state->last_inst_pc);
-        printf("Commits=%ld\n", commits);
         printf("ROB_ID=x%x\n", robIdChecked);
         printf("FAILURE\n");
     }
 
+    printf("Commits=%ld\n", commits);
+    printf("Time=%ld\n", main_time);
+    printf("Cycles=%ld\n", main_time/2);
     #ifdef TRACE
     tfp->flush();
     tfp->close();

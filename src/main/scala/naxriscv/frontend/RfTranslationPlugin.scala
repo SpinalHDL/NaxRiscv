@@ -42,11 +42,16 @@ class TranslatorWithRollback[T <: Data](payloadType : HardType[T],
 
   class UpdatedState(ports : Vec[Flow[TranslatorUpdate[T]]]) extends Area{
     val ram = Mem.fill(depth)(payloadType)
-    for(p <- ports){
+    for((p, portId) <- ports.zipWithIndex){
+      // Bypass
+      val bypass = new Area{
+        val hits = for(otherId <- portId+1 until ports.size; po = ports(otherId)) yield po.valid && po.address === p.address
+        val hit = hits.orR
+      }
       ram.write(
         address = p.address,
         data = p.data,
-        enable = p.valid
+        enable = p.valid && !bypass.hit
       )
     }
   }
@@ -135,6 +140,12 @@ class RfTranslationPlugin() extends Plugin with InitCycles {
       impl.io.writes(slotId).valid := isFireing && (DISPATCH_MASK, slotId) && (decoder.WRITE_RD, slotId)
       impl.io.writes(slotId).address := stage(decoder.ARCH_RD, slotId)
       impl.io.writes(slotId).data := stage(decoder.PHYS_RD, slotId)
+      // Bypass, but now it is done in the sub comonent
+      //      for(otherId <- slotId+1 until DISPATCH_COUNT) {
+      //        when(impl.io.writes(otherId).valid && stage(decoder.ARCH_RD, otherId) === stage(decoder.ARCH_RD, slotId)){
+      //          impl.io.writes(slotId).valid := False
+      //        }
+      //      }
     }
 
     val onCommit = new Area{

@@ -1,12 +1,17 @@
 package naxriscv.riscv
 
+import naxriscv.riscv.IntRegFile.TypeU
 import spinal.core._
 
 object Rvi{
-  import IntRegFile.{TypeR, TypeI, TypeB}
+  import IntRegFile._
 
-  val ADD  = TypeR(M"0000000----------000-----0110011")
-  val ADDI = TypeI(M"-----------------000-----0010011")
+  val ADD   = TypeR(M"0000000----------000-----0110011")
+  val ADDI  = TypeI(M"-----------------000-----0010011")
+  def LUI   = TypeU(M"-------------------------0110111")
+  def AUIPC = TypeU(M"-------------------------0010111")
+
+
   val MUL  = TypeR(M"0000001----------000-----0110011")
   def BEQ  =  TypeB(M"-----------------000-----1100011")
   def BNE  =  TypeB(M"-----------------001-----1100011")

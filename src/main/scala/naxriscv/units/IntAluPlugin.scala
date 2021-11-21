@@ -4,7 +4,7 @@ import naxriscv.Frontend
 import naxriscv.interfaces._
 import naxriscv.riscv._
 import naxriscv.utilities.Plugin
-import spinal.core.{U, _}
+import spinal.core._
 import spinal.lib.Flow
 import spinal.lib.pipeline.Stageable
 
@@ -52,8 +52,10 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true) extends Plugin
 
     import SrcKeys._
     eu.setDecodingDefault(SEL, False)
-    add(Rvi.ADD,  List(Op.ADD, SRC1.RF, SRC2.RF), nonImmediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
-    add(Rvi.ADDI, List(Op.ADD, SRC1.RF, SRC2.I ), immediateActions    ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    add(Rvi.ADD,   List(Op.ADD, SRC1.RF, SRC2.RF), nonImmediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    add(Rvi.ADDI,  List(Op.ADD, SRC1.RF, SRC2.I ), immediateActions    ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    add(Rvi.LUI,   List(Op.SRC1, SRC1.U),          nonImmediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    add(Rvi.AUIPC, List(Op.ADD, SRC1.U, SRC2.PC),  nonImmediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
   }
 
   val logic = create late new Area{

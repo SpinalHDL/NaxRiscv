@@ -55,10 +55,12 @@ object Config{
     plugins += new IntAluPlugin("ALU0")
     plugins += new BranchPlugin("ALU0")
     plugins += new SrcPlugin("ALU0")
+
     plugins += new ExecutionUnitBase("ALU1")
     plugins += new IntAluPlugin("ALU1")
     plugins += new BranchPlugin("ALU1")
     plugins += new SrcPlugin("ALU1")
+
 //    plugins += new ExecuteUnit("ALU0")
 //    plugins += new IntAluPlugin("ALU0")
 //    plugins += new ExecuteUnit("ALU1")
