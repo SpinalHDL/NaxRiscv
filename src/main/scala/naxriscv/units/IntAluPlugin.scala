@@ -34,23 +34,26 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true) extends Plugin
   override def wakeRegFile = if(!staticLatency) List(logic.process.wake.rf) else Nil
 
   val setup = create early new Area{
+    val src = getService[SrcPlugin](euId)
     val eu = getService[ExecutionUnitBase](euId)
     eu.retain()
 
-    def add(microOp: MicroOp, decoding : eu.DecodeListType) = {
+    def add(microOp: MicroOp, srcKeys : List[SrcKeys], decoding : eu.DecodeListType) = {
       eu.addMicroOp(microOp)
       eu.setStaticCompletion(microOp, aluStage)
       if(staticLatency) eu.setStaticWake(microOp, aluStage)
       eu.addDecoding(microOp, decoding)
+      if(srcKeys.nonEmpty) src.specify(microOp, srcKeys)
     }
 
     val baseline = eu.DecodeList(SEL -> True)
     val immediateActions = baseline ++ eu.DecodeList(TYPE_I -> True)
     val nonImmediateActions = baseline ++ eu.DecodeList(TYPE_I -> False)
 
+    import SrcKeys._
     eu.setDecodingDefault(SEL, False)
-    add(Rvi.ADD, nonImmediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
-    add(Rvi.ADDI, immediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    add(Rvi.ADD,  List(Op.ADD, SRC1.RF, SRC2.RF), nonImmediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    add(Rvi.ADDI, List(Op.ADD, SRC1.RF, SRC2.I ), immediateActions    ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
   }
 
   val logic = create late new Area{
@@ -60,11 +63,8 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true) extends Plugin
       val decode = getService[DecoderService]
 
       import stage._
-
-      val src1 = S(eu(IntRegFile, RS1))
-      val src2 = TYPE_I ? IMM(Frontend.MICRO_OP).i_sext | S(eu(IntRegFile, RS2))
-
-      val result = src1 + src2
+      val ss = SrcStageables
+      val result = ss.ADD_SUB
 
       val wb = eu.newWriteback(IntRegFile, RD, stage, if(staticLatency) 0 else 1)
       wb.valid := SEL

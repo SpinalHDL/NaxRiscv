@@ -43,9 +43,9 @@ trait Plugin extends Area with Service{
 
   def getSubServices() : Seq[Service] = Nil
 
-  def getServicesOf[T <: Service : ClassTag] : Seq[T] = framework.getServicesOf[T]
   def getService[T <: Service : ClassTag] : T = framework.getService[T]
   def getService[T <: Service : ClassTag](id : Any) : T = framework.getService[T](id)
+  def getServicesOf[T <: Service : ClassTag] : Seq[T] = framework.getServicesOf[T]
 }
 
 class FrameworkConfig(){

@@ -1,5 +1,42 @@
 package naxriscv.sandbox.syntax
 
+
+
+/*
+ADD    : RS1 + - RS2
+SLT    : RS1 cmp RS2
+SLL    : RS1
+LUI    :                   U_IMM
+AUIPC  :             PC  + U_IMM
+
+Branch : RS1 cmp RS2 PC  + B_IMM  PC  + 4
+JAL    :             PC  + J_IMM
+JALR   : RS1 + I_IMM
+
+LSU    : RS1 + S_IMM
+LSU    : RS1 + I_IMM
+AMO    : RS1
+
+
+SRC1 =>
+- RS1
+- U_IMM
+
+SRC2 =>
+-  RS2
+- I_IMM
+- S_IMM
+- PC
+
+ADD/SUB =>
+- ~RS2
+-  ZERO
+
+
+src2 enum => 6 => 3 bits
+src2 values input => 3+[1]
+
+ */
 import naxriscv.interfaces.{RegfileSpec}
 import naxriscv.units.ExecuteUnitDemo
 import spinal.core._

@@ -16,9 +16,7 @@ object BranchPlugin extends AreaObject {
   val PC_TRUE = Stageable(Global.PC)
   val PC_FALSE = Stageable(Global.PC)
   val PC_BRANCH = Stageable(Global.PC)
-  val UNSIGNED = Stageable(Bool())
   val EQ = Stageable(Bool())
-  val LESS = Stageable(Bool())
   object BranchCtrlEnum extends SpinalEnum(binarySequential){
     val INC,B,JAL,JALR = newElement()
   }
@@ -35,13 +33,16 @@ class BranchPlugin(euId : String) extends Plugin {
 
 
   val setup = create early new Area{
+    val sk = SrcKeys
+    val src = getService[SrcPlugin](euId)
     val eu = getService[ExecutionUnitBase](euId)
     eu.retain()
 
-    def add(microOp: MicroOp, decoding : eu.DecodeListType) = {
+    def add(microOp: MicroOp, srcKeys : List[SrcKeys], decoding : eu.DecodeListType) = {
       eu.addMicroOp(microOp)
       eu.setStaticCompletion(microOp, branchStage)
       eu.addDecoding(microOp, decoding)
+      if(srcKeys.nonEmpty) src.specify(microOp, srcKeys)
     }
 
     val baseline = eu.DecodeList(SEL -> True)
@@ -49,13 +50,12 @@ class BranchPlugin(euId : String) extends Plugin {
     eu.setDecodingDefault(SEL, False)
 //    add(Rvi.JAL , baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.JAL, ALU_CTRL -> AluCtrlEnum.ADD_SUB))
 //    add(Rvi.JALR, baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.JALR, ALU_CTRL -> AluCtrlEnum.ADD_SUB, RS1_USE -> True))
-    add(Rvi.BEQ , baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BNE , baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BLT , baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B, UNSIGNED -> False))
-    add(Rvi.BGE , baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B, UNSIGNED -> False))
-    add(Rvi.BLTU, baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B, UNSIGNED -> True))
-    add(Rvi.BGEU, baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B, UNSIGNED -> True))
-
+    add(Rvi.BEQ , Nil, baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BNE , Nil, baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BLT , List(sk.Op.LESS), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BGE , List(sk.Op.LESS), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BLTU, List(sk.Op.LESS_U), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BGEU, List(sk.Op.LESS_U), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
     val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
   }
 
@@ -65,14 +65,13 @@ class BranchPlugin(euId : String) extends Plugin {
     val eu = getService[ExecutionUnitBase](euId)
     val process = new Area {
       val stage = eu.getExecute(0)
+      val ss = SrcStageables
 
       import stage._
 
       val src1 = S(eu(IntRegFile, RS1))
       val src2 = S(eu(IntRegFile, RS2))
 
-      val sub = src1 - src2
-      LESS := (src1.msb === src2.msb) ? sub.msb | Mux(UNSIGNED, src2.msb, src1.msb)
       EQ := src1 === src2
 
       COND := BRANCH_CTRL.mux(
@@ -82,8 +81,8 @@ class BranchPlugin(euId : String) extends Plugin {
         BranchCtrlEnum.B    -> MICRO_OP(14 downto 12).mux(
           B"000"  -> EQ,
           B"001"  -> !EQ,
-          M"1-1"  -> !LESS,
-          default -> LESS
+          M"1-1"  -> !ss.LESS,
+          default ->  ss.LESS
         )
       )
 
@@ -91,7 +90,7 @@ class BranchPlugin(euId : String) extends Plugin {
       val slices = Frontend.INSTRUCTION_SLICE_COUNT+1
       PC_FALSE := Global.PC + (slices << sliceShift)
       PC_BRANCH := NEED_BRANCH ? stage(PC_TRUE) | stage(PC_FALSE)
-      NEED_BRANCH := COND //For now, until prediction are iplemented
+      NEED_BRANCH := COND //For now, until prediction are implemented
     }
 
     val branch = new Area{
