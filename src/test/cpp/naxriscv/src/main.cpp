@@ -283,8 +283,8 @@ public:
 //http://www.mario-konrad.ch/blog/programming/getopt.html
 enum ARG
 {
-    ARG_MEM_HEX = 1,
-    ARG_MEM_ELF,
+    ARG_LOAD_HEX = 1,
+    ARG_LOAD_ELF,
     ARG_START_SYMBOL,
     ARG_PASS_SYMBOL,
     ARG_FAIL_SYMBOL,
@@ -294,8 +294,8 @@ enum ARG
 
 static const struct option long_options[] =
 {
-    { "mem_hex", required_argument, 0, ARG_MEM_HEX },
-    { "mem_elf", required_argument, 0, ARG_MEM_ELF },
+    { "load_hex", required_argument, 0, ARG_LOAD_HEX },
+    { "load_elf", required_argument, 0, ARG_LOAD_ELF },
     { "start_symbol", required_argument, 0, ARG_START_SYMBOL },
     { "pass_symbol", required_argument, 0, ARG_PASS_SYMBOL },
     { "fail_symbol", required_argument, 0, ARG_FAIL_SYMBOL },
@@ -378,8 +378,8 @@ int main(int argc, char** argv, char** env){
         if (result == -1) break;
         switch (result)
         {
-            case ARG_MEM_HEX: wrap.memory.loadHex(string(optarg)); soc->memory.loadHex(string(optarg)); break;
-            case ARG_MEM_ELF: {
+            case ARG_LOAD_HEX: wrap.memory.loadHex(string(optarg)); soc->memory.loadHex(string(optarg)); break;
+            case ARG_LOAD_ELF: {
                 elf = new Elf(optarg);
                 elf->visitBytes([&](u8 data, u64 address) {
                     wrap.memory.write(address, 1, &data);

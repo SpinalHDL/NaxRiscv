@@ -35,7 +35,7 @@ make compile TRACE=yes
 
 ```shell
 cd $NAXRISCV/src/cpp/test/naxriscv
-./obj_dir/VNaxRiscv --timeout 1000 --mem_hex ../../../../ext/NaxSoftware/baremetal/play/build/play.elf
+./obj_dir/VNaxRiscv --timeout 1000 --load_elf ../../../../ext/NaxSoftware/baremetal/play/build/play.elf
 ```
 
 # Run a riscv-test
@@ -43,7 +43,7 @@ cd $NAXRISCV/src/cpp/test/naxriscv
 ```shell
 cd $NAXRISCV/src/cpp/test/naxriscv
 ./obj_dir/VNaxRiscv \
---mem_elf ../../../../ext/NaxSoftware/riscv-tests/rv32ui-p-addi \
+--load_elf ../../../../ext/NaxSoftware/riscv-tests/rv32ui-p-addi \
 --start_symbol test_2 \
 --pass_symbol pass \
 --fail_symbol fail \
