@@ -30,6 +30,10 @@ object IntRegFile extends RegfileSpec with AreaObject {
     key = key,
     resources = List(RD).map(this -> _)
   )
+  def TypeUPC(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(RD).map(this -> _) :+ PC_READ
+  )
 }
 
 
