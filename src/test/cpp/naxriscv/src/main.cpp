@@ -288,6 +288,7 @@ enum ARG
     ARG_START_SYMBOL,
     ARG_PASS_SYMBOL,
     ARG_FAIL_SYMBOL,
+    ARG_NAME,
     ARG_TIMEOUT
 };
 
@@ -299,6 +300,7 @@ static const struct option long_options[] =
     { "start_symbol", required_argument, 0, ARG_START_SYMBOL },
     { "pass_symbol", required_argument, 0, ARG_PASS_SYMBOL },
     { "fail_symbol", required_argument, 0, ARG_FAIL_SYMBOL },
+    { "name", required_argument, 0, ARG_NAME },
     { "timeout", required_argument, 0, ARG_TIMEOUT },
     0
 };
@@ -312,18 +314,6 @@ void addPcEvent(RvData pc, function<void(RvData)> func){
 
 int main(int argc, char** argv, char** env){
 
-    printf("Miaou\n");
-
-//    const char* isa, const char* priv, const char* varch,
-//                  simif_t* sim, uint32_t id, bool halt_on_reset,
-//                  FILE *log_file, std::ostream& sout_
-//
-
-    // This example started with the Verilator example files.
-    // Please see those examples for commented sources, here:
-    // https://github.com/verilator/verilator/tree/master/examples
-
-//    if (0 && argc && argv && env) {}
 
     Verilated::debug(0);
     Verilated::randReset(2);
@@ -368,6 +358,7 @@ int main(int argc, char** argv, char** env){
 	vluint64_t timeout = -1;
 
     Elf *elf = NULL;
+    string name = "";
     while (1)
     {
         int index = -1;
@@ -385,11 +376,14 @@ int main(int argc, char** argv, char** env){
                     wrap.memory.write(address, 1, &data);
                     soc->memory.write(address, 1, &data);
                 });
+                name = optarg;
             }break;
             case ARG_START_SYMBOL: startPc = elf->getSymbolAddress(optarg); break;
             case ARG_PASS_SYMBOL: addPcEvent(elf->getSymbolAddress(optarg), [&](RvData pc){ success();}); break;
             case ARG_FAIL_SYMBOL: addPcEvent(elf->getSymbolAddress(optarg), [&](RvData pc){ failure();}); break;
+            case ARG_NAME: name = optarg; break;
             case ARG_TIMEOUT: timeout = stoi(optarg); break;
+            default: exit(1); break;
         }
     }
     /* print all other parameters */
@@ -493,7 +487,7 @@ int main(int argc, char** argv, char** env){
             }
         }
     }catch (const successException e) {
-        printf("SUCCESS\n");
+        printf("SUCCESS %s\n", name.c_str());
     } catch (const std::exception& e) {
         ++main_time;
         #ifdef TRACE
@@ -502,12 +496,12 @@ int main(int argc, char** argv, char** env){
         #endif
         printf("REF PC=%lx\n", state->last_inst_pc);
         printf("ROB_ID=x%x\n", robIdChecked);
-        printf("FAILURE\n");
+        printf("FAILURE %s\n", name.c_str());
     }
 
-    printf("Commits=%ld\n", commits);
-    printf("Time=%ld\n", main_time);
-    printf("Cycles=%ld\n", main_time/2);
+//    printf("Commits=%ld\n", commits);
+//    printf("Time=%ld\n", main_time);
+//    printf("Cycles=%ld\n", main_time/2);
     #ifdef TRACE
     tfp->flush();
     tfp->close();

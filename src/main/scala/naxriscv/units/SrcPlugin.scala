@@ -120,7 +120,7 @@ class SrcPlugin(euId : String) extends Plugin{
       val rs2Patched =  CombInit(stage(ss.SRC2))
       when(ss.REVERT){ rs2Patched :=  ~ss.SRC2  }
       when(ss.ZERO){ rs2Patched := 0 }
-      ss.ADD_SUB := ss.SRC1 + rs2Patched
+      ss.ADD_SUB := ss.SRC1 + rs2Patched + S(U(ss.REVERT, Global.XLEN bits))
 
       // SLT, SLTU, branches
       ss.LESS := (ss.SRC1.msb === ss.SRC2.msb) ? ss.ADD_SUB.msb | Mux(ss.UNSIGNED, ss.SRC2.msb, ss.SRC1.msb)

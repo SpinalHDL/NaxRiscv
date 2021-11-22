@@ -1,6 +1,6 @@
 package naxriscv.units
 
-import naxriscv.Frontend
+import naxriscv.{Frontend, Global}
 import naxriscv.interfaces._
 import naxriscv.riscv._
 import naxriscv.utilities.Plugin
@@ -20,7 +20,6 @@ object IntAluPlugin extends AreaObject {
  val ALU_CTRL = Stageable(AluCtrlEnum())
 
   val SEL = Stageable(Bool())
-  val TYPE_I = Stageable(Bool())
 }
 
 class IntAluPlugin(euId : String, staticLatency : Boolean = true) extends Plugin with WakeRobService with WakeRegFileService {
@@ -46,16 +45,31 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true) extends Plugin
       if(srcKeys.nonEmpty) src.specify(microOp, srcKeys)
     }
 
+    eu.setDecodingDefault(SEL, False)
     val baseline = eu.DecodeList(SEL -> True)
-    val immediateActions = baseline ++ eu.DecodeList(TYPE_I -> True)
-    val nonImmediateActions = baseline ++ eu.DecodeList(TYPE_I -> False)
 
     import SrcKeys._
-    eu.setDecodingDefault(SEL, False)
-    add(Rvi.ADD,   List(Op.ADD, SRC1.RF, SRC2.RF), nonImmediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
-    add(Rvi.ADDI,  List(Op.ADD, SRC1.RF, SRC2.I ), immediateActions    ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
-    add(Rvi.LUI,   List(Op.SRC1, SRC1.U),          nonImmediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
-    add(Rvi.AUIPC, List(Op.ADD, SRC1.U, SRC2.PC),  nonImmediateActions ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+
+    val ace = AluCtrlEnum
+    val abce = AluBitwiseCtrlEnum
+
+    add(Rvi.ADD , List(Op.ADD   , SRC1.RF, SRC2.RF), baseline ++ eu.DecodeList(ALU_CTRL -> ace.ADD_SUB ))
+    add(Rvi.SUB , List(Op.SUB   , SRC1.RF, SRC2.RF), baseline ++ eu.DecodeList(ALU_CTRL -> ace.ADD_SUB ))
+    add(Rvi.SLT , List(Op.LESS  , SRC1.RF, SRC2.RF), baseline ++ eu.DecodeList(ALU_CTRL -> ace.SLT_SLTU))
+    add(Rvi.SLTU, List(Op.LESS_U, SRC1.RF, SRC2.RF), baseline ++ eu.DecodeList(ALU_CTRL -> ace.SLT_SLTU))
+    add(Rvi.XOR , List(           SRC1.RF, SRC2.RF), baseline ++ eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.XOR ))
+    add(Rvi.OR  , List(           SRC1.RF, SRC2.RF), baseline ++ eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.OR  ))
+    add(Rvi.AND , List(           SRC1.RF, SRC2.RF), baseline ++ eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.AND ))
+
+    add(Rvi.ADDI , List(Op.ADD   , SRC1.RF, SRC2.I), baseline ++ eu.DecodeList(ALU_CTRL -> ace.ADD_SUB ))
+    add(Rvi.SLTI , List(Op.LESS  , SRC1.RF, SRC2.I), baseline ++ eu.DecodeList(ALU_CTRL -> ace.SLT_SLTU))
+    add(Rvi.SLTIU, List(Op.LESS_U, SRC1.RF, SRC2.I), baseline ++ eu.DecodeList(ALU_CTRL -> ace.SLT_SLTU))
+    add(Rvi.XORI , List(           SRC1.RF, SRC2.I), baseline ++ eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.XOR ))
+    add(Rvi.ORI  , List(           SRC1.RF, SRC2.I), baseline ++ eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.OR  ))
+    add(Rvi.ANDI , List(           SRC1.RF, SRC2.I), baseline ++ eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.AND ))
+
+    add(Rvi.LUI,   List(Op.SRC1, SRC1.U)           , baseline ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    add(Rvi.AUIPC, List(Op.ADD, SRC1.U, SRC2.PC)   , baseline ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
   }
 
   val logic = create late new Area{
@@ -66,7 +80,19 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true) extends Plugin
 
       import stage._
       val ss = SrcStageables
-      val result = ss.ADD_SUB
+
+      val bitwise = ALU_BITWISE_CTRL.mux(
+        AluBitwiseCtrlEnum.AND  -> (ss.SRC1 & ss.SRC2),
+        AluBitwiseCtrlEnum.OR   -> (ss.SRC1 | ss.SRC2),
+        AluBitwiseCtrlEnum.XOR  -> (ss.SRC1 ^ ss.SRC2)
+      )
+
+      // mux results
+      val result = ALU_CTRL.mux(
+        AluCtrlEnum.BITWISE  -> bitwise,
+        AluCtrlEnum.SLT_SLTU -> S(U(ss.LESS, Global.XLEN bits)),
+        AluCtrlEnum.ADD_SUB  -> stage(ss.ADD_SUB)
+      )
 
       val wb = eu.newWriteback(IntRegFile, RD, stage, if(staticLatency) 0 else 1)
       wb.valid := SEL

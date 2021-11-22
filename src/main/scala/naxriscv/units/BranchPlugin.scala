@@ -17,10 +17,10 @@ object BranchPlugin extends AreaObject {
   val PC_FALSE = Stageable(Global.PC)
   val PC_BRANCH = Stageable(Global.PC)
   val EQ = Stageable(Bool())
-  object BranchCtrlEnum extends SpinalEnum(binarySequential){
+  val BranchCtrlEnum = new SpinalEnum(binarySequential){
     val INC,B,JAL,JALR = newElement()
   }
-  object BRANCH_CTRL extends Stageable(BranchCtrlEnum())
+  val BRANCH_CTRL = new Stageable(BranchCtrlEnum())
 }
 
 class BranchPlugin(euId : String) extends Plugin {
@@ -50,12 +50,12 @@ class BranchPlugin(euId : String) extends Plugin {
     eu.setDecodingDefault(SEL, False)
 //    add(Rvi.JAL , baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.JAL, ALU_CTRL -> AluCtrlEnum.ADD_SUB))
 //    add(Rvi.JALR, baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.JALR, ALU_CTRL -> AluCtrlEnum.ADD_SUB, RS1_USE -> True))
-    add(Rvi.BEQ , Nil, baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BNE , Nil, baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BLT , List(sk.Op.LESS), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BGE , List(sk.Op.LESS), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BLTU, List(sk.Op.LESS_U), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BGEU, List(sk.Op.LESS_U), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BEQ , List(              sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BNE , List(              sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BLT , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BGE , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BLTU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BGEU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
     val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
   }
 
@@ -72,7 +72,7 @@ class BranchPlugin(euId : String) extends Plugin {
       val src1 = S(eu(IntRegFile, RS1))
       val src2 = S(eu(IntRegFile, RS2))
 
-      EQ := src1 === src2
+      EQ := ss.SRC1 === ss.SRC2
 
       COND := BRANCH_CTRL.mux(
         BranchCtrlEnum.INC  -> False,
