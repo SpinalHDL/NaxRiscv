@@ -49,3 +49,10 @@ cd $NAXRISCV/src/cpp/test/naxriscv
 --fail_symbol fail \
 --timeout 10000 
 ```
+
+# Run all tests
+
+```shell
+cd $NAXRISCV/src/cpp/test/naxriscv
+./test.py
+```

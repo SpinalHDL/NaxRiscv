@@ -77,6 +77,7 @@ class SrcPlugin(euId : String) extends Plugin{
     val src1ToEnum = src1Keys.zipWithIndex.map{case(k,i) => k -> B(i, widthOf(SRC1_CTRL) bits)}.toMap
     val src2ToEnum = src2Keys.zipWithIndex.map{case(k,i) => k -> B(i, widthOf(SRC2_CTRL) bits)}.toMap
 
+    def has(keys : SrcKeys*) = keys.exists(keys.contains)
 
     for((op, keys) <- spec){
 
@@ -113,18 +114,22 @@ class SrcPlugin(euId : String) extends Plugin{
       })
     }
 
-    //TODO remove unused logic
     val addsub = opKeys.nonEmpty generate new Area{
       val stage = eu.getExecute(0)
       import stage._
 
+      val withRevert = has(sk.Op.SUB, sk.Op.LESS, sk.Op.LESS_U)
+      def revertAdd(that : SInt) = if(withRevert) that + S(U(ss.REVERT, Global.XLEN bits)) else that
+
       val rs2Patched =  CombInit(stage(ss.SRC2))
-      when(ss.REVERT){ rs2Patched :=  ~ss.SRC2  }
-      when(ss.ZERO){ rs2Patched := 0 }
-      ss.ADD_SUB := ss.SRC1 + rs2Patched + S(U(ss.REVERT, Global.XLEN bits))
+      if(withRevert) when(ss.REVERT){ rs2Patched :=  ~ss.SRC2  }
+      if(has(sk.Op.SRC1)) when(ss.ZERO){ rs2Patched := 0 }
+      ss.ADD_SUB := revertAdd(ss.SRC1 + rs2Patched)
 
       // SLT, SLTU, branches
-      ss.LESS := (ss.SRC1.msb === ss.SRC2.msb) ? ss.ADD_SUB.msb | Mux(ss.UNSIGNED, ss.SRC2.msb, ss.SRC1.msb)
+      if(has(sk.Op.LESS, sk.Op.LESS_U)) {
+        ss.LESS := (ss.SRC1.msb === ss.SRC2.msb) ? ss.ADD_SUB.msb | Mux(ss.UNSIGNED, ss.SRC2.msb, ss.SRC1.msb)
+      }
     }
     eu.release()
   }
