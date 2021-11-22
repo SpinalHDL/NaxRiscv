@@ -113,6 +113,7 @@ class SrcPlugin(euId : String) extends Plugin{
       })
     }
 
+    //TODO remove unused logic
     val addsub = opKeys.nonEmpty generate new Area{
       val stage = eu.getExecute(0)
       import stage._

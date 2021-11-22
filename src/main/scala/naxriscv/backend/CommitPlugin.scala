@@ -69,10 +69,10 @@ class CommitPlugin extends Plugin with CommitService{
         val rowHit = valid && U(row) === ptr.commitRow.resized
       }
 
-      val age = robId - ptr.free
+      val age = robId - ptr.free.resized
 
       val portsLogic = if(completions.nonEmpty) new Area{
-        val ages = completions.map(c => c.robId - ptr.free)
+        val ages = completions.map(c => c.robId - ptr.free.resized)
         val completionsWithAge = (completions, ages).zipped.map(_.valid -> _)
         val hits = Bits(completions.size bits)
         val fill = for((c, cId) <- completions.zipWithIndex) yield new Area {

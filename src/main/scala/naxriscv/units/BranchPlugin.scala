@@ -18,13 +18,16 @@ object BranchPlugin extends AreaObject {
   val PC_BRANCH = Stageable(Global.PC)
   val EQ = Stageable(Bool())
   val BranchCtrlEnum = new SpinalEnum(binarySequential){
-    val INC,B,JAL,JALR = newElement()
+    val B,JAL,JALR = newElement()
   }
   val BRANCH_CTRL = new Stageable(BranchCtrlEnum())
 }
 
-class BranchPlugin(euId : String) extends Plugin {
+class BranchPlugin(euId : String, staticLatency : Boolean = true) extends Plugin with WakeRobService with WakeRegFileService {
   withPrefix(euId)
+
+  override def wakeRobs = if(!staticLatency) List(logic.process.wake.rob) else Nil
+  override def wakeRegFile = if(!staticLatency) List(logic.process.wake.rf) else Nil
 
   import BranchPlugin._
   val aluStage = 0
@@ -48,14 +51,19 @@ class BranchPlugin(euId : String) extends Plugin {
     val baseline = eu.DecodeList(SEL -> True)
 
     eu.setDecodingDefault(SEL, False)
-//    add(Rvi.JAL , baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.JAL, ALU_CTRL -> AluCtrlEnum.ADD_SUB))
-//    add(Rvi.JALR, baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.JALR, ALU_CTRL -> AluCtrlEnum.ADD_SUB, RS1_USE -> True))
+    add(Rvi.JAL , List(                                    ), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.JAL))
+    add(Rvi.JALR, List(              sk.SRC1.RF            ), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.JALR))
     add(Rvi.BEQ , List(              sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
     add(Rvi.BNE , List(              sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
     add(Rvi.BLT , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
     add(Rvi.BGE , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
     add(Rvi.BLTU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
     add(Rvi.BGEU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
+
+    if(staticLatency) {
+      eu.setStaticWake(Rvi.JAL, aluStage)
+      eu.setStaticWake(Rvi.JALR, aluStage)
+    }
     val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
   }
 
@@ -66,16 +74,16 @@ class BranchPlugin(euId : String) extends Plugin {
     val process = new Area {
       val stage = eu.getExecute(0)
       val ss = SrcStageables
+      val decode = getService[DecoderService]
 
       import stage._
 
-      val src1 = S(eu(IntRegFile, RS1))
-      val src2 = S(eu(IntRegFile, RS2))
+//      val src1 = S(eu(IntRegFile, RS1))
+//      val src2 = S(eu(IntRegFile, RS2))
 
       EQ := ss.SRC1 === ss.SRC2
 
       COND := BRANCH_CTRL.mux(
-        BranchCtrlEnum.INC  -> False,
         BranchCtrlEnum.JAL  -> True,
         BranchCtrlEnum.JALR -> True,
         BranchCtrlEnum.B    -> MICRO_OP(14 downto 12).mux(
@@ -86,11 +94,40 @@ class BranchPlugin(euId : String) extends Plugin {
         )
       )
 
-      PC_TRUE := U(S(Global.PC) + IMM(Frontend.MICRO_OP).b_sext)
-      val slices = Frontend.INSTRUCTION_SLICE_COUNT+1
+      val imm = IMM(Frontend.MICRO_OP)
+      val target_a = BRANCH_CTRL.mux(
+        BranchCtrlEnum.B    -> S(Global.PC),
+        BranchCtrlEnum.JAL  -> S(Global.PC),
+        BranchCtrlEnum.JALR -> stage(ss.SRC1)
+      )
+
+      val target_b = BRANCH_CTRL.mux(
+        BranchCtrlEnum.B    -> imm.b_sext,
+        BranchCtrlEnum.JAL  -> imm.j_sext,
+        BranchCtrlEnum.JALR -> imm.i_sext
+      )
+
+      PC_TRUE := U(target_a + target_b)
+      val slices = Frontend.INSTRUCTION_SLICE_COUNT+^1
       PC_FALSE := Global.PC + (slices << sliceShift)
       PC_BRANCH := NEED_BRANCH ? stage(PC_TRUE) | stage(PC_FALSE)
       NEED_BRANCH := COND //For now, until prediction are implemented
+
+      val wb = eu.newWriteback(IntRegFile, RD, stage, if(staticLatency) 0 else 1)
+      wb.valid := SEL
+      wb.payload := B(PC_FALSE)
+
+      val wake = !staticLatency generate new Area{
+        val fire = isFireing && SEL
+        val rob = Flow(WakeRob())
+        val rf = Flow(WakeRegFile(decode.PHYS_RD, needBypass = false))
+
+        rob.valid := fire
+        rob.robId := ExecutionUnitKeys.ROB_ID
+
+        rf.valid := fire
+        rf.physical := decode.PHYS_RD
+      }
     }
 
     val branch = new Area{

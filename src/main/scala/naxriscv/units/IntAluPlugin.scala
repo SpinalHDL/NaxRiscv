@@ -68,8 +68,8 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true) extends Plugin
     add(Rvi.ORI  , List(           SRC1.RF, SRC2.I), baseline ++ eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.OR  ))
     add(Rvi.ANDI , List(           SRC1.RF, SRC2.I), baseline ++ eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.AND ))
 
-    add(Rvi.LUI,   List(Op.SRC1, SRC1.U)           , baseline ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
-    add(Rvi.AUIPC, List(Op.ADD, SRC1.U, SRC2.PC)   , baseline ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    add(Rvi.LUI,   List(Op.SRC1  , SRC1.U)         , baseline ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    add(Rvi.AUIPC, List(Op.ADD   , SRC1.U, SRC2.PC), baseline ++ eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
   }
 
   val logic = create late new Area{

@@ -10,8 +10,8 @@ LUI    :                   U_IMM
 AUIPC  :             PC  + U_IMM
 
 Branch : RS1 cmp RS2 PC  + B_IMM  PC  + 4
-JAL    :             PC  + J_IMM
-JALR   : RS1 + I_IMM
+JAL    : PC   +  4   PC  + J_IMM  //This should be solved by prediction
+JALR   : PC   +  4   RS1 + I_IMM  PC  + 4
 
 LSU    : RS1 + S_IMM
 LSU    : RS1 + I_IMM
