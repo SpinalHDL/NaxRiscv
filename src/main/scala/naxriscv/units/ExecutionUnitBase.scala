@@ -98,7 +98,7 @@ class ExecutionUnitBase(euId : String,
     }
   }
 
-  val decodingSpecs = mutable.LinkedHashMap[Stageable[_ <: BaseType], DecodingSpec[Stageable[_ <: BaseType]]]()
+  val decodingSpecs = mutable.LinkedHashMap[Stageable[_ <: BaseType], DecodingSpec[_ <: BaseType]]()
   def getDecodingSpec(key : Stageable[_ <: BaseType]) = decodingSpecs.getOrElseUpdate(key, new DecodingSpec(key))
   def setDecodingDefault(key : Stageable[_ <: BaseType], value : BaseType) : Unit = {
     getDecodingSpec(key).setDefault(Masked(value))
@@ -215,7 +215,7 @@ class ExecutionUnitBase(euId : String,
 
       val coverAll = microOps.map(e => Masked(e.key))
       for((key, spec) <- decodingSpecs){
-        key.assignFromBits(spec.build(Frontend.MICRO_OP, coverAll))
+        key.assignFromBits(spec.build(Frontend.MICRO_OP, coverAll).asBits)
       }
     }
 
