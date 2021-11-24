@@ -5,10 +5,11 @@ import spinal.core.{AreaObject, MaskedLiteral, Nameable}
 
 class Resource
 class Arg(mapping : Seq[Any]) extends Resource
+case class RfResource(rf : RegfileSpec, access : RfAccess) extends Resource
+
 class RfAccess extends Nameable
 class RfRead extends RfAccess
 class RfWrite extends RfAccess
-case class RfResource(rf : RegfileSpec, access : RfAccess) extends Resource
 
 object RS1 extends RfRead with AreaObject
 object RS2 extends RfRead with AreaObject

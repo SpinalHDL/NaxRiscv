@@ -10,7 +10,6 @@ import spinal.lib.Flow
 import spinal.lib.pipeline.Stageable
 
 object BranchPlugin extends AreaObject {
-  val SEL = Stageable(Bool())
   val NEED_BRANCH = Stageable(Bool())
   val COND = Stageable(Bool())
   val PC_TRUE = Stageable(Global.PC)
@@ -23,63 +22,37 @@ object BranchPlugin extends AreaObject {
   val BRANCH_CTRL = new Stageable(BranchCtrlEnum())
 }
 
-class BranchPlugin(euId : String, staticLatency : Boolean = true) extends Plugin with WakeRobService with WakeRegFileService {
-  withPrefix(euId)
-
-  override def wakeRobs = if(!staticLatency) List(logic.process.wake.rob) else Nil
-  override def wakeRegFile = if(!staticLatency) List(logic.process.wake.rf) else Nil
-
+class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int = 0, branchAt : Int = 1) extends ExecutionUnitElementSimple(euId, staticLatency)  {
   import BranchPlugin._
-  val aluStage = 0
-  val branchStage = 1
 
 
+  override def writeBackAt = linkAt
+  override def completionAt = branchAt
 
-  val setup = create early new Area{
+  override val setup = create early new Setup{
     val sk = SrcKeys
-    val src = getService[SrcPlugin](euId)
-    val eu = getService[ExecutionUnitBase](euId)
-    eu.retain()
 
-    def add(microOp: MicroOp, srcKeys : List[SrcKeys], decoding : eu.DecodeListType) = {
-      eu.addMicroOp(microOp)
-      eu.setStaticCompletion(microOp, branchStage)
-      eu.addDecoding(microOp, decoding)
-      if(srcKeys.nonEmpty) src.specify(microOp, srcKeys)
-    }
+    add(Rvi.JAL , List(                                    ), List(BRANCH_CTRL -> BranchCtrlEnum.JAL))
+    add(Rvi.JALR, List(              sk.SRC1.RF            ), List(BRANCH_CTRL -> BranchCtrlEnum.JALR))
+    add(Rvi.BEQ , List(              sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BNE , List(              sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BLT , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BGE , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BLTU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BGEU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
 
-    val baseline = eu.DecodeList(SEL -> True)
-
-    eu.setDecodingDefault(SEL, False)
-    add(Rvi.JAL , List(                                    ), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.JAL))
-    add(Rvi.JALR, List(              sk.SRC1.RF            ), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.JALR))
-    add(Rvi.BEQ , List(              sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BNE , List(              sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BLT , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BGE , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BLTU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BGEU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), baseline ++ List(BRANCH_CTRL -> BranchCtrlEnum.B))
-
-    if(staticLatency) {
-      eu.setStaticWake(Rvi.JAL, aluStage)
-      eu.setStaticWake(Rvi.JALR, aluStage)
-    }
     val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
   }
 
-  val logic = create late new Area{
+  override val logic = create late new Logic{
     val sliceShift = if(Frontend.RVC) 1 else 2
 
-    val eu = getService[ExecutionUnitBase](euId)
     val process = new Area {
       val stage = eu.getExecute(0)
       val ss = SrcStageables
       val decode = getService[DecoderService]
 
       import stage._
-
-//      val src1 = S(eu(IntRegFile, RS1))
-//      val src2 = S(eu(IntRegFile, RS2))
 
       EQ := ss.SRC1 === ss.SRC2
 
@@ -113,26 +86,13 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true) extends Plugin
       PC_BRANCH := NEED_BRANCH ? stage(PC_TRUE) | stage(PC_FALSE)
       NEED_BRANCH := COND //For now, until prediction are implemented
 
-      val wb = eu.newWriteback(IntRegFile, RD, stage, if(staticLatency) 0 else 1)
-      wb.valid := SEL
       wb.payload := B(PC_FALSE)
-
-      val wake = !staticLatency generate new Area{
-        val fire = isFireing && SEL
-        val rob = Flow(WakeRob())
-        val rf = Flow(WakeRegFile(decode.PHYS_RD, needBypass = false))
-
-        rob.valid := fire
-        rob.robId := ExecutionUnitKeys.ROB_ID
-
-        rf.valid := fire
-        rf.physical := decode.PHYS_RD
-      }
     }
 
     val branch = new Area{
-      val stage = eu.getExecute(branchStage)
+      val stage = eu.getExecute(branchAt)
       import stage._
+
       setup.reschedule.valid := isFireing && SEL && NEED_BRANCH
       setup.reschedule.robId := ExecutionUnitKeys.ROB_ID
       setup.reschedule.cause := 0
@@ -142,6 +102,5 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true) extends Plugin
       setup.reschedule.trap := PC_BRANCH(0, sliceShift bits) =/= 0
       setup.reschedule.skipCommit := True
     }
-    eu.release()
   }
 }
