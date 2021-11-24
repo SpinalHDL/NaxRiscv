@@ -118,13 +118,20 @@ class SrcPlugin(euId : String) extends Plugin{
       val stage = eu.getExecute(0)
       import stage._
 
-      val withRevert = has(sk.Op.SUB, sk.Op.LESS, sk.Op.LESS_U)
-      def revertAdd(that : SInt) = if(withRevert) that + S(U(ss.REVERT, Global.XLEN bits)) else that
+      val alwaysAdd = !has(sk.Op.SUB, sk.Op.LESS, sk.Op.LESS_U)
+      val alwaysSub = !has(sk.Op.ADD)
+      val withRevert = !alwaysAdd && !alwaysSub
+      def carryIn(that: SInt) =
+        if      (alwaysSub)  that + 1
+        else if (withRevert) that + S(U(ss.REVERT, Global.XLEN bits))
+        else                 that
 
-      val rs2Patched =  CombInit(stage(ss.SRC2))
+      def ifElseMap[T](cond : Boolean)(value : T)(body : T => T) : T = if(cond) value else body(value)
+
+      val rs2Patched =  CombInit(ifElseMap(!alwaysSub)(stage(ss.SRC2))(~_))
       if(withRevert) when(ss.REVERT){ rs2Patched :=  ~ss.SRC2  }
       if(has(sk.Op.SRC1)) when(ss.ZERO){ rs2Patched := 0 }
-      ss.ADD_SUB := revertAdd(ss.SRC1 + rs2Patched)
+      ss.ADD_SUB := carryIn(ss.SRC1 + rs2Patched)
 
       // SLT, SLTU, branches
       if(has(sk.Op.LESS, sk.Op.LESS_U)) {
