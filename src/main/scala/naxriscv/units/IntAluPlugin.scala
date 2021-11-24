@@ -64,7 +64,6 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int
         AluBitwiseCtrlEnum.XOR  -> (ss.SRC1 ^ ss.SRC2)
       )
 
-      // mux results
       val result = ALU_CTRL.mux(
         AluCtrlEnum.BITWISE  -> bitwise,
         AluCtrlEnum.SLT_SLTU -> S(U(ss.LESS, Global.XLEN bits)),

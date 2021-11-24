@@ -34,15 +34,11 @@ class ShiftPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int 
   override val logic = create late new Logic{
     val process = new Area {
       val stage = eu.getExecute(aluStage)
-      val decode = getService[DecoderService]
 
       import stage._
       val ss = SrcStageables
 
       assert(Global.XLEN.get == 32)
-      val sel = ss.SRC2(4 downto 0)
-      val rotate = ss.SRC1.rotateLeft(U(sel))
-
       val amplitude  = ss.SRC2(4 downto 0).asUInt
       val reversed   = Mux[SInt](LEFT, ss.SRC1.reversed, ss.SRC1)
       val shifted = (S((SIGNED & ss.SRC1.msb) ## reversed) >> amplitude).resize(Global.XLEN bits)
