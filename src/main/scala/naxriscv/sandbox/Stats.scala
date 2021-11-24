@@ -1,9 +1,8 @@
-package naxriscv.utilities
+package naxriscv.sandbox
 
 import spinal.core._
 import spinal.lib.blackbox.xilinx.s7.FDRE
 import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
-import naxriscv.sandbox.cam.Integration
 
 import scala.collection.mutable.ArrayBuffer
 
