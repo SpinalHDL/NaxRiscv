@@ -22,7 +22,6 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
   override def wakeRegFile = if(!staticLatency) List(logic.wake.rf) else Nil
 
   class Setup extends Area {
-    val src = getService[SrcPlugin](euId)
     val eu = getService[ExecutionUnitBase](euId)
     eu.retain()
 
@@ -34,7 +33,9 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
         case _ => false
       }) eu.setStaticWake(microOp, writeBackAt)
       eu.addDecoding(microOp, decoding :+ (SEL -> True))
-      if (srcKeys.nonEmpty) src.specify(microOp, srcKeys)
+      if (srcKeys.nonEmpty) {
+        getService[SrcPlugin](euId).specify(microOp, srcKeys)
+      }
     }
 
     eu.setDecodingDefault(SEL, False)
