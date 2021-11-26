@@ -120,6 +120,8 @@ class ExecutionUnitBase(euId : String,
   }
 
   val pipeline = create late new Pipeline{
+    val PC = getService[AddressTranslationService].PC
+
     // Define stages
     val fetch = List.fill(executeStage + 1)(newStage())
     for((m,s) <- (fetch.dropRight(1), fetch.drop(1)).zipped){
@@ -202,7 +204,7 @@ class ExecutionUnitBase(euId : String,
         readAndInsert(decoder.WRITE_RD)
       }
       if(ressources.contains(PC_READ)){
-        readAndInsert(Global.PC)
+        readAndInsert(PC)
       }
       if(ressources.contains(INSTRUCTION_SIZE)){
         readAndInsert(Frontend.INSTRUCTION_SLICE_COUNT)

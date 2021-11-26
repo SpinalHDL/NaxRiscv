@@ -1,7 +1,7 @@
 package naxriscv.units
 
 import naxriscv.{Frontend, Global}
-import naxriscv.interfaces.{MicroOp, RS1, RS2}
+import naxriscv.interfaces.{AddressTranslationService, MicroOp, RS1, RS2}
 import naxriscv.riscv.{IMM, IntRegFile}
 import spinal.core._
 import spinal.lib._
@@ -62,6 +62,7 @@ class SrcPlugin(euId : String) extends Plugin{
   }
 
   val logic = create late new Area{
+    val PC = getService[AddressTranslationService].PC
     val eu = getService[ExecutionUnitBase](euId)
     val ss = SrcStageables
     val sk = SrcKeys
@@ -110,7 +111,7 @@ class SrcPlugin(euId : String) extends Plugin{
         case sk.SRC2.RF => src2ToEnum(sk.SRC2.RF) -> S(stage(eu(IntRegFile, RS2)))
         case sk.SRC2.I  => src2ToEnum(sk.SRC2.I ) -> imm.i_sext
         case sk.SRC2.S  => src2ToEnum(sk.SRC2.S ) -> imm.s_sext
-        case sk.SRC2.PC => src2ToEnum(sk.SRC2.PC) -> S(stage(Global.PC))
+        case sk.SRC2.PC => src2ToEnum(sk.SRC2.PC) -> S(stage(PC))
       })
     }
 

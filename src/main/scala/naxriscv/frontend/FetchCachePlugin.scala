@@ -56,6 +56,7 @@ class FetchCachePlugin(val cacheSize : Int,
   }
 
   val logic = create late new Area{
+    val frontend = getService[FrontendPlugin]
     val cpuWordWidth = FETCH_DATA_WIDTH.get
     val bytePerMemWord = memDataWidth/8
     val bytePerFetchWord = memDataWidth/8
@@ -196,9 +197,9 @@ class FetchCachePlugin(val cacheSize : Int,
         {
           import readStage._
           bank.read.cmd.valid := !isStuck
-          bank.read.cmd.payload := FETCH_PC_VIRTUAL(lineRange.high downto log2Up(bankWidth / 8))
+          bank.read.cmd.payload := frontend.keys.FETCH_PC_VIRTUAL(lineRange.high downto log2Up(bankWidth / 8))
         }
-        {import bankMuxesStage._; BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(FETCH_PC_VIRTUAL(bankWordToCpuWordRange)) }
+        {import bankMuxesStage._; BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(frontend.keys.FETCH_PC_VIRTUAL(bankWordToCpuWordRange)) }
       }
       {import bankMuxStage._;   WORD := MuxOH(WAYS_HITS, BANKS_MUXES) }
 
@@ -207,10 +208,10 @@ class FetchCachePlugin(val cacheSize : Int,
         {
           import readStage._
           way.read.cmd.valid := !isStuck
-          way.read.cmd.payload := FETCH_PC_VIRTUAL(lineRange)
+          way.read.cmd.payload := frontend.keys.FETCH_PC_VIRTUAL(lineRange)
         }
 
-        {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === FETCH_PC_PHYSICAL(tagRange) }
+        {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === frontend.keys.FETCH_PC_PHYSICAL(tagRange) }
       }
 
       {import hitStage._;   WAYS_HIT := B(WAYS_HITS).orR}
@@ -219,12 +220,12 @@ class FetchCachePlugin(val cacheSize : Int,
         import controlStage._
 
         setup.redoJump.valid := False
-        setup.redoJump.pc := FETCH_PC_VIRTUAL
+        setup.redoJump.pc := frontend.keys.FETCH_PC_VIRTUAL
 
         when(isValid) {
           when(!WAYS_HIT) {
             refill.valid := True
-            refill.address := FETCH_PC_PHYSICAL
+            refill.address := frontend.keys.FETCH_PC_PHYSICAL
 
             setup.redoJump.valid := True
             flushIt()

@@ -12,10 +12,7 @@ import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable.ArrayBuffer
 
-case class JumpPayload() extends Bundle {
-  val pc = Global.PC()
-  val branchHistory = Frontend.BRANCH_HISTORY()
-}
+
 
 object JumpService{
   object Priorities{
@@ -25,8 +22,8 @@ object JumpService{
   }
 }
 
-case class JumpCmd() extends Bundle{
-  val pc = Global.PC()
+case class JumpCmd(pcWidth : Int) extends Bundle{
+  val pc = UInt(pcWidth bits)
 }
 trait JumpService extends Service{
   def createJumpInterface(priority : Int = 0) : Flow[JumpCmd] //High priority win
@@ -245,10 +242,10 @@ case class CommitEntry() extends Bundle {
   val context = ???
 }
 
-case class ScheduleCmd(canTrap : Boolean, canJump : Boolean) extends Bundle {
+case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int) extends Bundle {
   val robId    = ROB.ID_TYPE()
   val trap     = (canTrap && canJump) generate Bool()
-  val pcTarget = canJump generate PC()
+  val pcTarget = canJump generate UInt(pcWidth bits)
   val cause    = canTrap generate UInt(Global.TRAP_CAUSE_WIDTH bits)
   val tval     = canTrap generate Bits(Global.XLEN bits)
   val skipCommit = canTrap generate Bool() //when trap is set, should be set for regular exception, but cleared for let's say a ebreak
@@ -318,4 +315,6 @@ trait AddressTranslationService extends Service{
   def virtualWidth : Int
   def physicalWidth : Int
   def newTranslationPort(arg : Any) : AddressTranslationPort
+
+  def PC : Stageable[UInt]
 }

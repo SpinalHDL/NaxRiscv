@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.interfaces.{DecoderService, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, RfRead, RfResource, RobService, SingleDecoding}
+import naxriscv.interfaces.{AddressTranslationService, DecoderService, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, RfRead, RfResource, RobService, SingleDecoding}
 import naxriscv.riscv.Const
 import spinal.lib.pipeline.Connection.DIRECT
 import spinal.lib.pipeline._
@@ -80,6 +80,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
 
   val logic = create late new Area{
     lock.await()
+    val PC = getService[AddressTranslationService].PC
 
     val frontend = getService[FrontendPlugin]
     val rob = getService[RobService]

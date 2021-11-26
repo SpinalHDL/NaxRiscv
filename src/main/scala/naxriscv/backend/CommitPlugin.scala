@@ -2,7 +2,7 @@ package naxriscv.backend
 
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, ROB_ID}
 import naxriscv.{Global, ROB}
-import naxriscv.interfaces.{CommitEvent, CommitFree, CommitService, JumpService, RescheduleEvent, RfAllocationService, RobService, ScheduleCmd}
+import naxriscv.interfaces.{AddressTranslationService, CommitEvent, CommitFree, CommitService, JumpService, RescheduleEvent, RfAllocationService, RobService, ScheduleCmd}
 import naxriscv.utilities.{DocPlugin, Plugin}
 import spinal.core._
 import spinal.lib._
@@ -16,7 +16,7 @@ class CommitPlugin extends Plugin with CommitService{
 //  override def onCommitLine() =  logic.commit.lineEvent
 
   val completions = ArrayBuffer[Flow[ScheduleCmd]]()
-  override def newSchedulePort(canTrap : Boolean, canJump : Boolean) = completions.addRet(Flow(ScheduleCmd(canTrap = canTrap, canJump = canJump)))
+  override def newSchedulePort(canTrap : Boolean, canJump : Boolean) = completions.addRet(Flow(ScheduleCmd(canTrap = canTrap, canJump = canJump, pcWidth = widthOf(getService[AddressTranslationService].PC))))
   override def reschedulingPort() = logic.commit.reschedulePort
   override def freePort() = logic.free.port
 
@@ -29,6 +29,7 @@ class CommitPlugin extends Plugin with CommitService{
 
   val logic = create late new Area {
     val rob = getService[RobService]
+    val PC = getService[AddressTranslationService].PC
 
     val ptr = new Area {
       val alloc, commit, free = Reg(UInt(ROB.ID_WIDTH + 1 bits)) init (0)
@@ -61,7 +62,7 @@ class CommitPlugin extends Plugin with CommitService{
       val trap     = Reg(Bool())
       val skipCommit = Reg(Bool())
       val robId    = Reg(UInt(ROB.ID_WIDTH bits))
-      val pcTarget = Reg(Global.PC)
+      val pcTarget = Reg(PC)
       val cause    = Reg(UInt(Global.TRAP_CAUSE_WIDTH bits))
       val tval     = Reg(Bits(Global.XLEN bits))
       val commit = new Area{

@@ -45,6 +45,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
 
   val logic = create late new Area{
     lock.await()
+    val PC = getService[AddressTranslationService].PC
 
     val rob = getService[RobService]
     val decoder = getService[DecoderService]
@@ -58,7 +59,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
     case class Front() extends Bundle{
       val robId = ROB.ID_TYPE()
       val instruction = Frontend.MICRO_OP()
-      val pc = Global.PC()
+      val pc = PC()
       val rs1 = Bits(Global.XLEN bits)
       val rs2 = Bits(Global.XLEN bits)
     }
@@ -80,7 +81,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
 
       val result = Front()
       result.instruction := rob.readAsyncSingle(Frontend.MICRO_OP, input.robId, sf, so)
-      result.pc :=  rob.readAsyncSingle(Global.PC, input.robId, sf, so)
+      result.pc :=  rob.readAsyncSingle(PC, input.robId, sf, so)
       result.rs1 := setup.rfReadRs1.data
       result.rs2 := setup.rfReadRs2.data
       result.robId := input.robId
@@ -102,7 +103,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
         val value = Bits(32 bits)
         val writeRd = Bool()
         val branch = Bool()
-        val pcTarget = Global.PC()
+        val pcTarget = PC()
       }
 
       val result = Result()
@@ -112,7 +113,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
       result.value.assignDontCare()
 
       result.branch := False
-      result.pcTarget := input.pc + U(imm.b_sext)
+      result.pcTarget := U(S(input.pc) + imm.b_sext)
       when(input.instruction(6)){
         result.branch := input.rs1 === input.rs2
       } elsewhen(input.instruction(5)){

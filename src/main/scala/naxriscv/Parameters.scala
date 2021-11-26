@@ -28,7 +28,6 @@ object Global extends AreaObject {
 //  val pageOffsetWidth = pageOffsetRange.size
 //  val pageNumberWidth = pageNumberRange.size
 
-  val PC = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
 
   val COMMIT_COUNT = ScopeProperty[Int]
 
@@ -63,8 +62,6 @@ object Frontend extends AreaObject {
   val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
 
 
-  val FETCH_PC_PHYSICAL  = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
-  val FETCH_PC_VIRTUAL   = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
 
   val ROB_ID = Stageable(ROB.ID_TYPE)
 }

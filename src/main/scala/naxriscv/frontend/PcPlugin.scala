@@ -3,7 +3,7 @@ package naxriscv.frontend
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib._
-import naxriscv.interfaces.{InitCycles, JumpCmd, JumpService}
+import naxriscv.interfaces.{AddressTranslationService, InitCycles, JumpCmd, JumpService}
 import spinal.lib.pipeline._
 import naxriscv.utilities.Plugin
 import naxriscv._
@@ -17,7 +17,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
   case class JumpInfo(interface :  Flow[JumpCmd], priority : Int)
   val jumpInfos = ArrayBuffer[JumpInfo]()
   override def createJumpInterface(priority : Int = 0): Flow[JumpCmd] = {
-    val interface = Flow(JumpCmd())
+    val interface = Flow(JumpCmd(widthOf(getService[AddressTranslationService].PC)))
     jumpInfos += JumpInfo(interface, priority)
     interface
   }
@@ -28,8 +28,10 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
   }
 
   val logic = create late new Area{
+    val PC = getService[AddressTranslationService].PC
     val stage = setup.pipeline.getStage(0)
-    val pipeline = setup.pipeline.getPipeline()
+    val frontend = getService[FrontendPlugin]
+    val pipeline = frontend.getPipeline()
     import stage._
 
     val sliceRangeLow = if (RVC) 1 else 2
@@ -40,7 +42,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
       val valids = sortedByStage.map(_.interface.valid)
       val cmds = sortedByStage.map(_.interface.payload)
 
-      val pcLoad = Flow(JumpCmd())
+      val pcLoad = Flow(JumpCmd(pcWidth = widthOf(PC)))
       pcLoad.valid := jumpInfos.map(_.interface.valid).orR
       if(valids.nonEmpty) {
         pcLoad.payload := MuxOH(OHMasking.first(valids.asBits), cmds)
@@ -66,7 +68,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
       val corrected = correction || correctionReg
       val pcRegPropagate = False
       val inc = RegInit(False) clearWhen(correction || pcRegPropagate) setWhen(output.fire) clearWhen(!output.valid && output.ready)
-      val pc = pcReg + (inc.asUInt << sliceRange.high+1)
+      val pc = pcReg + (U(inc) << sliceRange.high+1)
 
 
       val flushed = False
@@ -95,7 +97,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
 
     fetchPc.output.ready := stage.isReady
     stage.valid := fetchPc.output.valid
-    stage(FETCH_PC_VIRTUAL) := fetchPc.output.payload
+    stage(frontend.keys.FETCH_PC_VIRTUAL) := fetchPc.output.payload
 
     setup.pipeline.lock.release()
   }

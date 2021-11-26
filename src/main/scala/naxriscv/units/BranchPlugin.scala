@@ -12,9 +12,6 @@ import spinal.lib.pipeline.Stageable
 object BranchPlugin extends AreaObject {
   val NEED_BRANCH = Stageable(Bool())
   val COND = Stageable(Bool())
-  val PC_TRUE = Stageable(Global.PC)
-  val PC_FALSE = Stageable(Global.PC)
-  val PC_BRANCH = Stageable(Global.PC)
   val EQ = Stageable(Bool())
   val BranchCtrlEnum = new SpinalEnum(binarySequential){
     val B,JAL,JALR = newElement()
@@ -45,6 +42,7 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
   }
 
   override val logic = create late new Logic{
+    val PC = getService[AddressTranslationService].PC
     val sliceShift = if(Frontend.RVC) 1 else 2
 
     val process = new Area {
@@ -68,8 +66,8 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
 
       val imm = IMM(Frontend.MICRO_OP)
       val target_a = BRANCH_CTRL.mux(
-        BranchCtrlEnum.B    -> S(Global.PC),
-        BranchCtrlEnum.JAL  -> S(Global.PC),
+        BranchCtrlEnum.B    -> S(stage(PC)),
+        BranchCtrlEnum.JAL  -> S(stage(PC)),
         BranchCtrlEnum.JALR -> stage(ss.SRC1)
       )
 
@@ -79,13 +77,13 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
         BranchCtrlEnum.JALR -> imm.i_sext
       )
 
-      PC_TRUE := U(target_a + target_b)
+      (PC, "TRUE") := U(target_a + target_b)
       val slices = Frontend.INSTRUCTION_SLICE_COUNT+^1
-      PC_FALSE := Global.PC + (slices << sliceShift)
-      PC_BRANCH := NEED_BRANCH ? stage(PC_TRUE) | stage(PC_FALSE)
+      (PC, "FALSE") := PC + (slices << sliceShift)
+      (PC, "BRANCH") := NEED_BRANCH ? stage(PC, "TRUE") | stage(PC, "FALSE")
       NEED_BRANCH := COND //For now, until prediction are implemented
 
-      wb.payload := B(PC_FALSE)
+      wb.payload := B(stage(PC, "FALSE"))
     }
 
     val branch = new Area{
@@ -96,9 +94,9 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
       setup.reschedule.robId := ExecutionUnitKeys.ROB_ID
       setup.reschedule.cause := 0
       setup.reschedule.tval := 0
-      setup.reschedule.pcTarget := PC_BRANCH
+      setup.reschedule.pcTarget := stage(PC, "BRANCH")
 
-      setup.reschedule.trap := PC_BRANCH(0, sliceShift bits) =/= 0
+      setup.reschedule.trap := stage(PC, "BRANCH")(0, sliceShift bits) =/= 0
       setup.reschedule.skipCommit := True
     }
   }

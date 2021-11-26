@@ -1,6 +1,7 @@
 package naxriscv.frontend
 
-import naxriscv.interfaces.CommitService
+import naxriscv.Global
+import naxriscv.interfaces.{AddressTranslationService, CommitService}
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib.pipeline.Connection._
@@ -27,6 +28,13 @@ trait FetchPipelineRequirements{
 
 class FrontendPlugin() extends Plugin {
   val lock = Lock()
+
+  val keys = create early new Area{
+
+    val spec = getService[AddressTranslationService]
+    val FETCH_PC_PHYSICAL  = Stageable(UInt(spec.physicalWidth bits))
+    val FETCH_PC_VIRTUAL   = Stageable(UInt(spec.virtualWidth bits))
+  }.setName("")
 
   val pipeline = create early new Pipeline{
     val stagesCount = framework.getServices.map{

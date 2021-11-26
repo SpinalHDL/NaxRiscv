@@ -9,6 +9,7 @@ import scala.collection.mutable.ArrayBuffer
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
+import naxriscv.interfaces.AddressTranslationService
 import naxriscv.utilities.Plugin
 import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline.{ConnectionLogic, ConnectionPoint, Stageable}
@@ -39,6 +40,7 @@ class AlignerPlugin() extends Plugin{
 
   val MASK = Stageable(Bits(FETCH_DATA_WIDTH/SLICE_WIDTH bits))
   val logic = create late new Area {
+    val PC = getService[AddressTranslationService].PC
     val input = setup.buffer
     val output = setup.frontend.pipeline.aligned
     val frontend = getService[FrontendPlugin]
@@ -51,7 +53,7 @@ class AlignerPlugin() extends Plugin{
     val _ = {
       val maskStage = frontend.getStage(1)
       import maskStage._
-      MASK := (0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(FETCH_PC_VIRTUAL(sliceRange))
+      MASK := (0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(frontend.keys.FETCH_PC_VIRTUAL(sliceRange))
     }
 
     val buffer = new Area {
@@ -104,7 +106,7 @@ class AlignerPlugin() extends Plugin{
       output(INSTRUCTION_SLICE_COUNT, i) := (if(RVC) U(!rvc) else U(0))
 
       val sliceOffset = OHToUInt(maskOh << i)
-      val pcWord = Vec(buffer.pc, output(FETCH_PC_VIRTUAL)).read(U(sliceOffset.msb))
+      val pcWord = Vec(buffer.pc, output(frontend.keys.FETCH_PC_VIRTUAL)).read(U(sliceOffset.msb))
       output(PC, i) := (pcWord >> sliceRange.high+1) @@ U(sliceOffset.dropHigh(1)) @@ U(0, sliceRangeLow bits)
     }
 
@@ -117,7 +119,7 @@ class AlignerPlugin() extends Plugin{
     when(fireInput){
       buffer.mask := fireOutput ? slices.mask(SLICE_COUNT, SLICE_COUNT bits) | MASK
       buffer.data := WORD
-      buffer.pc   := FETCH_PC_VIRTUAL
+      buffer.pc   := frontend.keys.FETCH_PC_VIRTUAL
     }
 //    val fireOutput = CombInit(output.isFireing)
 //    val fireInput = False
