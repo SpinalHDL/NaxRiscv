@@ -98,10 +98,8 @@ class FetchCachePlugin(val cacheSize : Int,
     val WAYS_TAGS = Stageable(Vec.fill(wayCount)(Tag()))
     val WAYS_HITS = Stageable(Vec.fill(wayCount)(Bool()))
     val WAYS_HIT = Stageable(Bool())
-    val WAYS_ERROR = Stageable(Bool())
 
     val BANKS_MUXES = Stageable(Vec.fill(bankCount)(Bits(cpuWordWidth bits)))
-//    val BANKS_MUX = Stageable(Bits(cpuWordWidth bits))
 
 
 
@@ -132,17 +130,6 @@ class FetchCachePlugin(val cacheSize : Int,
         setup.pipeline.getStage(readAt+1)(WAYS_TAGS)(id) := rsp
       }
     }
-
-//    val read = new Area{
-//      val cmd = Flow(UInt(log2Up(memDataPerWay) bits))
-//      val data = Vec.fill(wayCount)(memData())
-//      val tags = Vec.fill(wayCount)(Tag())
-//    }
-//    val ways = for(wayId <- 0 until wayCount) yield new Area{
-//      val data = Mem.fill(memDataPerWay)(memData)
-//      val tags = Mem.fill(linePerWay)(Tag())
-//      read.data(wayId) := data.readSync()
-//    }
 
     val flush = new Area{
       val counter = Reg(UInt(log2Up(linePerWay)+1 bits)) init(0)

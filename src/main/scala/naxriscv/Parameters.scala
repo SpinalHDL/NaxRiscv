@@ -17,6 +17,17 @@ object Global extends AreaObject {
   val PHYSICAL_WIDTH = ScopeProperty[Int]
   def VIRTUAL_WIDTH = PHYSICAL_WIDTH.get //for now
 
+  val PHYSICAL_ADDRESS = Stageable(UInt(PHYSICAL_WIDTH bits))
+  val VIRTUAL_ADDRESS = Stageable(UInt(VIRTUAL_WIDTH bits))
+  val PAGE_OFFSET = Stageable(UInt(12 bits))
+
+//  val wordWidth = Global.XLEN.get
+//  val wordBytes = wordWidth/8
+//  val pageOffsetRange = 11 downto log2Up(wordBytes)
+//  val pageNumberRange = Global.XLEN.get downto 12
+//  val pageOffsetWidth = pageOffsetRange.size
+//  val pageNumberWidth = pageNumberRange.size
+
   val PC = Stageable(UInt(Global.VIRTUAL_WIDTH bits))
 
   val COMMIT_COUNT = ScopeProperty[Int]

@@ -7,7 +7,7 @@ import naxriscv.Global._
 import naxriscv.Frontend._
 import spinal.lib.pipeline._
 import naxriscv.utilities.{AllocatorMultiPortPop, Service}
-import spinal.core.fiber.Lock
+import spinal.core.fiber.{Handle, Lock}
 import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable.ArrayBuffer
@@ -292,4 +292,9 @@ trait WakeRegFileService extends Service{
 
 trait WakeWithBypassService extends Service{
   def wakeRobsWithBypass : Seq[Flow[UInt]]
+}
+
+
+trait AddressTranslationService extends Service{
+  def newTranslationPort() : Any
 }

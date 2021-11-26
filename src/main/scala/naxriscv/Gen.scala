@@ -3,7 +3,7 @@ package naxriscv
 import naxriscv.backend.{CommitPlugin, RegFilePlugin, RobPlugin}
 import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
-import naxriscv.frontend._
+import naxriscv.frontend.{FetchAddressTranslationPlugin, _}
 import naxriscv.units._
 import naxriscv.utilities._
 
@@ -34,7 +34,7 @@ object Config{
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
     plugins += new FrontendPlugin()
-    plugins += new DirectAddressTranslationPlugin()
+    plugins += new FetchAddressTranslationPlugin()
     plugins += new PcPlugin()
     plugins += new FetchCachePlugin(
       cacheSize = 4096,

@@ -69,7 +69,7 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
       val imm = IMM(Frontend.MICRO_OP)
       val target_a = BRANCH_CTRL.mux(
         BranchCtrlEnum.B    -> S(Global.PC),
-        BranchCtrlEnum.JAL  -> S(Global.PC), 
+        BranchCtrlEnum.JAL  -> S(Global.PC),
         BranchCtrlEnum.JALR -> stage(ss.SRC1)
       )
 

@@ -46,14 +46,13 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int
     add(Rvi.ORI  , List(           SRC1.RF, SRC2.I), eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.OR  ))
     add(Rvi.ANDI , List(           SRC1.RF, SRC2.I), eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.AND ))
 
-    add(Rvi.LUI,   List(Op.SRC1  , SRC1.U)         , eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
-    add(Rvi.AUIPC, List(Op.ADD   , SRC1.U, SRC2.PC), eu.DecodeList(ALU_CTRL -> AluCtrlEnum.ADD_SUB))
+    add(Rvi.LUI,   List(Op.SRC1  , SRC1.U)         , eu.DecodeList(ALU_CTRL -> ace.ADD_SUB))
+    add(Rvi.AUIPC, List(Op.ADD   , SRC1.U, SRC2.PC), eu.DecodeList(ALU_CTRL -> ace.ADD_SUB))
   }
 
   override val logic = create late new Logic{
     val process = new Area {
       val stage = eu.getExecute(aluStage)
-      val decode = getService[DecoderService]
 
       import stage._
       val ss = SrcStageables
