@@ -294,7 +294,28 @@ trait WakeWithBypassService extends Service{
   def wakeRobsWithBypass : Seq[Flow[UInt]]
 }
 
+case class AddressTranslationPort(virtualWidth : Int,
+                                  physicalWidth : Int) extends Bundle with IMasterSlave {
+  val cmd = Flow(AddressTranslationCmd(virtualWidth))
+  val rsp = Flow(AddressTranslationRsp(physicalWidth))
+
+  override def asMaster() = {
+    master(cmd)
+    slave(rsp)
+  }
+}
+
+case class AddressTranslationCmd(virtualWidth : Int) extends Bundle{
+  val virtual = SInt(virtualWidth bits)
+}
+
+case class AddressTranslationRsp(physicalWidth : Int) extends Bundle{
+  val physical = SInt(physicalWidth bits)
+  val peripheral = Bool()
+}
 
 trait AddressTranslationService extends Service{
-  def newTranslationPort() : Any
+  def virtualWidth : Int
+  def physicalWidth : Int
+  def newTranslationPort(arg : Any) : AddressTranslationPort
 }

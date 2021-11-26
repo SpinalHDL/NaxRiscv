@@ -4,6 +4,7 @@ import naxriscv.backend.{CommitPlugin, RegFilePlugin, RobPlugin}
 import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
 import naxriscv.frontend.{FetchAddressTranslationPlugin, _}
+import naxriscv.misc.StaticAddressTranslationPlugin
 import naxriscv.units._
 import naxriscv.utilities._
 
@@ -33,6 +34,9 @@ object Config{
   def plugins(): Seq[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
+    plugins += new StaticAddressTranslationPlugin(
+      peripheralRange = _(31 downto 28) === 0x1
+    )
     plugins += new FrontendPlugin()
     plugins += new FetchAddressTranslationPlugin()
     plugins += new PcPlugin()
