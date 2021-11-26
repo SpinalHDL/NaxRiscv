@@ -75,7 +75,11 @@ class LsuQueuePlugin(lqSize: Int,
     val frontend = getService[FrontendPlugin]
     lock.await()
 
+    val lsuAllocationStage = frontend.pipeline.dispatch
 
+    for(slotId <- 0 until Frontend.DISPATCH_COUNT){
+      lsuAllocationStage(keys.LSU_ID, slotId).assignDontCare()
+    }
     val load = new Area{
       val regs = for(i <- 0 until lqSize) yield new Area{
         val id = i
@@ -112,8 +116,8 @@ class LsuQueuePlugin(lqSize: Int,
       }
 
       val ptr = new Area{
-        val alloc, commit, free = Reg(UInt(log2Up(sqSize) + 1 bits)) init (0)
-        def isFull(ptr : UInt) = (ptr ^ free) === sqSize
+        val alloc, commit, free = Reg(UInt(log2Up(lqSize) + 1 bits)) init (0)
+        def isFull(ptr : UInt) = (ptr ^ free) === lqSize
 //        val full = ??? //(alloc ^ free) === sqSize
 //        val empty = alloc === commit
 //        val canFree = free =/= commit
@@ -121,46 +125,44 @@ class LsuQueuePlugin(lqSize: Int,
 
       val frontend = getService[FrontendPlugin]
       val allocate = new Area{
-        val stage = frontend.pipeline.allocated
-        import stage._
+        import lsuAllocationStage._
 
         val full = False
-        stage.haltIt(full)
+        haltIt(full)
 
         var free = CombInit(ptr.free)
         for(slotId <- 0 until Frontend.DISPATCH_COUNT){
+          when(isFireing && (keys.LQ_ALLOC, slotId)){
+            regs.map(_.address.valid).write(free.resized, False)
+          }
+
           when((keys.LQ_ALLOC, slotId)){
             when(ptr.isFull(free)){
               full := True
             }
+            (keys.LSU_ID, slotId) := free.resized
             free \= free + 1
-          }
-
-          (keys.LSU_ID, slotId) := free
-          when(stage.isFireing && (keys.LQ_ALLOC, slotId)){
-            regs.map(_.address.valid).write(free, False)
           }
         }
 
-        when(stage.isFireing){
+        when(isFireing){
           ptr.free := free
         }
 
 
-        def remapped[T <: Data](key : Stageable[T]) : Seq[T] = (0 until Frontend.DISPATCH_COUNT).map(stage(key, _))
+        def remapped[T <: Data](key : Stageable[T]) : Seq[T] = (0 until Frontend.DISPATCH_COUNT).map(lsuAllocationStage(key, _))
         def writeLine[T <: Data](key : Stageable[T]) : Unit = writeLine(key, remapped(key))
         def writeLine[T <: Data](key : Stageable[T], value : Seq[T]) : Unit  = {
           rob.write(
             key = key,
             size = DISPATCH_COUNT,
             value = value,
-            robId = stage(ROB_ID),
-            enable = stage.isFireing
+            robId = ROB_ID,
+            enable = isFireing
           )
         }
         writeLine(keys.LSU_ID)
       }
-
     }
 
 

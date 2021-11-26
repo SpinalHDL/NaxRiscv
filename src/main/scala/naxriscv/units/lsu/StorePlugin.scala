@@ -17,6 +17,7 @@ class StorePlugin(euId : String) extends Plugin{
 
     val port = lsu.newStorePort()
     eu.addRobStageable(lsu.keys.LSU_ID)
+    eu.setDecodingDefault(SEL, False)
 
     def add(microOp: MicroOp, srcKeys: List[SrcKeys], decoding: eu.DecodeListType) = {
       eu.addMicroOp(microOp)
