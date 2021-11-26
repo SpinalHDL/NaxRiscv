@@ -4,11 +4,12 @@ import spinal.lib._
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
+import naxriscv.interfaces.AddressTranslationService
 import naxriscv.utilities._
 import spinal.lib.pipeline.Stageable
 
-case class FetchL1Cmd(p : FetchCachePlugin) extends Bundle{
-  val address = UInt(Global.PHYSICAL_WIDTH bits)
+case class FetchL1Cmd(p : FetchCachePlugin, physicalWidth : Int) extends Bundle{
+  val address = UInt(physicalWidth bits)
 }
 
 case class FetchL1Rsp(p : FetchCachePlugin) extends Bundle{
@@ -16,8 +17,8 @@ case class FetchL1Rsp(p : FetchCachePlugin) extends Bundle{
   val error = Bool()
 }
 
-case class FetchL1Bus(p : FetchCachePlugin) extends Bundle with IMasterSlave {
-  val cmd = Stream(FetchL1Cmd(p))
+case class FetchL1Bus(p : FetchCachePlugin, physicalWidth : Int) extends Bundle with IMasterSlave {
+  val cmd = Stream(FetchL1Cmd(p, physicalWidth))
   val rsp = Flow(FetchL1Rsp(p))
 
   override def asMaster() = {
@@ -39,7 +40,7 @@ class FetchCachePlugin(val cacheSize : Int,
                        val injectionAt : Int = 2) extends Plugin with FetchPipelineRequirements {
   override def stagesCountMin = injectionAt + 1
 
-  val mem = create early master(FetchL1Bus(this))
+  val mem = create early master(FetchL1Bus(this, getService[AddressTranslationService].physicalWidth))
 
   val setup = create early new Area{
     val pipeline = getService[FrontendPlugin]
@@ -57,6 +58,7 @@ class FetchCachePlugin(val cacheSize : Int,
 
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
+    val physicalWidth = getService[AddressTranslationService].physicalWidth
     val cpuWordWidth = FETCH_DATA_WIDTH.get
     val bytePerMemWord = memDataWidth/8
     val bytePerFetchWord = memDataWidth/8
@@ -65,10 +67,10 @@ class FetchCachePlugin(val cacheSize : Int,
     val memDataPerWay = waySize/bytePerMemWord
     val memData = HardType(Bits(memDataWidth bits))
     val memWordPerLine = lineSize/bytePerMemWord
-    val tagWidth = Global.PHYSICAL_WIDTH-log2Up(waySize)
+    val tagWidth = physicalWidth-log2Up(waySize)
 
 
-    val tagRange = Global.PHYSICAL_WIDTH-1 downto log2Up(linePerWay*lineSize)
+    val tagRange = physicalWidth-1 downto log2Up(linePerWay*lineSize)
     val lineRange = tagRange.low-1 downto log2Up(lineSize)
 
     val bankCount = wayCount
@@ -152,7 +154,7 @@ class FetchCachePlugin(val cacheSize : Int,
     val refill = new Area {
       val fire = False
       val valid = RegInit(False) clearWhen (fire)
-      val address = KeepAttribute(Reg(UInt(Global.VIRTUAL_WIDTH bits)))
+      val address = KeepAttribute(Reg(UInt(physicalWidth bits)))
       val hadError = RegInit(False) clearWhen (fire)
 
       val cmdSent = RegInit(False) setWhen (mem.cmd.fire) clearWhen (fire)

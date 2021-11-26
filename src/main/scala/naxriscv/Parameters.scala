@@ -14,12 +14,12 @@ object ROB extends AreaObject{
 }
 
 object Global extends AreaObject {
-  val PHYSICAL_WIDTH = ScopeProperty[Int]
-  def VIRTUAL_WIDTH = PHYSICAL_WIDTH.get //for now
+//  val PHYSICAL_WIDTH = ScopeProperty[Int]
+//  def VIRTUAL_WIDTH = PHYSICAL_WIDTH.get //for now
 
-  val PHYSICAL_ADDRESS = Stageable(UInt(PHYSICAL_WIDTH bits))
-  val VIRTUAL_ADDRESS = Stageable(UInt(VIRTUAL_WIDTH bits))
-  val PAGE_OFFSET = Stageable(UInt(12 bits))
+//  val PHYSICAL_ADDRESS = Stageable(UInt(PHYSICAL_WIDTH bits))
+//  val VIRTUAL_ADDRESS = Stageable(UInt(VIRTUAL_WIDTH bits))
+//  val PAGE_OFFSET = Stageable(UInt(12 bits))
 
 //  val wordWidth = Global.XLEN.get
 //  val wordBytes = wordWidth/8

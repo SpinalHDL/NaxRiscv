@@ -21,7 +21,7 @@ object Config{
 //    ROB.SIZE.set(64)
 //    Global.XLEN.set(32)
 
-    Global.PHYSICAL_WIDTH.set(32)
+//    Global.PHYSICAL_WIDTH.set(32)
     Frontend.RVC.set(true)
     Frontend.FETCH_DATA_WIDTH.set(32)
     Frontend.INSTRUCTION_WIDTH.set(32)
