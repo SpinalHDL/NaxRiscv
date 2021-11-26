@@ -2,6 +2,7 @@ package naxriscv.units
 
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.interfaces.{MicroOp, _}
+import naxriscv.units.lsu.LsuQueuePlugin
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -37,6 +38,7 @@ class ExecutionUnitBase(euId : String,
 
   val idToexecuteStages = mutable.LinkedHashMap[Int, Stage]()
   val rfStageables = mutable.LinkedHashMap[RfResource, Stageable[Bits]]()
+  val robStageable = mutable.LinkedHashSet[Stageable[_ <: Data]]()
 
   def apply(rf : RegfileSpec, access : RfAccess) = getStageable(rf -> access)
   def apply(r : RfResource) = getStageable(r)
@@ -44,6 +46,8 @@ class ExecutionUnitBase(euId : String,
     rfStageables.getOrElseUpdate(r, Stageable(Bits(r.rf.width bits)).setCompositeName(this, s"${r.rf.getName()}_${r.access.getName()}"))
   }
   def getExecute(id : Int) : Stage = idToexecuteStages.getOrElseUpdate(id, new Stage().setCompositeName(pipeline, s"execute_$id"))
+
+  def addRobStageable(s : Stageable[_ <: Data]) = robStageable += s
 
   case class WriteBackKey(rf : RegfileSpec, access : RfAccess, stage : Stage)
   case class WriteBackSpec(){
@@ -176,6 +180,7 @@ class ExecutionUnitBase(euId : String,
       case r : RfResource if r.access.isInstanceOf[RfWrite] => implementRd = true
       case PC_READ =>
       case INSTRUCTION_SIZE =>
+      case _ =>
     }
 
     // Implement the fetch pipeline
@@ -209,6 +214,12 @@ class ExecutionUnitBase(euId : String,
       if(ressources.contains(INSTRUCTION_SIZE)){
         readAndInsert(Frontend.INSTRUCTION_SLICE_COUNT)
       }
+      for(s <- robStageable){
+        readAndInsert(s)
+      }
+//      if(ressources.contains(SQ) || ressources.contains(LQ)){
+//        readAndInsert(getService[LsuQueuePlugin].keys.LSU_ID)
+//      }
     }
 
     val decoding = new Area{

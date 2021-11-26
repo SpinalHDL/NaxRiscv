@@ -40,6 +40,7 @@ case class EuGroup(eus : Seq[ExecuteUnitService],
 
 trait DecoderService extends Service with LockedService {
   def addEuOp(fu: ExecuteUnitService, microOp : MicroOp) : Unit
+  def addResourceDecoding(resource : Resource, stageable : Stageable[Bool])
 
   def euGroups : Seq[EuGroup]
 

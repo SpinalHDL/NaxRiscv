@@ -1,7 +1,8 @@
 package naxriscv.units.lsu
 
-import naxriscv.interfaces.MicroOp
-import naxriscv.riscv.Rvi
+import naxriscv.Frontend
+import naxriscv.interfaces.{MicroOp, RS2}
+import naxriscv.riscv.{Const, IntRegFile, Rvi}
 import naxriscv.units.{ExecutionUnitBase, SrcKeys, SrcPlugin, SrcStageables}
 import naxriscv.utilities._
 import spinal.core._
@@ -11,7 +12,11 @@ class StorePlugin(euId : String) extends Plugin{
   import LoadPlugin._
   val setup = create early new Area {
     val eu = getService[ExecutionUnitBase](euId)
+    val lsu = getService[LsuQueuePlugin]
     eu.retain()
+
+    val port = lsu.newStorePort()
+    eu.addRobStageable(lsu.keys.LSU_ID)
 
     def add(microOp: MicroOp, srcKeys: List[SrcKeys], decoding: eu.DecodeListType) = {
       eu.addMicroOp(microOp)
@@ -29,11 +34,16 @@ class StorePlugin(euId : String) extends Plugin{
   }
 
   val logic = create late new Area{
+    val lsu = getService[LsuQueuePlugin]
     val eu = setup.eu
-    val addressCalc = new Area {
-      val stage = eu.getExecute(0)
-      SrcStageables.ADD_SUB
-    }
+    val stage = eu.getExecute(0)
+    import stage._
+    val func3 = Frontend.MICRO_OP(Const.funct3Range)
+    setup.port.valid := isFireing && SEL
+    setup.port.address := U(SrcStageables.ADD_SUB)
+    setup.port.data    := eu(IntRegFile, RS2)
+    setup.port.id := lsu.keys.SQ_ID.resized
+    setup.port.size := U(func3(1 downto 0))
     eu.release()
   }
 }

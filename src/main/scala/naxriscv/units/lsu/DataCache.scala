@@ -27,7 +27,7 @@ case class DataLoadPort(virtualWidth : Int,
 
 case class DataLoadCmd(virtualWidth : Int, dataWidth : Int) extends Bundle {
   val virtual = UInt(virtualWidth bits)
-  val size = Bits(log2Up(log2Up(dataWidth/8)) bits)
+  val size = Bits(log2Up(log2Up(dataWidth/8)+1) bits)
 }
 
 case class DataLoadTranslated(physicalWidth : Int) extends Bundle {
@@ -37,6 +37,8 @@ case class DataLoadTranslated(physicalWidth : Int) extends Bundle {
 
 case class DataLoadRsp(dataWidth : Int) extends Bundle {
   val data = Bits(2 bits)
+  val fault = Bool()
+  val miss = Bool()
 }
 
 case class DataStorePort(physicalWidth: Int,

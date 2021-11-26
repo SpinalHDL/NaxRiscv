@@ -356,7 +356,8 @@ int main(int argc, char** argv, char** env){
 
 
 	vluint64_t timeout = -1;
-
+	u32 nop32 = 0x13;
+	u8 *nop = (u8 *)&nop32;
     Elf *elf = NULL;
     string name = "";
     while (1)
@@ -379,8 +380,18 @@ int main(int argc, char** argv, char** env){
                 name = optarg;
             }break;
             case ARG_START_SYMBOL: startPc = elf->getSymbolAddress(optarg); break;
-            case ARG_PASS_SYMBOL: addPcEvent(elf->getSymbolAddress(optarg), [&](RvData pc){ success();}); break;
-            case ARG_FAIL_SYMBOL: addPcEvent(elf->getSymbolAddress(optarg), [&](RvData pc){ failure();}); break;
+            case ARG_PASS_SYMBOL: {
+                u64 addr = elf->getSymbolAddress(optarg);
+                addPcEvent(addr, [&](RvData pc){ success();});
+                wrap.memory.write(addr, 4, nop);
+                soc->memory.write(addr, 4, nop);
+            }break;
+            case ARG_FAIL_SYMBOL:  {
+                u64 addr = elf->getSymbolAddress(optarg);
+                addPcEvent(addr, [&](RvData pc){ failure();});
+                wrap.memory.write(addr, 4, nop);
+                soc->memory.write(addr, 4, nop);
+            }break;
             case ARG_NAME: name = optarg; break;
             case ARG_TIMEOUT: timeout = stoi(optarg); break;
             default: exit(1); break;

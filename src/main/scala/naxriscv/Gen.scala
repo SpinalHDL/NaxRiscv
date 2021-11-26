@@ -6,13 +6,13 @@ import spinal.core._
 import naxriscv.frontend.{FetchAddressTranslationPlugin, _}
 import naxriscv.misc.StaticAddressTranslationPlugin
 import naxriscv.units._
+import naxriscv.units.lsu.{LoadPlugin, LsuQueuePlugin}
 import naxriscv.utilities._
 
 import scala.collection.mutable.ArrayBuffer
 
 object Config{
   def properties() = {
-//    Global.PHYSICAL_WIDTH.set(32)
 //    Frontend.RVC.set(true)
 //    Frontend.FETCH_DATA_WIDTH.set(64)
 //    Frontend.INSTRUCTION_WIDTH.set(32)
@@ -21,7 +21,6 @@ object Config{
 //    ROB.SIZE.set(64)
 //    Global.XLEN.set(32)
 
-//    Global.PHYSICAL_WIDTH.set(32)
     Frontend.RVC.set(true)
     Frontend.FETCH_DATA_WIDTH.set(32)
     Frontend.INSTRUCTION_WIDTH.set(32)
@@ -55,16 +54,23 @@ object Config{
     plugins += new DispatchPlugin(
       slotCount = 32
     )
+
+    plugins += new LsuQueuePlugin(
+      lqSize = 16,
+      sqSize = 8
+    )
+
     plugins += new ExecutionUnitBase("ALU0")
+    plugins += new SrcPlugin("ALU0")
     plugins += new IntAluPlugin("ALU0")
     plugins += new BranchPlugin("ALU0")
-    plugins += new SrcPlugin("ALU0")
     plugins += new ShiftPlugin("ALU0")
+    plugins += new LoadPlugin("ALU0")
 
 //    plugins += new ExecutionUnitBase("ALU1")
+//    plugins += new SrcPlugin("ALU1")
 //    plugins += new IntAluPlugin("ALU1")
 //    plugins += new BranchPlugin("ALU1")
-//    plugins += new SrcPlugin("ALU1")
 //    plugins += new ShiftPlugin("ALU1")
 
 //    plugins += new ExecuteUnit("ALU0")

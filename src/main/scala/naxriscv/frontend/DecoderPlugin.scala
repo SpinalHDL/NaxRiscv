@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.interfaces.{AddressTranslationService, DecoderService, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, RfRead, RfResource, RobService, SingleDecoding}
+import naxriscv.interfaces.{AddressTranslationService, DecoderService, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, Resource, RfRead, RfResource, RobService, SingleDecoding}
 import naxriscv.riscv.Const
 import spinal.lib.pipeline.Connection.DIRECT
 import spinal.lib.pipeline._
@@ -25,7 +25,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
   val euToMicroOps = LinkedHashMap[ExecuteUnitService, ArrayBuffer[MicroOp]]()
   val microOps = LinkedHashSet[MicroOp]()
   val singleDecodings = LinkedHashSet[SingleDecoding]()
-
+  val resourceToStageable = LinkedHashMap[Resource, Stageable[Bool]]()
 
   override def addEuOp(fu: ExecuteUnitService, microOp: MicroOp) = {
     euToMicroOps.getOrElseUpdate(fu, ArrayBuffer[MicroOp]()) += microOp
@@ -35,6 +35,9 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       case _ =>
     }
   }
+
+
+  override def addResourceDecoding(resource: Resource, stageable: Stageable[Bool]) = resourceToStageable(resource) = stageable
 
   def rsToId(id : RfRead) = id match {
     case RS1 => 0
@@ -124,17 +127,19 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       val one = Masked(1,1)
       val zero = Masked(0,1)
       val readRs1, readRs2, writeRd = new DecodingSpec(Bool()).setDefault(zero)
+      val resourceToSpec = resourceToStageable.keys.map(_ -> new DecodingSpec(Bool()).setDefault(zero)).toMap
       for(e <- singleDecodings){
-        val masked = Masked(e.key)
-        all += masked
+        val key = Masked(e.key)
+        all += key
         e.resources.foreach {
           case r: RfResource => r.access match {
-            case RS1 => readRs1.addNeeds(masked, one)
-            case RS2 => readRs2.addNeeds(masked, one)
-            case RD =>  writeRd.addNeeds(masked, one)
+            case RS1 => readRs1.addNeeds(key, one)
+            case RS2 => readRs2.addNeeds(key, one)
+            case RD =>  writeRd.addNeeds(key, one)
           }
           case PC_READ =>
           case INSTRUCTION_SIZE =>
+          case r if resourceToStageable.contains(r) => resourceToSpec(r).addNeeds(key, one)
         }
       }
 
@@ -158,6 +163,10 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       for (group <- euGroups) {
         group.sel := encodings.groups(group).build(INSTRUCTION_DECOMPRESSED, encodings.all)
       }
+      for((r, s) <- resourceToStageable){
+        s := encodings.resourceToSpec(r).build(INSTRUCTION_DECOMPRESSED, encodings.all)
+      }
+
       DISPATCH_MASK := MASK_ALIGNED
 
       MICRO_OP := INSTRUCTION_DECOMPRESSED

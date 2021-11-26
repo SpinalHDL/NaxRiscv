@@ -11,7 +11,7 @@ class StaticAddressTranslationPlugin(peripheralRange : SInt => Bool) extends Plu
   override def physicalWidth = Global.XLEN.get
   override def newTranslationPort(arg: Any) = ???
 
-  override val PC = Stageable(UInt(Global.XLEN.get bits))
+  override val PC = Stageable(UInt(Global.XLEN.get bits)).setName("PC")
 
   val setup = create early new Area{
 
