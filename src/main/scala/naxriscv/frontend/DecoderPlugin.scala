@@ -10,7 +10,7 @@ import spinal.lib.pipeline._
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.Plugin
-import spinal.lib.logic.{Masked, Symplify}
+import spinal.lib.logic.{DecodingSpec, Masked, Symplify}
 import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable
@@ -121,44 +121,42 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
 
     val encodings = new Area{
       val all = LinkedHashSet[Masked]()
-      val readRs1, readRs2, writeRd = LinkedHashSet[Masked]()
+      val one = Masked(1,1)
+      val zero = Masked(0,1)
+      val readRs1, readRs2, writeRd = new DecodingSpec(Bool()).setDefault(zero)
       for(e <- singleDecodings){
         val masked = Masked(e.key)
         all += masked
         e.resources.foreach {
           case r: RfResource => r.access match {
-            case RS1 => readRs1 += masked
-            case RS2 => readRs2 += masked
-            case RD => writeRd += masked
+            case RS1 => readRs1.addNeeds(masked, one)
+            case RS2 => readRs2.addNeeds(masked, one)
+            case RD =>  writeRd.addNeeds(masked, one)
           }
           case PC_READ =>
           case INSTRUCTION_SIZE =>
         }
       }
-      val readRs1N = all -- readRs1
-      val readRs2N = all -- readRs2
-      val writeRdN = all -- writeRd
 
-      val groups, groupsN = LinkedHashMap[EuGroup, LinkedHashSet[Masked]]()
+      val groups = LinkedHashMap[EuGroup, DecodingSpec[Bool]]()
       for(group <- euGroups){
-        val addTo = groups.getOrElseUpdate(group, LinkedHashSet[Masked]())
+        val addTo = groups.getOrElseUpdate(group, new DecodingSpec(Bool()).setDefault(zero))
         for(eu <- group.eus){
           for(enc <- euToMicroOps(eu)) enc match {
-            case sd : SingleDecoding => addTo += Masked(sd.key)
+            case sd : SingleDecoding => addTo.addNeeds(Masked(sd.key), one)
           }
         }
-        groupsN(group) = all -- addTo
       }
     }
 
     for (i <- 0 until Frontend.DECODE_COUNT) {
       implicit val offset = StageableOffset(i)
       val rdZero = INSTRUCTION_DECOMPRESSED(Const.rdRange) === 0
-      setup.keys.READ_RS(0) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs1, encodings.readRs1N)
-      setup.keys.READ_RS(1) := Symplify(INSTRUCTION_DECOMPRESSED, encodings.readRs2, encodings.readRs2N)
-      setup.keys.WRITE_RD   := Symplify(INSTRUCTION_DECOMPRESSED, encodings.writeRd, encodings.writeRdN) && !rdZero
+      setup.keys.READ_RS(0) := encodings.readRs1.build(INSTRUCTION_DECOMPRESSED, encodings.all)
+      setup.keys.READ_RS(1) := encodings.readRs2.build(INSTRUCTION_DECOMPRESSED, encodings.all)
+      setup.keys.WRITE_RD   := encodings.writeRd.build(INSTRUCTION_DECOMPRESSED, encodings.all) && !rdZero
       for (group <- euGroups) {
-        group.sel := Symplify(INSTRUCTION_DECOMPRESSED, encodings.groups(group), encodings.groupsN(group))
+        group.sel := encodings.groups(group).build(INSTRUCTION_DECOMPRESSED, encodings.all)
       }
       DISPATCH_MASK := MASK_ALIGNED
 
