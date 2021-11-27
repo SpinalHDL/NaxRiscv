@@ -12,10 +12,10 @@ case class DataLoadPort(virtualWidth : Int,
                         dataWidth : Int,
                         rspAt : Int,
                         translatedAt : Int) extends Bundle with IMasterSlave {
-  val cmd = Flow(DataLoadCmd(virtualWidth, dataWidth))
+  val cmd = Stream(DataLoadCmd(virtualWidth, dataWidth))
   val translated = DataLoadTranslated(physicalWidth)
   val cancels = Bits(rspAt bits)
-  val rsp = Flow(DataLoadRsp(dataWidth))
+  val rsp = Flow(DataLoadRsp(dataWidth)) //The rsp.valid is fondamentaly necessary, as it has a fixed latency
 
   override def asMaster() = {
     master(cmd)
@@ -27,7 +27,7 @@ case class DataLoadPort(virtualWidth : Int,
 
 case class DataLoadCmd(virtualWidth : Int, dataWidth : Int) extends Bundle {
   val virtual = UInt(virtualWidth bits)
-  val size = Bits(log2Up(log2Up(dataWidth/8)+1) bits)
+  val size = UInt(log2Up(log2Up(dataWidth/8)+1) bits)
 }
 
 case class DataLoadTranslated(physicalWidth : Int) extends Bundle {
@@ -36,7 +36,7 @@ case class DataLoadTranslated(physicalWidth : Int) extends Bundle {
 }
 
 case class DataLoadRsp(dataWidth : Int) extends Bundle {
-  val data = Bits(2 bits)
+  val data = Bits(dataWidth bits)
   val fault = Bool()
   val miss = Bool()
 }

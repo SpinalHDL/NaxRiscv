@@ -23,7 +23,7 @@ class CommitPlugin extends Plugin with CommitService{
   val setup = create early new Area{
     val jump = getService[JumpService].createJumpInterface(JumpService.Priorities.COMMIT) //Flush missing
     val rob = getService[RobService]
-    val robLineMask = rob.robLineValids()
+    val robLineMask = rob.newRobLineValids()
     rob.retain()
   }
 

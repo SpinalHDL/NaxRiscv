@@ -23,8 +23,8 @@ class RobPlugin() extends Plugin with RobService{
 
   val robLineMaskPort = ArrayBuffer[RobLineMask]()
 
-  override def robLineValids() = { val e = RobLineMask(); robLineMaskPort += e; e }
-  override def robCompletion() = { val c = Completion(Flow(RobCompletion())); completions += c; c.bus }
+  override def newRobLineValids() = { val e = RobLineMask(); robLineMaskPort += e; e }
+  override def newRobCompletion() = { val c = Completion(Flow(RobCompletion())); completions += c; c.bus }
 
   case class Write(key: Stageable[Data], size : Int, value: Seq[Data], robId: UInt, enable: Bool)
   case class ReadAsync(key: Stageable[Data], size : Int, robId: UInt, skipFactor: Int, skipOffset: Int, rsp : Vec[Data])

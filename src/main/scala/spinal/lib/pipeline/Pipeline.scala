@@ -12,19 +12,19 @@ class Pipeline extends Area{
     var m, s : Stage = null
     val logics = ArrayBuffer[ConnectionLogic]()
   }
-  val stages = mutable.LinkedHashSet[Stage]()
+  val stagesSet = mutable.LinkedHashSet[Stage]()
   val connections = ArrayBuffer[ConnectionModel]()
   val joins = ArrayBuffer[ConnectionModel]() //Not implemented yet
   val forks = ArrayBuffer[ConnectionModel]() //Not implemented yet
 
   def newStage() : Stage = {
     val s = new Stage
-    stages += s
+    stagesSet += s
     s
   }
 
   def addStage(s : Stage): Stage ={
-    stages += s
+    stagesSet += s
     s
   }
 
@@ -61,12 +61,12 @@ class Pipeline extends Area{
 
   def build(): Unit = {
     implicit def internalsImplicit(stage : Stage) = stage.internals
-    this.stages ++= connections.map(c => List(c.m, c.s)).flatten
+    this.stagesSet ++= connections.map(c => List(c.m, c.s)).flatten
     val stagesWithSink = mutable.LinkedHashSet[Stage]() ++ connections.map(_.m)
-    val connectionsWithoutSinks = stages -- stagesWithSink
+    val connectionsWithoutSinks = stagesSet -- stagesWithSink
     val stageMasters = mutable.LinkedHashMap[Stage, ArrayBuffer[Stage]]()
     val stageDriver = mutable.LinkedHashMap[Stage, Any]()
-    stageMasters ++= stages.map(s => (s -> ArrayBuffer[Stage]()))
+    stageMasters ++= stagesSet.map(s => (s -> ArrayBuffer[Stage]()))
     for(c <- connections){
       stageMasters(c.s) += c.m
       assert(!stageDriver.contains(c.s))
@@ -158,7 +158,7 @@ class Pipeline extends Area{
       }
     }
 
-    for(stage <- stages){
+    for(stage <- stagesSet){
       for(key <- stage.stageableToData.keys){
         for(m <- stageMasters(stage)) {
           propagateData(key, m);
@@ -171,7 +171,7 @@ class Pipeline extends Area{
     }
 
     //Name stuff
-    for(s <- stages){
+    for(s <- stagesSet){
       import s.internals._
       s.internals.output.valid.setCompositeName(s, "valid_output", true)
       if(s.internals.output.ready != null) s.internals.output.ready.setCompositeName(s, "ready_output", true)
@@ -184,7 +184,7 @@ class Pipeline extends Area{
     }
 
     //Internal connections
-    for(s <- stages){
+    for(s <- stagesSet){
       s.output.valid := s.input.valid
       if(s.internals.request.flushRoot.nonEmpty) s.output.valid clearWhen(s.internals.request.flushRoot.orR)
 
@@ -226,7 +226,7 @@ class Pipeline extends Area{
     }
 
     //Name stuff
-    for(stage <- stages){
+    for(stage <- stagesSet){
       for((key, value) <- stage.internals.stageableToData){
         value.setCompositeName(stage, s"${key}")
       }

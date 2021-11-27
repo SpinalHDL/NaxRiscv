@@ -7,8 +7,8 @@ import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
 import scala.collection.mutable.ArrayBuffer
 
 object Stats extends App{
-  val population = 32
-  val spaceSize = 4096*16
+  val population = 16
+  val spaceSize = 4096/4
 //  val population = 23
 //  val spaceSize = 365
 

@@ -23,7 +23,7 @@ class DataCachePlugin(val memDataWidth : Int,
                       val loadBankMuxAt: Int = 2,
                       val loadControlAt: Int = 2,
                       val loadRspAt: Int = 2) extends Plugin with LockedImpl{
-  def loadLatency = loadRspAt
+  def loadRspLatency = loadRspAt
 
   val cpuDataWidth = XLEN.get
   val virtualWidth : Int = ???

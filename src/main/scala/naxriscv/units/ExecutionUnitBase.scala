@@ -262,7 +262,7 @@ class ExecutionUnitBase(euId : String,
 
     val completion = for((stageId, spec) <- stagesCompletions) yield new Area{
       val stage = executeStages(stageId)
-      val port = rob.robCompletion()
+      val port = rob.newRobCompletion()
       port.valid := stage.isFireing && stage(spec.sel)
       port.id := stage(ROB_ID)
     }

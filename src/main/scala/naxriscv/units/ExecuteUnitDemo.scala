@@ -30,7 +30,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
     val rob = getService[RobService]
     val rf = getService[RegfileService]
 
-    val completion = rob.robCompletion()
+    val completion = rob.newRobCompletion()
 
     val rfReadRs1 = rf.newRead(withReady = false)
     val rfReadRs2 = rf.newRead(withReady = false)

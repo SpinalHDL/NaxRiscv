@@ -55,17 +55,17 @@ object Config{
       slotCount = 32
     )
 
-    plugins += new LsuQueuePlugin(
-      lqSize = 16,
-      sqSize = 8
-    )
+//    plugins += new LsuQueuePlugin(
+//      lqSize = 16,
+//      sqSize = 8
+//    )
 
     plugins += new ExecutionUnitBase("ALU0")
     plugins += new SrcPlugin("ALU0")
     plugins += new IntAluPlugin("ALU0")
     plugins += new BranchPlugin("ALU0")
     plugins += new ShiftPlugin("ALU0")
-    plugins += new LoadPlugin("ALU0")
+//    plugins += new LoadPlugin("ALU0")
 
 //    plugins += new ExecutionUnitBase("ALU1")
 //    plugins += new SrcPlugin("ALU1")

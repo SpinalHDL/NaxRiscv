@@ -1,6 +1,6 @@
 package naxriscv.units.lsu
 
-import naxriscv.Frontend
+import naxriscv.{Frontend, ROB}
 import naxriscv.interfaces.{MicroOp, RD, RfResource}
 import naxriscv.riscv.{Const, Rvi}
 import spinal.core._
@@ -50,8 +50,9 @@ class LoadPlugin(euId : String) extends Plugin{
 
     val func3 = Frontend.MICRO_OP(Const.funct3Range)
     setup.port.valid := isFireing && SEL
+    setup.port.robId := ROB.ID_TYPE
+    setup.port.lqId := lsu.keys.LQ_ID.resized
     setup.port.address := U(SrcStageables.ADD_SUB)
-    setup.port.id := lsu.keys.LQ_ID.resized
     setup.port.size := U(func3(1 downto 0))
     setup.port.unsigned := func3(2)
     out(setup.port)
