@@ -1,11 +1,11 @@
 package naxriscv.units.lsu
 
 import naxriscv.{Frontend, ROB}
-import naxriscv.interfaces.{MicroOp, RD, RfResource}
+import naxriscv.interfaces.{DecoderService, MicroOp, RD, RfResource}
 import naxriscv.riscv.{Const, Rvi}
 import spinal.core._
 import spinal.lib._
-import naxriscv.units.{ExecutionUnitBase, SrcKeys, SrcPlugin, SrcStageables}
+import naxriscv.units.{ExecutionUnitBase, ExecutionUnitKeys, SrcKeys, SrcPlugin, SrcStageables}
 import naxriscv.utilities._
 import spinal.lib.pipeline.Stageable
 
@@ -45,17 +45,18 @@ class LoadPlugin(euId : String) extends Plugin{
   val logic = create late new Area{
     val eu = setup.eu
     val lsu = getService[LsuQueuePlugin]
+    val decoder = getService[DecoderService]
     val stage = eu.getExecute(0)
     import stage._
 
     val func3 = Frontend.MICRO_OP(Const.funct3Range)
     setup.port.valid := isFireing && SEL
-    setup.port.robId := ROB.ID_TYPE
+    setup.port.robId := ExecutionUnitKeys.ROB_ID
     setup.port.lqId := lsu.keys.LQ_ID.resized
     setup.port.address := U(SrcStageables.ADD_SUB)
     setup.port.size := U(func3(1 downto 0))
     setup.port.unsigned := func3(2)
-    out(setup.port)
+    setup.port.physicalRd := decoder.PHYS_RD
 
     eu.release()
   }

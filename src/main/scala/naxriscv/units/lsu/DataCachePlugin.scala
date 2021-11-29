@@ -2,7 +2,7 @@ package naxriscv.units.lsu
 
 import naxriscv.Global
 import naxriscv.Global.XLEN
-import naxriscv.interfaces.LockedImpl
+import naxriscv.interfaces.{AddressTranslationService, LockedImpl}
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.{DocPlugin, Plugin}
@@ -26,8 +26,8 @@ class DataCachePlugin(val memDataWidth : Int,
   def loadRspLatency = loadRspAt
 
   val cpuDataWidth = XLEN.get
-  val virtualWidth : Int = ???
-  val physicalWidth : Int = ???
+  def virtualWidth : Int = getService[AddressTranslationService].virtualWidth
+  def physicalWidth : Int = getService[AddressTranslationService].physicalWidth
 
   case class LoadPortSpec(port : DataLoadPort)
   val loadPorts = ArrayBuffer[LoadPortSpec]()
@@ -52,26 +52,33 @@ class DataCachePlugin(val memDataWidth : Int,
     lock.await()
 
 
+    val cache = new DataCache(
+      cacheSize       = cacheSize,
+      wayCount        = wayCount,
+      memDataWidth    = memDataWidth,
+      cpuDataWidth    = cpuDataWidth,
+      virtualWidth    = virtualWidth,
+      physicalWidth   = physicalWidth,
+      lineSize        = lineSize,
+      loadReadAt      = loadReadAt,
+      loadHitsAt      = loadHitsAt,
+      loadHitAt       = loadHitAt,
+      loadBankMuxesAt = loadBankMuxesAt,
+      loadBankMuxAt   = loadBankMuxAt,
+      loadControlAt   = loadControlAt,
+      loadRspAt       = loadRspAt
+    )
 
-    val cache = new Area{
-      val logic = new DataCache(
-        cacheSize       = cacheSize,
-        wayCount        = wayCount,
-        memDataWidth    = memDataWidth,
-        cpuDataWidth    = cpuDataWidth,
-        virtualWidth    = virtualWidth,
-        physicalWidth   = physicalWidth,
-        lineSize        = lineSize,
-        loadReadAt      = loadReadAt,
-        loadHitsAt      = loadHitsAt,
-        loadHitAt       = loadHitAt,
-        loadBankMuxesAt = loadBankMuxesAt,
-        loadBankMuxAt   = loadBankMuxAt,
-        loadControlAt   = loadControlAt,
-        loadRspAt       = loadRspAt
-      )
+
+    val load = new Area{
+      assert(loadPorts.size == 1)//for now, dev
+//        val cmd = loadPorts.head.port.cmd
+      cache.io.load <> loadPorts.head.port
     }
 
+
   }
+
+  val mem = create late logic.cache.io.mem.toIo()
 
 }

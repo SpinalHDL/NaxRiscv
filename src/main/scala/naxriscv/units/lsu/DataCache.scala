@@ -14,7 +14,7 @@ case class DataLoadPort(virtualWidth : Int,
                         translatedAt : Int) extends Bundle with IMasterSlave {
   val cmd = Stream(DataLoadCmd(virtualWidth, dataWidth))
   val translated = DataLoadTranslated(physicalWidth)
-  val cancels = Bits(rspAt bits)
+  val cancels = Bits(rspAt+1 bits)
   val rsp = Flow(DataLoadRsp(dataWidth)) //The rsp.valid is fondamentaly necessary, as it has a fixed latency
 
   override def asMaster() = {
@@ -117,4 +117,6 @@ class DataCache(val cacheSize: Int,
 
   }
   pipeline.build()
+
+  io.flatten.filter(_.isOutput).map(_.assignDontCare())
 }

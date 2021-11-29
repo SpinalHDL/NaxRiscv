@@ -86,8 +86,8 @@ class LsuQueuePlugin(lqSize: Int,
     decoder.retain()
     frontend.retain()
 
-    val cacheLoad = cache.newLoadPort()
     val rfWrite = regfile.newWrite(withReady = false, latency = 1)
+    val cacheLoad = cache.newLoadPort()
     val loadCompletion = rob.newRobCompletion()
     val loadTrap = commit.newSchedulePort(canTrap = true, canJump = false)
 
@@ -103,6 +103,8 @@ class LsuQueuePlugin(lqSize: Int,
     val commit = getService[CommitService]
     lock.await()
 
+    val rescheduling = commit.reschedulingPort
+
     val lsuAllocationStage = frontend.pipeline.dispatch
 
     for(slotId <- 0 until Frontend.DISPATCH_COUNT){
@@ -114,7 +116,7 @@ class LsuQueuePlugin(lqSize: Int,
         val address = new Area {
           val valid = RegInit(False)
           val pageOffset = Reg(UInt(pageOffsetWidth bits))
-          val size = UInt(wordSizeWidth bits)
+          val size = Reg(UInt(wordSizeWidth bits))
         }
         val cacheMiss = RegInit(False)
         val tlbMiss = RegInit(False)
@@ -135,7 +137,7 @@ class LsuQueuePlugin(lqSize: Int,
         }
       }
       val mem = new Area{
-        val address = Mem.fill(lqSize)(UInt(pageNumberWidth bits))
+        val address = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
         val physRd = Mem.fill(lqSize)(decoder.PHYS_RD)
         val robId = Mem.fill(lqSize)(ROB.ID_TYPE)
       }
@@ -171,6 +173,9 @@ class LsuQueuePlugin(lqSize: Int,
         val alloc, commit, free = Reg(UInt(log2Up(lqSize) + 1 bits)) init (0)
         def isFull(ptr : UInt) = (ptr ^ free) === lqSize
         val priority = Reg(Bits(lqSize bits)) //TODO implement me
+        free := 0
+        priority := 0
+        println("Please implement LSUQueuePlugin ptr.priority")
       }
 
       val frontend = getService[FrontendPlugin]
@@ -255,6 +260,10 @@ class LsuQueuePlugin(lqSize: Int,
           keys.VIRTUAL_ADDRESS := cmd.virtual
         }
 
+        val cancels = for((stage, stageId) <- stages.zipWithIndex){
+          setup.cacheLoad.cancels(stageId) := stage.isValid && rescheduling.valid
+        }
+
         val cacheRsp = new Area{
           val stage = stages.last
           import stage._
@@ -282,7 +291,6 @@ class LsuQueuePlugin(lqSize: Int,
           setup.loadTrap.skipCommit := True
           setup.loadTrap.cause.assignDontCare()
 
-          setup.loadTrap
           when(isValid) {
             when(rsp.miss) {
               for(reg <- regs) when(keys.LQ_SEL_OH(reg.id)){
@@ -300,6 +308,7 @@ class LsuQueuePlugin(lqSize: Int,
           }
         }
       }
+      pipeline.build()
     }
 
 
@@ -354,7 +363,6 @@ class LsuQueuePlugin(lqSize: Int,
 
 
 
-    val rescheduling = commit.reschedulingPort
     when(rescheduling.valid){
       load.regs.foreach(_.clear := True)
     }
