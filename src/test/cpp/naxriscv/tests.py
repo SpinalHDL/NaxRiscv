@@ -91,7 +91,7 @@ riscvTestDiv = [
 
 tests = []
 
-for name in riscv_tests:
+for name in riscv_tests + riscvTestMemory:
     tests.append([
         "obj_dir/VNaxRiscv",
         "--load_elf", f"../../../../ext/NaxSoftware/riscv-tests/{name}",

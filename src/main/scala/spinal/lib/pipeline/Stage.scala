@@ -35,6 +35,7 @@ class Stage extends Nameable {
 
     val request = new {
       val halts = ArrayBuffer[Bool]()
+      val throws = ArrayBuffer[Bool]()
       val flush = ArrayBuffer[Bool]()
       val flushRoot = ArrayBuffer[Bool]()
       val flushNext = ArrayBuffer[Bool]()
@@ -63,9 +64,11 @@ class Stage extends Nameable {
   implicit def stageablePiped3[T <: Data](key: Tuple2[Stageable[T], Any]) = Stage.this(key._1, key._2)
   //  implicit def stageablePiped2[T <: Data](stageable: Stageable[T]) = new DataPimper(Stage.this(stageable))
   def haltIt()(implicit loc: Location) : Unit = haltIt(ConditionalContext.isTrue)
+  def throwIt()(implicit loc: Location) : Unit = throwIt(ConditionalContext.isTrue)
   def flushIt() : Unit = flushIt(ConditionalContext.isTrue)
   def flushNext() : Unit = flushNext(ConditionalContext.isTrue)
   def haltIt(cond : Bool)(implicit loc: Location) : Unit = internals.request.halts += nameFromLocation(CombInit(cond), "haltRequest")
+  def throwIt(cond : Bool)(implicit loc: Location) : Unit = internals.request.throws += nameFromLocation(CombInit(cond), "throwRequest")
   def flushIt(cond : Bool, root : Boolean = true) : Unit = {
     internals.request.flush += cond
     if(root) internals.request.flushRoot += cond

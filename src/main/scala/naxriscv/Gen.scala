@@ -6,7 +6,7 @@ import spinal.core._
 import naxriscv.frontend.{FetchAddressTranslationPlugin, _}
 import naxriscv.misc.StaticAddressTranslationPlugin
 import naxriscv.units._
-import naxriscv.units.lsu.{DataCachePlugin, LoadPlugin, LsuQueuePlugin}
+import naxriscv.units.lsu.{DataCachePlugin, LoadPlugin, LsuPlugin}
 import naxriscv.utilities._
 
 import scala.collection.mutable.ArrayBuffer
@@ -55,22 +55,23 @@ object Config{
       slotCount = 32
     )
 
-//    plugins += new LsuQueuePlugin(
-//      lqSize = 16,
-//      sqSize = 8
-//    )
-//    plugins += new DataCachePlugin(
-//      memDataWidth = 32,
-//      cacheSize    = 4096,
-//      wayCount     = 1
-//    )
+    plugins += new LsuPlugin(
+      lqSize = 1,
+      sqSize = 1
+    )
+    plugins += new DataCachePlugin(
+      memDataWidth = 32,
+      cacheSize    = 4096,
+      wayCount     = 1,
+      refillCount = 1
+    )
 
     plugins += new ExecutionUnitBase("ALU0")
     plugins += new SrcPlugin("ALU0")
     plugins += new IntAluPlugin("ALU0")
     plugins += new BranchPlugin("ALU0")
     plugins += new ShiftPlugin("ALU0")
-//    plugins += new LoadPlugin("ALU0")
+    plugins += new LoadPlugin("ALU0")
 
 //    plugins += new ExecutionUnitBase("ALU1")
 //    plugins += new SrcPlugin("ALU1")

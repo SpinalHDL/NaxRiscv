@@ -58,7 +58,7 @@ class FetchCachePlugin(val cacheSize : Int,
 
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
-    val physicalWidth = getService[AddressTranslationService].postWidth
+    val preTranslationWidth = getService[AddressTranslationService].postWidth
     val cpuWordWidth = FETCH_DATA_WIDTH.get
     val bytePerMemWord = memDataWidth/8
     val bytePerFetchWord = memDataWidth/8
@@ -67,10 +67,10 @@ class FetchCachePlugin(val cacheSize : Int,
     val memDataPerWay = waySize/bytePerMemWord
     val memData = HardType(Bits(memDataWidth bits))
     val memWordPerLine = lineSize/bytePerMemWord
-    val tagWidth = physicalWidth-log2Up(waySize)
+    val tagWidth = preTranslationWidth-log2Up(waySize)
 
 
-    val tagRange = physicalWidth-1 downto log2Up(linePerWay*lineSize)
+    val tagRange = preTranslationWidth-1 downto log2Up(linePerWay*lineSize)
     val lineRange = tagRange.low-1 downto log2Up(lineSize)
 
     val bankCount = wayCount
@@ -154,7 +154,7 @@ class FetchCachePlugin(val cacheSize : Int,
     val refill = new Area {
       val fire = False
       val valid = RegInit(False) clearWhen (fire)
-      val address = KeepAttribute(Reg(UInt(physicalWidth bits)))
+      val address = KeepAttribute(Reg(UInt(preTranslationWidth bits)))
       val hadError = RegInit(False) clearWhen (fire)
 
       val cmdSent = RegInit(False) setWhen (mem.cmd.fire) clearWhen (fire)

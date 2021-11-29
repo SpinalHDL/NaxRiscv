@@ -18,7 +18,7 @@ class LoadPlugin(euId : String) extends Plugin{
   import LoadPlugin._
   val setup = create early new Area {
     val eu = getService[ExecutionUnitBase](euId)
-    val lsu = getService[LsuQueuePlugin]
+    val lsu = getService[LsuPlugin]
     eu.retain()
 
     val port = lsu.newLoadPort()
@@ -44,7 +44,7 @@ class LoadPlugin(euId : String) extends Plugin{
 
   val logic = create late new Area{
     val eu = setup.eu
-    val lsu = getService[LsuQueuePlugin]
+    val lsu = getService[LsuPlugin]
     val decoder = getService[DecoderService]
     val stage = eu.getExecute(0)
     import stage._

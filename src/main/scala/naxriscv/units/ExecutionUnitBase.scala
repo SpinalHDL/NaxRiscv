@@ -2,7 +2,7 @@ package naxriscv.units
 
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.interfaces.{MicroOp, _}
-import naxriscv.units.lsu.LsuQueuePlugin
+import naxriscv.units.lsu.LsuPlugin
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -21,7 +21,7 @@ class ExecutionUnitBase(euId : String,
                         contextStage : Int = 0,
                         rfReadStage : Int = 0,
                         decodeStage : Int = 0,
-                        executeStage : Int = 1) extends Plugin with ExecuteUnitService with WakeRegFileService with LockedImpl{
+                        executeStage : Int = 1) extends Plugin with ExecuteUnitService with LockedImpl{
   withPrefix(euId)
 
   override def uniqueIds = List(euId)
@@ -30,7 +30,6 @@ class ExecutionUnitBase(euId : String,
   override def pushPort() = pipeline.push.port
   override def euName() = euId
 
-  override def wakeRegFile = Nil //Seq(logic.wakePort)
   override def staticLatencies() = {
     lock.await()
     staticLatenciesStorage
@@ -43,7 +42,7 @@ class ExecutionUnitBase(euId : String,
   def apply(rf : RegfileSpec, access : RfAccess) = getStageable(rf -> access)
   def apply(r : RfResource) = getStageable(r)
   def getStageable(r : RfResource) : Stageable[Bits] = {
-    rfStageables.getOrElseUpdate(r, Stageable(Bits(r.rf.width bits)).setCompositeName(this, s"${r.rf.getName()}_${r.access.getName()}"))
+    rfStageables.getOrElseUpdate(r, Stageable(Bits(r.rf.width bits)).setName(s"${r.rf.getName()}_${r.access.getName()}"))
   }
   def getExecute(id : Int) : Stage = idToexecuteStages.getOrElseUpdate(id, new Stage().setCompositeName(pipeline, s"execute_$id"))
 
@@ -66,7 +65,7 @@ class ExecutionUnitBase(euId : String,
   val microOps = ArrayBuffer[MicroOp]()
 
   class StageCompletionSpec(stage : Int){
-    val sel = Stageable(Bool).setCompositeName(ExecutionUnitBase.this, s"completion_SEL_E$stage")
+    val sel = Stageable(Bool).setName(s"completion_SEL_E$stage")
     val microOps = ArrayBuffer[MicroOp]()
     setDecodingDefault(sel, False)
   }

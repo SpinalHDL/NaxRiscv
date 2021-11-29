@@ -35,8 +35,8 @@ case class LsuStorePort(sqSize : Int, wordWidth : Int) extends Bundle {
 }
 
 
-class LsuQueuePlugin(lqSize: Int,
-                     sqSize : Int) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService {
+class LsuPlugin(lqSize: Int,
+                sqSize : Int) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService {
 
   val wordWidth = Global.XLEN.get
   val wordBytes = wordWidth/8
@@ -111,30 +111,27 @@ class LsuQueuePlugin(lqSize: Int,
       lsuAllocationStage(keys.LSU_ID, slotId).assignDontCare()
     }
     val load = new Area{
-      val regs = for(i <- 0 until lqSize) yield new Area{
-        val id = i
+      val regs = for(i <- 0 until lqSize) yield RegType(i)
+      case class RegType(id : Int) extends Area{
+        val valid = RegInit(False)
+        val waitOn = new Area{
+          val address     = Reg(Bool())
+          val cacheRsp    = Reg(Bool())
+          val cacheRefill = Reg(Bits(cache.refillCount bits))
+          val cacheRefillAny = Reg(Bool())
+
+          val cacheRefillSet = cacheRefill.getZero
+          val cacheRefillAnySet = False
+
+          cacheRefill := (cacheRefill | cacheRefillSet) & ~cache.refillCompletions
+          cacheRefillAny := (cacheRefillAny | cacheRefillAnySet) & !cache.refillCompletions.orR
+        }
         val address = new Area {
-          val valid = RegInit(False)
           val pageOffset = Reg(UInt(pageOffsetWidth bits))
           val size = Reg(UInt(wordSizeWidth bits))
         }
-        val cacheMiss = RegInit(False)
-        val tlbMiss = RegInit(False)
-        val askCache = RegInit(False)
 
-//        val cacheMiss = new Area{
-//          val valid = Reg(Bool())
-////          val source = Reg(???)
-////          val arg = Reg(???)
-//        }
-
-        val clear = False
-        when(clear){
-          address.valid := False
-          cacheMiss := False
-          tlbMiss := False
-          askCache := False
-        }
+        val ready = valid && !waitOn.address && !waitOn.cacheRsp && waitOn.cacheRefill === 0 && !waitOn.cacheRefillAny
       }
       val mem = new Area{
         val address = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
@@ -161,19 +158,17 @@ class LsuQueuePlugin(lqSize: Int,
           )
 
           for (entry <- regs) when(port.lqId === entry.id) {
-            entry.address.valid := True
+            entry.waitOn.address := False
             entry.address.pageOffset := port.address(pageOffsetRange)
             entry.address.size := port.size
-            entry.askCache := True
           }
         }
       }
 
       val ptr = new Area{
-        val alloc, commit, free = Reg(UInt(log2Up(lqSize) + 1 bits)) init (0)
+        val alloc, free = Reg(UInt(log2Up(lqSize) + 1 bits)) init (0)
         def isFull(ptr : UInt) = (ptr ^ free) === lqSize
         val priority = Reg(Bits(lqSize bits)) //TODO implement me
-        free := 0
         priority := 0
         println("Please implement LSUQueuePlugin ptr.priority")
       }
@@ -187,12 +182,6 @@ class LsuQueuePlugin(lqSize: Int,
 
         var alloc = CombInit(ptr.alloc)
         for(slotId <- 0 until Frontend.DISPATCH_COUNT){
-//          when(isFireing && (keys.LQ_ALLOC, slotId)){
-//            for(reg <- regs) when(alloc.dropHigh(1) === reg.id){
-//              reg.clear := True
-//            }
-//          }
-
           when((keys.LQ_ALLOC, slotId)){
             when(ptr.isFull(alloc)){
               full := True
@@ -204,6 +193,18 @@ class LsuQueuePlugin(lqSize: Int,
 
         when(isFireing){
           ptr.alloc := alloc
+          for(reg <- regs){
+            val hits = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield{
+              (keys.LQ_ALLOC, slotId) && (keys.LSU_ID, slotId).resized === reg.id
+            }
+            when(hits.orR){
+              reg.valid := True
+              reg.waitOn.address := True
+              reg.waitOn.cacheRsp := False
+              reg.waitOn.cacheRefill := 0
+              reg.waitOn.cacheRefillAny := False
+            }
+          }
         }
 
 
@@ -225,14 +226,17 @@ class LsuQueuePlugin(lqSize: Int,
         val stages = Array.fill(cache.loadRspLatency + 1)(newStage())
         connect(stages)(List(M2S()))
 
+        stages.last.flushIt(rescheduling.valid, root = false)
+
+
         val keys = new AreaRoot {
           val LQ_SEL = Stageable(UInt(log2Up(lqSize) bits))
           val LQ_SEL_OH = Stageable(Bits(lqSize bits))
-          val VIRTUAL_ADDRESS = Stageable(UInt(virtualAddressWidth bits))
+          val ADDRESS_PRE_TRANSLATION = Stageable(UInt(virtualAddressWidth bits))
         }
 
         val feed = new Area{
-          val hits = regs.map(_.askCache)
+          val hits = regs.map(_.ready)
           val hit = hits.orR
 
           val slotsValid = B(hits)
@@ -245,8 +249,8 @@ class LsuQueuePlugin(lqSize: Int,
           cmd.valid := hit
           cmd.virtual := mem.address.readAsync(sel)
           cmd.size := regs.map(_.address.size).read(sel)
-          for(reg <- regs) when(selOh(reg.id) && cmd.ready){
-            reg.askCache := False
+          for(reg <- regs) when(selOh(reg.id)){
+            reg.waitOn.cacheRsp := True
           }
 
           val stage = stages.head
@@ -257,7 +261,7 @@ class LsuQueuePlugin(lqSize: Int,
           keys.LQ_SEL_OH := selOh
           decoder.PHYS_RD := mem.physRd.readAsync(sel)
           ROB.ID_TYPE := mem.robId.readAsync(sel)
-          keys.VIRTUAL_ADDRESS := cmd.virtual
+          keys.ADDRESS_PRE_TRANSLATION := cmd.virtual
         }
 
         val cancels = for((stage, stageId) <- stages.zipWithIndex){
@@ -273,6 +277,7 @@ class LsuQueuePlugin(lqSize: Int,
           setup.rfWrite.valid   := False
           setup.rfWrite.address := decoder.PHYS_RD
           setup.rfWrite.data    := rsp.data
+          setup.rfWrite.robId   := ROB.ID_TYPE
 
           setup.loadCompletion.valid := False
           setup.loadCompletion.id := ROB.ID_TYPE
@@ -287,23 +292,29 @@ class LsuQueuePlugin(lqSize: Int,
 
           setup.loadTrap.valid      := False
           setup.loadTrap.robId      := ROB.ID_TYPE
-          setup.loadTrap.tval       := B(keys.VIRTUAL_ADDRESS)
+          setup.loadTrap.tval       := B(keys.ADDRESS_PRE_TRANSLATION)
           setup.loadTrap.skipCommit := True
           setup.loadTrap.cause.assignDontCare()
 
+          def onRegs(body : RegType => Unit) = for(reg <- regs) when(keys.LQ_SEL_OH(reg.id)){ body(reg) }
           when(isValid) {
+            onRegs(_.waitOn.cacheRsp := False)
             when(rsp.miss) {
-              for(reg <- regs) when(keys.LQ_SEL_OH(reg.id)){
-                reg.cacheMiss := True
+              when(rsp.refillSlotFull) {
+                onRegs(_.waitOn.cacheRefillAnySet := True)
+              } otherwise {
+                onRegs(_.waitOn.cacheRefillSet := rsp.refillSlot)
               }
             } elsewhen (rsp.fault) {
               setup.loadTrap.valid := True
               setup.loadTrap.cause := 5
             } otherwise {
+              onRegs(_.valid := False)
               setup.rfWrite.valid := True
               setup.loadCompletion.valid := True
               wakeRob.valid := True
               wakeRf.valid := True
+              ptr.free := ptr.free + 1
             }
           }
         }
@@ -364,7 +375,9 @@ class LsuQueuePlugin(lqSize: Int,
 
 
     when(rescheduling.valid){
-      load.regs.foreach(_.clear := True)
+      load.regs.foreach(_.valid := False)
+      load.ptr.free := 0
+      load.ptr.alloc := 0
     }
     rob.release()
     decoder.release()

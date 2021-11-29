@@ -15,6 +15,7 @@ import scala.collection.mutable.ArrayBuffer
 class DataCachePlugin(val memDataWidth : Int,
                       val cacheSize: Int,
                       val wayCount: Int,
+                      val refillCount : Int,
                       val lineSize: Int = 64,
                       val loadReadAt: Int = 0,
                       val loadHitsAt: Int = 1,
@@ -34,18 +35,23 @@ class DataCachePlugin(val memDataWidth : Int,
   def newLoadPort(): DataLoadPort = {
     loadPorts.addRet(LoadPortSpec(DataLoadPort(
       preTranslationWidth  = preTranslationWidth,
-      physicalWidth = postTranslationWidth,
+      postTranslationWidth = postTranslationWidth,
       dataWidth     = cpuDataWidth,
+      refillCount   = refillCount,
       rspAt         = loadRspAt,
       translatedAt  = loadHitsAt
     ))).port
   }
+
+  def refillCompletions = setup.refillCompletions
 
   val setup = create early new Area{
 
     val doc = getService[DocPlugin]
     doc.property("DATA_MEM_DATA_BITS", memDataWidth)
     doc.property("DATA_LINE_BYTES", lineSize)
+
+    val refillCompletions = Bits(refillCount bits)
   }
 
   val logic = create late new Area{
@@ -57,8 +63,9 @@ class DataCachePlugin(val memDataWidth : Int,
       wayCount        = wayCount,
       memDataWidth    = memDataWidth,
       cpuDataWidth    = cpuDataWidth,
+      refillCount     = refillCount,
       preTranslationWidth    = preTranslationWidth,
-      physicalWidth   = postTranslationWidth,
+      postTranslationWidth   = postTranslationWidth,
       lineSize        = lineSize,
       loadReadAt      = loadReadAt,
       loadHitsAt      = loadHitsAt,
@@ -69,6 +76,7 @@ class DataCachePlugin(val memDataWidth : Int,
       loadRspAt       = loadRspAt
     )
 
+    setup.refillCompletions := cache.io.refillCompletions
 
     val load = new Area{
       assert(loadPorts.size == 1)//for now, dev

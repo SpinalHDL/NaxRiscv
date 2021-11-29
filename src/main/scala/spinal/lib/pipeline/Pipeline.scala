@@ -194,7 +194,13 @@ class Pipeline extends Area{
         case (i, null) => s.input.ready := True
         case (i, o) => s.input.ready := s.output.ready
       }
-
+      if(s.request.throws.nonEmpty){
+        val doThrow = s.request.throws.orR
+        when(doThrow){
+//          s.input.ready := False //Maybe to reconsiderate
+          s.output.valid := False
+        }
+      }
       if(s.request.halts.nonEmpty){
         val doHalt = s.request.halts.orR
         when(doHalt){

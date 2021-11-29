@@ -128,7 +128,7 @@ public:
 
 	virtual void postCycle(){
 		nax->FetchCachePlugin_mem_rsp_valid = 0;
-		if(pendingCount != 0 && (stall || VL_RANDOM_I(7) < 100)){
+		if(pendingCount != 0 && (!stall || VL_RANDOM_I(7) < 100)){
 			nax->FetchCachePlugin_mem_rsp_payload_error = soc->memoryRead(address, FETCH_MEM_DATA_BYTES, (u8*)&nax->FetchCachePlugin_mem_rsp_payload_data);
 			pendingCount-=FETCH_MEM_DATA_BYTES;
 			address = address + FETCH_MEM_DATA_BYTES;
@@ -138,6 +138,62 @@ public:
 	}
 };
 
+
+#define DATA_MEM_DATA_BYTES (DATA_MEM_DATA_BITS/8)
+class DataCachedChannel{
+public:
+    u64 beats;
+    u64 address;
+};
+class DataCached : public SimElement{
+public:
+    vector<DataCachedChannel> channel;
+
+    bool stall;
+
+    VNaxRiscv* nax;
+    Soc *soc;
+
+    DataCached(VNaxRiscv* nax, Soc *soc, bool stall){
+        this->nax = nax;
+        this->soc = soc;
+        this->stall = stall;
+        for(int i = 0;i < 1;i++) {
+            DataCachedChannel ch;
+            ch.beats = 0;
+            channel.push_back(ch);
+        }
+    }
+
+    virtual void onReset(){
+        nax->DataCachePlugin_mem_cmd_ready = 1;
+        nax->DataCachePlugin_mem_rsp_valid = 0;
+    }
+
+    virtual void preCycle(){
+        if (nax->DataCachePlugin_mem_cmd_valid && nax->DataCachePlugin_mem_cmd_ready) {
+            int id = 0;
+            assertEq("CHANNEL BUSY", channel[id].beats, 0);
+            channel[id].beats = DATA_LINE_BYTES/DATA_MEM_DATA_BYTES;
+            channel[id].address = nax->DataCachePlugin_mem_cmd_payload_address;
+        }
+    }
+
+    virtual void postCycle(){
+        nax->DataCachePlugin_mem_rsp_valid = 0;
+        if(!stall || VL_RANDOM_I(7) < 100){
+            int id = 0;
+            auto &ch = channel[id];
+            if(ch.beats != 0){
+                nax->DataCachePlugin_mem_rsp_payload_error = soc->memoryRead(ch.address, DATA_MEM_DATA_BYTES, (u8*)&nax->DataCachePlugin_mem_rsp_payload_data);
+                nax->DataCachePlugin_mem_rsp_valid = 1;
+                ch.address = ch.address + FETCH_MEM_DATA_BYTES;
+                ch.beats -= 1;
+            }
+        }
+        if(stall) nax->DataCachePlugin_mem_cmd_ready = VL_RANDOM_I(7) < 100;
+    }
+};
 
 
 
@@ -317,6 +373,7 @@ int main(int argc, char** argv, char** env){
 
     Verilated::debug(0);
     Verilated::randReset(2);
+    Verilated::randSeed(42);
     Verilated::traceEverOn(true);
     Verilated::commandArgs(argc, argv);
     Verilated::mkdir("logs");
@@ -339,6 +396,7 @@ int main(int argc, char** argv, char** env){
     soc = new Soc();
 	vector<SimElement*> simElements;
     simElements.push_back(new FetchCached(top, soc, true));
+    simElements.push_back(new DataCached(top, soc, true));
     simElements.push_back(&whitebox);
 #ifdef ALLOCATOR_CHECKS
     simElements.push_back(new NaxAllocatorChecker(top->NaxRiscv));

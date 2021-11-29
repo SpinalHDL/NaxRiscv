@@ -129,7 +129,7 @@ class DispatchPlugin(slotCount : Int = 0,
         slot.context.physRd := stage(decoder.PHYS_RD, slotId)
         for(latency <- globalStaticLatencies.latencies){
           val bitId = globalStaticLatencies.toBits(latency)
-          slot.context.staticWake(bitId) := (globalStaticLatencies.latenciesStageable(latency), slotId)
+          slot.context.staticWake(bitId) := (decoder.WRITE_RD, slotId) && (globalStaticLatencies.latenciesStageable(latency), slotId)
         }
       }
     }

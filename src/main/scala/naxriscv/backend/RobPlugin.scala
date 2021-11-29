@@ -75,7 +75,7 @@ class RobPlugin() extends Plugin with RobService{
     val storage = new Area{
       val keys = mutable.LinkedHashSet[Stageable[Data]]()
       keys ++= readAsyncs.map(_.key)
-      val e = for(key <- keys) yield new Area{
+      val e = for(key <- keys; if widthOf(key) != 0) yield new Area{
         if(key.isNamed) this.setPartialName(key.getName())
         val wl = writes.filter(_.key == key)
         val ral = readAsyncs.filter(_.key == key)

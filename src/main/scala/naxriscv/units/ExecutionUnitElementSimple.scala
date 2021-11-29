@@ -11,7 +11,7 @@ import spinal.lib.Flow
 import spinal.lib.pipeline.Stageable
 
 //This is a simple skeleton to ease the implementation of simple ExecutionUnit elements. It assume a single writeback and a single completion
-abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean) extends Plugin with WakeRobService with WakeRegFileService {
+abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean) extends Plugin with WakeRobService with WakeRegFileService { //TODO sharing of non static wakes ?
   withPrefix(euId)
   val SEL = Stageable(Bool())
 

@@ -12,7 +12,7 @@ class StorePlugin(euId : String) extends Plugin{
   import LoadPlugin._
   val setup = create early new Area {
     val eu = getService[ExecutionUnitBase](euId)
-    val lsu = getService[LsuQueuePlugin]
+    val lsu = getService[LsuPlugin]
     eu.retain()
 
     val port = lsu.newStorePort()
@@ -35,7 +35,7 @@ class StorePlugin(euId : String) extends Plugin{
   }
 
   val logic = create late new Area{
-    val lsu = getService[LsuQueuePlugin]
+    val lsu = getService[LsuPlugin]
     val eu = setup.eu
     val stage = eu.getExecute(0)
     import stage._
