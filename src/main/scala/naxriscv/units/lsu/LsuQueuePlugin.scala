@@ -46,7 +46,7 @@ class LsuQueuePlugin(lqSize: Int,
   val pageOffsetWidth = pageOffsetRange.size
   val pageNumberWidth = pageNumberRange.size
 
-  def virtualAddressWidth = getService[AddressTranslationService].virtualWidth
+  def virtualAddressWidth = getService[AddressTranslationService].preWidth
 
   case class StorePortSpec(port : Flow[LsuStorePort])
   val storePorts = ArrayBuffer[StorePortSpec]()

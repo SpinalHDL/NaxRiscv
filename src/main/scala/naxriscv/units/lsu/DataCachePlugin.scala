@@ -26,15 +26,15 @@ class DataCachePlugin(val memDataWidth : Int,
   def loadRspLatency = loadRspAt
 
   val cpuDataWidth = XLEN.get
-  def virtualWidth : Int = getService[AddressTranslationService].virtualWidth
-  def physicalWidth : Int = getService[AddressTranslationService].physicalWidth
+  def preTranslationWidth : Int = getService[AddressTranslationService].preWidth
+  def postTranslationWidth : Int = getService[AddressTranslationService].postWidth
 
   case class LoadPortSpec(port : DataLoadPort)
   val loadPorts = ArrayBuffer[LoadPortSpec]()
   def newLoadPort(): DataLoadPort = {
     loadPorts.addRet(LoadPortSpec(DataLoadPort(
-      virtualWidth  = virtualWidth,
-      physicalWidth = physicalWidth,
+      preTranslationWidth  = preTranslationWidth,
+      physicalWidth = postTranslationWidth,
       dataWidth     = cpuDataWidth,
       rspAt         = loadRspAt,
       translatedAt  = loadHitsAt
@@ -57,8 +57,8 @@ class DataCachePlugin(val memDataWidth : Int,
       wayCount        = wayCount,
       memDataWidth    = memDataWidth,
       cpuDataWidth    = cpuDataWidth,
-      virtualWidth    = virtualWidth,
-      physicalWidth   = physicalWidth,
+      preTranslationWidth    = preTranslationWidth,
+      physicalWidth   = postTranslationWidth,
       lineSize        = lineSize,
       loadReadAt      = loadReadAt,
       loadHitsAt      = loadHitsAt,

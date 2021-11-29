@@ -40,7 +40,7 @@ class FetchCachePlugin(val cacheSize : Int,
                        val injectionAt : Int = 2) extends Plugin with FetchPipelineRequirements {
   override def stagesCountMin = injectionAt + 1
 
-  val mem = create early master(FetchL1Bus(this, getService[AddressTranslationService].physicalWidth))
+  val mem = create early master(FetchL1Bus(this, getService[AddressTranslationService].postWidth))
 
   val setup = create early new Area{
     val pipeline = getService[FrontendPlugin]
@@ -58,7 +58,7 @@ class FetchCachePlugin(val cacheSize : Int,
 
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
-    val physicalWidth = getService[AddressTranslationService].physicalWidth
+    val physicalWidth = getService[AddressTranslationService].postWidth
     val cpuWordWidth = FETCH_DATA_WIDTH.get
     val bytePerMemWord = memDataWidth/8
     val bytePerFetchWord = memDataWidth/8
@@ -199,9 +199,9 @@ class FetchCachePlugin(val cacheSize : Int,
         {
           import readStage._
           bank.read.cmd.valid := !isStuck
-          bank.read.cmd.payload := frontend.keys.FETCH_PC_VIRTUAL(lineRange.high downto log2Up(bankWidth / 8))
+          bank.read.cmd.payload := frontend.keys.FETCH_PC_PRE_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
         }
-        {import bankMuxesStage._; BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(frontend.keys.FETCH_PC_VIRTUAL(bankWordToCpuWordRange)) }
+        {import bankMuxesStage._; BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(frontend.keys.FETCH_PC_PRE_TRANSLATION(bankWordToCpuWordRange)) }
       }
       {import bankMuxStage._;   WORD := MuxOH(WAYS_HITS, BANKS_MUXES) }
 
@@ -210,10 +210,10 @@ class FetchCachePlugin(val cacheSize : Int,
         {
           import readStage._
           way.read.cmd.valid := !isStuck
-          way.read.cmd.payload := frontend.keys.FETCH_PC_VIRTUAL(lineRange)
+          way.read.cmd.payload := frontend.keys.FETCH_PC_PRE_TRANSLATION(lineRange)
         }
 
-        {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === frontend.keys.FETCH_PC_PHYSICAL(tagRange) }
+        {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === frontend.keys.FETCH_PC_POST_TRANSLATION(tagRange) }
       }
 
       {import hitStage._;   WAYS_HIT := B(WAYS_HITS).orR}
@@ -222,12 +222,12 @@ class FetchCachePlugin(val cacheSize : Int,
         import controlStage._
 
         setup.redoJump.valid := False
-        setup.redoJump.pc := frontend.keys.FETCH_PC_VIRTUAL
+        setup.redoJump.pc := frontend.keys.FETCH_PC_PRE_TRANSLATION
 
         when(isValid) {
           when(!WAYS_HIT) {
             refill.valid := True
-            refill.address := frontend.keys.FETCH_PC_PHYSICAL
+            refill.address := frontend.keys.FETCH_PC_POST_TRANSLATION
 
             setup.redoJump.valid := True
             flushIt()

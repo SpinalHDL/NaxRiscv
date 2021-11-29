@@ -7,12 +7,12 @@ import spinal.lib.pipeline.Pipeline
 
 import scala.collection.mutable.ArrayBuffer
 
-case class DataLoadPort(virtualWidth : Int,
+case class DataLoadPort(preTranslationWidth : Int,
                         physicalWidth : Int,
                         dataWidth : Int,
                         rspAt : Int,
                         translatedAt : Int) extends Bundle with IMasterSlave {
-  val cmd = Stream(DataLoadCmd(virtualWidth, dataWidth))
+  val cmd = Stream(DataLoadCmd(preTranslationWidth, dataWidth))
   val translated = DataLoadTranslated(physicalWidth)
   val cancels = Bits(rspAt+1 bits)
   val rsp = Flow(DataLoadRsp(dataWidth)) //The rsp.valid is fondamentaly necessary, as it has a fixed latency
@@ -25,8 +25,8 @@ case class DataLoadPort(virtualWidth : Int,
   }
 }
 
-case class DataLoadCmd(virtualWidth : Int, dataWidth : Int) extends Bundle {
-  val virtual = UInt(virtualWidth bits)
+case class DataLoadCmd(preTranslationWidth : Int, dataWidth : Int) extends Bundle {
+  val virtual = UInt(preTranslationWidth bits)
   val size = UInt(log2Up(log2Up(dataWidth/8)+1) bits)
 }
 
@@ -86,7 +86,7 @@ class DataCache(val cacheSize: Int,
                 val wayCount: Int,
                 val memDataWidth: Int,
                 val cpuDataWidth: Int,
-                val virtualWidth: Int,
+                val preTranslationWidth: Int,
                 val physicalWidth: Int,
                 val lineSize: Int = 64,
                 val loadReadAt: Int = 0,
@@ -98,7 +98,7 @@ class DataCache(val cacheSize: Int,
                 val loadRspAt: Int = 2) extends Component {
   val io = new Bundle {
     val load = slave(DataLoadPort(
-      virtualWidth  = virtualWidth,
+      preTranslationWidth  = preTranslationWidth,
       physicalWidth = physicalWidth,
       dataWidth     = cpuDataWidth,
       rspAt         = loadRspAt,

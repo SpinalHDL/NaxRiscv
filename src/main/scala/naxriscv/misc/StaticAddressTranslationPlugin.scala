@@ -7,8 +7,8 @@ import spinal.core._
 import spinal.lib.pipeline.Stageable
 
 class StaticAddressTranslationPlugin(peripheralRange : SInt => Bool) extends Plugin with AddressTranslationService{
-  override def virtualWidth = Global.XLEN.get
-  override def physicalWidth = Global.XLEN.get
+  override def preWidth = Global.XLEN.get
+  override def postWidth = Global.XLEN.get
   override def newTranslationPort(arg: Any) = ???
 
   override val PC = Stageable(UInt(Global.XLEN.get bits)).setName("PC")

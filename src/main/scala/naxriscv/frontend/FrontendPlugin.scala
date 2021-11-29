@@ -32,8 +32,8 @@ class FrontendPlugin() extends Plugin {
   val keys = create early new Area{
 
     val spec = getService[AddressTranslationService]
-    val FETCH_PC_PHYSICAL  = Stageable(UInt(spec.physicalWidth bits))
-    val FETCH_PC_VIRTUAL   = Stageable(UInt(spec.virtualWidth bits))
+    val FETCH_PC_POST_TRANSLATION   = Stageable(UInt(spec.postWidth bits))
+    val FETCH_PC_PRE_TRANSLATION  = Stageable(UInt(spec.preWidth bits))
   }.setName("")
 
   val pipeline = create early new Pipeline{

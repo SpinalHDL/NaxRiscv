@@ -53,7 +53,7 @@ class AlignerPlugin() extends Plugin{
     val _ = {
       val maskStage = frontend.getStage(1)
       import maskStage._
-      MASK := (0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(frontend.keys.FETCH_PC_VIRTUAL(sliceRange))
+      MASK := (0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(frontend.keys.FETCH_PC_PRE_TRANSLATION(sliceRange))
     }
 
     val buffer = new Area {
@@ -106,7 +106,7 @@ class AlignerPlugin() extends Plugin{
       output(INSTRUCTION_SLICE_COUNT, i) := (if(RVC) U(!rvc) else U(0))
 
       val sliceOffset = OHToUInt(maskOh << i)
-      val pcWord = Vec(buffer.pc, output(frontend.keys.FETCH_PC_VIRTUAL)).read(U(sliceOffset.msb))
+      val pcWord = Vec(buffer.pc, output(frontend.keys.FETCH_PC_PRE_TRANSLATION)).read(U(sliceOffset.msb))
       output(PC, i) := (pcWord >> sliceRange.high+1) @@ U(sliceOffset.dropHigh(1)) @@ U(0, sliceRangeLow bits)
     }
 
@@ -119,7 +119,7 @@ class AlignerPlugin() extends Plugin{
     when(fireInput){
       buffer.mask := fireOutput ? slices.mask(SLICE_COUNT, SLICE_COUNT bits) | MASK
       buffer.data := WORD
-      buffer.pc   := frontend.keys.FETCH_PC_VIRTUAL
+      buffer.pc   := frontend.keys.FETCH_PC_PRE_TRANSLATION
     }
 //    val fireOutput = CombInit(output.isFireing)
 //    val fireInput = False

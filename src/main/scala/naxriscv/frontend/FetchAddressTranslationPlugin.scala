@@ -13,7 +13,7 @@ class FetchAddressTranslationPlugin extends Plugin{
   val logic = create late new Area{
     val stage = setup.frontend.getStage(0)
     val frontend = getService[FrontendPlugin]
-    stage(frontend.keys.FETCH_PC_PHYSICAL) := stage(frontend.keys.FETCH_PC_VIRTUAL)
+    stage(frontend.keys.FETCH_PC_POST_TRANSLATION) := stage(frontend.keys.FETCH_PC_PRE_TRANSLATION)
       setup.frontend.release()
   }
 }

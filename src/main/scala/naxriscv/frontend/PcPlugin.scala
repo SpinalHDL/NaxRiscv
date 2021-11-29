@@ -97,7 +97,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
 
     fetchPc.output.ready := stage.isReady
     stage.valid := fetchPc.output.valid
-    stage(frontend.keys.FETCH_PC_VIRTUAL) := fetchPc.output.payload
+    stage(frontend.keys.FETCH_PC_PRE_TRANSLATION) := fetchPc.output.payload
 
     setup.pipeline.lock.release()
   }
