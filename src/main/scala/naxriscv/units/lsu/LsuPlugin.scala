@@ -195,7 +195,7 @@ class LsuPlugin(lqSize: Int,
           ptr.alloc := alloc
           for(reg <- regs){
             val hits = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield{
-              (keys.LQ_ALLOC, slotId) && (keys.LSU_ID, slotId).resized === reg.id
+              (keys.LQ_ALLOC, slotId) && (keys.LSU_ID, slotId).resize(log2Up(lqSize) bits) === reg.id
             }
             when(hits.orR){
               reg.valid := True
