@@ -56,7 +56,7 @@ object Config{
     )
 
     plugins += new LsuPlugin(
-      lqSize = 4,
+      lqSize = 2,
       sqSize = 1
     )
     plugins += new DataCachePlugin(

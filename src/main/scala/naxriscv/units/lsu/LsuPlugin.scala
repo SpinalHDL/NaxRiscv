@@ -66,13 +66,19 @@ class LsuPlugin(lqSize: Int,
   override def wakeRegFile = List(logic.get.load.pipeline.cacheRsp.wakeRf)
 
 
-  val keys = new Area{
+  val keys = new AreaRoot{
     val SQ_ALLOC = Stageable(Bool())
     val LQ_ALLOC = Stageable(Bool())
     val LSU_ID = Stageable(UInt(log2Up(lqSize max sqSize) bits))
     def LQ_ID = LSU_ID
     def SQ_ID = LSU_ID
-  }.setName("")
+    val SIZE = Stageable(UInt(wordSizeWidth bits))
+    val UNSIGNED = Stageable(Bool)
+    val LQ_SEL = Stageable(UInt(log2Up(lqSize) bits))
+    val LQ_SEL_OH = Stageable(Bits(lqSize bits))
+    val ADDRESS_PRE_TRANSLATION = Stageable(UInt(virtualAddressWidth bits))
+  }
+  import keys._
 
   val setup = create early new Area{
     val rob = getService[RobPlugin]
@@ -91,8 +97,8 @@ class LsuPlugin(lqSize: Int,
     val loadCompletion = rob.newRobCompletion()
     val loadTrap = commit.newSchedulePort(canTrap = true, canJump = false)
 
-    decoder.addResourceDecoding(naxriscv.interfaces.LQ, keys.LQ_ALLOC)
-    decoder.addResourceDecoding(naxriscv.interfaces.SQ, keys.SQ_ALLOC)
+    decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
+    decoder.addResourceDecoding(naxriscv.interfaces.SQ, SQ_ALLOC)
   }
 
   val logic = create late new Area{
@@ -103,12 +109,14 @@ class LsuPlugin(lqSize: Int,
     val commit = getService[CommitService]
     lock.await()
 
+    val cpuWordToRfWordRange = log2Up(cache.memDataWidth/8)-1 downto log2Up(wordBytes)
+
     val rescheduling = commit.reschedulingPort
 
     val lsuAllocationStage = frontend.pipeline.dispatch
 
     for(slotId <- 0 until Frontend.DISPATCH_COUNT){
-      lsuAllocationStage(keys.LSU_ID, slotId).assignDontCare()
+      lsuAllocationStage(LSU_ID, slotId).assignDontCare()
     }
     val load = new Area{
       val regs = for(i <- 0 until lqSize) yield RegType(i)
@@ -128,7 +136,8 @@ class LsuPlugin(lqSize: Int,
         }
         val address = new Area {
           val pageOffset = Reg(UInt(pageOffsetWidth bits))
-          val size = Reg(UInt(wordSizeWidth bits))
+          val size = Reg(SIZE())
+          val unsigned = Reg(UNSIGNED())
         }
 
         val ready = valid && !waitOn.address && !waitOn.cacheRsp && waitOn.cacheRefill === 0 && !waitOn.cacheRefillAny
@@ -161,6 +170,7 @@ class LsuPlugin(lqSize: Int,
             entry.waitOn.address := False
             entry.address.pageOffset := port.address(pageOffsetRange)
             entry.address.size := port.size
+            entry.address.unsigned := port.unsigned
           }
         }
       }
@@ -182,11 +192,11 @@ class LsuPlugin(lqSize: Int,
 
         var alloc = CombInit(ptr.alloc)
         for(slotId <- 0 until Frontend.DISPATCH_COUNT){
-          when((keys.LQ_ALLOC, slotId)){
+          when((LQ_ALLOC, slotId)){
             when(ptr.isFull(alloc)){
               full := True
             }
-            (keys.LSU_ID, slotId) := alloc.resized
+            (LSU_ID, slotId) := alloc.resized
             alloc \= alloc + 1
           }
         }
@@ -195,7 +205,7 @@ class LsuPlugin(lqSize: Int,
           ptr.alloc := alloc
           for(reg <- regs){
             val hits = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield{
-              (keys.LQ_ALLOC, slotId) && (keys.LSU_ID, slotId).resize(log2Up(lqSize) bits) === reg.id
+              (LQ_ALLOC, slotId) && (LSU_ID, slotId).resize(log2Up(lqSize) bits) === reg.id
             }
             when(hits.orR){
               reg.valid := True
@@ -219,7 +229,7 @@ class LsuPlugin(lqSize: Int,
             enable = isFireing
           )
         }
-        writeLine(keys.LSU_ID)
+        writeLine(LSU_ID)
       }
 
       val pipeline = new Pipeline{
@@ -229,13 +239,11 @@ class LsuPlugin(lqSize: Int,
         stages.last.flushIt(rescheduling.valid, root = false)
 
 
-        val keys = new AreaRoot {
-          val LQ_SEL = Stageable(UInt(log2Up(lqSize) bits))
-          val LQ_SEL_OH = Stageable(Bits(lqSize bits))
-          val ADDRESS_PRE_TRANSLATION = Stageable(UInt(virtualAddressWidth bits))
-        }
 
         val feed = new Area{
+          val stage = stages.head
+          import stage._
+
           val hits = regs.map(_.ready)
           val hit = hits.orR
 
@@ -248,20 +256,19 @@ class LsuPlugin(lqSize: Int,
           val cmd = setup.cacheLoad.cmd
           cmd.valid := hit
           cmd.virtual := mem.address.readAsync(sel)
-          cmd.size := regs.map(_.address.size).read(sel)
+          cmd.size := SIZE
           for(reg <- regs) when(selOh(reg.id)){
             reg.waitOn.cacheRsp := True
           }
 
-          val stage = stages.head
-          import stage._
-
           isValid := cmd.fire
-          keys.LQ_SEL := sel
-          keys.LQ_SEL_OH := selOh
+          LQ_SEL := sel
+          LQ_SEL_OH := selOh
           decoder.PHYS_RD := mem.physRd.readAsync(sel)
           ROB.ID_TYPE := mem.robId.readAsync(sel)
-          keys.ADDRESS_PRE_TRANSLATION := cmd.virtual
+          ADDRESS_PRE_TRANSLATION := cmd.virtual
+          SIZE     := regs.map(_.address.size).read(sel)
+          UNSIGNED := regs.map(_.address.unsigned).read(sel)
         }
 
         val cancels = for((stage, stageId) <- stages.zipWithIndex){
@@ -274,9 +281,30 @@ class LsuPlugin(lqSize: Int,
 
           val rsp = setup.cacheLoad.rsp
 
+          val rspSplits = rsp.data.subdivideIn(8 bits)
+          val rspShifted = Bits(wordWidth bits)
+
+          //Generate minimal mux to move from a wide aligned memory read to the register file shifter representation
+          for(i <- 0 until wordBytes){
+            val srcSize = 1 << (log2Up(wordBytes) - log2Up(i+1))
+            val srcZipped = rspSplits.zipWithIndex.filter{case (v, b) => b % (wordBytes/srcSize) == i}
+            val src = srcZipped.map(_._1)
+            val range = cpuWordToRfWordRange.high downto cpuWordToRfWordRange.high+1-log2Up(srcSize)
+            val sel = ADDRESS_PRE_TRANSLATION(range)
+            //        println(s"$i $srcSize $range ${srcZipped.map(_._2).mkString(",")}")
+            rspShifted(i*8, 8 bits) := src.read(sel)
+          }
+
+          assert(Global.XLEN.get == 32)
+          val rspFormated = SIZE.mux(
+            0 -> B((31 downto 8) -> (rspShifted(7) && !UNSIGNED),(7 downto 0) -> rspShifted(7 downto 0)),
+            1 -> B((31 downto 16) -> (rspShifted(15) && !UNSIGNED),(15 downto 0) -> rspShifted(15 downto 0)),
+            default -> rspShifted //W
+          )
+
           setup.rfWrite.valid   := False
           setup.rfWrite.address := decoder.PHYS_RD
-          setup.rfWrite.data    := rsp.data
+          setup.rfWrite.data    := rspFormated
           setup.rfWrite.robId   := ROB.ID_TYPE
 
           setup.loadCompletion.valid := False
@@ -292,11 +320,11 @@ class LsuPlugin(lqSize: Int,
 
           setup.loadTrap.valid      := False
           setup.loadTrap.robId      := ROB.ID_TYPE
-          setup.loadTrap.tval       := B(keys.ADDRESS_PRE_TRANSLATION)
+          setup.loadTrap.tval       := B(ADDRESS_PRE_TRANSLATION)
           setup.loadTrap.skipCommit := True
           setup.loadTrap.cause.assignDontCare()
 
-          def onRegs(body : RegType => Unit) = for(reg <- regs) when(keys.LQ_SEL_OH(reg.id)){ body(reg) }
+          def onRegs(body : RegType => Unit) = for(reg <- regs) when(LQ_SEL_OH(reg.id)){ body(reg) }
           when(isValid) {
             onRegs(_.waitOn.cacheRsp := False)
             when(rsp.miss) {
