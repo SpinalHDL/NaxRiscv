@@ -187,7 +187,7 @@ public:
             if(ch.beats != 0){
                 nax->DataCachePlugin_mem_rsp_payload_error = soc->memoryRead(ch.address, DATA_MEM_DATA_BYTES, (u8*)&nax->DataCachePlugin_mem_rsp_payload_data);
                 nax->DataCachePlugin_mem_rsp_valid = 1;
-                ch.address = ch.address + FETCH_MEM_DATA_BYTES;
+                ch.address = ch.address + DATA_MEM_DATA_BYTES;
                 ch.beats -= 1;
             }
         }

@@ -56,7 +56,7 @@ object Config{
     )
 
     plugins += new LsuPlugin(
-      lqSize = 2,
+      lqSize = 4,
       sqSize = 1
     )
     plugins += new DataCachePlugin(
@@ -78,6 +78,7 @@ object Config{
 //    plugins += new IntAluPlugin("ALU1")
 //    plugins += new BranchPlugin("ALU1")
 //    plugins += new ShiftPlugin("ALU1")
+//    plugins += new LoadPlugin("ALU1")
 
 //    plugins += new ExecuteUnit("ALU0")
 //    plugins += new IntAluPlugin("ALU0")

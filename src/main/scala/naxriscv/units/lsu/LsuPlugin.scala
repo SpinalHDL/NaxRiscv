@@ -1,6 +1,6 @@
 package naxriscv.units.lsu
 
-import naxriscv.Frontend.{DISPATCH_COUNT, ROB_ID}
+import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, ROB_ID}
 import naxriscv.backend.RobPlugin
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.frontend.FrontendPlugin
@@ -114,10 +114,6 @@ class LsuPlugin(lqSize: Int,
     val rescheduling = commit.reschedulingPort
 
     val lsuAllocationStage = frontend.pipeline.dispatch
-
-    for(slotId <- 0 until Frontend.DISPATCH_COUNT){
-      lsuAllocationStage(LSU_ID, slotId).assignDontCare()
-    }
     val load = new Area{
       val regs = for(i <- 0 until lqSize) yield RegType(i)
       case class RegType(id : Int) extends Area{
@@ -178,9 +174,7 @@ class LsuPlugin(lqSize: Int,
       val ptr = new Area{
         val alloc, free = Reg(UInt(log2Up(lqSize) + 1 bits)) init (0)
         def isFull(ptr : UInt) = (ptr ^ free) === lqSize
-        val priority = Reg(Bits(lqSize bits)) //TODO implement me
-        priority := 0
-        println("Please implement LSUQueuePlugin ptr.priority")
+        val priority = Reg(Bits(lqSize-1 bits)) init(0) //TODO check i work properly
       }
 
       val frontend = getService[FrontendPlugin]
@@ -188,15 +182,15 @@ class LsuPlugin(lqSize: Int,
         import lsuAllocationStage._
 
         val full = False
-        haltIt(full)
+        haltIt(isValid && full)
 
         var alloc = CombInit(ptr.alloc)
         for(slotId <- 0 until Frontend.DISPATCH_COUNT){
-          when((LQ_ALLOC, slotId)){
+          (LSU_ID, slotId) := alloc.resized
+          when((DISPATCH_MASK, slotId) && (LQ_ALLOC, slotId)){
             when(ptr.isFull(alloc)){
               full := True
             }
-            (LSU_ID, slotId) := alloc.resized
             alloc \= alloc + 1
           }
         }
@@ -205,7 +199,7 @@ class LsuPlugin(lqSize: Int,
           ptr.alloc := alloc
           for(reg <- regs){
             val hits = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield{
-              (LQ_ALLOC, slotId) && (LSU_ID, slotId).resize(log2Up(lqSize) bits) === reg.id
+              (DISPATCH_MASK, slotId) && (LQ_ALLOC, slotId) && (LSU_ID, slotId).resize(log2Up(lqSize) bits) === reg.id
             }
             when(hits.orR){
               reg.valid := True
@@ -248,9 +242,10 @@ class LsuPlugin(lqSize: Int,
           val hit = hits.orR
 
           val slotsValid = B(hits)
-          val doubleMask = slotsValid ## (slotsValid & ptr.priority)
+          val doubleMask = slotsValid ## (slotsValid.dropLow(1) & ptr.priority)
           val doubleOh = OHMasking.firstV2(doubleMask, firstOrder =  LutInputs.get)
-          val selOh = doubleOh.subdivideIn(2 slices).reduce(_ | _)
+          val (pLow, pHigh) = doubleOh.splitAt(lqSize-1)
+          val selOh = (pHigh << 1) | pLow
           val sel = OHToUInt(selOh)
 
           val cmd = setup.cacheLoad.cmd
@@ -343,6 +338,10 @@ class LsuPlugin(lqSize: Int,
               wakeRob.valid := True
               wakeRf.valid := True
               ptr.free := ptr.free + 1
+              ptr.priority := ptr.priority |<< 1
+              when(ptr.priority === 0){
+                ptr.priority := (default -> true)
+              }
             }
           }
         }
@@ -406,6 +405,7 @@ class LsuPlugin(lqSize: Int,
       load.regs.foreach(_.valid := False)
       load.ptr.free := 0
       load.ptr.alloc := 0
+      load.ptr.priority := 0
     }
     rob.release()
     decoder.release()
