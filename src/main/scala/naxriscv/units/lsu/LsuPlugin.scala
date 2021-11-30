@@ -332,10 +332,6 @@ class LsuPlugin(lqSize: Int,
               setup.loadCompletion.valid := True
               wakeRob.valid := True
               wakeRf.valid := True
-              ptr.priority := ptr.priority |<< 1
-              when(ptr.priority === 0){
-                ptr.priority := (default -> true)
-              }
             }
           }
         }
@@ -347,12 +343,17 @@ class LsuPlugin(lqSize: Int,
         val lqAlloc = rob.readAsync(LQ_ALLOC, Global.COMMIT_COUNT, event.robId)
         val lqCommits = (0 until Global.COMMIT_COUNT).map(slotId => event.mask(slotId) && lqAlloc(slotId))
         var free = CombInit(ptr.free)
+        var priority = CombInit(ptr.priority)
         for(inc <- lqCommits){
-          for(reg <- regs) when(free === reg.id && inc){
+          for(reg <- regs) when(free.resize(log2Up(lqSize)) === reg.id && inc){
             reg.valid := False
+          }
+          when(inc) {
+            priority \= (priority === 0) ? B(widthOf(priority) bits, default -> true).resized | (priority |<< 1)
           }
           free \= free + U(inc)
         }
+        ptr.priority := priority
         ptr.free := free
       }
       pipeline.build()
