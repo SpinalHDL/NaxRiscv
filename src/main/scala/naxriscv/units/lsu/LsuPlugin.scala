@@ -502,10 +502,6 @@ class LsuPlugin(lqSize: Int,
             //TODO implement failures
             onRegs(_.waitOn.commit := True)
             setup.storeCompletion.valid := True
-            ptr.priority := ptr.priority |<< 1
-            when(ptr.priority === 0){
-              ptr.priority := (default -> true)
-            }
           }
         }
 
@@ -518,9 +514,19 @@ class LsuPlugin(lqSize: Int,
         val sqCommits = (0 until Global.COMMIT_COUNT).map(slotId => U(event.mask(slotId) && sqAlloc(slotId)))
         ptr.commitNext := (ptr.commit +: sqCommits).reduce(_ + _)
       }
+
+      val writeback = new Area{
+//TODO ->
+//        ptr.priority := ptr.priority |<< 1
+//        when(ptr.priority === 0){
+//          ptr.priority := (default -> true)
+//        }
+//        ptr.free := ptr.free + 1
+      }
     }
 
 
+    //Store some robId related context for later uses
     def remapped[T <: Data](key : Stageable[T]) : Seq[T] = (0 until Frontend.DISPATCH_COUNT).map(lsuAllocationStage(key, _))
     def writeLine[T <: Data](key : Stageable[T]) : Unit = writeLine(key, remapped(key))
     def writeLine[T <: Data](key : Stageable[T], value : Seq[T]) : Unit  = {
