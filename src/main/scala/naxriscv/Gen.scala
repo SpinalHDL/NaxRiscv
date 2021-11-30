@@ -6,7 +6,7 @@ import spinal.core._
 import naxriscv.frontend.{FetchAddressTranslationPlugin, _}
 import naxriscv.misc.StaticAddressTranslationPlugin
 import naxriscv.units._
-import naxriscv.units.lsu.{DataCachePlugin, LoadPlugin, LsuPlugin}
+import naxriscv.units.lsu.{DataCachePlugin, LoadPlugin, LsuPlugin, StorePlugin}
 import naxriscv.utilities._
 
 import scala.collection.mutable.ArrayBuffer
@@ -72,6 +72,7 @@ object Config{
     plugins += new BranchPlugin("ALU0")
     plugins += new ShiftPlugin("ALU0")
     plugins += new LoadPlugin("ALU0")
+    plugins += new StorePlugin("ALU0")
 
 //    plugins += new ExecutionUnitBase("ALU1")
 //    plugins += new SrcPlugin("ALU1")

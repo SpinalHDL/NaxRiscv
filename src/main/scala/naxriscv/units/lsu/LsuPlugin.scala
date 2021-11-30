@@ -76,6 +76,8 @@ class LsuPlugin(lqSize: Int,
     val UNSIGNED = Stageable(Bool)
     val LQ_SEL = Stageable(UInt(log2Up(lqSize) bits))
     val LQ_SEL_OH = Stageable(Bits(lqSize bits))
+    val SQ_SEL = Stageable(UInt(log2Up(sqSize) bits))
+    val SQ_SEL_OH = Stageable(Bits(sqSize bits))
     val ADDRESS_PRE_TRANSLATION = Stageable(UInt(virtualAddressWidth bits))
   }
   import keys._
@@ -95,7 +97,9 @@ class LsuPlugin(lqSize: Int,
     val rfWrite = regfile.newWrite(withReady = false, latency = 1)
     val cacheLoad = cache.newLoadPort()
     val loadCompletion = rob.newRobCompletion()
+    val storeCompletion = rob.newRobCompletion()
     val loadTrap = commit.newSchedulePort(canTrap = true, canJump = false)
+    val storeTrap = commit.newSchedulePort(canTrap = true, canJump = false)
 
     decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
     decoder.addResourceDecoding(naxriscv.interfaces.SQ, SQ_ALLOC)
@@ -114,6 +118,10 @@ class LsuPlugin(lqSize: Int,
     val rescheduling = commit.reschedulingPort
 
     val lsuAllocationStage = frontend.pipeline.dispatch
+    for(slotId <- 0 until Frontend.DISPATCH_COUNT){
+      lsuAllocationStage(LSU_ID, slotId).assignDontCare()
+    }
+
     val load = new Area{
       val regs = for(i <- 0 until lqSize) yield RegType(i)
       case class RegType(id : Int) extends Area{
@@ -123,6 +131,7 @@ class LsuPlugin(lqSize: Int,
           val cacheRsp    = Reg(Bool())
           val cacheRefill = Reg(Bits(cache.refillCount bits))
           val cacheRefillAny = Reg(Bool())
+          val commit     = Reg(Bool())
 
           val cacheRefillSet = cacheRefill.getZero
           val cacheRefillAnySet = False
@@ -136,7 +145,7 @@ class LsuPlugin(lqSize: Int,
           val unsigned = Reg(UNSIGNED())
         }
 
-        val ready = valid && !waitOn.address && !waitOn.cacheRsp && waitOn.cacheRefill === 0 && !waitOn.cacheRefillAny
+        val ready = valid && !waitOn.address && !waitOn.cacheRsp && waitOn.cacheRefill === 0 && !waitOn.cacheRefillAny && !waitOn.commit
       }
       val mem = new Area{
         val address = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
@@ -145,23 +154,23 @@ class LsuPlugin(lqSize: Int,
       }
       for(spec <- loadPorts){
         import spec._
-        when(port.valid) {
-          mem.address.write(
-            enable = port.valid,
-            address = port.lqId,
-            data = port.address
-          )
-          mem.physRd.write(
-            enable = port.valid,
-            address = port.lqId,
-            data = port.physicalRd
-          )
-          mem.robId.write(
-            enable = port.valid,
-            address = port.lqId,
-            data = port.robId
-          )
+        mem.address.write(
+          enable = port.valid,
+          address = port.lqId,
+          data = port.address
+        )
+        mem.physRd.write(
+          enable = port.valid,
+          address = port.lqId,
+          data = port.physicalRd
+        )
+        mem.robId.write(
+          enable = port.valid,
+          address = port.lqId,
+          data = port.robId
+        )
 
+        when(port.valid) {
           for (entry <- regs) when(port.lqId === entry.id) {
             entry.waitOn.address := False
             entry.address.pageOffset := port.address(pageOffsetRange)
@@ -174,10 +183,9 @@ class LsuPlugin(lqSize: Int,
       val ptr = new Area{
         val alloc, free = Reg(UInt(log2Up(lqSize) + 1 bits)) init (0)
         def isFull(ptr : UInt) = (ptr ^ free) === lqSize
-        val priority = Reg(Bits(lqSize-1 bits)) init(0) //TODO check i work properly
+        val priority = Reg(Bits(lqSize-1 bits)) init(0) //TODO check it work properly
       }
 
-      val frontend = getService[FrontendPlugin]
       val allocate = new Area{
         import lsuAllocationStage._
 
@@ -186,8 +194,8 @@ class LsuPlugin(lqSize: Int,
 
         var alloc = CombInit(ptr.alloc)
         for(slotId <- 0 until Frontend.DISPATCH_COUNT){
-          (LSU_ID, slotId) := alloc.resized
           when((DISPATCH_MASK, slotId) && (LQ_ALLOC, slotId)){
+            (LSU_ID, slotId) := alloc.resized
             when(ptr.isFull(alloc)){
               full := True
             }
@@ -207,23 +215,10 @@ class LsuPlugin(lqSize: Int,
               reg.waitOn.cacheRsp := False
               reg.waitOn.cacheRefill := 0
               reg.waitOn.cacheRefillAny := False
+              reg.waitOn.commit := False
             }
           }
         }
-
-
-        def remapped[T <: Data](key : Stageable[T]) : Seq[T] = (0 until Frontend.DISPATCH_COUNT).map(lsuAllocationStage(key, _))
-        def writeLine[T <: Data](key : Stageable[T]) : Unit = writeLine(key, remapped(key))
-        def writeLine[T <: Data](key : Stageable[T], value : Seq[T]) : Unit  = {
-          rob.write(
-            key = key,
-            size = DISPATCH_COUNT,
-            value = value,
-            robId = ROB_ID,
-            enable = isFireing
-          )
-        }
-        writeLine(LSU_ID)
       }
 
       val pipeline = new Pipeline{
@@ -332,12 +327,11 @@ class LsuPlugin(lqSize: Int,
               setup.loadTrap.valid := True
               setup.loadTrap.cause := 5
             } otherwise {
-              onRegs(_.valid := False)
+              onRegs(_.waitOn.commit := True)
               setup.rfWrite.valid := True
               setup.loadCompletion.valid := True
               wakeRob.valid := True
               wakeRf.valid := True
-              ptr.free := ptr.free + 1
               ptr.priority := ptr.priority |<< 1
               when(ptr.priority === 0){
                 ptr.priority := (default -> true)
@@ -346,59 +340,201 @@ class LsuPlugin(lqSize: Int,
           }
         }
       }
+
+
+      val onCommit = new Area{
+        val event = commit.onCommit()
+        val lqAlloc = rob.readAsync(LQ_ALLOC, Global.COMMIT_COUNT, event.robId)
+        val lqCommits = (0 until Global.COMMIT_COUNT).map(slotId => event.mask(slotId) && lqAlloc(slotId))
+        var free = CombInit(ptr.free)
+        for(inc <- lqCommits){
+          for(reg <- regs) when(free === reg.id && inc){
+            reg.valid := False
+          }
+          free \= free + U(inc)
+        }
+        ptr.free := free
+      }
       pipeline.build()
     }
 
 
-//    val store = new Area{
-//      val regs = for(i <- 0 until sqSize) yield new Area{
-//        val id = i
-//        val address = new Area{
-//          val valid       = Reg(Bool())
-//          val pageOffset  = Reg(UInt(pageOffsetWidth bits))
-//        }
-//        val data = new Area{
-//          val valid = Reg(Bool())
-//        }
-//        val commited = Reg(Bool())
-//      }
-//
-//      val mem = new Area{
-//        val page = Mem.fill(sqSize)(UInt(pageNumberWidth bits))
-//        val word = Mem.fill(sqSize)(Bits(wordWidth bits))
-//      }
-//
-//      for(spec <- storePorts){
-//        import spec._
-//        when(port.valid){
-//          mem.page.write(
-//            enable = port.valid,
-//            address = port.id,
-//            data = port.address(pageNumberRange)
-//          )
-//          mem.word.write(
-//            enable = port.valid,
-//            address = port.id,
-//            data = port.data
-//          )
-//          for(entry <- regs){
-//            when(port.id === entry.id){
-//              entry.address.valid := True
-//              entry.address.pageOffset := port.address(pageOffsetRange)
-//            }
-//          }
-//        }
-//      }
-//
-//      val ptr = new Area{
-//        val alloc, commit, free = Reg(UInt(log2Up(sqSize) + 1 bits)) init (0)
-//        val full = ??? //(alloc ^ free) === sqSize
-//        val empty = alloc === commit
-//        val canFree = free =/= commit
-//      }
-//
-//    }
+    val store = new Area{
+      val regs = for(i <- 0 until sqSize) yield RegType(i)
+      case class RegType(id : Int) extends Area{
+        val valid = RegInit(False)
+        val address = new Area{
+          val pageOffset  = Reg(UInt(pageOffsetWidth bits))
+          val size = Reg(SIZE())
+        }
 
+        val waitOn = new Area {
+          val address = Reg(Bool())
+          val translationRsp  = Reg(Bool())
+          val commit  = Reg(Bool())
+        }
+
+        val ready = valid && !waitOn.address && !waitOn.translationRsp && !waitOn.commit
+      }
+
+      val mem = new Area{
+        val address = Mem.fill(sqSize)(UInt(virtualAddressWidth bits))
+        val word = Mem.fill(sqSize)(Bits(wordWidth bits))
+        val robId = Mem.fill(sqSize)(ROB.ID_TYPE)
+      }
+
+      for(spec <- storePorts){
+        import spec._
+        mem.address.write(
+          enable = port.valid,
+          address = port.sqId,
+          data = port.address
+        )
+        mem.word.write(
+          enable = port.valid,
+          address = port.sqId,
+          data = port.data
+        )
+        mem.robId.write(
+          enable = port.valid,
+          address = port.sqId,
+          data = port.robId
+        )
+        when(port.valid) {
+          for (entry <- regs) when(port.sqId === entry.id) {
+            entry.waitOn.address := False
+            entry.address.pageOffset := port.address(pageOffsetRange)
+            entry.address.size := port.size
+          }
+        }
+      }
+
+      val ptr = new Area{
+        val alloc, commit, free = Reg(UInt(log2Up(sqSize) + 1 bits)) init (0)
+        val commitNext = cloneOf(commit)
+        commit := commitNext
+        val priority = Reg(Bits(sqSize-1 bits)) init(0) //TODO check it work properly
+        def isFull(ptr : UInt) = (ptr ^ free) === sqSize
+      }
+
+
+      val allocate = new Area{
+        import lsuAllocationStage._
+
+        val full = False
+        haltIt(isValid && full)
+
+        var alloc = CombInit(ptr.alloc)
+        for(slotId <- 0 until Frontend.DISPATCH_COUNT){
+          when((DISPATCH_MASK, slotId) && (SQ_ALLOC, slotId)){
+            (LSU_ID, slotId) := alloc.resized
+            when(ptr.isFull(alloc)){
+              full := True
+            }
+            alloc \= alloc + 1
+          }
+        }
+
+        when(isFireing){
+          ptr.alloc := alloc
+          for(reg <- regs){
+            val hits = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield{
+              (DISPATCH_MASK, slotId) && (SQ_ALLOC, slotId) && (LSU_ID, slotId).resize(log2Up(sqSize) bits) === reg.id
+            }
+            when(hits.orR){
+              reg.valid := True
+              reg.waitOn.address := True
+              reg.waitOn.translationRsp := False
+              reg.waitOn.commit := False
+            }
+          }
+        }
+      }
+
+      val translate = new Pipeline {
+        val stages = Array.fill(2)(newStage()) //TODO
+        connect(stages)(List(M2S()))
+
+        stages.last.flushIt(rescheduling.valid, root = false)
+
+        val feed = new Area{
+          val stage = stages(0)
+          import stage._
+
+          val hits = regs.map(_.ready)
+          val hit = hits.orR
+
+          val slotsValid = B(hits)
+          val doubleMask = slotsValid ## (slotsValid.dropLow(1) & ptr.priority)
+          val doubleOh = OHMasking.firstV2(doubleMask, firstOrder =  LutInputs.get)
+          val (pLow, pHigh) = doubleOh.splitAt(sqSize-1)
+          val selOh = (pHigh << 1) | pLow
+          val sel = OHToUInt(selOh)
+
+          for(reg <- regs) when(selOh(reg.id)){
+            reg.waitOn.translationRsp := True
+          }
+
+          isValid := hit
+          SQ_SEL := sel
+          SQ_SEL_OH := selOh
+          ROB.ID_TYPE := mem.robId.readAsync(sel)
+          ADDRESS_PRE_TRANSLATION := mem.address.readAsync(sel)
+        }
+
+        val rsp = new Area{
+          val stage = stages.last
+          import stage._
+
+          setup.storeCompletion.valid := False
+          setup.storeCompletion.id := ROB.ID_TYPE
+
+          setup.storeTrap.valid      := False
+          setup.storeTrap.robId      := ROB.ID_TYPE
+          setup.storeTrap.tval       := B(ADDRESS_PRE_TRANSLATION)
+          setup.storeTrap.skipCommit := True
+          setup.storeTrap.cause.assignDontCare()
+
+          def onRegs(body : RegType => Unit) = for(reg <- regs) when(SQ_SEL_OH(reg.id)){ body(reg) }
+          when(isValid) {
+            onRegs(_.waitOn.translationRsp := False)
+
+            //TODO implement failures
+            onRegs(_.waitOn.commit := True)
+            setup.storeCompletion.valid := True
+            ptr.priority := ptr.priority |<< 1
+            when(ptr.priority === 0){
+              ptr.priority := (default -> true)
+            }
+          }
+        }
+
+        build()
+      }
+
+      val onCommit = new Area{
+        val event = commit.onCommit()
+        val sqAlloc = rob.readAsync(SQ_ALLOC, Global.COMMIT_COUNT, event.robId)
+        val sqCommits = (0 until Global.COMMIT_COUNT).map(slotId => U(event.mask(slotId) && sqAlloc(slotId)))
+        ptr.commitNext := (ptr.commit +: sqCommits).reduce(_ + _)
+      }
+    }
+
+
+    def remapped[T <: Data](key : Stageable[T]) : Seq[T] = (0 until Frontend.DISPATCH_COUNT).map(lsuAllocationStage(key, _))
+    def writeLine[T <: Data](key : Stageable[T]) : Unit = writeLine(key, remapped(key))
+    def writeLine[T <: Data](key : Stageable[T], value : Seq[T]) : Unit  = {
+      rob.write(
+        key = key,
+        size = DISPATCH_COUNT,
+        value = value,
+        robId = lsuAllocationStage(ROB_ID),
+        enable = lsuAllocationStage.isFireing
+      )
+    }
+    writeLine(LSU_ID)
+    writeLine(SQ_ALLOC)
+    writeLine(LQ_ALLOC)
 
 
     when(rescheduling.valid){
@@ -406,7 +542,9 @@ class LsuPlugin(lqSize: Int,
       load.ptr.free := 0
       load.ptr.alloc := 0
       load.ptr.priority := 0
+      store.ptr.alloc := store.ptr.commitNext
     }
+
     rob.release()
     decoder.release()
     frontend.release()

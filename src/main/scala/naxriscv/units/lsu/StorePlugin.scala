@@ -3,13 +3,17 @@ package naxriscv.units.lsu
 import naxriscv.Frontend
 import naxriscv.interfaces.{MicroOp, RS2}
 import naxriscv.riscv.{Const, IntRegFile, Rvi}
-import naxriscv.units.{ExecutionUnitBase, SrcKeys, SrcPlugin, SrcStageables}
+import naxriscv.units.{ExecutionUnitBase, ExecutionUnitKeys, SrcKeys, SrcPlugin, SrcStageables}
 import naxriscv.utilities._
 import spinal.core._
+import spinal.lib.pipeline.Stageable
 
+object StorePlugin extends AreaObject{
+  val SEL = Stageable(Bool())
+}
 
 class StorePlugin(euId : String) extends Plugin{
-  import LoadPlugin._
+  import StorePlugin._
   val setup = create early new Area {
     val eu = getService[ExecutionUnitBase](euId)
     val lsu = getService[LsuPlugin]
@@ -44,6 +48,7 @@ class StorePlugin(euId : String) extends Plugin{
     setup.port.address := U(SrcStageables.ADD_SUB)
     setup.port.data    := eu(IntRegFile, RS2)
     setup.port.sqId := lsu.keys.SQ_ID.resized
+    setup.port.robId := ExecutionUnitKeys.ROB_ID
     setup.port.size := U(func3(1 downto 0))
     eu.release()
   }
