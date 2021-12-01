@@ -244,18 +244,13 @@ case class CommitEntry() extends Bundle {
 }
 
 case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int) extends Bundle {
-  val robId    = ROB.ID_TYPE()
-  val trap     = (canTrap && canJump) generate Bool()
-  val pcTarget = canJump generate UInt(pcWidth bits)
-  val cause    = canTrap generate UInt(Global.TRAP_CAUSE_WIDTH bits)
-  val tval     = canTrap generate Bits(Global.XLEN bits)
-  val skipCommit = canTrap generate Bool() //when trap is set, should be set for regular exception, but cleared for let's say a ebreak
+  val robId      = ROB.ID_TYPE()
+  val trap       = (canTrap && canJump) generate Bool()
+  val pcTarget   = canJump generate UInt(pcWidth bits)
+  val cause      = canTrap generate UInt(Global.TRAP_CAUSE_WIDTH bits)
+  val tval       = canTrap generate Bits(Global.XLEN bits)
+  val skipCommit = Bool() //Want to skip commit for exceptions, but not for [jump, ebreak, redo]
 
-  def doesSkipCommit = (canTrap, canJump) match {
-    case (false, _) => False
-    case (true,  false) => skipCommit
-    case (true,  true) => trap && skipCommit
-  }
   def isTrap = (canTrap, canJump) match {
     case (false, true) => False
     case (true, false) => True

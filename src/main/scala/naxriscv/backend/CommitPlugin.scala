@@ -88,13 +88,13 @@ class CommitPlugin extends Plugin with CommitService{
         when(hits.orR){
           val canTrap = (0 until completions.size).filter(completions(_).canTrap)
           val canJump = (0 until completions.size).filter(completions(_).canJump)
-          valid    := True
-          robId    := MuxOH.or(hits, completions.map(_.robId))
-          trap     := MuxOH.or(hits, completions.map(_.isTrap))
-          pcTarget := MuxOH.or(canJump.map(hits(_)), canJump.map(completions(_).pcTarget))
-          cause    := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).cause))
-          tval     := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).tval))
-          skipCommit := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).doesSkipCommit))
+          valid      := True
+          robId      := MuxOH.or(hits, completions.map(_.robId))
+          trap       := MuxOH.or(hits, completions.map(_.isTrap))
+          pcTarget   := MuxOH.or(canJump.map(hits(_)), canJump.map(completions(_).pcTarget))
+          cause      := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).cause))
+          tval       := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).tval))
+          skipCommit := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).skipCommit))
         }
       }
     }
@@ -136,7 +136,7 @@ class CommitPlugin extends Plugin with CommitService{
 
           when(enable){
             when(continue){
-              when(!hold || (rescheduleHitSlot && !reschedule.skipCommit)) {
+              when(!hold && !(rescheduleHitSlot && reschedule.skipCommit)) {
                 maskComb(colId) := False
                 event.mask(colId) := True
               }
