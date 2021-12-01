@@ -73,14 +73,17 @@ class CommitPlugin extends Plugin with CommitService{
       val age = robId - ptr.free.resized
 
       val portsLogic = if(completions.nonEmpty) new Area{
-        val ages = completions.map(c => c.robId - ptr.free.resized)
-        val completionsWithAge = (completions, ages).zipped.map(_.valid -> _)
+        val perPort = for((c, i) <- completions.zipWithIndex) yield new Area{
+          val age = c.robId - ptr.free.resized
+          val id = i
+          def port = c
+        }
         val hits = Bits(completions.size bits)
-        val fill = for((c, cId) <- completions.zipWithIndex) yield new Area {
-          val others = ArrayBuffer[(Bool, UInt)]()
-          others += valid -> age
-          others ++= completionsWithAge.filter(_._1 != c.valid)
-          hits(cId) := c.valid && others.map(o => !o._1 || o._2 > ages(cId)).andR
+        val fill = for(self <- perPort) yield new Area {
+          val others = ArrayBuffer[(Bool, UInt, Boolean)]() //[valid, age, self has priority] The priority thing is there to ensure double reschedule on the same age is OK
+          others += ((valid, age, false))
+          others ++= perPort.filter(_.port != self.port).map(o => (o.port.valid, o.age, o.id > self.id))
+          hits(self.id) := self.port.valid && others.map(o => !o._1 || (if(o._3) o._2 >= self.age else o._2 > self.age)).andR
         }
         when(hits.orR){
           val canTrap = (0 until completions.size).filter(completions(_).canTrap)
