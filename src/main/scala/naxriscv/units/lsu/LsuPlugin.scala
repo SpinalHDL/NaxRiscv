@@ -132,7 +132,7 @@ class LsuPlugin(lqSize: Int,
       lsuAllocationStage(LSU_ID, slotId).assignDontCare()
     }
 
-    val load = new Area{
+    val lq = new Area{
       val regs = for(i <- 0 until lqSize) yield RegType(i)
       case class RegType(id : Int) extends Area{
         val valid = RegInit(False)
@@ -164,6 +164,50 @@ class LsuPlugin(lqSize: Int,
         val robId = Mem.fill(lqSize)(ROB.ID_TYPE)
         val pc = Mem.fill(lqSize)(PC)
       }
+
+      val ptr = new Area{
+        val alloc, free = Reg(UInt(log2Up(lqSize) + 1 bits)) init (0)
+        def isFull(ptr : UInt) = (ptr ^ free) === lqSize
+        val priority = Reg(Bits(lqSize-1 bits)) init(0) //TODO check it work properly
+      }
+    }
+
+    val sq = new Area{
+      val regs = for(i <- 0 until sqSize) yield RegType(i)
+      case class RegType(id : Int) extends Area{
+        val valid = RegInit(False)
+        val address = new Area{
+          val pageOffset  = Reg(UInt(pageOffsetWidth bits))
+          val size = Reg(SIZE())
+          val mask = Reg(DATA_MASK)
+        }
+
+        val waitOn = new Area {
+          val address = Reg(Bool())
+          val translationRsp  = Reg(Bool())
+          val commit  = Reg(Bool())
+        }
+
+        val ready = valid && !waitOn.address && !waitOn.translationRsp && !waitOn.commit
+      }
+
+      val mem = new Area{
+        val address = Mem.fill(sqSize)(UInt(virtualAddressWidth bits))
+        val word = Mem.fill(sqSize)(Bits(wordWidth bits))
+        val robId = Mem.fill(sqSize)(ROB.ID_TYPE)
+      }
+
+      val ptr = new Area{
+        val alloc, commit, free = Reg(UInt(log2Up(sqSize) + 1 bits)) init (0)
+        val commitNext = cloneOf(commit)
+        commit := commitNext
+        val priority = Reg(Bits(sqSize-1 bits)) init(0) //TODO check it work properly
+        def isFull(ptr : UInt) = (ptr ^ free) === sqSize
+      }
+    }
+
+    val load = new Area{
+      import lq._
       for(spec <- loadPorts){
         import spec._
         mem.address.write(
@@ -196,12 +240,6 @@ class LsuPlugin(lqSize: Int,
             entry.address.mask := AddressToMask(port.address, port.size, wordBytes)
           }
         }
-      }
-
-      val ptr = new Area{
-        val alloc, free = Reg(UInt(log2Up(lqSize) + 1 bits)) init (0)
-        def isFull(ptr : UInt) = (ptr ^ free) === lqSize
-        val priority = Reg(Bits(lqSize-1 bits)) init(0) //TODO check it work properly
       }
 
       val allocate = new Area{
@@ -375,31 +413,8 @@ class LsuPlugin(lqSize: Int,
 
 
     val store = new Area{
-      val regs = for(i <- 0 until sqSize) yield RegType(i)
-      case class RegType(id : Int) extends Area{
-        val valid = RegInit(False)
-        val address = new Area{
-          val pageOffset  = Reg(UInt(pageOffsetWidth bits))
-          val size = Reg(SIZE())
-          val mask = Reg(DATA_MASK)
-        }
-
-        val waitOn = new Area {
-          val address = Reg(Bool())
-          val translationRsp  = Reg(Bool())
-          val commit  = Reg(Bool())
-        }
-
-        val ready = valid && !waitOn.address && !waitOn.translationRsp && !waitOn.commit
-      }
-
-      val mem = new Area{
-        val address = Mem.fill(sqSize)(UInt(virtualAddressWidth bits))
-        val word = Mem.fill(sqSize)(Bits(wordWidth bits))
-        val robId = Mem.fill(sqSize)(ROB.ID_TYPE)
-      }
-
-      for(spec <- storePorts){
+      import sq._
+     for(spec <- storePorts){
         import spec._
         mem.address.write(
           enable = port.valid,
@@ -425,15 +440,6 @@ class LsuPlugin(lqSize: Int,
           }
         }
       }
-
-      val ptr = new Area{
-        val alloc, commit, free = Reg(UInt(log2Up(sqSize) + 1 bits)) init (0)
-        val commitNext = cloneOf(commit)
-        commit := commitNext
-        val priority = Reg(Bits(sqSize-1 bits)) init(0) //TODO check it work properly
-        def isFull(ptr : UInt) = (ptr ^ free) === sqSize
-      }
-
 
       val allocate = new Area{
         import lsuAllocationStage._
@@ -508,17 +514,17 @@ class LsuPlugin(lqSize: Int,
           import stage._
 
           val hits = Bits(lqSize bits)
-          val lq = for(lqReg <- load.regs) yield new Area {
+          val entries = for(lqReg <- lq.regs) yield new Area {
             val pageHit = lqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
             val wordHit = (lqReg.address.mask & DATA_MASK) =/= 0
             hits(lqReg.id) := lqReg.valid && pageHit && wordHit
           }
           val youngerHit = hits =/= 0
-          val youngerOh = OHMasking.roundRobinMasked(hits, load.ptr.priority)
+          val youngerOh = OHMasking.roundRobinMasked(hits, lq.ptr.priority)
           val youngerSel = OHToUInt(youngerOh)
 
-          YOUNGER_LOAD_PC := load.mem.pc(youngerSel)
-          YOUNGER_LOAD_ROB := load.mem.robId.readAsync(youngerSel)
+          YOUNGER_LOAD_PC := lq.mem.pc(youngerSel)
+          YOUNGER_LOAD_ROB := lq.mem.robId.readAsync(youngerSel)
           YOUNGER_LOAD_RESCHEDULE := youngerHit
         }
 
@@ -592,11 +598,11 @@ class LsuPlugin(lqSize: Int,
 
 
     when(rescheduling.valid){
-      load.regs.foreach(_.valid := False)
-      load.ptr.free := 0
-      load.ptr.alloc := 0
-      load.ptr.priority := 0
-      store.ptr.alloc := store.ptr.commitNext
+      lq.regs.foreach(_.valid := False)
+      lq.ptr.free := 0
+      lq.ptr.alloc := 0
+      lq.ptr.priority := 0
+      sq.ptr.alloc := sq.ptr.commitNext
     }
 
     rob.release()
