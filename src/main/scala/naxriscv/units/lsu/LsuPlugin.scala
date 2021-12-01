@@ -17,13 +17,14 @@ object LsuUtils{
   def sizeWidth(wordWidth : Int) = log2Up(log2Up(wordWidth/8)+1)
 }
 
-case class LsuLoadPort(lqSize : Int, wordWidth : Int, physicalRdWidth : Int) extends Bundle {
+case class LsuLoadPort(lqSize : Int, wordWidth : Int, physicalRdWidth : Int, pcWidth : Int) extends Bundle {
   val robId = ROB.ID_TYPE()
   val lqId = UInt(log2Up(lqSize) bits)
   val address = UInt(Global.XLEN bits)
   val size = UInt(log2Up(log2Up(wordWidth/8)+1) bits)
   val unsigned = Bool()
   val physicalRd = UInt(physicalRdWidth bits)
+  val pc = UInt(pcWidth bits)
 }
 
 case class LsuStorePort(sqSize : Int, wordWidth : Int) extends Bundle {
@@ -58,7 +59,7 @@ class LsuPlugin(lqSize: Int,
   val loadPorts = ArrayBuffer[LoadPortSpec]()
   def newLoadPort(): Flow[LsuLoadPort] = {
     val physicalRdWidth = getService[DecoderService].PHYS_RD
-    loadPorts.addRet(LoadPortSpec(Flow(LsuLoadPort(lqSize, wordWidth, widthOf(physicalRdWidth))))).port
+    loadPorts.addRet(LoadPortSpec(Flow(LsuLoadPort(lqSize, wordWidth, widthOf(physicalRdWidth), virtualAddressWidth)))).port
   }
 
 
@@ -100,7 +101,7 @@ class LsuPlugin(lqSize: Int,
     val loadCompletion = rob.newRobCompletion()
     val storeCompletion = rob.newRobCompletion()
     val loadTrap = commit.newSchedulePort(canTrap = true, canJump = false)
-    val storeTrap = commit.newSchedulePort(canTrap = true, canJump = false)
+    val storeTrap = commit.newSchedulePort(canTrap = true, canJump = true)
 
     decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
     decoder.addResourceDecoding(naxriscv.interfaces.SQ, SQ_ALLOC)
@@ -112,7 +113,15 @@ class LsuPlugin(lqSize: Int,
     val frontend = getService[FrontendPlugin]
     val cache = getService[DataCachePlugin]
     val commit = getService[CommitService]
+    val PC = getService[AddressTranslationService].PC
     lock.await()
+
+    val keysLocal = new AreaRoot {
+      val YOUNGER_LOAD_PC         = Stageable(PC)
+      val YOUNGER_LOAD_ROB        = Stageable(ROB.ID_TYPE)
+      val YOUNGER_LOAD_RESCHEDULE = Stageable(Bool())
+    }
+    import keysLocal._
 
     val cpuWordToRfWordRange = log2Up(cache.memDataWidth/8)-1 downto log2Up(wordBytes)
 
@@ -153,6 +162,7 @@ class LsuPlugin(lqSize: Int,
         val address = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
         val physRd = Mem.fill(lqSize)(decoder.PHYS_RD)
         val robId = Mem.fill(lqSize)(ROB.ID_TYPE)
+        val pc = Mem.fill(lqSize)(PC)
       }
       for(spec <- loadPorts){
         import spec._
@@ -170,6 +180,11 @@ class LsuPlugin(lqSize: Int,
           enable = port.valid,
           address = port.lqId,
           data = port.robId
+        )
+        mem.pc.write(
+          enable = port.valid,
+          address = port.lqId,
+          data = port.pc
         )
 
         when(port.valid) {
@@ -487,6 +502,7 @@ class LsuPlugin(lqSize: Int,
 
         }
 
+        //TODO timings
         val checkLq = new Area{
           val stage = stages(1)
           import stage._
@@ -497,8 +513,13 @@ class LsuPlugin(lqSize: Int,
             val wordHit = (lqReg.address.mask & DATA_MASK) =/= 0
             hits(lqReg.id) := lqReg.valid && pageHit && wordHit
           }
-          val hit = hits =/= 0
-          val selOh = OHMasking.roundRobinMasked(hits, load.ptr.priority)
+          val youngerHit = hits =/= 0
+          val youngerOh = OHMasking.roundRobinMasked(hits, load.ptr.priority)
+          val youngerSel = OHToUInt(youngerOh)
+
+          YOUNGER_LOAD_PC := load.mem.pc(youngerSel)
+          YOUNGER_LOAD_ROB := load.mem.robId.readAsync(youngerSel)
+          YOUNGER_LOAD_RESCHEDULE := youngerHit
         }
 
         val completion = new Area{
@@ -509,10 +530,18 @@ class LsuPlugin(lqSize: Int,
           setup.storeCompletion.id := ROB.ID_TYPE
 
           setup.storeTrap.valid      := False
+          setup.storeTrap.trap       := True
           setup.storeTrap.robId      := ROB.ID_TYPE
           setup.storeTrap.tval       := B(ADDRESS_PRE_TRANSLATION)
           setup.storeTrap.skipCommit := True
           setup.storeTrap.cause.assignDontCare()
+          setup.storeTrap.pcTarget   := YOUNGER_LOAD_PC
+
+          when(YOUNGER_LOAD_RESCHEDULE){
+            setup.storeTrap.valid    := True
+            setup.storeTrap.trap     := False
+            setup.storeTrap.robId    := YOUNGER_LOAD_ROB
+          }
 
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(SQ_SEL_OH(reg.id)){ body(reg) }
           when(isValid) {

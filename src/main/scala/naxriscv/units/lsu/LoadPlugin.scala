@@ -1,7 +1,7 @@
 package naxriscv.units.lsu
 
 import naxriscv.{Frontend, ROB}
-import naxriscv.interfaces.{DecoderService, MicroOp, RD, RfResource}
+import naxriscv.interfaces.{AddressTranslationService, DecoderService, MicroOp, RD, RfResource}
 import naxriscv.riscv.{Const, Rvi}
 import spinal.core._
 import spinal.lib._
@@ -46,6 +46,7 @@ class LoadPlugin(euId : String) extends Plugin{
     val eu = setup.eu
     val lsu = getService[LsuPlugin]
     val decoder = getService[DecoderService]
+    val PC = getService[AddressTranslationService].PC
     val stage = eu.getExecute(0)
     import stage._
 
@@ -57,6 +58,7 @@ class LoadPlugin(euId : String) extends Plugin{
     setup.port.size := U(func3(1 downto 0))
     setup.port.unsigned := func3(2)
     setup.port.physicalRd := decoder.PHYS_RD
+    setup.port.pc := PC
 
     eu.release()
   }

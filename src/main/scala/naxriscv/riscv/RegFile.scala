@@ -36,7 +36,7 @@ object IntRegFile extends RegfileSpec with AreaObject {
   )
   def TypeILQ(key : MaskedLiteral) = SingleDecoding(
     key = key,
-    resources = List(RS1, RD).map(this -> _) :+ LQ
+    resources = List(RS1, RD).map(this -> _) :+ LQ :+ PC_READ //PC_READ is used to reschedule a load which had some store hazard
   )
   def TypeSSQ(key : MaskedLiteral) = SingleDecoding(
     key = key,

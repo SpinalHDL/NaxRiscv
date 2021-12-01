@@ -127,11 +127,12 @@ object Gen extends App{
 
 //ROADMAP
 /*
-- ALU wakeup issue queue ahead of rf write
-- Regfile bypass
-- Having a proper microcode instead of direct RISC-V ?
-- Execution unit API
-  -
+-
+ */
+
+//TODO Optimisations
+/*
+- LSU getting PC for reschedule
  */
 
 //TODO fix bellow list
