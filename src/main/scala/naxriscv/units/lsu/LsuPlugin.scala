@@ -5,7 +5,7 @@ import naxriscv.backend.RobPlugin
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces._
-import naxriscv.utilities.Plugin
+import naxriscv.utilities.{AddressToMask, Plugin}
 import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Connection.M2S
@@ -79,6 +79,7 @@ class LsuPlugin(lqSize: Int,
     val SQ_SEL = Stageable(UInt(log2Up(sqSize) bits))
     val SQ_SEL_OH = Stageable(Bits(sqSize bits))
     val ADDRESS_PRE_TRANSLATION = Stageable(UInt(virtualAddressWidth bits))
+    val DATA_MASK = Stageable(Bits(wordBytes bits))
   }
   import keys._
 
@@ -143,6 +144,7 @@ class LsuPlugin(lqSize: Int,
           val pageOffset = Reg(UInt(pageOffsetWidth bits))
           val size = Reg(SIZE())
           val unsigned = Reg(UNSIGNED())
+          val mask = Reg(DATA_MASK)
         }
 
         val ready = valid && !waitOn.address && !waitOn.cacheRsp && waitOn.cacheRefill === 0 && !waitOn.cacheRefillAny && !waitOn.commit
@@ -176,6 +178,7 @@ class LsuPlugin(lqSize: Int,
             entry.address.pageOffset := port.address(pageOffsetRange)
             entry.address.size := port.size
             entry.address.unsigned := port.unsigned
+            entry.address.mask := AddressToMask(port.address, port.size, wordBytes)
           }
         }
       }
@@ -233,14 +236,10 @@ class LsuPlugin(lqSize: Int,
           val stage = stages.head
           import stage._
 
-          val hits = regs.map(_.ready)
+          val hits = B(regs.map(_.ready))
           val hit = hits.orR
 
-          val slotsValid = B(hits)
-          val doubleMask = slotsValid ## (slotsValid.dropLow(1) & ptr.priority)
-          val doubleOh = OHMasking.firstV2(doubleMask, firstOrder =  LutInputs.get)
-          val (pLow, pHigh) = doubleOh.splitAt(lqSize-1)
-          val selOh = (pHigh << 1) | pLow
+          val selOh = OHMasking.roundRobinMasked(hits, ptr.priority)
           val sel = OHToUInt(selOh)
 
           val cmd = setup.cacheLoad.cmd
@@ -367,6 +366,7 @@ class LsuPlugin(lqSize: Int,
         val address = new Area{
           val pageOffset  = Reg(UInt(pageOffsetWidth bits))
           val size = Reg(SIZE())
+          val mask = Reg(DATA_MASK)
         }
 
         val waitOn = new Area {
@@ -406,6 +406,7 @@ class LsuPlugin(lqSize: Int,
             entry.waitOn.address := False
             entry.address.pageOffset := port.address(pageOffsetRange)
             entry.address.size := port.size
+            entry.address.mask := AddressToMask(port.address, port.size, wordBytes)
           }
         }
       }
@@ -452,8 +453,8 @@ class LsuPlugin(lqSize: Int,
         }
       }
 
-      val translate = new Pipeline {
-        val stages = Array.fill(2)(newStage()) //TODO
+      val pipeline = new Pipeline {
+        val stages = Array.fill(3)(newStage()) //TODO
         connect(stages)(List(M2S()))
 
         stages.last.flushIt(rescheduling.valid, root = false)
@@ -462,14 +463,9 @@ class LsuPlugin(lqSize: Int,
           val stage = stages(0)
           import stage._
 
-          val hits = regs.map(_.ready)
+          val hits = B(regs.map(_.ready))
           val hit = hits.orR
-
-          val slotsValid = B(hits)
-          val doubleMask = slotsValid ## (slotsValid.dropLow(1) & ptr.priority)
-          val doubleOh = OHMasking.firstV2(doubleMask, firstOrder =  LutInputs.get)
-          val (pLow, pHigh) = doubleOh.splitAt(sqSize-1)
-          val selOh = (pHigh << 1) | pLow
+          val selOh = OHMasking.roundRobinMasked(hits, ptr.priority)
           val sel = OHToUInt(selOh)
 
           for(reg <- regs) when(selOh(reg.id)){
@@ -481,9 +477,31 @@ class LsuPlugin(lqSize: Int,
           SQ_SEL_OH := selOh
           ROB.ID_TYPE := mem.robId.readAsync(sel)
           ADDRESS_PRE_TRANSLATION := mem.address.readAsync(sel)
+          SIZE := regs.map(_.address.size).read(sel)
+          DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
         }
 
-        val rsp = new Area{
+        val translated = new Area{
+          val stage = stages(1)
+          import stage._
+
+        }
+
+        val checkLq = new Area{
+          val stage = stages(1)
+          import stage._
+
+          val hits = Bits(lqSize bits)
+          val lq = for(lqReg <- load.regs) yield new Area {
+            val pageHit = lqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
+            val wordHit = (lqReg.address.mask & DATA_MASK) =/= 0
+            hits(lqReg.id) := lqReg.valid && pageHit && wordHit
+          }
+          val hit = hits =/= 0
+          val selOh = OHMasking.roundRobinMasked(hits, load.ptr.priority)
+        }
+
+        val completion = new Area{
           val stage = stages.last
           import stage._
 
