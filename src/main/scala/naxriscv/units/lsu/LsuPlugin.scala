@@ -369,7 +369,7 @@ class LsuPlugin(lqSize: Int,
             val wordHit = (sqReg.address.mask & DATA_MASK) =/= 0
             hits(sqReg.id) := sqReg.valid && pageHit && wordHit && youngerMask(sqReg.id)
           }
-          val olderHit = olderMaskEmpty && hits =/= 0
+          val olderHit = !olderMaskEmpty && hits =/= 0
           val olderOh   = if(sqSize == 1) B(1) else OHMasking.roundRobinMaskedFull(hits.reversed, ~((sq.ptr.priority ## !sq.ptr.priority.msb).reversed)).reversed //reverted priority, imprecise would be ok
           val olderSel  = OHToUInt(olderOh)
 
