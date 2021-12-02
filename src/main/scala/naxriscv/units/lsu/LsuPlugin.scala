@@ -516,6 +516,7 @@ class LsuPlugin(lqSize: Int,
         haltIt(isValid && full)
 
         var alloc = CombInit(ptr.alloc)
+
         for(slotId <- 0 until Frontend.DISPATCH_COUNT){
           implicit val _ = StageableOffset(slotId)
           SQ_ID := alloc.resized

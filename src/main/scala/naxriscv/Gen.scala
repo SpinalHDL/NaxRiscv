@@ -80,6 +80,7 @@ object Config{
 //    plugins += new BranchPlugin("ALU1")
 //    plugins += new ShiftPlugin("ALU1")
 //    plugins += new LoadPlugin("ALU1")
+//    plugins += new StorePlugin("ALU1")
 
 //    plugins += new ExecuteUnit("ALU0")
 //    plugins += new IntAluPlugin("ALU0")
@@ -141,6 +142,7 @@ object Gen extends App{
 - Likely pc management in the aligner need rework, specialy what's about btb impact when buffer pc + 4 != input pc ?
 - load to load ordering
 - Check lsu memory depedency cross check (store and load with aliasing checking others at the same time)
+- data cache flush (init, and others) do not halt incoming requests (should at least schedule a redo)
  */
 
 //ASSUMPTIONS

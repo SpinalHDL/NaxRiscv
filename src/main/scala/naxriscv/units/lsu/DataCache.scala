@@ -224,7 +224,7 @@ class DataCache(val cacheSize: Int,
       waysWrite.tag.loaded := False
     }
 
-    readStage.haltIt(!done)
+//    readStage.haltIt(!done)
   }
 
 
@@ -271,7 +271,7 @@ class DataCache(val cacheSize: Int,
       }
     }
 
-    pipeline.stages(0).haltIt(valid)
+//    pipeline.stages(0).haltIt(valid)
   }
   val refillFree = B(OHMasking.first(refill.map(!_.valid)))
   val refillFull = refill.map(_.valid).andR

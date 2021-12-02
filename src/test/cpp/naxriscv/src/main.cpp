@@ -18,6 +18,7 @@
 #include <queue>
 #include <time.h>
 #include <map>
+#include <filesystem>
 
 using namespace std;
 
@@ -344,6 +345,7 @@ enum ARG
     ARG_START_SYMBOL,
     ARG_PASS_SYMBOL,
     ARG_FAIL_SYMBOL,
+    ARG_OUTPUT_DIR,
     ARG_NAME,
     ARG_TIMEOUT
 };
@@ -356,6 +358,7 @@ static const struct option long_options[] =
     { "start_symbol", required_argument, 0, ARG_START_SYMBOL },
     { "pass_symbol", required_argument, 0, ARG_PASS_SYMBOL },
     { "fail_symbol", required_argument, 0, ARG_FAIL_SYMBOL },
+    { "output_dir", required_argument, 0, ARG_OUTPUT_DIR },
     { "name", required_argument, 0, ARG_NAME },
     { "timeout", required_argument, 0, ARG_TIMEOUT },
     0
@@ -379,16 +382,6 @@ int main(int argc, char** argv, char** env){
     Verilated::mkdir("logs");
 
     VNaxRiscv* top = new VNaxRiscv;  // Or use a const unique_ptr, or the VL_UNIQUE_PTR wrapper
-	#ifdef TRACE
-	VerilatedFstC* tfp;
-	#endif
-    #ifdef TRACE
-    Verilated::traceEverOn(true);
-    tfp = new VerilatedFstC;
-    top->trace(tfp, 99);
-    tfp->open("wave.fst");
-    #endif
-
 
     NaxWhitebox whitebox(top->NaxRiscv);
 
@@ -417,7 +410,8 @@ int main(int argc, char** argv, char** env){
 	u32 nop32 = 0x13;
 	u8 *nop = (u8 *)&nop32;
     Elf *elf = NULL;
-    string name = "";
+    string name = "???";
+    string outputDir = "output";
     while (1)
     {
         int index = -1;
@@ -435,7 +429,6 @@ int main(int argc, char** argv, char** env){
                     wrap.memory.write(address, 1, &data);
                     soc->memory.write(address, 1, &data);
                 });
-                name = optarg;
             }break;
             case ARG_START_SYMBOL: startPc = elf->getSymbolAddress(optarg); break;
             case ARG_PASS_SYMBOL: {
@@ -451,6 +444,7 @@ int main(int argc, char** argv, char** env){
                 soc->memory.write(addr, 4, nop);
             }break;
             case ARG_NAME: name = optarg; break;
+            case ARG_OUTPUT_DIR: outputDir = optarg; break;
             case ARG_TIMEOUT: timeout = stoi(optarg); break;
             default: exit(1); break;
         }
@@ -461,6 +455,20 @@ int main(int argc, char** argv, char** env){
         printf("other parameter: <%s>\n", argv[optind++]);
     }
 
+
+//    std::filesystem::remove_all(output_dir); That's toooooo much power
+    std::filesystem::create_directories(outputDir);
+
+
+	#ifdef TRACE
+	VerilatedFstC* tfp;
+	#endif
+    #ifdef TRACE
+    Verilated::traceEverOn(true);
+    tfp = new VerilatedFstC;
+    top->trace(tfp, 99);
+    tfp->open((outputDir + "/wave.fst").c_str());
+    #endif
 
 
     state_t *state = proc.get_state();
