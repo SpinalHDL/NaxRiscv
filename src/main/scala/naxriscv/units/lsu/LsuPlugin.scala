@@ -9,7 +9,7 @@ import naxriscv.utilities.{AddressToMask, Plugin}
 import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Connection.M2S
-import spinal.lib.pipeline.{Pipeline, Stageable}
+import spinal.lib.pipeline.{Pipeline, Stageable, StageableOffset}
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -118,6 +118,9 @@ class LsuPlugin(lqSize: Int,
       val LQ_ID = Stageable(UInt(log2Up(lqSize) bits))
       val SQ_ID = Stageable(UInt(log2Up(sqSize) bits))
 
+      val LQ_ID_CARRY = Stageable(Bool())
+      val SQ_ID_CARRY = Stageable(Bool())
+
       val YOUNGER_LOAD_PC         = Stageable(PC)
       val YOUNGER_LOAD_ROB        = Stageable(ROB.ID_TYPE)
       val YOUNGER_LOAD_RESCHEDULE = Stageable(Bool())
@@ -131,9 +134,9 @@ class LsuPlugin(lqSize: Int,
 
     val rescheduling = commit.reschedulingPort
 
-    val lsuAllocationStage = frontend.pipeline.dispatch
+    val allocStage = frontend.pipeline.dispatch
     for(slotId <- 0 until Frontend.DISPATCH_COUNT){
-      lsuAllocationStage(LSU_ID, slotId).assignDontCare()
+      allocStage(LSU_ID, slotId).assignDontCare()
     }
 
     val lq = new Area{
@@ -169,7 +172,7 @@ class LsuPlugin(lqSize: Int,
         val physRd = Mem.fill(lqSize)(decoder.PHYS_RD)
         val robId = Mem.fill(lqSize)(ROB.ID_TYPE)
         val pc = Mem.fill(lqSize)(PC)
-        val sqAlloc = Mem.fill(lqSize)(UInt(log2Up(sqSize) bits))
+        val sqAlloc = Mem.fill(lqSize)(UInt(log2Up(sqSize)+1 bits))
       }
 
       val ptr = new Area{
@@ -204,7 +207,7 @@ class LsuPlugin(lqSize: Int,
         val address = Mem.fill(sqSize)(UInt(virtualAddressWidth bits))
         val word = Mem.fill(sqSize)(Bits(wordWidth bits))
         val robId = Mem.fill(sqSize)(ROB.ID_TYPE)
-        val lqAlloc = Mem.fill(sqSize)(UInt(log2Up(lqSize) bits))
+        val lqAlloc = Mem.fill(sqSize)(UInt(log2Up(lqSize) + 1 bits))
       }
 
       val ptr = new Area{
@@ -262,19 +265,21 @@ class LsuPlugin(lqSize: Int,
       }
 
       val allocate = new Area{
-        import lsuAllocationStage._
+        import allocStage._
 
         val full = False
         haltIt(isValid && full)
 
         var alloc = CombInit(ptr.alloc)
         for(slotId <- 0 until Frontend.DISPATCH_COUNT){
-          (LQ_ID, slotId) := alloc.resized
-          when((DISPATCH_MASK, slotId) && (LQ_ALLOC, slotId)){
-            (LSU_ID, slotId) := alloc.resized
+          implicit val _ = StageableOffset(slotId)
+          LQ_ID := alloc.resized
+          LQ_ID_CARRY := alloc.msb
+          when(DISPATCH_MASK && LQ_ALLOC){
+            LSU_ID := alloc.resized
             mem.sqAlloc.write(
-              address = (LQ_ID, slotId),
-              data = (SQ_ID, slotId)
+              address = LQ_ID,
+              data = U(SQ_ID_CARRY ## allocStage(SQ_ID, slotId))
             )
             when(ptr.isFull(alloc)){
               full := True
@@ -350,14 +355,13 @@ class LsuPlugin(lqSize: Int,
           val stage = stages(1)
           import stage._
 
-          val startId = CombInit(sq.ptr.freeReal)
+          val startId = CombInit(sq.ptr.free)
           val endId = mem.sqAlloc.readAsync(LQ_SEL)
-          val startMask = U(UIntToOh(startId))-1
-          val endMask   = U(UIntToOh(endId))-1
-          val loopback = endMask < startMask
+          val startMask = U(UIntToOh(U(startId.dropHigh(1))))-1
+          val endMask   = U(UIntToOh(U(endId.dropHigh(1))))-1
+          val loopback = endMask <= startMask
           val youngerMask = loopback ? ~(endMask ^ startMask) otherwise (endMask & ~startMask)
-
-
+          val olderMaskEmpty = startId === endId
 
           val hits = Bits(sqSize bits)
           val entries = for(sqReg <- sq.regs) yield new Area {
@@ -365,7 +369,7 @@ class LsuPlugin(lqSize: Int,
             val wordHit = (sqReg.address.mask & DATA_MASK) =/= 0
             hits(sqReg.id) := sqReg.valid && pageHit && wordHit && youngerMask(sqReg.id)
           }
-          val olderHit = hits =/= 0
+          val olderHit = olderMaskEmpty && hits =/= 0
           val olderOh   = if(sqSize == 1) B(1) else OHMasking.roundRobinMaskedFull(hits.reversed, ~((sq.ptr.priority ## !sq.ptr.priority.msb).reversed)).reversed //reverted priority, imprecise would be ok
           val olderSel  = OHToUInt(olderOh)
 
@@ -506,19 +510,21 @@ class LsuPlugin(lqSize: Int,
       }
 
       val allocate = new Area{
-        import lsuAllocationStage._
+        import allocStage._
 
         val full = False
         haltIt(isValid && full)
 
         var alloc = CombInit(ptr.alloc)
         for(slotId <- 0 until Frontend.DISPATCH_COUNT){
-          (SQ_ID, slotId) := alloc.resized
-          when((DISPATCH_MASK, slotId) && (SQ_ALLOC, slotId)){
-            (LSU_ID, slotId) := alloc.resized
+          implicit val _ = StageableOffset(slotId)
+          SQ_ID := alloc.resized
+          SQ_ID_CARRY := alloc.msb
+          when(DISPATCH_MASK && SQ_ALLOC){
+            LSU_ID := alloc.resized
             mem.lqAlloc.write(
-              address = (SQ_ID, slotId),
-              data = (LQ_ID, slotId)
+              address = SQ_ID,
+              data = U(LQ_ID_CARRY ## allocStage(LQ_ID, slotId))
             )
             when(ptr.isFull(alloc)){
               full := True
@@ -583,12 +589,12 @@ class LsuPlugin(lqSize: Int,
           import stage._
 
           val startId = mem.lqAlloc.readAsync(SQ_SEL)
-          val endId = CombInit(lq.ptr.allocReal)
-          val startMask = U(UIntToOh(startId))-1
-          val endMask   = U(UIntToOh(endId))-1
-          val loopback = endMask < startMask
+          val endId = CombInit(lq.ptr.alloc)
+          val startMask = U(UIntToOh(U(startId.dropHigh(1))))-1
+          val endMask   = U(UIntToOh(U(endId.dropHigh(1))))-1
+          val loopback = endMask <= startMask
           val youngerMask = loopback ? ~(endMask ^ startMask) otherwise (endMask & ~startMask)
-
+          val youngerMaskEmpty = startId === endId
 
           val hits = Bits(lqSize bits)
           val entries = for(lqReg <- lq.regs) yield new Area {
@@ -596,7 +602,7 @@ class LsuPlugin(lqSize: Int,
             val wordHit = (lqReg.address.mask & DATA_MASK) =/= 0
             hits(lqReg.id) := lqReg.valid && pageHit && wordHit && youngerMask(lqReg.id)
           }
-          val youngerHit   = hits =/= 0
+          val youngerHit  = hits =/= 0 && !youngerMaskEmpty
           val youngerOh   = OHMasking.roundRobinMasked(hits, lq.ptr.priority)
           val youngerSel  = OHToUInt(youngerOh)
 
@@ -621,7 +627,7 @@ class LsuPlugin(lqSize: Int,
           setup.storeTrap.pcTarget   := YOUNGER_LOAD_PC
 
           when(YOUNGER_LOAD_RESCHEDULE){
-            setup.storeTrap.valid    := True
+            setup.storeTrap.valid    setWhen(isFireing)
             setup.storeTrap.trap     := False
             setup.storeTrap.robId    := YOUNGER_LOAD_ROB
           }
@@ -647,7 +653,14 @@ class LsuPlugin(lqSize: Int,
       }
 
       val writeback = new Area{
-//TODO ->
+
+//        val pipeline = new Pipeline {
+//          val stages = Array.fill(3)(newStage()) //TODO
+//          connect(stages)(List(M2S()))
+//
+//          stages.last.flushIt(rescheduling.valid, root = false)
+//
+//        }
         /*
         ptr.priority := ptr.priority |<< 1
         when(ptr.priority === 0){
@@ -664,15 +677,15 @@ class LsuPlugin(lqSize: Int,
 
 
     //Store some robId related context for later uses
-    def remapped[T <: Data](key : Stageable[T]) : Seq[T] = (0 until Frontend.DISPATCH_COUNT).map(lsuAllocationStage(key, _))
+    def remapped[T <: Data](key : Stageable[T]) : Seq[T] = (0 until Frontend.DISPATCH_COUNT).map(allocStage(key, _))
     def writeLine[T <: Data](key : Stageable[T]) : Unit = writeLine(key, remapped(key))
     def writeLine[T <: Data](key : Stageable[T], value : Seq[T]) : Unit  = {
       rob.write(
         key = key,
         size = DISPATCH_COUNT,
         value = value,
-        robId = lsuAllocationStage(ROB_ID),
-        enable = lsuAllocationStage.isFireing
+        robId = allocStage(ROB_ID),
+        enable = allocStage.isFireing
       )
     }
     writeLine(LSU_ID)
