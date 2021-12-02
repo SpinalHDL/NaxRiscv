@@ -71,8 +71,6 @@ class LsuPlugin(lqSize: Int,
     val SQ_ALLOC = Stageable(Bool())
     val LQ_ALLOC = Stageable(Bool())
     val LSU_ID = Stageable(UInt(log2Up(lqSize max sqSize) bits))
-    def LQ_ID = LSU_ID
-    def SQ_ID = LSU_ID
     val SIZE = Stageable(UInt(wordSizeWidth bits))
     val UNSIGNED = Stageable(Bool)
     val LQ_SEL = Stageable(UInt(log2Up(lqSize) bits))
@@ -120,6 +118,12 @@ class LsuPlugin(lqSize: Int,
       val YOUNGER_LOAD_PC         = Stageable(PC)
       val YOUNGER_LOAD_ROB        = Stageable(ROB.ID_TYPE)
       val YOUNGER_LOAD_RESCHEDULE = Stageable(Bool())
+
+      val OLDER_STORE_RESCHEDULE  = Stageable(Bool())
+
+
+      val LQ_ID = Stageable(UInt(log2Up(lqSize max sqSize) bits))
+      val SQ_ID = Stageable(UInt(log2Up(lqSize max sqSize) bits))
     }
     import keysLocal._
 
@@ -163,10 +167,13 @@ class LsuPlugin(lqSize: Int,
         val physRd = Mem.fill(lqSize)(decoder.PHYS_RD)
         val robId = Mem.fill(lqSize)(ROB.ID_TYPE)
         val pc = Mem.fill(lqSize)(PC)
+        val sqAlloc = Mem.fill(lqSize)(UInt(log2Up(sqSize) bits))
       }
 
       val ptr = new Area{
         val alloc, free = Reg(UInt(log2Up(lqSize) + 1 bits)) init (0)
+        val allocReal = U(alloc.dropHigh(1))
+        val freeReal = U(free.dropHigh(1))
         def isFull(ptr : UInt) = (ptr ^ free) === lqSize
         val priority = Reg(Bits(lqSize-1 bits)) init(0) //TODO check it work properly
       }
@@ -195,10 +202,14 @@ class LsuPlugin(lqSize: Int,
         val address = Mem.fill(sqSize)(UInt(virtualAddressWidth bits))
         val word = Mem.fill(sqSize)(Bits(wordWidth bits))
         val robId = Mem.fill(sqSize)(ROB.ID_TYPE)
+        val lqAlloc = Mem.fill(sqSize)(UInt(log2Up(lqSize) bits))
       }
 
       val ptr = new Area{
         val alloc, commit, free = Reg(UInt(log2Up(sqSize) + 1 bits)) init (0)
+        val allocReal = U(alloc.dropHigh(1))
+        val freeReal = U(free.dropHigh(1))
+        val commitReal = U(free.dropHigh(1))
         val commitNext = cloneOf(commit)
         commit := commitNext
         val priority = Reg(Bits(sqSize-1 bits)) init(0) //TODO check it work properly
@@ -250,14 +261,22 @@ class LsuPlugin(lqSize: Int,
 
         var alloc = CombInit(ptr.alloc)
         for(slotId <- 0 until Frontend.DISPATCH_COUNT){
+          (LQ_ID, slotId) := alloc.resized
           when((DISPATCH_MASK, slotId) && (LQ_ALLOC, slotId)){
             (LSU_ID, slotId) := alloc.resized
+            mem.sqAlloc.write(
+              address = (LQ_ID, slotId),
+              data = (SQ_ID, slotId)
+            )
             when(ptr.isFull(alloc)){
               full := True
             }
             alloc \= alloc + 1
           }
         }
+
+
+
 
         when(isFireing){
           ptr.alloc := alloc
@@ -315,6 +334,31 @@ class LsuPlugin(lqSize: Int,
 
         val cancels = for((stage, stageId) <- stages.zipWithIndex){
           setup.cacheLoad.cancels(stageId) := stage.isValid && rescheduling.valid
+        }
+
+        val checkSq = new Area{
+          val stage = stages(1)
+          import stage._
+
+          val startId = CombInit(sq.ptr.freeReal)
+          val endId = mem.sqAlloc.readAsync(LQ_SEL)
+          val startMask = U(UIntToOh(startId))-1
+          val endMask   = U(UIntToOh(endId))-1
+          val loopback = endMask < startMask
+          val youngerMask = loopback ? ~(endMask ^ startMask) otherwise (endMask & ~startMask)
+
+
+
+          val hits = Bits(sqSize bits)
+          val entries = for(sqReg <- sq.regs) yield new Area {
+            val pageHit = sqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
+            val wordHit = (sqReg.address.mask & DATA_MASK) =/= 0
+            hits(sqReg.id) := sqReg.valid && pageHit && wordHit && youngerMask(sqReg.id)
+          }
+          val olderHit = hits =/= 0
+
+
+          OLDER_STORE_RESCHEDULE := olderHit
         }
 
         val cacheRsp = new Area{
@@ -414,7 +458,7 @@ class LsuPlugin(lqSize: Int,
 
     val store = new Area{
       import sq._
-     for(spec <- storePorts){
+      for(spec <- storePorts){
         import spec._
         mem.address.write(
           enable = port.valid,
@@ -449,8 +493,13 @@ class LsuPlugin(lqSize: Int,
 
         var alloc = CombInit(ptr.alloc)
         for(slotId <- 0 until Frontend.DISPATCH_COUNT){
+          (SQ_ID, slotId) := alloc.resized
           when((DISPATCH_MASK, slotId) && (SQ_ALLOC, slotId)){
             (LSU_ID, slotId) := alloc.resized
+            mem.lqAlloc.write(
+              address = (SQ_ID, slotId),
+              data = (LQ_ID, slotId)
+            )
             when(ptr.isFull(alloc)){
               full := True
             }
@@ -513,15 +562,23 @@ class LsuPlugin(lqSize: Int,
           val stage = stages(1)
           import stage._
 
+          val startId = mem.lqAlloc.readAsync(SQ_SEL)
+          val endId = CombInit(lq.ptr.allocReal)
+          val startMask = U(UIntToOh(startId))-1
+          val endMask   = U(UIntToOh(endId))-1
+          val loopback = endMask < startMask
+          val youngerMask = loopback ? ~(endMask ^ startMask) otherwise (endMask & ~startMask)
+
+
           val hits = Bits(lqSize bits)
           val entries = for(lqReg <- lq.regs) yield new Area {
             val pageHit = lqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
             val wordHit = (lqReg.address.mask & DATA_MASK) =/= 0
-            hits(lqReg.id) := lqReg.valid && pageHit && wordHit
+            hits(lqReg.id) := lqReg.valid && pageHit && wordHit && youngerMask(lqReg.id)
           }
-          val youngerHit = hits =/= 0
-          val youngerOh = OHMasking.roundRobinMasked(hits, lq.ptr.priority)
-          val youngerSel = OHToUInt(youngerOh)
+          val youngerHit   = hits =/= 0
+          val youngerOh   = OHMasking.roundRobinMasked(hits, lq.ptr.priority)
+          val youngerSel  = OHToUInt(youngerOh)
 
           YOUNGER_LOAD_PC := lq.mem.pc(youngerSel)
           YOUNGER_LOAD_ROB := lq.mem.robId.readAsync(youngerSel)

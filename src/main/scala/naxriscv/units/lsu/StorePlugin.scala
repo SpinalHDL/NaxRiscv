@@ -47,7 +47,7 @@ class StorePlugin(euId : String) extends Plugin{
     setup.port.valid := isFireing && SEL
     setup.port.address := U(SrcStageables.ADD_SUB)
     setup.port.data    := eu(IntRegFile, RS2)
-    setup.port.sqId := lsu.keys.SQ_ID.resized
+    setup.port.sqId := lsu.keys.LSU_ID.resized
     setup.port.robId := ExecutionUnitKeys.ROB_ID
     setup.port.size := U(func3(1 downto 0))
     eu.release()

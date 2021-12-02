@@ -53,7 +53,7 @@ class LoadPlugin(euId : String) extends Plugin{
     val func3 = Frontend.MICRO_OP(Const.funct3Range)
     setup.port.valid := isFireing && SEL
     setup.port.robId := ExecutionUnitKeys.ROB_ID
-    setup.port.lqId := lsu.keys.LQ_ID.resized
+    setup.port.lqId := lsu.keys.LSU_ID.resized
     setup.port.address := U(SrcStageables.ADD_SUB)
     setup.port.size := U(func3(1 downto 0))
     setup.port.unsigned := func3(2)

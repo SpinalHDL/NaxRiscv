@@ -139,6 +139,7 @@ object Gen extends App{
 /*
 - aligner flush connector from fetches.last stage (workarounded via a extra stage)
 - Likely pc management in the aligner need rework, specialy what's about btb impact when buffer pc + 4 != input pc ?
+- load to load ordering
  */
 
 //ASSUMPTIONS
