@@ -115,15 +115,15 @@ class LsuPlugin(lqSize: Int,
     lock.await()
 
     val keysLocal = new AreaRoot {
+      val LQ_ID = Stageable(UInt(log2Up(lqSize) bits))
+      val SQ_ID = Stageable(UInt(log2Up(sqSize) bits))
+
       val YOUNGER_LOAD_PC         = Stageable(PC)
       val YOUNGER_LOAD_ROB        = Stageable(ROB.ID_TYPE)
       val YOUNGER_LOAD_RESCHEDULE = Stageable(Bool())
 
       val OLDER_STORE_RESCHEDULE  = Stageable(Bool())
-
-
-      val LQ_ID = Stageable(UInt(log2Up(lqSize max sqSize) bits))
-      val SQ_ID = Stageable(UInt(log2Up(lqSize max sqSize) bits))
+      val OLDER_STORE_ID = Stageable(SQ_ID)
     }
     import keysLocal._
 
@@ -145,7 +145,9 @@ class LsuPlugin(lqSize: Int,
           val cacheRsp    = Reg(Bool())
           val cacheRefill = Reg(Bits(cache.refillCount bits))
           val cacheRefillAny = Reg(Bool())
-          val commit     = Reg(Bool())
+          val sq     = Reg(Bool())
+          val sqId   = Reg(SQ_ID)
+          val commit = Reg(Bool())
 
           val cacheRefillSet = cacheRefill.getZero
           val cacheRefillAnySet = False
@@ -160,7 +162,7 @@ class LsuPlugin(lqSize: Int,
           val mask = Reg(DATA_MASK)
         }
 
-        val ready = valid && !waitOn.address && !waitOn.cacheRsp && waitOn.cacheRefill === 0 && !waitOn.cacheRefillAny && !waitOn.commit
+        val ready = valid && !waitOn.address && !waitOn.cacheRsp && waitOn.cacheRefill === 0 && !waitOn.cacheRefillAny && !waitOn.commit && !waitOn.sq
       }
       val mem = new Area{
         val address = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
@@ -214,6 +216,8 @@ class LsuPlugin(lqSize: Int,
         commit := commitNext
         val priority = Reg(Bits(sqSize-1 bits)) init(0) //TODO check it work properly
         def isFull(ptr : UInt) = (ptr ^ free) === sqSize
+
+        val onFree = Flow(UInt(log2Up(sqSize) bits))
       }
     }
 
@@ -251,6 +255,10 @@ class LsuPlugin(lqSize: Int,
             entry.address.mask := AddressToMask(port.address, port.size, wordBytes)
           }
         }
+      }
+
+      for(reg <- regs) when(sq.ptr.onFree.valid && sq.ptr.onFree.payload === reg.waitOn.sqId){
+        reg.waitOn.sq := False
       }
 
       val allocate = new Area{
@@ -291,6 +299,7 @@ class LsuPlugin(lqSize: Int,
               reg.waitOn.cacheRefill := 0
               reg.waitOn.cacheRefillAny := False
               reg.waitOn.commit := False
+              reg.waitOn.sq := False
             }
           }
         }
@@ -330,6 +339,7 @@ class LsuPlugin(lqSize: Int,
           ADDRESS_PRE_TRANSLATION := cmd.virtual
           SIZE     := regs.map(_.address.size).read(sel)
           UNSIGNED := regs.map(_.address.unsigned).read(sel)
+          DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
         }
 
         val cancels = for((stage, stageId) <- stages.zipWithIndex){
@@ -356,9 +366,12 @@ class LsuPlugin(lqSize: Int,
             hits(sqReg.id) := sqReg.valid && pageHit && wordHit && youngerMask(sqReg.id)
           }
           val olderHit = hits =/= 0
-
+          val olderOh   = if(sqSize == 1) B(1) else OHMasking.roundRobinMaskedFull(hits.reversed, ~((sq.ptr.priority ## !sq.ptr.priority.msb).reversed)).reversed //reverted priority, imprecise would be ok
+          val olderSel  = OHToUInt(olderOh)
 
           OLDER_STORE_RESCHEDULE := olderHit
+          OLDER_STORE_ID := olderSel
+          PC := mem.pc(LQ_SEL)
         }
 
         val cacheRsp = new Area{
@@ -410,10 +423,17 @@ class LsuPlugin(lqSize: Int,
           setup.loadTrap.skipCommit := True
           setup.loadTrap.cause.assignDontCare()
 
+          val sqJustDone = sq.ptr.onFree.valid && sq.ptr.onFree.payload === OLDER_STORE_ID
+
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(LQ_SEL_OH(reg.id)){ body(reg) }
           when(isValid) {
             onRegs(_.waitOn.cacheRsp := False)
-            when(rsp.miss) {
+            when(OLDER_STORE_RESCHEDULE){
+              onRegs{r =>
+                r.waitOn.sq setWhen(!sqJustDone)
+                r.waitOn.sqId := OLDER_STORE_ID
+              }
+            } elsewhen(rsp.miss) {
               when(rsp.refillSlotFull) {
                 onRegs(_.waitOn.cacheRefillAnySet := True)
               } otherwise {
@@ -628,11 +648,17 @@ class LsuPlugin(lqSize: Int,
 
       val writeback = new Area{
 //TODO ->
-//        ptr.priority := ptr.priority |<< 1
-//        when(ptr.priority === 0){
-//          ptr.priority := (default -> true)
-//        }
-//        ptr.free := ptr.free + 1
+        /*
+        ptr.priority := ptr.priority |<< 1
+        when(ptr.priority === 0){
+          ptr.priority := (default -> true)
+        }
+        ptr.free := ptr.free + 1
+         */
+
+        sq.ptr.onFree.valid := False
+        sq.ptr.onFree.payload := 0
+
       }
     }
 
