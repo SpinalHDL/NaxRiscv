@@ -43,7 +43,8 @@ object Config{
       cacheSize = 4096,
       wayCount = 1,
       injectionAt = 2,
-      memDataWidth = Frontend.FETCH_DATA_WIDTH
+      memDataWidth = Frontend.FETCH_DATA_WIDTH,
+      reducedBankWidth = false
     )
     plugins += new AlignerPlugin()
     plugins += new DecompressorPlugin()
@@ -60,10 +61,11 @@ object Config{
       sqSize = 4
     )
     plugins += new DataCachePlugin(
-      memDataWidth = 32,
+      memDataWidth = Global.XLEN,
       cacheSize    = 4096,
       wayCount     = 1,
-      refillCount = 1
+      refillCount = 1,
+      reducedBankWidth = false
     )
 
     plugins += new ExecutionUnitBase("ALU0")
@@ -138,7 +140,8 @@ object Gen extends App{
 
 //TODO fix bellow list
 /*
-- Data cache / LSU  need cares about read during writes on tags and data
+- Data cache / LSU  need cares about read during writes on tags and data, also, care about refill happening from previous cycle hazarding pipeline
+- data cache reduce ram blocks usage clashes by using banks sel
 - aligner flush connector from fetches.last stage (workarounded via a extra stage)
 - Likely pc management in the aligner need rework, specialy what's about btb impact when buffer pc + 4 != input pc ?
 - load to load ordering

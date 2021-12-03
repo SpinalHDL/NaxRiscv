@@ -37,7 +37,9 @@ class FetchCachePlugin(val cacheSize : Int,
                        val bankMuxesAt : Int = 1,
                        val bankMuxAt : Int = 2,
                        val controlAt : Int = 2,
-                       val injectionAt : Int = 2) extends Plugin with FetchPipelineRequirements {
+                       val injectionAt : Int = 2,
+                       val reducedBankWidth : Boolean = false
+                      ) extends Plugin with FetchPipelineRequirements {
   override def stagesCountMin = injectionAt + 1
 
   val mem = create early master(FetchL1Bus(this, getService[AddressTranslationService].postWidth))
@@ -61,7 +63,7 @@ class FetchCachePlugin(val cacheSize : Int,
     val preTranslationWidth = getService[AddressTranslationService].postWidth
     val cpuWordWidth = FETCH_DATA_WIDTH.get
     val bytePerMemWord = memDataWidth/8
-    val bytePerFetchWord = memDataWidth/8
+    val bytePerFetchWord = cpuWordWidth/8
     val waySize = cacheSize/wayCount
     val linePerWay = waySize/lineSize
     val memDataPerWay = waySize/bytePerMemWord
@@ -74,7 +76,7 @@ class FetchCachePlugin(val cacheSize : Int,
     val lineRange = tagRange.low-1 downto log2Up(lineSize)
 
     val bankCount = wayCount
-    val bankWidth = Math.max(cpuWordWidth, memDataWidth/wayCount)
+    val bankWidth =  if(!reducedBankWidth) memDataWidth else Math.max(cpuWordWidth, memDataWidth/wayCount)
     val bankByteSize = cacheSize/bankCount
     val bankWordCount = bankByteSize*8/bankWidth
     val bankWordToCpuWordRange = log2Up(bankWidth/8)-1 downto log2Up(bytePerFetchWord)
@@ -173,13 +175,19 @@ class FetchCachePlugin(val cacheSize : Int,
       }
 
 
-      for(bankId <- 0 until bankCount){
-        val sel = U(bankId) - wayToAllocate.value
-        val groupSel = wayToAllocate(log2Up(bankCount)-1 downto log2Up(bankCount/memToBankRatio))
-        val subSel = sel(log2Up(bankCount/memToBankRatio) -1 downto 0)
-        banks(bankId).write.valid := mem.rsp.valid && groupSel === (bankId >> log2Up(bankCount/memToBankRatio))
-        banks(bankId).write.address := address(lineRange) @@ wordIndex @@ (subSel)
-        banks(bankId).write.data := mem.rsp.data.subdivideIn(bankCount/memToBankRatio slices)(subSel)
+      for((bank, bankId) <- banks.zipWithIndex){
+        if(!reducedBankWidth) {
+          bank.write.valid := mem.rsp.valid && wayToAllocate === bankId
+          bank.write.address := address(lineRange) @@ wordIndex
+          bank.write.data := mem.rsp.data
+        } else {
+          val sel = U(bankId) - wayToAllocate.value
+          val groupSel = wayToAllocate(log2Up(bankCount)-1 downto log2Up(bankCount/memToBankRatio))
+          val subSel = sel(log2Up(bankCount/memToBankRatio) -1 downto 0)
+          bank.write.valid := mem.rsp.valid && groupSel === (bankId >> log2Up(bankCount/memToBankRatio))
+          bank.write.address := address(lineRange) @@ wordIndex @@ (subSel)
+          bank.write.data := mem.rsp.data.subdivideIn(bankCount/memToBankRatio slices)(subSel)
+        }
       }
 
 
@@ -203,7 +211,13 @@ class FetchCachePlugin(val cacheSize : Int,
         }
         {import bankMuxesStage._; BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(frontend.keys.FETCH_PC_PRE_TRANSLATION(bankWordToCpuWordRange)) }
       }
-      {import bankMuxStage._;   WORD := MuxOH(WAYS_HITS, BANKS_MUXES) }
+
+      val bankMux = new Area {
+        import bankMuxStage._
+        val wayId = OHToUInt(WAYS_HITS)
+        val bankId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (frontend.keys.FETCH_PC_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
+        WORD := BANKS_MUXES.read(bankId) //MuxOH(WAYS_HITS, BANKS_MUXES)
+      }
 
 
       for((way, wayId) <- ways.zipWithIndex) yield new Area{

@@ -23,7 +23,9 @@ class DataCachePlugin(val memDataWidth : Int,
                       val loadBankMuxesAt: Int = 1,
                       val loadBankMuxAt: Int = 2,
                       val loadControlAt: Int = 2,
-                      val loadRspAt: Int = 2) extends Plugin with LockedImpl{
+                      val loadRspAt: Int = 2,
+                      val reducedBankWidth : Boolean = false
+                     ) extends Plugin with LockedImpl{
   def loadRspLatency = loadRspAt
 
   val cpuDataWidth = XLEN.get
@@ -83,7 +85,9 @@ class DataCachePlugin(val memDataWidth : Int,
       loadBankMuxesAt = loadBankMuxesAt,
       loadBankMuxAt   = loadBankMuxAt,
       loadControlAt   = loadControlAt,
-      loadRspAt       = loadRspAt
+      loadRspAt       = loadRspAt,
+      reducedBankWidth = reducedBankWidth
+
     )
 
     setup.refillCompletions := cache.io.refillCompletions

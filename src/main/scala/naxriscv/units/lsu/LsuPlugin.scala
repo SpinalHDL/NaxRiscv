@@ -131,7 +131,7 @@ class LsuPlugin(lqSize: Int,
     }
     import keysLocal._
 
-    val cpuWordToRfWordRange = log2Up(cache.memDataWidth/8)-1 downto log2Up(wordBytes)
+    val cpuWordToRfWordRange = log2Up(wordBytes)-1 downto log2Up(wordBytes) //useless for now
 
     val rescheduling = commit.reschedulingPort
 

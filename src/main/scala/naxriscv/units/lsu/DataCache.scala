@@ -141,7 +141,9 @@ class DataCache(val cacheSize: Int,
                 val loadBankMuxesAt: Int = 1,
                 val loadBankMuxAt: Int = 2,
                 val loadControlAt: Int = 2,
-                val loadRspAt: Int = 2) extends Component {
+                val loadRspAt: Int = 2,
+                val reducedBankWidth : Boolean = false
+               ) extends Component {
   assert(refillCount == 1, "refillCounts should be 1 for now")
 
   val io = new Bundle {
@@ -170,7 +172,7 @@ class DataCache(val cacheSize: Int,
 
   val cpuWordWidth = cpuDataWidth
   val bytePerMemWord = memDataWidth/8
-  val bytePerFetchWord = memDataWidth/8
+  val bytePerFetchWord = cpuDataWidth/8
   val waySize = cacheSize/wayCount
   val linePerWay = waySize/lineSize
   val memDataPerWay = waySize/bytePerMemWord
@@ -183,7 +185,7 @@ class DataCache(val cacheSize: Int,
   val lineRange = tagRange.low-1 downto log2Up(lineSize)
 
   val bankCount = wayCount
-  val bankWidth = Math.max(cpuWordWidth, memDataWidth/wayCount)
+  val bankWidth =  if(!reducedBankWidth) memDataWidth else Math.max(cpuWordWidth, memDataWidth/wayCount)
   val bankByteSize = cacheSize/bankCount
   val bankWordCount = bankByteSize*8/bankWidth
   val bankWordToCpuWordRange = log2Up(bankWidth/8)-1 downto log2Up(bytePerFetchWord)
@@ -291,13 +293,19 @@ class DataCache(val cacheSize: Int,
     }
 
 
-    for(bankId <- 0 until bankCount){
-      val sel = U(bankId) - wayToAllocate.value
-      val groupSel = wayToAllocate(log2Up(bankCount)-1 downto log2Up(bankCount/memToBankRatio))
-      val subSel = sel(log2Up(bankCount/memToBankRatio) -1 downto 0)
-      banks(bankId).write.valid := io.mem.read.rsp.valid && groupSel === (bankId >> log2Up(bankCount/memToBankRatio))
-      banks(bankId).write.address := address(lineRange) @@ wordIndex @@ (subSel)
-      banks(bankId).write.data := io.mem.read.rsp.data.subdivideIn(bankCount/memToBankRatio slices)(subSel)
+    for((bank, bankId) <- banks.zipWithIndex){
+      if(!reducedBankWidth) {
+        bank.write.valid := io.mem.read.rsp.valid && wayToAllocate === bankId
+        bank.write.address := address(lineRange) @@ wordIndex
+        bank.write.data := io.mem.read.rsp.data
+      } else {
+        val sel = U(bankId) - wayToAllocate.value
+        val groupSel = wayToAllocate(log2Up(bankCount)-1 downto log2Up(bankCount/memToBankRatio))
+        val subSel = sel(log2Up(bankCount/memToBankRatio) -1 downto 0)
+        bank.write.valid := io.mem.read.rsp.valid && groupSel === (bankId >> log2Up(bankCount/memToBankRatio))
+        bank.write.address := address(lineRange) @@ wordIndex @@ (subSel)
+        bank.write.data := io.mem.read.rsp.data.subdivideIn(bankCount/memToBankRatio slices)(subSel)
+      }
       banks(bankId).write.mask := (default -> true)
     }
 
@@ -312,6 +320,7 @@ class DataCache(val cacheSize: Int,
 
 //    pipeline.stages(0).haltIt(valid)
   }
+
   val refillFree = B(OHMasking.first(refill.map(!_.valid)))
   val refillFull = refill.map(_.valid).andR
 
@@ -352,19 +361,20 @@ class DataCache(val cacheSize: Int,
           bank.read.cmd.valid := !isStuck
           bank.read.cmd.payload := ADDRESS_PRE_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
         }
-        for (id <- 0 until bankCount) yield new Area {
-          pipeline.stages(loadReadAt + 1)(BANKS_WORDS)(id) := banks(id).read.rsp
-        }
+        pipeline.stages(loadReadAt + 1)(BANKS_WORDS)(bankId) := banks(bankId).read.rsp;
         {
           import bankMuxesStage._;
           BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(ADDRESS_PRE_TRANSLATION(bankWordToCpuWordRange))
         }
-      }
-      {
-        import bankMuxStage._;
-        CPU_WORD := MuxOH(WAYS_HITS, BANKS_MUXES)
+
       }
 
+      val bankMux = new Area {
+        import bankMuxStage._
+        val wayId = OHToUInt(WAYS_HITS)
+        val bankId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
+        CPU_WORD := BANKS_MUXES.read(bankId) //MuxOH(WAYS_HITS, BANKS_MUXES)
+      }
 
       for ((way, wayId) <- ways.zipWithIndex) yield new Area {
         {
@@ -372,9 +382,7 @@ class DataCache(val cacheSize: Int,
           way.loadRead.cmd.valid := !isStuck
           way.loadRead.cmd.payload := ADDRESS_PRE_TRANSLATION(lineRange)
         }
-        for (id <- 0 until wayCount) yield new Area {
-          pipeline.stages(loadReadAt + 1)(WAYS_TAGS)(id) := ways(id).loadRead.rsp
-        }
+        pipeline.stages(loadReadAt + 1)(WAYS_TAGS)(wayId) := ways(wayId).loadRead.rsp;
         {
           import hitsStage._;
           WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === ADDRESS_POST_TRANSLATION(tagRange)
@@ -468,9 +476,7 @@ class DataCache(val cacheSize: Int,
           way.storeRead.cmd.valid := !isStuck
           way.storeRead.cmd.payload := ADDRESS_POST_TRANSLATION(lineRange)
         }
-        for (id <- 0 until wayCount) yield new Area {
-          pipeline.stages(loadReadAt + 1)(WAYS_TAGS)(id) := ways(id).storeRead.rsp
-        }
+        pipeline.stages(loadReadAt + 1)(WAYS_TAGS)(wayId) := ways(wayId).storeRead.rsp;
         {
           import hitsStage._;
           WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === ADDRESS_POST_TRANSLATION(tagRange)
@@ -502,9 +508,12 @@ class DataCache(val cacheSize: Int,
       }
 
       val writeCache = isValid && GENERATION_OK && !MISS && !refillBanksWrite
+      val wayId = OHToUInt(WAYS_HITS)
+      val bankHitId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
+
       when(writeCache){
         for((bank, bankId) <- banks.zipWithIndex){
-          bank.write.valid := WAYS_HITS(bankId)
+          bank.write.valid := bankId === bankHitId
           bank.write.address := ADDRESS_POST_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
           bank.write.data.subdivideIn(cpuWordWidth bits).foreach(_ := CPU_WORD)
           bank.write.mask := 0
