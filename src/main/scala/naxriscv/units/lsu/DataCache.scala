@@ -1,5 +1,6 @@
 package naxriscv.units.lsu
 
+import naxriscv.utilities.AddressToMask
 import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Connection.M2S
@@ -39,15 +40,16 @@ case class DataLoadTranslated(physicalWidth : Int) extends Bundle {
 case class DataLoadRsp(dataWidth : Int, refillCount : Int) extends Bundle {
   val data = Bits(dataWidth bits)
   val fault = Bool()
-  val miss = Bool()
-  val refillSlot = Bits(refillCount bits) //Zero when refillSlotFull
-  val refillSlotFull = Bool() //Not valid if !miss
+  val redo = Bool()
+  val refillSlot = Bits(refillCount bits) //Zero when refillSlotAny
+  val refillSlotAny = Bool() //Not valid if !miss
 }
 
-case class DataStorePort(physicalWidth: Int,
-                         dataWidth: Int) extends Bundle with IMasterSlave {
-  val cmd = Stream(DataStoreCmd(physicalWidth, dataWidth))
-  val rsp = Flow(NoData)
+case class DataStorePort(postTranslationWidth: Int,
+                         dataWidth: Int,
+                         refillCount : Int) extends Bundle with IMasterSlave {
+  val cmd = Flow(DataStoreCmd(postTranslationWidth, dataWidth))
+  val rsp = Flow(DataStoreRsp(postTranslationWidth, refillCount))
 
   override def asMaster() = {
     master(cmd)
@@ -58,25 +60,32 @@ case class DataStoreCmd(postTranslationWidth: Int,
                         dataWidth: Int) extends Bundle {
   val address = UInt(postTranslationWidth bits)
   val data = Bits(dataWidth bits)
-  val mask = Bits(dataWidth/8 bits)
+  val size = UInt(log2Up(log2Up(dataWidth/8)+1) bits)
+  val generation  = Bool()
 }
 
-case class DataMemCmd(addressWidth: Int,
+case class DataStoreRsp(dataWidth : Int, refillCount : Int) extends Bundle {
+  val fault = Bool()
+  val redo = Bool()
+  val refillSlot = Bits(refillCount bits) //Zero when refillSlotAny
+  val refillSlotAny = Bool() //Not valid if !miss
+  val generationKo = Bool() //Ignore everything else if this is set
+}
+
+case class DataMemReadCmd(addressWidth: Int,
                       dataWidth: Int) extends Bundle {
   val address = UInt(addressWidth bits)
-//  val data = Bits(dataWidth bits)
-//  val mask = Bits(dataWidth/8 bits)
 }
 
-case class DataMemRsp(dataWidth: Int) extends Bundle {
+case class DataMemReadRsp(dataWidth: Int) extends Bundle {
   val data = Bits(dataWidth bits)
   val error = Bool()
 }
 
-case class DataMemBus(addressWidth: Int,
-                      dataWidth: Int) extends Bundle with IMasterSlave {
-  val cmd = Stream(DataMemCmd(addressWidth, dataWidth))
-  val rsp = Flow(DataMemRsp(dataWidth))
+case class DataMemReadBus(addressWidth: Int,
+                          dataWidth: Int) extends Bundle with IMasterSlave {
+  val cmd = Stream(DataMemReadCmd(addressWidth, dataWidth))
+  val rsp = Flow(DataMemReadRsp(dataWidth))
 
   override def asMaster() = {
     master(cmd)
@@ -84,6 +93,39 @@ case class DataMemBus(addressWidth: Int,
   }
 }
 
+case class DataMemWriteCmd(addressWidth: Int,
+                           dataWidth: Int) extends Bundle {
+  val address = UInt(addressWidth bits)
+  val data    = Bits(dataWidth bits)
+  val mask    = Bits(dataWidth/8 bits)
+
+}
+
+case class DataMemWriteRsp(dataWidth: Int) extends Bundle {
+  val error = Bool()
+}
+
+case class DataMemWriteBus(addressWidth: Int,
+                           dataWidth: Int) extends Bundle with IMasterSlave {
+  val cmd = Stream(DataMemWriteCmd(addressWidth, dataWidth))
+  val rsp = Flow(DataMemWriteRsp(dataWidth))
+
+  override def asMaster() = {
+    master(cmd)
+    slave(rsp)
+  }
+}
+
+
+case class DataMemBus(addressWidth: Int,
+                           dataWidth: Int) extends Bundle with IMasterSlave {
+  val read = master(DataMemReadBus(addressWidth, dataWidth))
+  val write = master(DataMemWriteBus(addressWidth, dataWidth))
+
+  override def asMaster() = {
+    master(read, write)
+  }
+}
 
 class DataCache(val cacheSize: Int,
                 val wayCount: Int,
@@ -111,22 +153,18 @@ class DataCache(val cacheSize: Int,
       rspAt         = loadRspAt,
       translatedAt  = loadHitsAt
     ))
-    val store = slave(Stream(DataStoreCmd(
+    val store = slave(DataStorePort(
       postTranslationWidth = postTranslationWidth,
-      dataWidth     = cpuDataWidth
-    )))
+      dataWidth     = cpuDataWidth,
+      refillCount =  refillCount
+    ))
     val mem = master(DataMemBus(postTranslationWidth, memDataWidth))
     val refillCompletions = out Bits(refillCount bits)
   }
 
-  val pipeline = new Pipeline{
-    val stages = Array.fill(loadRspAt+1)(newStage())
-    connect(stages)(List(M2S()))
+  io.mem.write.flatten.filter(_.isOutput).foreach(_.assignDontCare())
 
-    for((stage, stageId) <- stages.zipWithIndex){
-      stage.throwIt(io.load.cancels(stageId))
-    }
-  }
+
 
 
 
@@ -156,18 +194,13 @@ class DataCache(val cacheSize: Int,
   val ADDRESS_PRE_TRANSLATION = Stageable(UInt(preTranslationWidth bits))
   val ADDRESS_POST_TRANSLATION = ADDRESS_PRE_TRANSLATION //Stageable(UInt(postTranslationWidth bits))  //TODO for now
   val CPU_WORD = Stageable(Bits(cpuWordWidth bits))
+  val CPU_MASK = Stageable(Bits(cpuWordWidth/8 bits))
+  val TAGS_CORRUPTED = Stageable(Bool()) //TODO implement me
 
-  val readStage      = pipeline.stages(loadReadAt)
-  val hitsStage      = pipeline.stages(loadHitsAt)
-  val hitStage       = pipeline.stages(loadHitAt)
-  val bankMuxesStage = pipeline.stages(loadBankMuxesAt)
-  val bankMuxStage   = pipeline.stages(loadBankMuxAt)
-  val controlStage   = pipeline.stages(loadControlAt)
-  val rspStage = pipeline.stages(loadRspAt)
 
   case class Tag() extends Bundle{
     val loaded = Bool()
-    val error = Bool()
+    val error  = Bool()
     val address = UInt(tagWidth bits)
   }
 
@@ -176,20 +209,21 @@ class DataCache(val cacheSize: Int,
   val WAYS_HITS = Stageable(Vec.fill(wayCount)(Bool()))
   val WAYS_HIT = Stageable(Bool())
   val MISS = Stageable(Bool())
+  val REDO = Stageable(Bool())
   val SIZE = Stageable(UInt(log2Up(log2Up(cpuDataWidth/8)+1) bits))
   val REFILL_SLOT = Stageable(Bits(refillCount bits))
   val REFILL_SLOT_FULL = Stageable(Bool())
+  val GENERATION, GENERATION_OK = Stageable(Bool())
 
   val BANKS_MUXES = Stageable(Vec.fill(bankCount)(Bits(cpuWordWidth bits)))
 
-
   val banks = for(id <- 0 until bankCount) yield new Area{
     val mem = Mem(Bits(bankWidth bits), bankWordCount)
-    val write = mem.writePort
+    val write = mem.writePortWithMask
+    write.mask.setWidth(mem.getWidth/8)
     val read = new Area{
       val cmd = Flow(mem.addressType)
       val rsp = mem.readSync(cmd.payload, cmd.valid)
-      pipeline.stages(loadReadAt+1)(BANKS_WORDS)(id) := rsp
     }
   }
   val waysWrite = new Area{
@@ -204,10 +238,13 @@ class DataCache(val cacheSize: Int,
   val ways = for(id <- 0 until wayCount) yield new Area {
     val mem = Mem.fill(linePerWay)(Tag())
     mem.write(waysWrite.address, waysWrite.tag, waysWrite.mask(id))
-    val read = new Area{
+    val loadRead = new Area{
       val cmd = Flow(mem.addressType)
       val rsp = mem.readSync(cmd.payload, cmd.valid)
-      pipeline.stages(loadReadAt+1)(WAYS_TAGS)(id) := rsp
+    }
+    val storeRead = new Area{
+      val cmd = Flow(mem.addressType)
+      val rsp = mem.readSync(cmd.payload, cmd.valid)
     }
   }
 
@@ -219,7 +256,7 @@ class DataCache(val cacheSize: Int,
     }
 
     when(!done) {
-      waysWrite.mask := (default -> true)
+      waysWrite.mask.setAll()
       waysWrite.address := counter.resized
       waysWrite.tag.loaded := False
     }
@@ -228,6 +265,7 @@ class DataCache(val cacheSize: Int,
   }
 
 
+  val refillBanksWrite = CombInit(io.mem.read.rsp.valid)
   val refill = for(refillId <- 0 until refillCount) yield new Area {
     val id = refillId
     val fire = False
@@ -235,9 +273,9 @@ class DataCache(val cacheSize: Int,
     val address = KeepAttribute(Reg(UInt(postTranslationWidth bits)))
     val hadError = RegInit(False) clearWhen (fire)
 
-    val cmdSent = RegInit(False) setWhen (io.mem.cmd.fire) clearWhen (fire)
-    io.mem.cmd.valid := valid && !cmdSent
-    io.mem.cmd.address := address(tagRange.high downto lineRange.low) @@ U(0, lineRange.low bit)
+    val cmdSent = RegInit(False) setWhen (io.mem.read.cmd.fire) clearWhen (fire)
+    io.mem.read.cmd.valid := valid && !cmdSent
+    io.mem.read.cmd.address := address(tagRange.high downto lineRange.low) @@ U(0, lineRange.low bit)
 
     val wayToAllocate = Counter(wayCount, !valid)
     val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
@@ -248,7 +286,7 @@ class DataCache(val cacheSize: Int,
       waysWrite.mask(wayToAllocate) setWhen(fire)
       waysWrite.address := address(lineRange)
       waysWrite.tag.loaded := True
-      waysWrite.tag.error := hadError || io.mem.rsp.error
+      waysWrite.tag.error := hadError || io.mem.read.rsp.error
       waysWrite.tag.address := address(tagRange)
     }
 
@@ -257,15 +295,16 @@ class DataCache(val cacheSize: Int,
       val sel = U(bankId) - wayToAllocate.value
       val groupSel = wayToAllocate(log2Up(bankCount)-1 downto log2Up(bankCount/memToBankRatio))
       val subSel = sel(log2Up(bankCount/memToBankRatio) -1 downto 0)
-      banks(bankId).write.valid := io.mem.rsp.valid && groupSel === (bankId >> log2Up(bankCount/memToBankRatio))
+      banks(bankId).write.valid := io.mem.read.rsp.valid && groupSel === (bankId >> log2Up(bankCount/memToBankRatio))
       banks(bankId).write.address := address(lineRange) @@ wordIndex @@ (subSel)
-      banks(bankId).write.data := io.mem.rsp.data.subdivideIn(bankCount/memToBankRatio slices)(subSel)
+      banks(bankId).write.data := io.mem.read.rsp.data.subdivideIn(bankCount/memToBankRatio slices)(subSel)
+      banks(bankId).write.mask := (default -> true)
     }
 
 
-    when(io.mem.rsp.valid) {
+    when(io.mem.read.rsp.valid) {
       wordIndex := (wordIndex + 1).resized
-      hadError.setWhen(io.mem.rsp.error)
+      hadError.setWhen(io.mem.read.rsp.error)
       when(wordIndex === wordIndex.maxValue) {
         fire := True
       }
@@ -276,40 +315,80 @@ class DataCache(val cacheSize: Int,
   val refillFree = B(OHMasking.first(refill.map(!_.valid)))
   val refillFull = refill.map(_.valid).andR
 
-  val start = new Area{
-    val stage = pipeline.stages.head
-    import stage._
+  val load = new Area {
+    val pipeline = new Pipeline{
+      val stages = Array.fill(loadRspAt+1)(newStage())
+      connect(stages)(List(M2S()))
 
-    isValid := io.load.cmd.valid
-    ADDRESS_PRE_TRANSLATION := io.load.cmd.virtual
-    SIZE := io.load.cmd.size
-  }
-
-  val fetch = new Area{
-    for((bank, bankId) <- banks.zipWithIndex) yield new Area{
-      {
-        import readStage._
-        bank.read.cmd.valid := !isStuck
-        bank.read.cmd.payload := ADDRESS_PRE_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
+      for((stage, stageId) <- stages.zipWithIndex){
+        stage.throwIt(io.load.cancels(stageId))
       }
-      {import bankMuxesStage._; BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(ADDRESS_PRE_TRANSLATION(bankWordToCpuWordRange)) }
-    }
-    {import bankMuxStage._;   CPU_WORD := MuxOH(WAYS_HITS, BANKS_MUXES) }
-
-
-    for((way, wayId) <- ways.zipWithIndex) yield new Area{
-      {
-        import readStage._
-        way.read.cmd.valid := !isStuck
-        way.read.cmd.payload := ADDRESS_PRE_TRANSLATION(lineRange)
-      }
-
-      {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === ADDRESS_POST_TRANSLATION(tagRange) }
     }
 
-    {import hitStage._;   WAYS_HIT := B(WAYS_HITS).orR}
+    val readStage      = pipeline.stages(loadReadAt)
+    val hitsStage      = pipeline.stages(loadHitsAt)
+    val hitStage       = pipeline.stages(loadHitAt)
+    val bankMuxesStage = pipeline.stages(loadBankMuxesAt)
+    val bankMuxStage   = pipeline.stages(loadBankMuxAt)
+    val controlStage   = pipeline.stages(loadControlAt)
+    val rspStage = pipeline.stages(loadRspAt)
 
-    val ctrl = new Area{
+
+
+    val start = new Area {
+      val stage = pipeline.stages.head
+
+      import stage._
+
+      isValid := io.load.cmd.valid
+      ADDRESS_PRE_TRANSLATION := io.load.cmd.virtual
+      SIZE := io.load.cmd.size
+    }
+
+    val fetch = new Area {
+      for ((bank, bankId) <- banks.zipWithIndex) yield new Area {
+        {
+          import readStage._
+          bank.read.cmd.valid := !isStuck
+          bank.read.cmd.payload := ADDRESS_PRE_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
+        }
+        for (id <- 0 until bankCount) yield new Area {
+          pipeline.stages(loadReadAt + 1)(BANKS_WORDS)(id) := banks(id).read.rsp
+        }
+        {
+          import bankMuxesStage._;
+          BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(ADDRESS_PRE_TRANSLATION(bankWordToCpuWordRange))
+        }
+      }
+      {
+        import bankMuxStage._;
+        CPU_WORD := MuxOH(WAYS_HITS, BANKS_MUXES)
+      }
+
+
+      for ((way, wayId) <- ways.zipWithIndex) yield new Area {
+        {
+          import readStage._
+          way.loadRead.cmd.valid := !isStuck
+          way.loadRead.cmd.payload := ADDRESS_PRE_TRANSLATION(lineRange)
+        }
+        for (id <- 0 until wayCount) yield new Area {
+          pipeline.stages(loadReadAt + 1)(WAYS_TAGS)(id) := ways(id).loadRead.rsp
+        }
+        {
+          import hitsStage._;
+          WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === ADDRESS_POST_TRANSLATION(tagRange)
+        }
+      }
+
+      {
+        import hitStage._;
+        WAYS_HIT := B(WAYS_HITS).orR
+      }
+    }
+
+    val ctrl = new Area {
+
       import controlStage._
 
       val refillHits = B(refill.map(r => r.valid && r.address === ADDRESS_POST_TRANSLATION))
@@ -319,27 +398,140 @@ class DataCache(val cacheSize: Int,
       REFILL_SLOT_FULL := !refillHit && refillFull
       REFILL_SLOT := refillHit ? refillHits | refillFree
 
-      when(isValid && MISS && !refillHit && !refillFull) {
-        for(r <- refill) when(refillFree(r.id)){
-          r.valid := True
-          r.address := ADDRESS_POST_TRANSLATION
-        }
+      val refillStarted = isValid && MISS && !refillHit && !refillFull
+      for (r <- refill) when(refillStarted && refillFree(r.id)) {
+        r.valid := True
+        r.address := ADDRESS_POST_TRANSLATION
       }
     }
 
-    val inject = new Area{
-      import rspStage._
+    val inject = new Area {
 
+      import rspStage._
+      assert(rspStage == controlStage, "Need to implement refillSlot bypass otherwise")
       io.load.rsp.valid := isValid
       io.load.rsp.data := CPU_WORD
       io.load.rsp.fault := False //TODO
-      io.load.rsp.miss := MISS
-      io.load.rsp.refillSlotFull := REFILL_SLOT_FULL
+      io.load.rsp.redo := MISS
+      io.load.rsp.refillSlotAny := REFILL_SLOT_FULL
       io.load.rsp.refillSlot := REFILL_SLOT
     }
+
+    pipeline.build()
   }
-  
-  pipeline.build()
+
+  val store = new Area{
+    val pipeline = new Pipeline{
+      val stages = Array.fill(loadRspAt+1)(newStage())
+      connect(stages)(List(M2S()))
+
+      val discardAll = False
+      for((stage, stageId) <- stages.zipWithIndex){
+        stage.throwIt(discardAll)
+      }
+    }
+
+    val readStage      = pipeline.stages(loadReadAt)
+    val hitsStage      = pipeline.stages(loadHitsAt)
+    val hitStage       = pipeline.stages(loadHitAt)
+    val bankMuxesStage = pipeline.stages(loadBankMuxesAt)
+    val bankMuxStage   = pipeline.stages(loadBankMuxAt)
+    val controlStage   = pipeline.stages(loadControlAt)
+    val rspStage = pipeline.stages(loadRspAt)
+
+    val target = RegInit(False)
+
+    val start = new Area {
+      val stage = pipeline.stages.head
+
+      import stage._
+
+      isValid := io.store.cmd.valid
+      ADDRESS_POST_TRANSLATION := io.store.cmd.address
+      CPU_WORD.assignDontCare()
+      switch(io.store.cmd.size){
+        for(s <- 0 to log2Up(cpuDataWidth/8)) is(s){
+          val w = (1 << s)*8
+          CPU_WORD.subdivideIn(w bits).foreach(_ := io.store.cmd.data(0, w bits))
+        }
+      }
+
+      SIZE := io.store.cmd.size
+      CPU_MASK := AddressToMask(io.store.cmd.address, io.store.cmd.size, widthOf(CPU_MASK))
+      GENERATION := io.store.cmd.generation
+    }
+
+    val fetch = new Area {
+      for ((way, wayId) <- ways.zipWithIndex) yield new Area {
+        {
+          import readStage._
+          way.storeRead.cmd.valid := !isStuck
+          way.storeRead.cmd.payload := ADDRESS_POST_TRANSLATION(lineRange)
+        }
+        for (id <- 0 until wayCount) yield new Area {
+          pipeline.stages(loadReadAt + 1)(WAYS_TAGS)(id) := ways(id).storeRead.rsp
+        }
+        {
+          import hitsStage._;
+          WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === ADDRESS_POST_TRANSLATION(tagRange)
+        }
+      }
+
+      {
+        import hitStage._;
+        WAYS_HIT := B(WAYS_HITS).orR
+      }
+    }
+
+    val ctrl = new Area {
+      import controlStage._
+
+      GENERATION_OK := GENERATION === target
+
+      val refillHits = B(refill.map(r => r.valid && r.address === ADDRESS_POST_TRANSLATION))
+      val refillHit = refillHits.orR
+
+      MISS := !WAYS_HIT
+      REFILL_SLOT_FULL := !refillHit && refillFull
+      REFILL_SLOT := refillHit ? refillHits | refillFree
+
+      val refillStarted = isValid && GENERATION_OK && MISS && !refillHit && !refillFull && !load.ctrl.refillStarted
+      for (r <- refill) when(refillStarted && refillFree(r.id)) {
+        r.valid := True
+        r.address := ADDRESS_POST_TRANSLATION
+      }
+
+      val writeCache = isValid && GENERATION_OK && !MISS && !refillBanksWrite
+      when(writeCache){
+        for((bank, bankId) <- banks.zipWithIndex){
+          bank.write.valid := WAYS_HITS(bankId)
+          bank.write.address := ADDRESS_POST_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
+          bank.write.data.subdivideIn(cpuWordWidth bits).foreach(_ := CPU_WORD)
+          bank.write.mask := 0
+          bank.write.mask.subdivideIn(cpuWordWidth/8 bits).write(ADDRESS_POST_TRANSLATION(bankWordToCpuWordRange), CPU_MASK)
+        }
+      }
+
+      REDO := MISS || refillBanksWrite
+
+      when(isValid && REDO && GENERATION_OK){
+        target := !target
+      }
+    }
+
+    val inject = new Area {
+      import rspStage._
+
+      assert(rspStage == controlStage, "Need to implement refillSlot bypass otherwise")
+      io.store.rsp.valid := isValid
+      io.store.rsp.generationKo := !GENERATION_OK
+      io.store.rsp.fault := False //TODO
+      io.store.rsp.redo := REDO
+      io.store.rsp.refillSlotAny := REFILL_SLOT_FULL
+      io.store.rsp.refillSlot := REFILL_SLOT
+    }
+    pipeline.build()
+  }
 
 //  io.flatten.filter(_.isOutput).map(_.assignDontCare())
 }

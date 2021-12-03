@@ -43,6 +43,16 @@ class DataCachePlugin(val memDataWidth : Int,
     ))).port
   }
 
+  case class StorePortSpec(port : DataStorePort)
+  val storePorts = ArrayBuffer[StorePortSpec]()
+  def newStorePort(): DataStorePort = {
+    storePorts.addRet(StorePortSpec(DataStorePort(
+      postTranslationWidth = postTranslationWidth,
+      dataWidth     = cpuDataWidth,
+      refillCount   = refillCount
+    ))).port
+  }
+  
   def refillCompletions = setup.refillCompletions
 
   val setup = create early new Area{
@@ -80,11 +90,13 @@ class DataCachePlugin(val memDataWidth : Int,
 
     val load = new Area{
       assert(loadPorts.size == 1)//for now, dev
-//        val cmd = loadPorts.head.port.cmd
       cache.io.load <> loadPorts.head.port
     }
 
-
+    val store = new Area{
+      assert(storePorts.size == 1)
+      cache.io.store <> storePorts.head.port
+    }
   }
 
   val mem = create late logic.cache.io.mem.toIo()

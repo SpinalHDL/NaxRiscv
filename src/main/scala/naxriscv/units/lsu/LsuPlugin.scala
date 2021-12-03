@@ -96,6 +96,7 @@ class LsuPlugin(lqSize: Int,
 
     val rfWrite = regfile.newWrite(withReady = false, latency = 1)
     val cacheLoad = cache.newLoadPort()
+    val cacheStore = cache.newStorePort()
     val loadCompletion = rob.newRobCompletion()
     val storeCompletion = rob.newRobCompletion()
     val loadTrap = commit.newSchedulePort(canTrap = true, canJump = false)
@@ -211,10 +212,11 @@ class LsuPlugin(lqSize: Int,
       }
 
       val ptr = new Area{
-        val alloc, commit, free = Reg(UInt(log2Up(sqSize) + 1 bits)) init (0)
+        val alloc, commit, writeBack, free = Reg(UInt(log2Up(sqSize) + 1 bits)) init (0)
         val allocReal = U(alloc.dropHigh(1))
         val freeReal = U(free.dropHigh(1))
-        val commitReal = U(free.dropHigh(1))
+        val writeBackReal = U(writeBack.dropHigh(1))
+        val commitReal = U(commit.dropHigh(1))
         val commitNext = cloneOf(commit)
         commit := commitNext
         val priority = Reg(Bits(sqSize-1 bits)) init(0) //TODO check it work properly
@@ -437,8 +439,8 @@ class LsuPlugin(lqSize: Int,
                 r.waitOn.sq setWhen(!sqJustDone)
                 r.waitOn.sqId := OLDER_STORE_ID
               }
-            } elsewhen(rsp.miss) {
-              when(rsp.refillSlotFull) {
+            } elsewhen(rsp.redo) {
+              when(rsp.refillSlotAny) {
                 onRegs(_.waitOn.cacheRefillAnySet := True)
               } otherwise {
                 onRegs(_.waitOn.cacheRefillSet := rsp.refillSlot)
@@ -654,25 +656,55 @@ class LsuPlugin(lqSize: Int,
       }
 
       val writeback = new Area{
-
+        val generation = RegInit(False)
 //        val pipeline = new Pipeline {
 //          val stages = Array.fill(3)(newStage()) //TODO
 //          connect(stages)(List(M2S()))
-//
-//          stages.last.flushIt(rescheduling.valid, root = false)
-//
 //        }
-        /*
-        ptr.priority := ptr.priority |<< 1
-        when(ptr.priority === 0){
-          ptr.priority := (default -> true)
+
+        val waitOn = new Area{
+          val refillSlot    = Reg(Bits(cache.refillCount bits)) init(0) //Zero when refillSlotAny
+          val refillSlotAny = Reg(Bool()) init(False)
+
+          val ready = refillSlot === 0 && !refillSlotAny
+
+          val refillSlotSet = refillSlot.getZero
+          val refillSlotAnySet = False
+
+          refillSlot := (refillSlot | refillSlotSet) & ~cache.refillCompletions
+          refillSlotAny := (refillSlotAny | refillSlotAnySet) & !cache.refillCompletions.orR
         }
-        ptr.free := ptr.free + 1
-         */
 
-        sq.ptr.onFree.valid := False
-        sq.ptr.onFree.payload := 0
+        val feed = new Area{
+          setup.cacheStore.cmd.valid := ptr.writeBack =/= ptr.commit && waitOn.ready
+          setup.cacheStore.cmd.address := mem.address.readAsync(ptr.writeBackReal)
+          setup.cacheStore.cmd.data := mem.word.readAsync(ptr.writeBackReal)
+          setup.cacheStore.cmd.size := regs.map(_.address.size).read(ptr.writeBackReal)
+          setup.cacheStore.cmd.generation := generation
 
+          ptr.writeBack := ptr.writeBack + U(setup.cacheStore.cmd.valid)
+        }
+
+        val rsp = new Area{
+          sq.ptr.onFree.valid := False
+          sq.ptr.onFree.payload := ptr.freeReal
+
+          when(setup.cacheStore.rsp.valid && !setup.cacheStore.rsp.generationKo){
+            when(setup.cacheStore.rsp.redo) {
+              waitOn.refillSlotSet := setup.cacheStore.rsp.refillSlot
+              waitOn.refillSlotAnySet := setup.cacheStore.rsp.refillSlotAny
+              generation := !generation
+              ptr.writeBack := ptr.free
+            } otherwise {
+              sq.ptr.onFree.valid := True
+              ptr.free := ptr.free + 1
+              ptr.priority := ptr.priority |<< 1
+              when(ptr.priority === 0){
+                ptr.priority := (default -> true)
+              }
+            }
+          }
+        }
       }
     }
 

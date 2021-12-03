@@ -167,32 +167,32 @@ public:
     }
 
     virtual void onReset(){
-        nax->DataCachePlugin_mem_cmd_ready = 1;
-        nax->DataCachePlugin_mem_rsp_valid = 0;
+        nax->DataCachePlugin_mem_read_cmd_ready = 1;
+        nax->DataCachePlugin_mem_read_rsp_valid = 0;
     }
 
     virtual void preCycle(){
-        if (nax->DataCachePlugin_mem_cmd_valid && nax->DataCachePlugin_mem_cmd_ready) {
+        if (nax->DataCachePlugin_mem_read_cmd_valid && nax->DataCachePlugin_mem_read_cmd_ready) {
             int id = 0;
             assertEq("CHANNEL BUSY", channel[id].beats, 0);
             channel[id].beats = DATA_LINE_BYTES/DATA_MEM_DATA_BYTES;
-            channel[id].address = nax->DataCachePlugin_mem_cmd_payload_address;
+            channel[id].address = nax->DataCachePlugin_mem_read_cmd_payload_address;
         }
     }
 
     virtual void postCycle(){
-        nax->DataCachePlugin_mem_rsp_valid = 0;
+        nax->DataCachePlugin_mem_read_rsp_valid = 0;
         if(!stall || VL_RANDOM_I(7) < 100){
             int id = 0;
             auto &ch = channel[id];
             if(ch.beats != 0){
-                nax->DataCachePlugin_mem_rsp_payload_error = soc->memoryRead(ch.address, DATA_MEM_DATA_BYTES, (u8*)&nax->DataCachePlugin_mem_rsp_payload_data);
-                nax->DataCachePlugin_mem_rsp_valid = 1;
+                nax->DataCachePlugin_mem_read_rsp_payload_error = soc->memoryRead(ch.address, DATA_MEM_DATA_BYTES, (u8*)&nax->DataCachePlugin_mem_read_rsp_payload_data);
+                nax->DataCachePlugin_mem_read_rsp_valid = 1;
                 ch.address = ch.address + DATA_MEM_DATA_BYTES;
                 ch.beats -= 1;
             }
         }
-        if(stall) nax->DataCachePlugin_mem_cmd_ready = VL_RANDOM_I(7) < 100;
+        if(stall) nax->DataCachePlugin_mem_read_cmd_ready = VL_RANDOM_I(7) < 100;
     }
 };
 

@@ -57,7 +57,7 @@ object Config{
 
     plugins += new LsuPlugin(
       lqSize = 4,
-      sqSize = 1
+      sqSize = 4
     )
     plugins += new DataCachePlugin(
       memDataWidth = 32,
@@ -138,6 +138,7 @@ object Gen extends App{
 
 //TODO fix bellow list
 /*
+- Data cache / LSU  need cares about read during writes on tags and data
 - aligner flush connector from fetches.last stage (workarounded via a extra stage)
 - Likely pc management in the aligner need rework, specialy what's about btb impact when buffer pc + 4 != input pc ?
 - load to load ordering
