@@ -70,7 +70,7 @@ class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationServi
         allocator.io.push(slotId).payload := event.commited(slotId) ? physicalRdOld(slotId) | physicalRdNew(slotId)
 
         //Protect 0
-        if(rf.x0AlwaysZero) when(physicalRdOld(slotId) === 0) {
+        if(rf.x0AlwaysZero) when(allocator.io.push(slotId).payload === 0) {
           allocator.io.push(slotId).valid := False
         }
       }
