@@ -1,3 +1,6 @@
 nax.h
 spike.log
 spike.log2
+tests.mk
+PASS
+FAIL

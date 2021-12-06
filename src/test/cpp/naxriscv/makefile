@@ -74,3 +74,4 @@ compile: verilate nax.h
 clean:
 	rm -rf obj_dir
  	
+-include tests.mk

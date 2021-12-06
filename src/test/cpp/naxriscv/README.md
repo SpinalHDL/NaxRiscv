@@ -54,5 +54,6 @@ cd $NAXRISCV/src/cpp/test/naxriscv
 
 ```shell
 cd $NAXRISCV/src/cpp/test/naxriscv
-./test.py
+./testsGen.py
+make compile test_clean test_all test_report
 ```

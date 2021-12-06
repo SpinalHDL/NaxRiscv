@@ -397,12 +397,14 @@ int main(int argc, char** argv, char** env){
 
 
     FILE *fptr;
-    fptr = fopen("spike.log","w");
-    std::ofstream outfile ("spike.log2",std::ofstream::binary);
+//    fptr = fopen("spike.log","w");
+    fptr = NULL;
+//    std::ofstream outfile ("spike.log2",std::ofstream::binary);
+    std::ofstream outfile ("/dev/null",std::ofstream::binary);
     sim_wrap wrap;
 
     processor_t proc("RV32IM", "MSU", "", &wrap, 0, false, fptr, outfile);
-    proc.enable_log_commits();
+    //proc.enable_log_commits();
 
 
 
@@ -565,6 +567,8 @@ int main(int argc, char** argv, char** env){
         }
     }catch (const successException e) {
         printf("SUCCESS %s\n", name.c_str());
+        auto f = fopen((outputDir + "/PASS").c_str(),"w");
+        fclose(f);
     } catch (const std::exception& e) {
         ++main_time;
         #ifdef TRACE
