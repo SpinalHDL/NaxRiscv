@@ -124,7 +124,7 @@ class Stage extends Nameable {
     terminal(StageableKey(key.asInstanceOf[Stageable[Data]], key2))
   }
   def overloaded[T <: Data](key : Stageable[T]) : T = {
-    apply(StageableKey(key.asInstanceOf[Stageable[Data]], null)).asInstanceOf[T]
+    overloaded(StageableKey(key.asInstanceOf[Stageable[Data]], null)).asInstanceOf[T]
   }
 
 

@@ -4,7 +4,7 @@ import naxriscv.utilities.AddressToMask
 import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Connection.M2S
-import spinal.lib.pipeline.{Pipeline, Stageable, StageableOffsetNone}
+import spinal.lib.pipeline.{Pipeline, Stage, Stageable, StageableOffsetNone}
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -183,6 +183,7 @@ class DataCache(val cacheSize: Int,
 
   val tagRange = preTranslationWidth-1 downto log2Up(linePerWay*lineSize)
   val lineRange = tagRange.low-1 downto log2Up(lineSize)
+  val refillRange = tagRange.high downto lineRange.low
 
   val bankCount = wayCount
   val bankWidth =  if(!reducedBankWidth) memDataWidth else Math.max(cpuWordWidth, memDataWidth/wayCount)
@@ -197,7 +198,7 @@ class DataCache(val cacheSize: Int,
   val ADDRESS_POST_TRANSLATION = ADDRESS_PRE_TRANSLATION //Stageable(UInt(postTranslationWidth bits))  //TODO for now
   val CPU_WORD = Stageable(Bits(cpuWordWidth bits))
   val CPU_MASK = Stageable(Bits(cpuWordWidth/8 bits))
-  val TAGS_CORRUPTED = Stageable(Bool()) //TODO implement me
+  val TAGS_CORRUPTED = Stageable(Bool())
 
 
   case class Tag() extends Bundle{
@@ -267,62 +268,80 @@ class DataCache(val cacheSize: Int,
   }
 
 
-  val refillBanksWrite = CombInit(io.mem.read.rsp.valid)
-  val refill = for(refillId <- 0 until refillCount) yield new Area {
-    val id = refillId
-    val fire = False
-    val valid = RegInit(False) clearWhen (fire)
-    val address = KeepAttribute(Reg(UInt(postTranslationWidth bits)))
-    val hadError = RegInit(False) clearWhen (fire)
-
-    val cmdSent = RegInit(False) setWhen (io.mem.read.cmd.fire) clearWhen (fire)
-    io.mem.read.cmd.valid := valid && !cmdSent
-    io.mem.read.cmd.address := address(tagRange.high downto lineRange.low) @@ U(0, lineRange.low bit)
-
-    val wayToAllocate = Counter(wayCount, !valid)
-    val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
-
-    io.refillCompletions(id) := fire //Maybe pipelined
-
-    when(flush.done) {
-      waysWrite.mask(wayToAllocate) setWhen(fire)
-      waysWrite.address := address(lineRange)
-      waysWrite.tag.loaded := True
-      waysWrite.tag.error := hadError || io.mem.read.rsp.error
-      waysWrite.tag.address := address(tagRange)
-    }
+  val refill = new Area {
+    val slots = for (refillId <- 0 until refillCount) yield new Area {
+      val id = refillId
+      val fire = False
+      val valid = RegInit(False) clearWhen (fire)
+      val address = KeepAttribute(Reg(UInt(postTranslationWidth bits)))
+      val hadError = RegInit(False) clearWhen (fire)
 
 
-    for((bank, bankId) <- banks.zipWithIndex){
-      if(!reducedBankWidth) {
-        bank.write.valid := io.mem.read.rsp.valid && wayToAllocate === bankId
-        bank.write.address := address(lineRange) @@ wordIndex
-        bank.write.data := io.mem.read.rsp.data
-      } else {
-        val sel = U(bankId) - wayToAllocate.value
-        val groupSel = wayToAllocate(log2Up(bankCount)-1 downto log2Up(bankCount/memToBankRatio))
-        val subSel = sel(log2Up(bankCount/memToBankRatio) -1 downto 0)
-        bank.write.valid := io.mem.read.rsp.valid && groupSel === (bankId >> log2Up(bankCount/memToBankRatio))
-        bank.write.address := address(lineRange) @@ wordIndex @@ (subSel)
-        bank.write.data := io.mem.read.rsp.data.subdivideIn(bankCount/memToBankRatio slices)(subSel)
+      val cmdSent = RegInit(False) setWhen (io.mem.read.cmd.fire) clearWhen (fire)
+      io.mem.read.cmd.valid := valid && !cmdSent
+      io.mem.read.cmd.address := address(tagRange.high downto lineRange.low) @@ U(0, lineRange.low bit)
+
+      val wayToAllocate = Counter(wayCount, !valid)
+      val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
+
+      io.refillCompletions(id) := fire //Maybe pipelined
+
+      when(flush.done) {
+        waysWrite.mask(wayToAllocate) setWhen (fire)
+        waysWrite.address := address(lineRange)
+        waysWrite.tag.loaded := True
+        waysWrite.tag.error := hadError || io.mem.read.rsp.error
+        waysWrite.tag.address := address(tagRange)
       }
-      banks(bankId).write.mask := (default -> true)
-    }
 
 
-    when(io.mem.read.rsp.valid) {
-      wordIndex := (wordIndex + 1).resized
-      hadError.setWhen(io.mem.read.rsp.error)
-      when(wordIndex === wordIndex.maxValue) {
-        fire := True
+      for ((bank, bankId) <- banks.zipWithIndex) {
+        if (!reducedBankWidth) {
+          bank.write.valid := io.mem.read.rsp.valid && wayToAllocate === bankId
+          bank.write.address := address(lineRange) @@ wordIndex
+          bank.write.data := io.mem.read.rsp.data
+        } else {
+          val sel = U(bankId) - wayToAllocate.value
+          val groupSel = wayToAllocate(log2Up(bankCount) - 1 downto log2Up(bankCount / memToBankRatio))
+          val subSel = sel(log2Up(bankCount / memToBankRatio) - 1 downto 0)
+          bank.write.valid := io.mem.read.rsp.valid && groupSel === (bankId >> log2Up(bankCount / memToBankRatio))
+          bank.write.address := address(lineRange) @@ wordIndex @@ (subSel)
+          bank.write.data := io.mem.read.rsp.data.subdivideIn(bankCount / memToBankRatio slices)(subSel)
+        }
+        banks(bankId).write.mask := (default -> true)
       }
+
+
+      when(io.mem.read.rsp.valid) {
+        wordIndex := (wordIndex + 1).resized
+        hadError.setWhen(io.mem.read.rsp.error)
+        when(wordIndex === wordIndex.maxValue) {
+          fire := True
+        }
+      }
+
+      //    pipeline.stages(0).haltIt(valid)
     }
 
-//    pipeline.stages(0).haltIt(valid)
+    val free = B(OHMasking.first(slots.map(!_.valid)))
+    val full = slots.map(_.valid).andR
+
+    val banksWrite = CombInit(io.mem.read.rsp.valid)
+    val push = Flow(new Bundle{
+      val address = UInt(postTranslationWidth bits)
+    }).setIdle()
+
+    for (slot <- slots) when(push.valid && free(slot.id)) {
+      slot.valid := True
+      slot.address := push.address
+    }
   }
 
-  val refillFree = B(OHMasking.first(refill.map(!_.valid)))
-  val refillFull = refill.map(_.valid).andR
+  def tagsCorrupted(stages : Seq[Stage], address : Stageable[UInt]): Unit ={
+    for(s <- stages){
+      s.overloaded(TAGS_CORRUPTED) := s(TAGS_CORRUPTED) || waysWrite.mask =/= 0 && waysWrite.address === s(address)(lineRange)
+    }
+  }
 
   val load = new Area {
     val pipeline = new Pipeline{
@@ -343,7 +362,7 @@ class DataCache(val cacheSize: Int,
     val rspStage = pipeline.stages(loadRspAt)
 
 
-
+    tagsCorrupted(pipeline.stages.takeWhile(_ != controlStage), ADDRESS_PRE_TRANSLATION)
     val start = new Area {
       val stage = pipeline.stages.head
 
@@ -352,6 +371,7 @@ class DataCache(val cacheSize: Int,
       isValid := io.load.cmd.valid
       ADDRESS_PRE_TRANSLATION := io.load.cmd.virtual
       SIZE := io.load.cmd.size
+      TAGS_CORRUPTED := False
     }
 
     val fetch = new Area {
@@ -399,17 +419,21 @@ class DataCache(val cacheSize: Int,
 
       import controlStage._
 
-      val refillHits = B(refill.map(r => r.valid && r.address === ADDRESS_POST_TRANSLATION))
+      val refillHits = B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
       val refillHit = refillHits.orR
 
-      MISS := !WAYS_HIT
-      REFILL_SLOT_FULL := !refillHit && refillFull
-      REFILL_SLOT := refillHit ? refillHits | refillFree
+      REDO := !WAYS_HIT || TAGS_CORRUPTED
+      MISS := !WAYS_HIT && !TAGS_CORRUPTED
+      REFILL_SLOT_FULL := !refillHit && refill.full
+      REFILL_SLOT := refillHit mux (
+        True  -> refillHits,
+        False -> (TAGS_CORRUPTED ? REFILL_SLOT.getZero | refill.free)
+      )
 
-      val refillStarted = isValid && MISS && !refillHit && !refillFull
-      for (r <- refill) when(refillStarted && refillFree(r.id)) {
-        r.valid := True
-        r.address := ADDRESS_POST_TRANSLATION
+      val refillStarted = isValid && MISS && !refillHit && !refill.full
+      when(refillStarted){
+        refill.push.valid := True
+        refill.push.address := ADDRESS_POST_TRANSLATION
       }
     }
 
@@ -420,7 +444,7 @@ class DataCache(val cacheSize: Int,
       io.load.rsp.valid := isValid
       io.load.rsp.data := CPU_WORD
       io.load.rsp.fault := False //TODO
-      io.load.rsp.redo := MISS
+      io.load.rsp.redo := REDO
       io.load.rsp.refillSlotAny := REFILL_SLOT_FULL
       io.load.rsp.refillSlot := REFILL_SLOT
     }
@@ -449,6 +473,7 @@ class DataCache(val cacheSize: Int,
 
     val target = RegInit(False)
 
+    tagsCorrupted(pipeline.stages.takeWhile(_ != controlStage), ADDRESS_PRE_TRANSLATION)
     val start = new Area {
       val stage = pipeline.stages.head
 
@@ -467,6 +492,7 @@ class DataCache(val cacheSize: Int,
       SIZE := io.store.cmd.size
       CPU_MASK := AddressToMask(io.store.cmd.address, io.store.cmd.size, widthOf(CPU_MASK))
       GENERATION := io.store.cmd.generation
+      TAGS_CORRUPTED := False
     }
 
     val fetch = new Area {
@@ -494,20 +520,24 @@ class DataCache(val cacheSize: Int,
 
       GENERATION_OK := GENERATION === target
 
-      val refillHits = B(refill.map(r => r.valid && r.address === ADDRESS_POST_TRANSLATION))
+      val refillHits = B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
       val refillHit = refillHits.orR
 
-      MISS := !WAYS_HIT
-      REFILL_SLOT_FULL := !refillHit && refillFull
-      REFILL_SLOT := refillHit ? refillHits | refillFree
+      REDO := MISS || TAGS_CORRUPTED || refill.banksWrite
+      MISS := !WAYS_HIT && !TAGS_CORRUPTED
+      REFILL_SLOT_FULL := !refillHit && refill.full
+      REFILL_SLOT :=  refillHit mux (
+        True  -> refillHits,
+        False -> (TAGS_CORRUPTED ? REFILL_SLOT.getZero | refill.free)
+      )
 
-      val refillStarted = isValid && GENERATION_OK && MISS && !refillHit && !refillFull && !load.ctrl.refillStarted
-      for (r <- refill) when(refillStarted && refillFree(r.id)) {
-        r.valid := True
-        r.address := ADDRESS_POST_TRANSLATION
+      val refillStarted = isValid && GENERATION_OK && MISS && !refillHit && !refill.full && !load.ctrl.refillStarted
+      when(refillStarted){
+        refill.push.valid := True
+        refill.push.address := ADDRESS_POST_TRANSLATION
       }
 
-      val writeCache = isValid && GENERATION_OK && !MISS && !refillBanksWrite
+      val writeCache = isValid && GENERATION_OK && !MISS && !TAGS_CORRUPTED && !refill.banksWrite
       val wayId = OHToUInt(WAYS_HITS)
       val bankHitId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
 
@@ -521,7 +551,6 @@ class DataCache(val cacheSize: Int,
         }
       }
 
-      REDO := MISS || refillBanksWrite
 
       when(isValid && REDO && GENERATION_OK){
         target := !target
