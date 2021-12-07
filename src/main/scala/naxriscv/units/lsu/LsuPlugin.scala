@@ -37,7 +37,9 @@ case class LsuStorePort(sqSize : Int, wordWidth : Int) extends Bundle {
 
 
 class LsuPlugin(lqSize: Int,
-                sqSize : Int) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService {
+                sqSize : Int,
+                loadFeedAt : Int = 0, //Stage at which the d$ cmd is sent
+                loadCheckSqAt : Int = 1) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService {
 
   val wordWidth = Global.XLEN.get
   val wordBytes = wordWidth/8
@@ -128,6 +130,7 @@ class LsuPlugin(lqSize: Int,
 
       val OLDER_STORE_RESCHEDULE  = Stageable(Bool())
       val OLDER_STORE_ID = Stageable(SQ_ID)
+      val OLDER_STORE_COMPLETED = Stageable(Bool())
     }
     import keysLocal._
 
@@ -189,6 +192,10 @@ class LsuPlugin(lqSize: Int,
       val regs = for(i <- 0 until sqSize) yield RegType(i)
       case class RegType(id : Int) extends Area{
         val valid = RegInit(False)
+        val commited = RegInit(False) //Warning, commited is meaning full even when valid == False !
+        val commitedNext = CombInit(commited)
+        commited := commitedNext
+
         val address = new Area{
           val pageOffset  = Reg(UInt(pageOffsetWidth bits))
           val size = Reg(SIZE())
@@ -198,10 +205,10 @@ class LsuPlugin(lqSize: Int,
         val waitOn = new Area {
           val address = Reg(Bool())
           val translationRsp  = Reg(Bool())
-          val commit  = Reg(Bool())
+          val writeback  = Reg(Bool())
         }
 
-        val ready = valid && !waitOn.address && !waitOn.translationRsp && !waitOn.commit
+        val ready = valid && !waitOn.address && !waitOn.translationRsp && !waitOn.writeback
       }
 
       val mem = new Area{
@@ -321,7 +328,7 @@ class LsuPlugin(lqSize: Int,
 
 
         val feed = new Area{
-          val stage = stages.head
+          val stage = stages(loadFeedAt)
           import stage._
 
           val hits = B(regs.map(_.ready))
@@ -330,7 +337,7 @@ class LsuPlugin(lqSize: Int,
           val selOh = OHMasking.roundRobinMasked(hits, ptr.priority)
           val sel = OHToUInt(selOh)
 
-          val cmd = setup.cacheLoad.cmd
+          val cmd = setup.cacheLoad.cmd //If you move that in another stage, be carefull to update loadFeedAt usages (sq d$ writeback rsp delay)
           cmd.valid := hit
           cmd.virtual := mem.address.readAsync(sel)
           cmd.size := SIZE
@@ -354,7 +361,7 @@ class LsuPlugin(lqSize: Int,
         }
 
         val checkSq = new Area{
-          val stage = stages(1)
+          val stage = stages(loadCheckSqAt) //WARNING, SQ delay between writeback and entry.valid := False should not be smaller than the delay of reading the cache and checkSq !!
           import stage._
 
           val startId = CombInit(sq.ptr.free)
@@ -369,7 +376,7 @@ class LsuPlugin(lqSize: Int,
           val entries = for(sqReg <- sq.regs) yield new Area {
             val pageHit = sqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
             val wordHit = (sqReg.address.mask & DATA_MASK) =/= 0
-            hits(sqReg.id) := sqReg.valid && pageHit && wordHit && youngerMask(sqReg.id)
+            hits(sqReg.id) := sqReg.valid && !sqReg.waitOn.address && pageHit && wordHit && youngerMask(sqReg.id)
           }
           val olderHit = !olderMaskEmpty && hits =/= 0
           val olderOh   = if(sqSize == 1) B(1) else OHMasking.roundRobinMaskedFull(hits.reversed, ~((sq.ptr.priority ## !sq.ptr.priority.msb).reversed)).reversed //reverted priority, imprecise would be ok
@@ -378,6 +385,11 @@ class LsuPlugin(lqSize: Int,
           OLDER_STORE_RESCHEDULE := olderHit
           OLDER_STORE_ID := olderSel
           PC := mem.pc(LQ_SEL)
+
+          OLDER_STORE_COMPLETED := False
+          for(s <- stages.dropWhile(_ != stage)){
+            s.overloaded(OLDER_STORE_COMPLETED) := s(OLDER_STORE_COMPLETED) || sq.ptr.onFree.valid && sq.ptr.onFree.payload === s(OLDER_STORE_ID)
+          }
         }
 
         val cacheRsp = new Area{
@@ -429,14 +441,12 @@ class LsuPlugin(lqSize: Int,
           setup.loadTrap.skipCommit := True
           setup.loadTrap.cause.assignDontCare()
 
-          val sqJustDone = sq.ptr.onFree.valid && sq.ptr.onFree.payload === OLDER_STORE_ID
-
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(LQ_SEL_OH(reg.id)){ body(reg) }
           when(isValid) {
             onRegs(_.waitOn.cacheRsp := False)
             when(OLDER_STORE_RESCHEDULE){
               onRegs{r =>
-                r.waitOn.sq setWhen(!sqJustDone)
+                r.waitOn.sq setWhen(!stage.overloaded(OLDER_STORE_COMPLETED))
                 r.waitOn.sqId := OLDER_STORE_ID
               }
             } elsewhen(rsp.redo) {
@@ -546,7 +556,7 @@ class LsuPlugin(lqSize: Int,
               reg.valid := True
               reg.waitOn.address := True
               reg.waitOn.translationRsp := False
-              reg.waitOn.commit := False
+              reg.waitOn.writeback := False
             }
           }
         }
@@ -603,7 +613,7 @@ class LsuPlugin(lqSize: Int,
           val entries = for(lqReg <- lq.regs) yield new Area {
             val pageHit = lqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
             val wordHit = (lqReg.address.mask & DATA_MASK) =/= 0
-            hits(lqReg.id) := lqReg.valid && pageHit && wordHit && youngerMask(lqReg.id)
+            hits(lqReg.id) := lqReg.valid && !lqReg.waitOn.address && pageHit && wordHit && youngerMask(lqReg.id)
           }
           val youngerHit  = hits =/= 0 && !youngerMaskEmpty
           val youngerOh   = OHMasking.roundRobinMasked(hits, lq.ptr.priority)
@@ -640,7 +650,7 @@ class LsuPlugin(lqSize: Int,
             onRegs(_.waitOn.translationRsp := False)
 
             //TODO implement failures
-            onRegs(_.waitOn.commit := True)
+            onRegs(_.waitOn.writeback := True)
             setup.storeCompletion.valid := True
           }
         }
@@ -652,7 +662,13 @@ class LsuPlugin(lqSize: Int,
         val event = commit.onCommit()
         val sqAlloc = rob.readAsync(SQ_ALLOC, Global.COMMIT_COUNT, event.robId)
         val sqCommits = (0 until Global.COMMIT_COUNT).map(slotId => U(event.mask(slotId) && sqAlloc(slotId)))
-        ptr.commitNext := (ptr.commit +: sqCommits).reduce(_ + _)
+        var commitComb = CombInit(ptr.commit)
+        for(slotId <- 0 until Global.COMMIT_COUNT){
+          val doit = event.mask(slotId) && sqAlloc(slotId)
+          when(doit) { regs.map(_.commitedNext).write(U(commitComb.dropHigh(1)), True) } //TODO this is kind of a long combinatorial path (commit -> adder -> reg set)
+          commitComb \= commitComb + U(doit)
+        }
+        ptr.commitNext := commitComb
       }
 
       val writeback = new Area{
@@ -686,13 +702,18 @@ class LsuPlugin(lqSize: Int,
         }
 
         val rsp = new Area{
+          val hazardFreeDelay = loadCheckSqAt - (loadFeedAt + cache.loadCmdHazardFreeLatency) + cache.storeRspHazardFreeLatency - 1 // -1 because sq regs update is sequancial
+          val delayed = Vec.fill((hazardFreeDelay + 1) max 0)(cloneOf(setup.cacheStore.rsp))
+          delayed.head << setup.cacheStore.rsp
+          for((m,s) <- (delayed, delayed.tail).zipped) s << m.stage()
+
           sq.ptr.onFree.valid := False
           sq.ptr.onFree.payload := ptr.freeReal
 
-          when(setup.cacheStore.rsp.valid && !setup.cacheStore.rsp.generationKo){
-            when(setup.cacheStore.rsp.redo) {
-              waitOn.refillSlotSet := setup.cacheStore.rsp.refillSlot
-              waitOn.refillSlotAnySet := setup.cacheStore.rsp.refillSlotAny
+          when(delayed.last.valid && !delayed.last.generationKo){
+            when(delayed.last.redo) {
+              waitOn.refillSlotSet := delayed.last.refillSlot
+              waitOn.refillSlotAnySet := delayed.last.refillSlotAny
               generation := !generation
               ptr.writeBack := ptr.free
             } otherwise {
@@ -701,6 +722,10 @@ class LsuPlugin(lqSize: Int,
               ptr.priority := ptr.priority |<< 1
               when(ptr.priority === 0){
                 ptr.priority := (default -> true)
+              }
+              for(reg <- regs) when(ptr.freeReal === reg.id){
+                reg.valid := False
+                reg.commited := False
               }
             }
           }
@@ -725,12 +750,14 @@ class LsuPlugin(lqSize: Int,
     writeLine(SQ_ALLOC)
     writeLine(LQ_ALLOC)
 
-
     when(rescheduling.valid){
       lq.regs.foreach(_.valid := False)
       lq.ptr.free := 0
       lq.ptr.alloc := 0
       lq.ptr.priority := 0
+      for(reg <- sq.regs){
+        reg.valid clearWhen(!reg.commitedNext)
+      }
       sq.ptr.alloc := sq.ptr.commitNext
     }
 

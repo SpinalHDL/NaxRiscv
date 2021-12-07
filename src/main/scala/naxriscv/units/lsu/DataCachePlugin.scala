@@ -24,9 +24,17 @@ class DataCachePlugin(val memDataWidth : Int,
                       val loadBankMuxAt: Int = 2,
                       val loadControlAt: Int = 2,
                       val loadRspAt: Int = 2,
+                      val storeReadAt: Int = 0,
+                      val storeHitsAt: Int = 1,
+                      val storeHitAt: Int = 1,
+                      val storeControlAt: Int = 2,
+                      val storeRspAt: Int = 2,
                       val reducedBankWidth : Boolean = false
                      ) extends Plugin with LockedImpl{
   def loadRspLatency = loadRspAt
+
+  def storeRspHazardFreeLatency = (storeControlAt+1)-storeRspAt
+  def loadCmdHazardFreeLatency = (loadReadAt)
 
   val cpuDataWidth = XLEN.get
   def preTranslationWidth : Int = getService[AddressTranslationService].preWidth
@@ -86,6 +94,11 @@ class DataCachePlugin(val memDataWidth : Int,
       loadBankMuxAt   = loadBankMuxAt,
       loadControlAt   = loadControlAt,
       loadRspAt       = loadRspAt,
+      storeReadAt     = storeReadAt,
+      storeHitsAt     = storeHitsAt,
+      storeHitAt      = storeHitAt,
+      storeControlAt  = storeControlAt,
+      storeRspAt      = storeRspAt,
       reducedBankWidth = reducedBankWidth
 
     )

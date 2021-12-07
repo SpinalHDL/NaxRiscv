@@ -40,8 +40,8 @@ object Config{
     plugins += new FetchAddressTranslationPlugin()
     plugins += new PcPlugin()
     plugins += new FetchCachePlugin(
-      cacheSize = 4096,
-      wayCount = 1,
+      cacheSize = 4096*4,
+      wayCount = 4,
       injectionAt = 2,
       memDataWidth = Frontend.FETCH_DATA_WIDTH,
       reducedBankWidth = false
@@ -62,7 +62,7 @@ object Config{
     )
     plugins += new DataCachePlugin(
       memDataWidth = Global.XLEN,
-      cacheSize    = 4096,
+      cacheSize    = 4096*8,
       wayCount     = 1,
       refillCount = 1,
       reducedBankWidth = false
@@ -130,7 +130,7 @@ object Gen extends App{
 
 //ROADMAP
 /*
--
+- https://github.com/riscv-non-isa/riscv-arch-test
  */
 
 //TODO Optimisations
@@ -140,7 +140,6 @@ object Gen extends App{
 
 //TODO fix bellow list
 /*
-- data cache avoid two refill slot to work on the same way/line
 - Data cache handle store which had tag hit but the line is currently being written back to the main memory
 - Data cache / LSU  need cares about read during writes on tags and data, also, care about refill happening from previous cycle hazarding pipeline
 - data cache reduce ram blocks usage clashes by using banks sel

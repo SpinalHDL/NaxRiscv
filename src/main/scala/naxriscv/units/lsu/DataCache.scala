@@ -148,9 +148,13 @@ class DataCache(val cacheSize: Int,
                 val loadBankMuxAt: Int = 2,
                 val loadControlAt: Int = 2,
                 val loadRspAt: Int = 2,
+                val storeReadAt: Int = 0,
+                val storeHitsAt: Int = 1,
+                val storeHitAt: Int = 1,
+                val storeControlAt: Int = 2,
+                val storeRspAt: Int = 2,
                 val reducedBankWidth : Boolean = false
                ) extends Component {
-  assert(refillCount == 1, "refillCounts should be 1 for now")
 
   val io = new Bundle {
     val load = slave(DataLoadPort(
@@ -282,6 +286,7 @@ class DataCache(val cacheSize: Int,
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
       io.refillCompletions(id) := fire //Maybe pipelined
     }
+    def isLineBusy(address : UInt, way : UInt) = slots.map(s => s.valid && s.way === way && s.address(lineRange) === address(lineRange)).orR
 
     val free = B(OHMasking.first(slots.map(!_.valid)))
     val full = slots.map(_.valid).andR
@@ -386,7 +391,7 @@ class DataCache(val cacheSize: Int,
       isValid := io.load.cmd.valid
       ADDRESS_PRE_TRANSLATION := io.load.cmd.virtual
       SIZE := io.load.cmd.size
-      TAGS_CORRUPTED := False
+      TAGS_CORRUPTED := !flush.done
     }
 
     val fetch = new Area {
@@ -434,8 +439,10 @@ class DataCache(val cacheSize: Int,
 
       import controlStage._
 
+      val refillWay = CombInit(wayRandom.value)
       val refillHits = B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
       val refillHit = refillHits.orR
+      val refillLineBusy = refill.isLineBusy(ADDRESS_PRE_TRANSLATION, refillWay)
 
       REDO := !WAYS_HIT || TAGS_CORRUPTED
       MISS := !WAYS_HIT && !TAGS_CORRUPTED
@@ -445,10 +452,11 @@ class DataCache(val cacheSize: Int,
         False -> (TAGS_CORRUPTED ? REFILL_SLOT.getZero | refill.free)
       )
 
-      val refillStarted = isValid && MISS && !refillHit && !refill.full
+      val refillStarted = isValid && MISS && !refillHit && !refill.full && !refillLineBusy
       when(refillStarted){
         refill.push.valid := True
         refill.push.address := ADDRESS_POST_TRANSLATION
+        refill.push.way := refillWay
       }
     }
 
@@ -478,13 +486,11 @@ class DataCache(val cacheSize: Int,
       }
     }
 
-    val readStage      = pipeline.stages(loadReadAt)
-    val hitsStage      = pipeline.stages(loadHitsAt)
-    val hitStage       = pipeline.stages(loadHitAt)
-    val bankMuxesStage = pipeline.stages(loadBankMuxesAt)
-    val bankMuxStage   = pipeline.stages(loadBankMuxAt)
-    val controlStage   = pipeline.stages(loadControlAt)
-    val rspStage = pipeline.stages(loadRspAt)
+    val readStage      = pipeline.stages(storeReadAt)
+    val hitsStage      = pipeline.stages(storeHitsAt)
+    val hitStage       = pipeline.stages(storeHitAt)
+    val controlStage   = pipeline.stages(storeControlAt)
+    val rspStage       = pipeline.stages(storeRspAt)
 
     val target = RegInit(False)
 
@@ -507,7 +513,7 @@ class DataCache(val cacheSize: Int,
       SIZE := io.store.cmd.size
       CPU_MASK := AddressToMask(io.store.cmd.address, io.store.cmd.size, widthOf(CPU_MASK))
       GENERATION := io.store.cmd.generation
-      TAGS_CORRUPTED := False
+      TAGS_CORRUPTED := !flush.done
     }
 
     val fetch = new Area {
@@ -536,8 +542,10 @@ class DataCache(val cacheSize: Int,
       GENERATION_OK := GENERATION === target
 
 //      val refillOverlap = B(refill.slots.map(r => r.valid && (r.way & WAYS_HIT).orR && r.address(lineRange) === ADDRESS_POST_TRANSLATION(lineRange))) //TODO
+      val refillWay = CombInit(wayRandom.value)
       val refillHits = B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
       val refillHit = refillHits.orR
+      val refillLineBusy = refill.isLineBusy(ADDRESS_PRE_TRANSLATION, refillWay)
 
       REDO := MISS || TAGS_CORRUPTED || refill.banksWrite// || refillOverlap
       MISS := !WAYS_HIT && !TAGS_CORRUPTED
@@ -547,10 +555,11 @@ class DataCache(val cacheSize: Int,
         False -> (TAGS_CORRUPTED ? REFILL_SLOT.getZero | refill.free)
       )
 
-      val refillStarted = isValid && GENERATION_OK && MISS && !refillHit && !refill.full && !load.ctrl.refillStarted
+      val refillStarted = isValid && GENERATION_OK && MISS && !refillHit && !refill.full && !load.ctrl.refillStarted && !refillLineBusy
       when(refillStarted){
         refill.push.valid := True
         refill.push.address := ADDRESS_POST_TRANSLATION
+        refill.push.way := refillWay
       }
 
       val writeCache = isValid && GENERATION_OK && !MISS && !TAGS_CORRUPTED && !refill.banksWrite// && !refillOverlap
