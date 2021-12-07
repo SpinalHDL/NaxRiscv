@@ -32,7 +32,7 @@ public:
                 auto size = psec->get_size();
                 auto data = reader.sections[i]->get_data();
                 u64 address = psec->get_address();
-                for(int i = 0;i < size; i++){
+                if(data) for(int i = 0;i < size; i++){
                     func(*data++, address++);
                 }
             }

@@ -19,6 +19,7 @@
 #include <time.h>
 #include <map>
 #include <filesystem>
+#include <chrono>
 
 using namespace std;
 
@@ -347,7 +348,8 @@ enum ARG
     ARG_FAIL_SYMBOL,
     ARG_OUTPUT_DIR,
     ARG_NAME,
-    ARG_TIMEOUT
+    ARG_TIMEOUT,
+    ARG_PROGRESS
 };
 
 
@@ -361,6 +363,7 @@ static const struct option long_options[] =
     { "output_dir", required_argument, 0, ARG_OUTPUT_DIR },
     { "name", required_argument, 0, ARG_NAME },
     { "timeout", required_argument, 0, ARG_TIMEOUT },
+    { "progress", required_argument, 0, ARG_PROGRESS },
     0
 };
 
@@ -404,7 +407,7 @@ int main(int argc, char** argv, char** env){
     sim_wrap wrap;
 
     processor_t proc("RV32IM", "MSU", "", &wrap, 0, false, fptr, outfile);
-    //proc.enable_log_commits();
+//    proc.enable_log_commits();
 
 
 
@@ -414,6 +417,7 @@ int main(int argc, char** argv, char** env){
     Elf *elf = NULL;
     string name = "???";
     string outputDir = "output";
+    double progressPeriod = 0.0;
     while (1)
     {
         int index = -1;
@@ -448,6 +452,7 @@ int main(int argc, char** argv, char** env){
             case ARG_NAME: name = optarg; break;
             case ARG_OUTPUT_DIR: outputDir = optarg; break;
             case ARG_TIMEOUT: timeout = stoi(optarg); break;
+            case ARG_PROGRESS: progressPeriod = stod(optarg); break;
             default: exit(1); break;
         }
     }
@@ -495,6 +500,9 @@ int main(int argc, char** argv, char** env){
     u64 commits = 0;
     int robIdChecked = 0;
     int cycleSinceLastCommit = 0;
+    auto progressLast = std::chrono::high_resolution_clock::now();
+    vluint64_t progressMainTimeLast = 0;
+
     try {
         top->clk = 0;
 
@@ -503,7 +511,7 @@ int main(int argc, char** argv, char** env){
             ++main_time;
             if(main_time == timeout){
                 printf("simulation timeout\n");
-                throw std::exception();
+                failure();
             }
             #ifdef TRACE
             tfp->dump(main_time);
@@ -514,6 +522,17 @@ int main(int argc, char** argv, char** env){
     //        		else if(i % 1000000 < 100) tfp->dump(i);
     //        		#endif
             #endif
+            if(progressPeriod != 0.0 && main_time % 20000 == 0){
+                auto now = std::chrono::high_resolution_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now-progressLast).count();
+                if(elapsed > progressPeriod*1000){
+                    auto cycles = (main_time-progressMainTimeLast)/2;
+                    auto hz = (u64)(cycles/(elapsed/1000));
+                    progressMainTimeLast = main_time;
+                    progressLast = now;
+                    printf("[PROGRESS] %ld cycles %ld KHz\n", cycles, hz/1000);
+                }
+            }
             top->clk = !top->clk;
             top->reset = (main_time < 10) ? 1 : 0;
             if(main_time < 11 && startPc != 0x80000000) top->NaxRiscv->PcPlugin_logic_fetchPc_pcReg = startPc;
@@ -522,8 +541,10 @@ int main(int argc, char** argv, char** env){
             } else {
                 for(SimElement* simElement : simElements) simElement->preCycle();
 
-                if(cycleSinceLastCommit == 200){
+                if(cycleSinceLastCommit == 2000){
                     printf("NO PROGRESS the cpu hasn't commited anything since too long\n");
+                    failure();
+
                 }
                 cycleSinceLastCommit += 1;
                 for(int i = 0;i < COMMIT_COUNT;i++){
@@ -575,7 +596,8 @@ int main(int argc, char** argv, char** env){
         tfp->dump(main_time);
         if(main_time % 100000 == 0) tfp->flush();
         #endif
-        printf("REF PC=%lx\n", state->last_inst_pc);
+        printf("LAST PC=%lx\n", state->last_inst_pc);
+        printf("INCOMING PC=%lx\n", state->pc);
         printf("ROB_ID=x%x\n", robIdChecked);
         printf("FAILURE %s\n", name.c_str());
     }
