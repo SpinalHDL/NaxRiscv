@@ -63,7 +63,7 @@ object Config{
     plugins += new DataCachePlugin(
       memDataWidth = Global.XLEN,
       cacheSize    = 4096*8,
-      wayCount     = 1,
+      wayCount     = 2,
       refillCount = 2,
       writebackCount = 1,
       reducedBankWidth = false

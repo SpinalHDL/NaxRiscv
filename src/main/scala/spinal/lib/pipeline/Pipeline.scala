@@ -73,6 +73,11 @@ class Pipeline extends Area{
       stageDriver(c.s) = c
     }
 
+    for(s <- stagesSet){
+      for(key <- s.internals.stageableResultingToData.keys){
+        s.apply(key)
+      }
+    }
 
     //Fill payload holes in the pipeline
     def propagateData(key : StageableKey, stage : Stage): Boolean ={
@@ -208,6 +213,10 @@ class Pipeline extends Area{
           s.output.valid := False
         }
       }
+
+      for((key, value) <- s.internals.stageableResultingToData){
+        value := s.internals.outputOf(key)
+      }
     }
 
     //Interconnect stages
@@ -238,6 +247,9 @@ class Pipeline extends Area{
       }
       for((key, value) <- stage.internals.stageableOverloadedToData){
         value.setCompositeName(stage, s"${key}_overloaded")
+      }
+      for((key, value) <- stage.internals.stageableResultingToData){
+        value.setCompositeName(stage, s"${key}_resulting")
       }
     }
 
