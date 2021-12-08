@@ -146,6 +146,7 @@ class DataCachedChannel{
 public:
     u64 beats;
     u64 address;
+    int id;
 };
 class DataCached : public SimElement{
 public:
@@ -155,14 +156,16 @@ public:
 
     VNaxRiscv* nax;
     Soc *soc;
+    DataCachedChannel *chLock = NULL;
 
     DataCached(VNaxRiscv* nax, Soc *soc, bool stall){
         this->nax = nax;
         this->soc = soc;
         this->stall = stall;
-        for(int i = 0;i < 1;i++) {
+        for(int i = 0;i < DATA_CACHE_REFILL_COUNT;i++) {
             DataCachedChannel ch;
             ch.beats = 0;
+            ch.id = i;
             channel.push_back(ch);
         }
     }
@@ -174,7 +177,11 @@ public:
 
     virtual void preCycle(){
         if (nax->DataCachePlugin_mem_read_cmd_valid && nax->DataCachePlugin_mem_read_cmd_ready) {
+#if DATA_CACHE_REFILL_COUNT == 0
             int id = 0;
+#else
+            int id = nax->DataCachePlugin_mem_read_cmd_payload_id;
+#endif
             assertEq("CHANNEL BUSY", channel[id].beats, 0);
             channel[id].beats = DATA_LINE_BYTES/DATA_MEM_DATA_BYTES;
             channel[id].address = nax->DataCachePlugin_mem_read_cmd_payload_address;
@@ -184,19 +191,33 @@ public:
     virtual void postCycle(){
         nax->DataCachePlugin_mem_read_rsp_valid = 0;
         if(!stall || VL_RANDOM_I(7) < 100){
-            int id = 0;
-            auto &ch = channel[id];
-            if(ch.beats != 0){
-                nax->DataCachePlugin_mem_read_rsp_payload_error = soc->memoryRead(ch.address, DATA_MEM_DATA_BYTES, (u8*)&nax->DataCachePlugin_mem_read_rsp_payload_data);
+            if(chLock == NULL){
+                int id = VL_RANDOM_I(7) % DATA_CACHE_REFILL_COUNT;
+                for(int i = 0;i < DATA_CACHE_REFILL_COUNT; i++){
+                    if(channel[id].beats != 0){
+                        chLock = &channel[id];
+                        break;
+                    }
+                }
+            }
+
+            if(chLock != NULL){
+                nax->DataCachePlugin_mem_read_rsp_payload_error = soc->memoryRead(chLock->address, DATA_MEM_DATA_BYTES, (u8*)&nax->DataCachePlugin_mem_read_rsp_payload_data);
                 nax->DataCachePlugin_mem_read_rsp_valid = 1;
-                ch.address = ch.address + DATA_MEM_DATA_BYTES;
-                ch.beats -= 1;
+#if DATA_CACHE_REFILL_COUNT != 0
+                nax->DataCachePlugin_mem_read_rsp_payload_id = chLock->id;
+#endif
+                chLock->address = chLock->address + DATA_MEM_DATA_BYTES;
+                chLock->beats -= 1;
+                if(chLock->beats == 0){
+                    chLock = NULL;
+                }
             }
         }
         if(stall) nax->DataCachePlugin_mem_read_cmd_ready = VL_RANDOM_I(7) < 100;
     }
 };
-
+//TODO randomize buses when not valid ^
 
 
 #include "processor.h"

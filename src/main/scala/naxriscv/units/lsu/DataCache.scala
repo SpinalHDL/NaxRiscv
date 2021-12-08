@@ -136,6 +136,7 @@ case class DataMemBus(addressWidth: Int,
 class DataCache(val cacheSize: Int,
                 val wayCount: Int,
                 val refillCount : Int,
+                val writebackCount : Int,
                 val memDataWidth: Int,
                 val cpuDataWidth: Int,
                 val preTranslationWidth: Int,
@@ -213,6 +214,10 @@ class DataCache(val cacheSize: Int,
     val address = UInt(tagWidth bits)
   }
 
+  case class Status() extends Bundle{
+    val dirty = Bool()
+  }
+
   val BANKS_WORDS = Stageable(Vec.fill(bankCount)(bankWord()))
   val WAYS_TAGS = Stageable(Vec.fill(wayCount)(Tag()))
   val WAYS_HITS = Stageable(Vec.fill(wayCount)(Bool()))
@@ -256,6 +261,12 @@ class DataCache(val cacheSize: Int,
       val rsp = mem.readSync(cmd.payload, cmd.valid)
     }
   }
+
+
+  val status = for(id <- 0 until wayCount) yield new Area {
+    val mem = Mem.fill(linePerWay)(Status())
+  }
+
   val wayRandom = CounterFreeRun(wayCount)
 
   val flush = new Area{
@@ -282,8 +293,9 @@ class DataCache(val cacheSize: Int,
       val valid = RegInit(False) clearWhen (fire)
       val address = KeepAttribute(Reg(UInt(postTranslationWidth bits)))
       val way = Reg(UInt(log2Up(wayCount) bits))
-      val cmdSent = RegInit(False) setWhen (io.mem.read.cmd.fire) clearWhen (fire)
+      val cmdSent = Reg(Bool())
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
+      val priority = Reg(Bits(refillCount-1 bits))
       io.refillCompletions(id) := fire //Maybe pipelined
     }
     def isLineBusy(address : UInt, way : UInt) = slots.map(s => s.valid && s.way === way && s.address(lineRange) === address(lineRange)).orR
@@ -297,16 +309,23 @@ class DataCache(val cacheSize: Int,
       val way = UInt(log2Up(wayCount) bits)
     }).setIdle()
 
+    for (slot <- slots;
+         (other, prio) <- (slots.filter(_ != slot), slot.priority.asBools).zipped ) {
+      prio.clearWhen(other.valid)
+    }
+
     for (slot <- slots) when(push.valid && free(slot.id)) {
       slot.valid := True
       slot.address := push.address
       slot.way := push.way
+      slot.cmdSent := False
+      slot.priority.setAll()
     }
 
     val read = new Area{
       val cmdHits = B(slots.map(s => s.valid && !s.cmdSent))
       val cmdHit = cmdHits.orR
-      val cmdOh = OHMasking.first(cmdHits)
+      val cmdOh = cmdHits & B(slots.map(slot => (B(slots.filter(_ != slot).map(other => cmdHits(other.id))) & slot.priority) === 0))
       val cmdSel = OHToUInt(cmdOh)
       val lock = RegNext(cmdOh)
       when(lock.orR){ cmdOh := lock }
@@ -315,6 +334,7 @@ class DataCache(val cacheSize: Int,
       io.mem.read.cmd.valid := cmdHit
       io.mem.read.cmd.id := cmdSel
       io.mem.read.cmd.address := slots.map(_.address(tagRange.high downto lineRange.low)).read(cmdSel) @@ U(0, lineRange.low bit)
+      for(s <- slots) s.cmdSent setWhen(cmdOh(s.id) && io.mem.read.cmd.ready)
 
       val address = slots.map(_.address).read(io.mem.read.rsp.id)
       val wordIndex = slots.map(_.wordIndex).read(io.mem.read.rsp.id)
@@ -356,6 +376,22 @@ class DataCache(val cacheSize: Int,
       }
     }
   }
+
+//  val writeback = new Area{
+//    val slots = for (writebackId <- 0 until writebackCount) yield new Area {
+//      val id = writebackId
+//      val fire = False
+//      val valid = RegInit(False) clearWhen (fire)
+//      val address = KeepAttribute(Reg(UInt(postTranslationWidth bits)))
+//      val way = Reg(UInt(log2Up(wayCount) bits))
+//      val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
+//      val priority = Reg(Bits(writebackId-1 bits))
+//    }
+//
+//
+//
+//
+//  }
 
   def tagsCorrupted(stages : Seq[Stage], address : Stageable[UInt]): Unit ={
     for(s <- stages){
@@ -552,7 +588,7 @@ class DataCache(val cacheSize: Int,
       REFILL_SLOT_FULL := !refillHit && refill.full
       REFILL_SLOT :=  refillHit mux (
         True  -> refillHits,
-        False -> (TAGS_CORRUPTED ? REFILL_SLOT.getZero | refill.free)
+        False -> ((TAGS_CORRUPTED || refill.banksWrite) ? REFILL_SLOT.getZero | refill.free)
       )
 
       val refillStarted = isValid && GENERATION_OK && MISS && !refillHit && !refill.full && !load.ctrl.refillStarted && !refillLineBusy

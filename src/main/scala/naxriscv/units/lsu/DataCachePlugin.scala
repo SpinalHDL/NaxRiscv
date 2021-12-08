@@ -16,6 +16,7 @@ class DataCachePlugin(val memDataWidth : Int,
                       val cacheSize: Int,
                       val wayCount: Int,
                       val refillCount : Int,
+                      val writebackCount : Int,
                       val lineSize: Int = 64,
                       val loadReadAt: Int = 0,
                       val loadHitsAt: Int = 1,
@@ -70,6 +71,9 @@ class DataCachePlugin(val memDataWidth : Int,
     val doc = getService[DocPlugin]
     doc.property("DATA_MEM_DATA_BITS", memDataWidth)
     doc.property("DATA_LINE_BYTES", lineSize)
+    doc.property("DATA_CACHE_REFILL_COUNT", refillCount)
+    doc.property("DATA_CACHE_WRITEBACK_COUNT", writebackCount)
+
 
     val refillCompletions = Bits(refillCount bits)
   }
@@ -84,6 +88,7 @@ class DataCachePlugin(val memDataWidth : Int,
       memDataWidth    = memDataWidth,
       cpuDataWidth    = cpuDataWidth,
       refillCount     = refillCount,
+      writebackCount  = writebackCount,
       preTranslationWidth    = preTranslationWidth,
       postTranslationWidth   = postTranslationWidth,
       lineSize        = lineSize,
