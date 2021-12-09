@@ -141,6 +141,8 @@ object Gen extends App{
 
 //TODO fix bellow list
 /*
+- Manage the verilator seeds
+- having genTests.py generating different seed for each test
 - Data cache handle store which had tag hit but the line is currently being written back to the main memory
 - Data cache / LSU  need cares about read during writes on tags and data, also, care about refill happening from previous cycle hazarding pipeline
 - data cache reduce ram blocks usage clashes by using banks sel

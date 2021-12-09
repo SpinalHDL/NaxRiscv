@@ -199,6 +199,9 @@ class DataCache(val cacheSize: Int,
   val bankWordToCpuWordRange = log2Up(bankWidth/8)-1 downto log2Up(bytePerFetchWord)
   val memToBankRatio = bankWidth*bankCount / memDataWidth
   val bankWord = HardType(Bits(bankWidth bits))
+  val bankWordPerLine = lineSize*8/bankWidth
+
+  assert(bankWidth <= memDataWidth)
 
 
   val ADDRESS_PRE_TRANSLATION = Stageable(UInt(preTranslationWidth bits))
@@ -241,7 +244,7 @@ class DataCache(val cacheSize: Int,
       val cmd = Flow(mem.addressType)
       val rsp = mem.readSync(cmd.payload, cmd.valid)
 
-      cmd.setIdle()
+      cmd.setIdle() //TODO revert it !
     }
   }
   val waysWrite = new Area{
@@ -296,6 +299,15 @@ class DataCache(val cacheSize: Int,
 //    readStage.haltIt(!done)
   }
 
+  class PriorityArea(slots : Seq[(Bool, Bits)]) extends Area{
+    val slotsWithId = slots.zipWithIndex.map(e => (e._1._1, e._1._2, e._2))
+    val cmdHits = B(slots.map(_._1))
+    val cmdHit = cmdHits.orR
+    val cmdOh = cmdHits & B(slotsWithId.map(slot => (B(slotsWithId.filter(_ != slot).map(other => cmdHits(other._3))) & slot._2) === 0))
+    val cmdSel = OHToUInt(cmdOh)
+    val lock = RegNext(cmdOh) init(0)
+    when(lock.orR){ cmdOh := lock }
+  }
 
   val refill = new Area {
     val slots = for (refillId <- 0 until refillCount) yield new Area {
@@ -339,18 +351,13 @@ class DataCache(val cacheSize: Int,
     }
 
     val read = new Area{
-      val cmdHits = B(slots.map(s => s.valid && !s.cmdSent))
-      val cmdHit = cmdHits.orR
-      val cmdOh = cmdHits & B(slots.map(slot => (B(slots.filter(_ != slot).map(other => cmdHits(other.id))) & slot.priority) === 0))
-      val cmdSel = OHToUInt(cmdOh)
-      val lock = RegNext(cmdOh)
-      when(lock.orR){ cmdOh := lock }
-      when(io.mem.read.cmd.fire){ lock := 0 }
+      val arbiter = new PriorityArea(slots.map(s => (s.valid && !s.cmdSent, s.priority)))
+      when(io.mem.read.cmd.fire){ arbiter.lock := 0 }
 
-      io.mem.read.cmd.valid := cmdHit
-      io.mem.read.cmd.id := cmdSel
-      io.mem.read.cmd.address := slots.map(_.address(tagRange.high downto lineRange.low)).read(cmdSel) @@ U(0, lineRange.low bit)
-      for(s <- slots) s.cmdSent setWhen(cmdOh(s.id) && io.mem.read.cmd.ready)
+      io.mem.read.cmd.valid := arbiter.cmdHit
+      io.mem.read.cmd.id := arbiter.cmdSel
+      io.mem.read.cmd.address := slots.map(_.address(tagRange.high downto lineRange.low)).read(arbiter.cmdSel) @@ U(0, lineRange.low bit)
+      for(s <- slots) s.cmdSent setWhen(arbiter.cmdOh(s.id) && io.mem.read.cmd.ready)
 
       val address = slots.map(_.address).read(io.mem.read.rsp.id)
       val way = slots.map(_.way).read(io.mem.read.rsp.id)
@@ -395,65 +402,100 @@ class DataCache(val cacheSize: Int,
       val address = KeepAttribute(Reg(UInt(postTranslationWidth bits)))
       val way = Reg(UInt(log2Up(wayCount) bits))
       val priority = Reg(Bits(writebackCount-1 bits)) //TODO Check it
-      val cmdSent = Reg(Bool())
+      val readCmdDone = Reg(Bool())
+      val readRspDone = Reg(Bool())
     }
 
     def isLineBusy(address : UInt, way : UInt) = False//slots.map(s => s.valid && s.way === way && s.address(lineRange) === address(lineRange)).orR
-//
-//    val free = B(OHMasking.first(slots.map(!_.valid)))
-//    val full = slots.map(_.valid).andR
-//
-//    val banksWrite = CombInit(io.mem.read.rsp.valid)
-//    val push = Flow(new Bundle{
-//      val address = UInt(postTranslationWidth bits)
-//      val way = UInt(log2Up(wayCount) bits)
-//    }).setIdle()
-//
-//    for (slot <- slots; (other, prio) <- (slots.filter(_ != slot), slot.priority.asBools).zipped ) {
-//      prio.clearWhen(other.valid)
-//    }
-//
-//    for (slot <- slots) when(push.valid && free(slot.id)) {
-//      slot.valid := True
-//      slot.address := push.address
-//      slot.way := push.way
-//      slot.cmdSent := False
-//      slot.priority.setAll()
-//    }
-//
-//    val read = new Area{
-//      val cmdHits = B(slots.map(s => s.valid && !s.cmdSent))
-//      val cmdHit = cmdHits.orR
-//      val cmdOh = cmdHits & B(slots.map(slot => (B(slots.filter(_ != slot).map(other => cmdHits(other.id))) & slot.priority) === 0))
-//      val cmdSel = OHToUInt(cmdOh)
-//      val lock = RegNext(cmdOh)
-//      when(lock.orR){ cmdOh := lock }
-//      when(io.mem.read.cmd.fire){ lock := 0 }
-//
-//      val address = slots.map(_.address).read(cmdSel)
-//      val way = slots.map(_.way).read(cmdSel)
-//      val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
-//
-//      for ((bank, bankId) <- banks.zipWithIndex) {
-//        if (!reducedBankWidth) {
-//          when(cmdHit && way === bankId) {
-//            bank.read.cmd.valid := True
-//            bank.read.cmd.payload := address(lineRange) @@ wordIndex
-//            bank.read.usedByWriteBack := True
-//          }
-//        } else {
-//          val sel = U(bankId) - way
-//          val groupSel = way(log2Up(bankCount) - 1 downto log2Up(bankCount / memToBankRatio))
-//          val subSel = sel(log2Up(bankCount / memToBankRatio) - 1 downto 0)
-//          when(cmdHit && groupSel === (bankId >> log2Up(bankCount / memToBankRatio))) {
-//            bank.read.cmd.valid := True
-//            bank.read.cmd.payload := address(lineRange) @@ wordIndex @@ (subSel)
-//            bank.read.usedByWriteBack := True
-//          }
-//        }
-//      }
-//    }
+
+    val free = B(OHMasking.first(slots.map(!_.valid)))
+    val full = slots.map(_.valid).andR
+
+    val banksWrite = CombInit(io.mem.read.rsp.valid)
+    val push = Flow(new Bundle{
+      val address = UInt(postTranslationWidth bits)
+      val way = UInt(log2Up(wayCount) bits)
+    }).setIdle()
+
+    for (slot <- slots; (other, prio) <- (slots.filter(_ != slot), slot.priority.asBools).zipped ) {
+      prio.clearWhen(other.valid)
+    }
+
+    for (slot <- slots) when(push.valid && free(slot.id)) {
+      slot.valid := True
+      slot.address := push.address
+      slot.way := push.way
+      slot.readCmdDone := False
+      slot.readRspDone := False
+      slot.priority.setAll()
+    }
+
+
+    val victimBuffer = Mem.fill(writebackCount*memWordPerLine)(Bits(memDataWidth bits))
+    val read = new Area{
+      val arbiter = new PriorityArea(slots.map(s => (s.valid && !s.readCmdDone, s.priority)))
+
+      val address = slots.map(_.address).read(arbiter.cmdSel)
+      val way = slots.map(_.way).read(arbiter.cmdSel)
+      val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
+
+      val slotRead = Flow(new Bundle {
+        val id = UInt(log2Up(writebackCount) bits)
+        val last = Bool()
+        val wordIndex = UInt(log2Up(memWordPerLine) bits)
+        val way = UInt(log2Up(wayCount) bits)
+      })
+      slotRead.valid := arbiter.cmdHit
+      slotRead.id := arbiter.cmdSel
+      slotRead.wordIndex := wordIndex
+      slotRead.way := way
+      slotRead.last := wordIndex === wordIndex.maxValue
+      wordIndex := wordIndex + U(slotRead.valid)
+      when(slotRead.valid && slotRead.last){
+        whenMasked(slots, arbiter.cmdOh){ _.readCmdDone := True }
+        arbiter.lock := 0
+      }
+
+      for ((bank, bankId) <- banks.zipWithIndex) {
+        if (!reducedBankWidth) {
+          when(slotRead.valid && way === bankId) {
+            bank.read.cmd.valid := True
+            bank.read.cmd.payload := address(lineRange) @@ wordIndex
+            bank.read.usedByWriteBack := True
+          }
+        } else {
+          val sel = U(bankId) - way
+          val groupSel = way(log2Up(bankCount) - 1 downto log2Up(bankCount / memToBankRatio))
+          val subSel = sel(log2Up(bankCount / memToBankRatio) - 1 downto 0)
+          when(arbiter.cmdHit && groupSel === (bankId >> log2Up(bankCount / memToBankRatio))) {
+            bank.read.cmd.valid := True
+            bank.read.cmd.payload := address(lineRange) @@ wordIndex @@ (subSel)
+            bank.read.usedByWriteBack := True
+          }
+        }
+      }
+
+      val slotReadLast = slotRead.stage()
+      val readedData = Bits(memDataWidth bits)
+
+      if (!reducedBankWidth) {
+        readedData := banks.map(_.read.rsp).read(slotRead.way)
+      } else {
+        for((slice, sliceId) <- readedData.subdivideIn(bankWidth bits).zipWithIndex) {
+          ???
+        }
+      }
+
+
+      when(slotReadLast.valid){
+        victimBuffer.write(slotReadLast.wordIndex, readedData)
+        when(slotReadLast.last) {
+          whenIndexed(slots, slotReadLast.id) { _.readRspDone := True }
+        }
+      }
+    }
   }
+
   def isLineBusy(address : UInt, way : UInt) = refill.isLineBusy(address, way) || writeback.isLineBusy(address, way)
 
 
