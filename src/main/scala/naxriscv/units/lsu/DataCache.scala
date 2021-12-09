@@ -103,7 +103,6 @@ case class DataMemWriteCmd(addressWidth: Int,
   val address = UInt(addressWidth bits)
   val data    = Bits(dataWidth bits)
   val mask    = Bits(dataWidth/8 bits)
-
 }
 
 case class DataMemWriteRsp(dataWidth: Int) extends Bundle {
@@ -174,8 +173,6 @@ class DataCache(val cacheSize: Int,
     val mem = master(DataMemBus(postTranslationWidth, memDataWidth, idWidth = log2Up(refillCount)))
     val refillCompletions = out Bits(refillCount bits)
   }
-
-  io.mem.write.flatten.filter(_.isOutput).foreach(_.assignDontCare())
 
   val cpuWordWidth = cpuDataWidth
   val bytePerMemWord = memDataWidth/8
@@ -301,12 +298,12 @@ class DataCache(val cacheSize: Int,
 
   class PriorityArea(slots : Seq[(Bool, Bits)]) extends Area{
     val slotsWithId = slots.zipWithIndex.map(e => (e._1._1, e._1._2, e._2))
-    val cmdHits = B(slots.map(_._1))
-    val cmdHit = cmdHits.orR
-    val cmdOh = cmdHits & B(slotsWithId.map(slot => (B(slotsWithId.filter(_ != slot).map(other => cmdHits(other._3))) & slot._2) === 0))
-    val cmdSel = OHToUInt(cmdOh)
-    val lock = RegNext(cmdOh) init(0)
-    when(lock.orR){ cmdOh := lock }
+    val hits = B(slots.map(_._1))
+    val hit = hits.orR
+    val oh = hits & B(slotsWithId.map(slot => (B(slotsWithId.filter(_ != slot).map(other => hits(other._3))) & slot._2) === 0))
+    val sel = OHToUInt(oh)
+    val lock = RegNext(oh) init(0)
+    when(lock.orR){ oh := lock }
   }
 
   val refill = new Area {
@@ -354,10 +351,10 @@ class DataCache(val cacheSize: Int,
       val arbiter = new PriorityArea(slots.map(s => (s.valid && !s.cmdSent, s.priority)))
       when(io.mem.read.cmd.fire){ arbiter.lock := 0 }
 
-      io.mem.read.cmd.valid := arbiter.cmdHit
-      io.mem.read.cmd.id := arbiter.cmdSel
-      io.mem.read.cmd.address := slots.map(_.address(tagRange.high downto lineRange.low)).read(arbiter.cmdSel) @@ U(0, lineRange.low bit)
-      for(s <- slots) s.cmdSent setWhen(arbiter.cmdOh(s.id) && io.mem.read.cmd.ready)
+      io.mem.read.cmd.valid := arbiter.hit
+      io.mem.read.cmd.id := arbiter.sel
+      io.mem.read.cmd.address := slots.map(_.address(tagRange.high downto lineRange.low)).read(arbiter.sel) @@ U(0, lineRange.low bit)
+      for(s <- slots) s.cmdSent setWhen(arbiter.oh(s.id) && io.mem.read.cmd.ready)
 
       val address = slots.map(_.address).read(io.mem.read.rsp.id)
       val way = slots.map(_.way).read(io.mem.read.rsp.id)
@@ -403,6 +400,7 @@ class DataCache(val cacheSize: Int,
       val way = Reg(UInt(log2Up(wayCount) bits))
       val priority = Reg(Bits(writebackCount-1 bits)) //TODO Check it
       val readCmdDone = Reg(Bool())
+      val victimBufferReady = Reg(Bool())
       val readRspDone = Reg(Bool())
     }
 
@@ -427,6 +425,7 @@ class DataCache(val cacheSize: Int,
       slot.way := push.way
       slot.readCmdDone := False
       slot.readRspDone := False
+      slot.victimBufferReady := False
       slot.priority.setAll()
     }
 
@@ -435,8 +434,8 @@ class DataCache(val cacheSize: Int,
     val read = new Area{
       val arbiter = new PriorityArea(slots.map(s => (s.valid && !s.readCmdDone, s.priority)))
 
-      val address = slots.map(_.address).read(arbiter.cmdSel)
-      val way = slots.map(_.way).read(arbiter.cmdSel)
+      val address = slots.map(_.address).read(arbiter.sel)
+      val way = slots.map(_.way).read(arbiter.sel)
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
 
       val slotRead = Flow(new Bundle {
@@ -445,14 +444,14 @@ class DataCache(val cacheSize: Int,
         val wordIndex = UInt(log2Up(memWordPerLine) bits)
         val way = UInt(log2Up(wayCount) bits)
       })
-      slotRead.valid := arbiter.cmdHit
-      slotRead.id := arbiter.cmdSel
+      slotRead.valid := arbiter.hit
+      slotRead.id := arbiter.sel
       slotRead.wordIndex := wordIndex
       slotRead.way := way
       slotRead.last := wordIndex === wordIndex.maxValue
       wordIndex := wordIndex + U(slotRead.valid)
       when(slotRead.valid && slotRead.last){
-        whenMasked(slots, arbiter.cmdOh){ _.readCmdDone := True }
+        whenMasked(slots, arbiter.oh){ _.readCmdDone := True }
         arbiter.lock := 0
       }
 
@@ -467,7 +466,7 @@ class DataCache(val cacheSize: Int,
           val sel = U(bankId) - way
           val groupSel = way(log2Up(bankCount) - 1 downto log2Up(bankCount / memToBankRatio))
           val subSel = sel(log2Up(bankCount / memToBankRatio) - 1 downto 0)
-          when(arbiter.cmdHit && groupSel === (bankId >> log2Up(bankCount / memToBankRatio))) {
+          when(arbiter.hit && groupSel === (bankId >> log2Up(bankCount / memToBankRatio))) {
             bank.read.cmd.valid := True
             bank.read.cmd.payload := address(lineRange) @@ wordIndex @@ (subSel)
             bank.read.usedByWriteBack := True
@@ -488,11 +487,33 @@ class DataCache(val cacheSize: Int,
 
 
       when(slotReadLast.valid){
-        victimBuffer.write(slotReadLast.wordIndex, readedData)
+        victimBuffer.write(slotReadLast.id @@ slotReadLast.wordIndex, readedData)
+        whenIndexed(slots, slotReadLast.id) { _.victimBufferReady := True }
         when(slotReadLast.last) {
           whenIndexed(slots, slotReadLast.id) { _.readRspDone := True }
         }
       }
+    }
+
+    val write = new Area{
+      val arbiter = new PriorityArea(slots.map(s => (s.valid && !s.victimBufferReady, s.priority)))
+      val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
+
+      val bufferRead = Stream(new Bundle {
+        val id = UInt(log2Up(writebackCount) bits)
+        val address = UInt(postTranslationWidth bits)
+      })
+      bufferRead.valid := arbiter.hit
+      bufferRead.id := arbiter.sel
+      bufferRead.address := slots.map(_.address).read(arbiter.sel)
+      wordIndex := wordIndex + U(arbiter.hit)
+
+      val cmd = bufferRead.stage()
+      val word = victimBuffer.readSync(arbiter.sel @@ wordIndex, bufferRead.ready)
+      io.mem.write.cmd.arbitrationFrom(cmd)
+      io.mem.write.cmd.address := cmd.address
+      io.mem.write.cmd.data := word
+      io.mem.write.cmd.mask.setAll()
     }
   }
 
