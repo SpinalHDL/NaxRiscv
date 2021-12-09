@@ -1,6 +1,9 @@
 package naxriscv.utilities
 
 import spinal.core._
+import spinal.lib._
+
+import scala.collection.mutable.ArrayBuffer
 
 object Misc {
   def outsideCondScope[T](that : => T) : T = {
@@ -17,5 +20,27 @@ object Misc {
 object AddressToMask{
   def apply(address : UInt, size : UInt, width : Int) : Bits ={
     size.muxListDc((0 to log2Up(width)).map(i => U(i) -> B((1 << (1 << i)) -1, width bits))) |<< address(log2Up(width)-1 downto 0)
+  }
+}
+
+class Reservation{
+  class Entry(val priority : Int) extends Area{
+    val win = Bool()
+    val take = False
+
+    def takeIt() = take := True
+  }
+  val model = ArrayBuffer[Entry]()
+  def create(priority : Int) : Entry = {
+    val e = new  Entry( priority)
+    model += e
+    e
+  }
+
+  Component.current.afterElaboration{
+    assert(model.map(_.priority).distinct.size == model.size)
+    for(e <- model){
+      e.win := !model.filter(_.priority < e.priority).map(_.take).orR
+    }
   }
 }

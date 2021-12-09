@@ -142,60 +142,117 @@ public:
 
 
 #define DATA_MEM_DATA_BYTES (DATA_MEM_DATA_BITS/8)
-class DataCachedChannel{
+class DataCachedReadChannel{
 public:
     u64 beats;
     u64 address;
     int id;
 };
+
+class DataCachedWriteChannel{
+public:
+    u64 bytes;
+    u64 address;
+    int id;
+    char buffer[DATA_LINE_BYTES];
+};
+
+class DataCachedWriteRspChannel{
+public:
+    bool valid;
+    u64 bytes;
+    u64 address;
+    char data[DATA_LINE_BYTES];
+};
+
+
 class DataCached : public SimElement{
 public:
-    vector<DataCachedChannel> channel;
+    vector<DataCachedReadChannel> readChannels;
+    DataCachedWriteChannel writeCmdChannel;
+    vector<DataCachedWriteRspChannel> writeRspChannels;
 
     bool stall;
 
     VNaxRiscv* nax;
     Soc *soc;
-    DataCachedChannel *chLock = NULL;
+    DataCachedReadChannel *chLock = NULL;
 
     DataCached(VNaxRiscv* nax, Soc *soc, bool stall){
         this->nax = nax;
         this->soc = soc;
         this->stall = stall;
         for(int i = 0;i < DATA_CACHE_REFILL_COUNT;i++) {
-            DataCachedChannel ch;
+            DataCachedReadChannel ch;
             ch.beats = 0;
             ch.id = i;
-            channel.push_back(ch);
+            readChannels.push_back(ch);
+        }
+        writeCmdChannel.bytes = 0;
+
+        for(int i = 0;i < DATA_CACHE_WRITEBACK_COUNT;i++) {
+            DataCachedWriteRspChannel ch;
+            ch.valid = false;
+            writeRspChannels.push_back(ch);
         }
     }
 
     virtual void onReset(){
         nax->DataCachePlugin_mem_read_cmd_ready = 1;
         nax->DataCachePlugin_mem_read_rsp_valid = 0;
+        nax->DataCachePlugin_mem_write_cmd_ready = 1;
+        nax->DataCachePlugin_mem_write_rsp_valid = 0;
     }
 
     virtual void preCycle(){
         if (nax->DataCachePlugin_mem_read_cmd_valid && nax->DataCachePlugin_mem_read_cmd_ready) {
-#if DATA_CACHE_REFILL_COUNT == 0
+#if DATA_CACHE_REFILL_COUNT == 1
             int id = 0;
 #else
             int id = nax->DataCachePlugin_mem_read_cmd_payload_id;
 #endif
-            assertEq("CHANNEL BUSY", channel[id].beats, 0);
-            channel[id].beats = DATA_LINE_BYTES/DATA_MEM_DATA_BYTES;
-            channel[id].address = nax->DataCachePlugin_mem_read_cmd_payload_address;
+            assertEq("CHANNEL BUSY", readChannels[id].beats, 0);
+            readChannels[id].beats = DATA_LINE_BYTES/DATA_MEM_DATA_BYTES;
+            readChannels[id].address = nax->DataCachePlugin_mem_read_cmd_payload_address;
         }
+
+        if (nax->DataCachePlugin_mem_write_cmd_valid && nax->DataCachePlugin_mem_write_cmd_ready) {
+#if DATA_CACHE_WRITEBACK_COUNT == 1
+            int id = 0;
+#else
+            int id = nax->DataCachePlugin_mem_write_cmd_payload_id;
+#endif
+            if(!writeCmdChannel.bytes){
+                writeCmdChannel.id = id;
+                writeCmdChannel.address = nax->DataCachePlugin_mem_write_cmd_payload_address;
+            }
+            assert(id == writeCmdChannel.id);
+            assert(writeCmdChannel.address == nax->DataCachePlugin_mem_write_cmd_payload_address);
+            assert(nax->DataCachePlugin_mem_write_cmd_payload_mask == (1 << DATA_MEM_DATA_BYTES)-1);
+
+            memcpy(writeCmdChannel.buffer + writeCmdChannel.bytes, &nax->DataCachePlugin_mem_write_cmd_payload_data, DATA_MEM_DATA_BYTES);
+
+            writeCmdChannel.bytes += DATA_MEM_DATA_BYTES;
+            if(writeCmdChannel.bytes == DATA_LINE_BYTES){
+                writeRspChannels[id].address = writeCmdChannel.address;
+                writeRspChannels[id].bytes = writeCmdChannel.bytes;
+                writeRspChannels[id].valid = true;
+                memcpy(writeRspChannels[id].data, writeCmdChannel.buffer, writeCmdChannel.bytes);
+                writeCmdChannel.bytes = 0;
+            }
+        }
+
     }
 
     virtual void postCycle(){
+        // Generate read responses
         nax->DataCachePlugin_mem_read_rsp_valid = 0;
         if(!stall || VL_RANDOM_I(7) < 100){
             if(chLock == NULL){
                 int id = VL_RANDOM_I(7) % DATA_CACHE_REFILL_COUNT;
                 for(int i = 0;i < DATA_CACHE_REFILL_COUNT; i++){
-                    if(channel[id].beats != 0){
-                        chLock = &channel[id];
+                    if(readChannels[id].beats != 0){
+                        chLock = &readChannels[id];
                         break;
                     }
                 }
@@ -215,6 +272,29 @@ public:
             }
         }
         if(stall) nax->DataCachePlugin_mem_read_cmd_ready = VL_RANDOM_I(7) < 100;
+
+        // Generate write responses
+        nax->DataCachePlugin_mem_write_rsp_valid = 0;
+        if(!stall || VL_RANDOM_I(7) < 100){
+            DataCachedWriteRspChannel *ch = NULL;
+            int id = VL_RANDOM_I(7) % DATA_CACHE_WRITEBACK_COUNT;
+            for(int i = 0;i < DATA_CACHE_WRITEBACK_COUNT; i++){
+                if(writeRspChannels[id].valid != 0){
+                    ch = &writeRspChannels[id];
+                    break;
+                }
+            }
+
+            if(ch){
+                ch->valid = false;
+                nax->DataCachePlugin_mem_write_rsp_payload_error = soc->memoryWrite(ch->address, DATA_LINE_BYTES, (u8*)ch->data);
+                nax->DataCachePlugin_mem_write_rsp_valid = 1;
+#if DATA_CACHE_WRITEBACK_COUNT > 1
+                nax->DataCachePlugin_mem_write_rsp_payload_id = ch->id;
+#endif
+            }
+        }
+        if(stall) nax->DataCachePlugin_mem_write_cmd_ready = VL_RANDOM_I(7) < 100;
     }
 };
 //TODO randomize buses when not valid ^
