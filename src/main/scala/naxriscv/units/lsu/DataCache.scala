@@ -348,6 +348,8 @@ class DataCache(val cacheSize: Int,
       val loadedCounter = Reg(UInt(log2Up(loadedCounterMax+1) bits))
       loadedCounter := loadedCounter + U(loaded)
       valid clearWhen (loadedCounter === loadedCounterMax)
+
+      val victim = Reg(Bits(writebackCount bits))
     }
     def isLineBusy(address : UInt, way : UInt) = slots.map(s => s.valid && s.way === way && s.address(lineRange) === address(lineRange)).orR
 
@@ -358,6 +360,7 @@ class DataCache(val cacheSize: Int,
     val push = Flow(new Bundle{
       val address = UInt(postTranslationWidth bits)
       val way = UInt(log2Up(wayCount) bits)
+      val victim = Bits(writebackCount bits)
     }).setIdle()
 
     for (slot <- slots;
@@ -373,10 +376,11 @@ class DataCache(val cacheSize: Int,
       slot.priority.setAll()
       slot.loaded := False
       slot.loadedCounter := 0
+      slot.victim := push.victim
     }
 
     val read = new Area{
-      val arbiter = new PriorityArea(slots.map(s => (s.valid && !s.cmdSent, s.priority)))
+      val arbiter = new PriorityArea(slots.map(s => (s.valid && !s.cmdSent && s.victim === 0, s.priority)))
       when(io.mem.read.cmd.fire){ arbiter.lock := 0 }
 
       io.mem.read.cmd.valid := arbiter.hit
@@ -483,6 +487,9 @@ class DataCache(val cacheSize: Int,
       when(slotRead.valid && slotRead.last){
         whenMasked(slots, arbiter.oh){ _.readCmdDone := True }
         arbiter.lock := 0
+      }
+      when(slotRead.fire){
+        for(slot <- refill.slots) slot.victim(slotRead.id) := False
       }
 
       for ((bank, bankId) <- banks.zipWithIndex) {
@@ -648,13 +655,6 @@ class DataCache(val cacheSize: Int,
     val ctrl = new Area {
       import controlStage._
 
-      //Cases :
-      //-  HIT
-      //-  HIT read was busy => HAZARD
-      //-  HIT but also in refill => HAZARD
-      //- !HIT and in refill => REDO
-      //- !HIT and not in refill => REFILL
-      //- !HIT and not in refill but refill full => REDO
       val reservation = tagsOrStatusWriteArbitration.create(1)
       val refillWay = CombInit(wayRandom.value)
       val refillWayNeedWriteback = WAYS_TAGS(refillWay).loaded && STATUS(refillWay).dirty
@@ -677,6 +677,7 @@ class DataCache(val cacheSize: Int,
         refill.push.valid := True
         refill.push.address := ADDRESS_POST_TRANSLATION
         refill.push.way := refillWay
+        refill.push.victim := writeback.free.andMask(refillWayNeedWriteback)
 
         waysWrite.mask(refillWay) := True
         waysWrite.address := ADDRESS_PRE_TRANSLATION(lineRange)
@@ -783,7 +784,6 @@ class DataCache(val cacheSize: Int,
 
       GENERATION_OK := GENERATION === target
 
-//      val refillOverlap = B(refill.slots.map(r => r.valid && (r.way & WAYS_HIT).orR && r.address(lineRange) === ADDRESS_POST_TRANSLATION(lineRange))) //TODO
       val reservation = tagsOrStatusWriteArbitration.create(2)
       val refillWay = CombInit(wayRandom.value)
       val refillWayNeedWriteback = WAYS_TAGS(refillWay).loaded && STATUS(refillWay).dirty
@@ -803,7 +803,7 @@ class DataCache(val cacheSize: Int,
       REFILL_SLOT_FULL := MISS && !refillHit && refill.full
       REFILL_SLOT := refillHits.andMask(!refillLoaded) | refill.free.andMask(askRefill)
 
-      val writeCache = isValid && GENERATION_OK && !REDO// && !refillOverlap
+      val writeCache = isValid && GENERATION_OK && !REDO
       val wayId = OHToUInt(WAYS_HITS)
       val bankHitId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
 
@@ -818,6 +818,7 @@ class DataCache(val cacheSize: Int,
         refill.push.valid := True
         refill.push.address := ADDRESS_POST_TRANSLATION
         refill.push.way := refillWay
+        refill.push.victim := writeback.free.andMask(refillWayNeedWriteback)
 
         waysWrite.mask(refillWay) := True
         waysWrite.address := ADDRESS_PRE_TRANSLATION(lineRange)
@@ -830,7 +831,7 @@ class DataCache(val cacheSize: Int,
       }
 
       when(writeCache){
-        for((bank, bankId) <- banks.zipWithIndex){
+        for((bank, bankId) <- banks.zipWithIndex){ //TODO fine bank write port usage
           bank.write.valid := bankId === bankHitId
           bank.write.address := ADDRESS_POST_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
           bank.write.data.subdivideIn(cpuWordWidth bits).foreach(_ := CPU_WORD)
