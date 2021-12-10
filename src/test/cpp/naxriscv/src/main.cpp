@@ -452,7 +452,8 @@ enum ARG
     ARG_OUTPUT_DIR,
     ARG_NAME,
     ARG_TIMEOUT,
-    ARG_PROGRESS
+    ARG_PROGRESS,
+    ARG_SEED
 };
 
 
@@ -467,6 +468,7 @@ static const struct option long_options[] =
     { "name", required_argument, 0, ARG_NAME },
     { "timeout", required_argument, 0, ARG_TIMEOUT },
     { "progress", required_argument, 0, ARG_PROGRESS },
+    { "seed", required_argument, 0, ARG_SEED },
     0
 };
 
@@ -479,10 +481,22 @@ void addPcEvent(RvData pc, function<void(RvData)> func){
 
 int main(int argc, char** argv, char** env){
 
+    while (1) {
+        int index = -1;
+        struct option * opt = 0;
+        int result = getopt_long(argc, argv,"abc:d", long_options, &index);
+        if (result == -1) break;
+        switch (result) {
+            case ARG_SEED: {
+                Verilated::randSeed(stoi(optarg));
+                srand48(stoi(optarg));
+            } break;
+            default:  break;
+        }
+    }
 
     Verilated::debug(0);
     Verilated::randReset(2);
-    Verilated::randSeed(42);
     Verilated::traceEverOn(true);
     Verilated::commandArgs(argc, argv);
     Verilated::mkdir("logs");
@@ -521,16 +535,13 @@ int main(int argc, char** argv, char** env){
     string name = "???";
     string outputDir = "output";
     double progressPeriod = 0.0;
-    while (1)
-    {
+    optind = 1;
+    while (1) {
         int index = -1;
         struct option * opt = 0;
-        int result = getopt_long(argc, argv,
-            "abc:d",
-            long_options, &index);
+        int result = getopt_long(argc, argv,"abc:d", long_options, &index);
         if (result == -1) break;
-        switch (result)
-        {
+        switch (result) {
             case ARG_LOAD_HEX: wrap.memory.loadHex(string(optarg)); soc->memory.loadHex(string(optarg)); break;
             case ARG_LOAD_ELF: {
                 elf = new Elf(optarg);
@@ -556,7 +567,7 @@ int main(int argc, char** argv, char** env){
             case ARG_OUTPUT_DIR: outputDir = optarg; break;
             case ARG_TIMEOUT: timeout = stoi(optarg); break;
             case ARG_PROGRESS: progressPeriod = stod(optarg); break;
-            default: exit(1); break;
+            default:  break;
         }
     }
     /* print all other parameters */

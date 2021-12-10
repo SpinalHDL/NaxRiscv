@@ -141,8 +141,6 @@ object Gen extends App{
 
 //TODO fix bellow list
 /*
-- d$ refill should not start before any writeback on the same address
-- d$ refill should not start before the victim buffer filling started
 - Manage the verilator seeds
 - having genTests.py generating different seed for each test
 - Data cache handle store which had tag hit but the line is currently being written back to the main memory

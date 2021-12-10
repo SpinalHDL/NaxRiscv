@@ -350,7 +350,7 @@ class DataCache(val cacheSize: Int,
       valid clearWhen (loadedCounter === loadedCounterMax)
 
       val victim = Reg(Bits(writebackCount bits))
-      val writebackHazards = Reg(Bits(writebackCount bits))
+      val writebackHazards = Reg(Bits(writebackCount bits)) //TODO Check it
     }
     def isLineBusy(address : UInt, way : UInt) = slots.map(s => s.valid && s.way === way && s.address(lineRange) === address(lineRange)).orR
 
@@ -558,10 +558,11 @@ class DataCache(val cacheSize: Int,
       wordIndex := wordIndex + U(bufferRead.fire)
       when(bufferRead.fire && wordIndex === wordIndex.maxValue){
         whenMasked(slots, arbiter.oh)(_.writeCmdDone := True)
+        arbiter.lock := 0
       }
 
       val cmd = bufferRead.stage()
-      val word = victimBuffer.readSync(arbiter.sel @@ wordIndex, bufferRead.ready)
+      val word = victimBuffer.readSync(bufferRead.id @@ wordIndex, bufferRead.ready)
       io.mem.write.cmd.arbitrationFrom(cmd)
       io.mem.write.cmd.address := cmd.address
       io.mem.write.cmd.data := word
