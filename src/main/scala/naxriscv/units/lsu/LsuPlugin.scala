@@ -286,10 +286,12 @@ class LsuPlugin(lqSize: Int,
           LQ_ID_CARRY := alloc.msb
           when(DISPATCH_MASK && LQ_ALLOC){
             LSU_ID := alloc.resized
-            mem.sqAlloc.write(
-              address = LQ_ID,
-              data = U(SQ_ID_CARRY ## allocStage(SQ_ID, slotId))
-            )
+            when(isFireing) {
+              mem.sqAlloc.write(
+                address = LQ_ID,
+                data = U(SQ_ID_CARRY ## allocStage(SQ_ID, slotId))
+              )
+            }
             when(ptr.isFull(alloc)){
               full := True
             }
@@ -535,10 +537,12 @@ class LsuPlugin(lqSize: Int,
           SQ_ID_CARRY := alloc.msb
           when(DISPATCH_MASK && SQ_ALLOC){
             LSU_ID := alloc.resized
-            mem.lqAlloc.write(
-              address = SQ_ID,
-              data = U(LQ_ID_CARRY ## allocStage(LQ_ID, slotId))
-            )
+            when(isFireing) {
+              mem.lqAlloc.write(
+                address = SQ_ID,
+                data = U(LQ_ID_CARRY ## allocStage(LQ_ID, slotId))
+              )
+            }
             when(ptr.isFull(alloc)){
               full := True
             }
