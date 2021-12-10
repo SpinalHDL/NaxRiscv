@@ -805,7 +805,7 @@ class DataCache(val cacheSize: Int,
       val refillLoaded = (B(refill.slots.map(_.loaded)) & refillHits).orR
       val refillLineBusy = isLineBusy(ADDRESS_PRE_TRANSLATION, refillWay)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
-      val wasClean = (B(STATUS.map(_.dirty)) & WAYS_HITS).orR
+      val wasClean = !(B(STATUS.map(_.dirty)) & WAYS_HITS).orR
 
       REDO := MISS || waysHitHazard || refill.banksWrite || refillHit || (wasClean && !reservation.win)// || refillOverlap
       MISS := !WAYS_HIT && !waysHitHazard && !refillHit
@@ -817,10 +817,11 @@ class DataCache(val cacheSize: Int,
       REFILL_SLOT := refillHits.andMask(!refillLoaded) | refill.free.andMask(askRefill)
 
       val writeCache = isValid && GENERATION_OK && !REDO
+      val setDirty = writeCache && wasClean
       val wayId = OHToUInt(WAYS_HITS)
       val bankHitId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
 
-      when(startRefill || writeCache){
+      when(startRefill || setDirty){
         reservation.takeIt()
         status.write.valid := True
         status.write.address := ADDRESS_PRE_TRANSLATION(lineRange)
@@ -841,6 +842,8 @@ class DataCache(val cacheSize: Int,
         writeback.push.valid := refillWayNeedWriteback
         writeback.push.address := (WAYS_TAGS(refillWay).address @@ ADDRESS_PRE_TRANSLATION(lineRange)) << lineRange.low
         writeback.push.way := refillWay
+
+        whenIndexed(status.write.data, refillWay)(_.dirty := False)
       }
 
       when(writeCache){
@@ -851,7 +854,9 @@ class DataCache(val cacheSize: Int,
           bank.write.mask := 0
           bank.write.mask.subdivideIn(cpuWordWidth/8 bits).write(ADDRESS_POST_TRANSLATION(bankWordToCpuWordRange), CPU_MASK)
         }
-        status.write.data(refillWay).dirty := True
+      }
+      when(setDirty){
+        whenMasked(status.write.data, WAYS_HITS)(_.dirty := True)
       }
 
       when(isValid && REDO && GENERATION_OK){
