@@ -453,7 +453,9 @@ enum ARG
     ARG_NAME,
     ARG_TIMEOUT,
     ARG_PROGRESS,
-    ARG_SEED
+    ARG_SEED,
+    ARG_TRACE,
+    ARG_TRACE_REF
 };
 
 
@@ -469,6 +471,8 @@ static const struct option long_options[] =
     { "timeout", required_argument, 0, ARG_TIMEOUT },
     { "progress", required_argument, 0, ARG_PROGRESS },
     { "seed", required_argument, 0, ARG_SEED },
+    { "trace", no_argument, 0, ARG_TRACE },
+    { "trace_ref", no_argument, 0, ARG_TRACE_REF },
     0
 };
 
@@ -480,6 +484,12 @@ void addPcEvent(RvData pc, function<void(RvData)> func){
 }
 
 int main(int argc, char** argv, char** env){
+    bool trace = false;
+    bool trace_ref = false;
+    vluint64_t timeout = -1;
+    string name = "???";
+    string outputDir = "output";
+    double progressPeriod = 0.0;
 
     while (1) {
         int index = -1;
@@ -491,6 +501,19 @@ int main(int argc, char** argv, char** env){
                 Verilated::randSeed(stoi(optarg));
                 srand48(stoi(optarg));
             } break;
+
+            case ARG_TRACE: {
+                trace = true;
+#ifndef TRACE
+                printf("You need to recompile with TRACE=yes to enable tracing");
+                failure();
+#endif
+            } break;
+            case ARG_TRACE_REF: trace_ref = true; break;
+            case ARG_NAME: name = optarg; break;
+            case ARG_OUTPUT_DIR: outputDir = optarg; break;
+            case ARG_TIMEOUT: timeout = stoi(optarg); break;
+            case ARG_PROGRESS: progressPeriod = stod(optarg); break;
             default:  break;
         }
     }
@@ -517,24 +540,18 @@ int main(int argc, char** argv, char** env){
 
 
     FILE *fptr;
-//    fptr = fopen("spike.log","w");
-    fptr = NULL;
-//    std::ofstream outfile ("spike.log2",std::ofstream::binary);
+    fptr = trace_ref ? fopen((outputDir + "/spike.log").c_str(),"w") : NULL;
     std::ofstream outfile ("/dev/null",std::ofstream::binary);
     sim_wrap wrap;
 
     processor_t proc("RV32IM", "MSU", "", &wrap, 0, false, fptr, outfile);
-//    proc.enable_log_commits();
+    if(trace_ref) proc.enable_log_commits();
 
 
 
-	vluint64_t timeout = -1;
 	u32 nop32 = 0x13;
 	u8 *nop = (u8 *)&nop32;
     Elf *elf = NULL;
-    string name = "???";
-    string outputDir = "output";
-    double progressPeriod = 0.0;
     optind = 1;
     while (1) {
         int index = -1;
@@ -563,10 +580,6 @@ int main(int argc, char** argv, char** env){
                 wrap.memory.write(addr, 4, nop);
                 soc->memory.write(addr, 4, nop);
             }break;
-            case ARG_NAME: name = optarg; break;
-            case ARG_OUTPUT_DIR: outputDir = optarg; break;
-            case ARG_TIMEOUT: timeout = stoi(optarg); break;
-            case ARG_PROGRESS: progressPeriod = stod(optarg); break;
             default:  break;
         }
     }
@@ -583,12 +596,11 @@ int main(int argc, char** argv, char** env){
 
 	#ifdef TRACE
 	VerilatedFstC* tfp;
-	#endif
-    #ifdef TRACE
-    Verilated::traceEverOn(true);
-    tfp = new VerilatedFstC;
-    top->trace(tfp, 99);
-    tfp->open((outputDir + "/wave.fst").c_str());
+	if(trace){
+	    tfp = new VerilatedFstC;
+	    top->trace(tfp, 99);
+	    tfp->open((outputDir + "/wave.fst").c_str());
+	}
     #endif
 
 
@@ -628,8 +640,10 @@ int main(int argc, char** argv, char** env){
                 failure();
             }
             #ifdef TRACE
-            tfp->dump(main_time);
-            if(main_time % 100000 == 0) tfp->flush();
+            if(trace){
+                tfp->dump(main_time);
+                if(main_time % 100000 == 0) tfp->flush();
+            }
     //        		if(i == TRACE_START && i != 0) cout << "**" << endl << "**" << endl << "**" << endl << "**" << endl << "**" << endl << "START TRACE" << endl;
     //        		if(i >= TRACE_START) tfp->dump(i);
     //        		#ifdef TRACE_SPORADIC
@@ -707,8 +721,10 @@ int main(int argc, char** argv, char** env){
     } catch (const std::exception& e) {
         ++main_time;
         #ifdef TRACE
+        if(trace){
         tfp->dump(main_time);
         if(main_time % 100000 == 0) tfp->flush();
+        }
         #endif
         printf("LAST PC=%lx\n", state->last_inst_pc);
         printf("INCOMING PC=%lx\n", state->pc);
@@ -720,8 +736,10 @@ int main(int argc, char** argv, char** env){
 //    printf("Time=%ld\n", main_time);
 //    printf("Cycles=%ld\n", main_time/2);
     #ifdef TRACE
-    tfp->flush();
-    tfp->close();
+    if(trace){
+        tfp->flush();
+        tfp->close();
+    }
     #endif
     top->final();
 

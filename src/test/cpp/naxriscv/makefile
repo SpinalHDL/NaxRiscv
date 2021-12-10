@@ -8,7 +8,7 @@ SPIKE=${NAXRISCV_REPO}/ext/riscv-isa-sim
 SPIKE_BUILD=${SPIKE}/build
 
 
-TRACE?=no
+TRACE?=yes
 #LOCKSTEP?=yes
 ALLOCATOR_CHECKS?=yes
 ADDCFLAGS += -CFLAGS -Iobj_dir
