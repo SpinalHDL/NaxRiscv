@@ -208,6 +208,8 @@ class LsuPlugin(lqSize: Int,
           val writeback  = Reg(Bool())
         }
 
+        val allLqIsYounger = Reg(Bool())
+
         val ready = valid && !waitOn.address && !waitOn.translationRsp && !waitOn.writeback
       }
 
@@ -558,6 +560,7 @@ class LsuPlugin(lqSize: Int,
             }
             when(hits.orR){
               reg.valid := True
+              reg.allLqIsYounger := False
               reg.waitOn.address := True
               reg.waitOn.translationRsp := False
               reg.waitOn.writeback := False
@@ -612,12 +615,13 @@ class LsuPlugin(lqSize: Int,
           val loopback = endMask <= startMask
           val youngerMask = loopback ? ~(endMask ^ startMask) otherwise (endMask & ~startMask)
           val youngerMaskEmpty = startId === endId
+          val allLqIsYounger = regs.map(_.allLqIsYounger).read(SQ_SEL)
 
           val hits = Bits(lqSize bits)
           val entries = for(lqReg <- lq.regs) yield new Area {
             val pageHit = lqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
             val wordHit = (lqReg.address.mask & DATA_MASK) =/= 0
-            hits(lqReg.id) := lqReg.valid && !lqReg.waitOn.address && pageHit && wordHit && youngerMask(lqReg.id)
+            hits(lqReg.id) := lqReg.valid && !lqReg.waitOn.address && pageHit && wordHit && (youngerMask(lqReg.id) || allLqIsYounger)
           }
           val youngerHit  = hits =/= 0 && !youngerMaskEmpty
           val youngerOh   = OHMasking.roundRobinMasked(hits, lq.ptr.priority)
@@ -761,6 +765,7 @@ class LsuPlugin(lqSize: Int,
       lq.ptr.priority := 0
       for(reg <- sq.regs){
         reg.valid clearWhen(!reg.commitedNext)
+        reg.allLqIsYounger := True
       }
       sq.ptr.alloc := sq.ptr.commitNext
     }
