@@ -350,6 +350,7 @@ class DataCache(val cacheSize: Int,
       valid clearWhen (loadedCounter === loadedCounterMax)
 
       val victim = Reg(Bits(writebackCount bits))
+      val writebackHazards = Reg(Bits(writebackCount bits))
     }
     def isLineBusy(address : UInt, way : UInt) = slots.map(s => s.valid && s.way === way && s.address(lineRange) === address(lineRange)).orR
 
@@ -377,32 +378,40 @@ class DataCache(val cacheSize: Int,
       slot.loaded := False
       slot.loadedCounter := 0
       slot.victim := push.victim
+      slot.writebackHazards := 0
     }
 
     val read = new Area{
-      val arbiter = new PriorityArea(slots.map(s => (s.valid && !s.cmdSent && s.victim === 0, s.priority)))
-      when(io.mem.read.cmd.fire){ arbiter.lock := 0 }
+      val arbiter = new PriorityArea(slots.map(s => (s.valid && !s.cmdSent && s.victim === 0 && s.writebackHazards === 0, s.priority)))
 
-      io.mem.read.cmd.valid := arbiter.hit
+      val writebackHazards = Bits(writebackCount bits)
+      val writebackHazard = writebackHazards.orR
+      when(io.mem.read.cmd.fire || writebackHazard){ arbiter.lock := 0 }
+
+      val cmdAddress = slots.map(_.address(tagRange.high downto lineRange.low)).read(arbiter.sel) @@ U(0, lineRange.low bit)
+      io.mem.read.cmd.valid := arbiter.hit && !writebackHazard
       io.mem.read.cmd.id := arbiter.sel
-      io.mem.read.cmd.address := slots.map(_.address(tagRange.high downto lineRange.low)).read(arbiter.sel) @@ U(0, lineRange.low bit)
-      for(s <- slots) s.cmdSent setWhen(arbiter.oh(s.id) && io.mem.read.cmd.ready)
+      io.mem.read.cmd.address := cmdAddress
+      whenMasked(slots, arbiter.oh){slot =>
+        slot.writebackHazards := writebackHazards
+        slot.cmdSent setWhen(io.mem.read.cmd.ready && !writebackHazard)
+      }
 
-      val address = slots.map(_.address).read(io.mem.read.rsp.id)
+      val rspAddress = slots.map(_.address).read(io.mem.read.rsp.id)
       val way = slots.map(_.way).read(io.mem.read.rsp.id)
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
 
       for ((bank, bankId) <- banks.zipWithIndex) {
         if (!reducedBankWidth) {
           bank.write.valid := io.mem.read.rsp.valid && way=== bankId
-          bank.write.address := address(lineRange) @@ wordIndex
+          bank.write.address := rspAddress(lineRange) @@ wordIndex
           bank.write.data := io.mem.read.rsp.data
         } else {
           val sel = U(bankId) - way
           val groupSel = way(log2Up(bankCount) - 1 downto log2Up(bankCount / memToBankRatio))
           val subSel = sel(log2Up(bankCount / memToBankRatio) - 1 downto 0)
           bank.write.valid := io.mem.read.rsp.valid && groupSel === (bankId >> log2Up(bankCount / memToBankRatio))
-          bank.write.address := address(lineRange) @@ wordIndex @@ (subSel)
+          bank.write.address := rspAddress(lineRange) @@ wordIndex @@ (subSel)
           bank.write.data := io.mem.read.rsp.data.subdivideIn(bankCount / memToBankRatio slices)(subSel)
         }
         banks(bankId).write.mask := (default -> true)
@@ -435,6 +444,9 @@ class DataCache(val cacheSize: Int,
       val victimBufferReady = Reg(Bool())
       val readRspDone = Reg(Bool())
       val writeCmdDone = Reg(Bool())
+
+      refill.read.writebackHazards(id) := valid && address(refillRange) === refill.read.cmdAddress(refillRange)
+      when(fire){ refill.slots.foreach(_.writebackHazards(id) := False) }
     }
 
     def isLineBusy(address : UInt, way : UInt) = False//slots.map(s => s.valid && s.way === way && s.address(lineRange) === address(lineRange)).orR
@@ -694,7 +706,7 @@ class DataCache(val cacheSize: Int,
         writeback.push.way := refillWay
       }
 
-      REFILL_SLOT_FULL := MISS && !refillHit && refill.full
+      REFILL_SLOT_FULL := MISS && !refillHit && (refill.full || refillLineBusy)
       REFILL_SLOT := refillHits.andMask(!refillLoaded) | refill.free.andMask(askRefill)
     }
 
@@ -800,7 +812,7 @@ class DataCache(val cacheSize: Int,
       val askRefill = MISS && canRefill && !refillHit
       val startRefill = isValid && GENERATION_OK && askRefill
 
-      REFILL_SLOT_FULL := MISS && !refillHit && refill.full
+      REFILL_SLOT_FULL := MISS && !refillHit && (refill.full || refillLineBusy)
       REFILL_SLOT := refillHits.andMask(!refillLoaded) | refill.free.andMask(askRefill)
 
       val writeCache = isValid && GENERATION_OK && !REDO

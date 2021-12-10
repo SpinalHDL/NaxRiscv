@@ -255,6 +255,7 @@ public:
                         chLock = &readChannels[id];
                         break;
                     }
+                    id = (id + 1) % DATA_CACHE_REFILL_COUNT;
                 }
             }
 
@@ -283,6 +284,7 @@ public:
                     ch = &writeRspChannels[id];
                     break;
                 }
+                id = (id + 1) % DATA_CACHE_REFILL_COUNT;
             }
 
             if(ch){
@@ -290,7 +292,7 @@ public:
                 nax->DataCachePlugin_mem_write_rsp_payload_error = soc->memoryWrite(ch->address, DATA_LINE_BYTES, (u8*)ch->data);
                 nax->DataCachePlugin_mem_write_rsp_valid = 1;
 #if DATA_CACHE_WRITEBACK_COUNT > 1
-                nax->DataCachePlugin_mem_write_rsp_payload_id = ch->id;
+                nax->DataCachePlugin_mem_write_rsp_payload_id = id;
 #endif
             }
         }

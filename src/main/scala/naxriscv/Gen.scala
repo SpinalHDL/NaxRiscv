@@ -64,8 +64,8 @@ object Config{
       memDataWidth = Global.XLEN,
       cacheSize    = 4096*8,
       wayCount     = 1,
-      refillCount = 2,
-      writebackCount = 1,
+      refillCount = 4,
+      writebackCount = 4,
       reducedBankWidth = false
     )
 
