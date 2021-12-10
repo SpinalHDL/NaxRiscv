@@ -527,7 +527,7 @@ class DataCache(val cacheSize: Int,
       val readedData = Bits(memDataWidth bits)
 
       if (!reducedBankWidth) {
-        readedData := banks.map(_.read.rsp).read(slotRead.way)
+        readedData := banks.map(_.read.rsp).read(slotReadLast.way)
       } else {
         for((slice, sliceId) <- readedData.subdivideIn(bankWidth bits).zipWithIndex) {
           ???
