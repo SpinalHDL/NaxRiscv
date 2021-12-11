@@ -627,7 +627,12 @@ int main(int argc, char** argv, char** env){
             case ARG_OUTPUT_DIR: outputDir = optarg; break;
             case ARG_TIMEOUT: timeout = stoi(optarg); break;
             case ARG_PROGRESS: progressPeriod = stod(optarg); break;
-            default:  break;
+            case ARG_LOAD_HEX:
+            case ARG_LOAD_ELF:
+            case ARG_START_SYMBOL:
+            case ARG_PASS_SYMBOL:
+            case ARG_FAIL_SYMBOL: break;
+            default: failure(); break;
         }
     }
 
