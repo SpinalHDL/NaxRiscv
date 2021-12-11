@@ -319,7 +319,13 @@ public:
 
 
 
-
+class IoAccess{
+public:
+    u64 addr;
+    u64 len;
+    u8 data[8];
+    bool write;
+};
 
 class LsuPeripheral: public SimElement{
 public:
@@ -334,12 +340,14 @@ public:
 
     VNaxRiscv* nax;
     Soc *soc;
+    queue<IoAccess> *mmioDut;
     DataCachedReadChannel *chLock = NULL;
 
-    LsuPeripheral(VNaxRiscv* nax, Soc *soc, bool stall){
+    LsuPeripheral(VNaxRiscv* nax, Soc *soc, queue<IoAccess> *mmioDut, bool stall){
         this->nax = nax;
         this->soc = soc;
         this->stall = stall;
+        this->mmioDut = mmioDut;
         valid = false;
     }
 
@@ -366,11 +374,22 @@ public:
         if(valid && (!stall || VL_RANDOM_I(7) < 100)){
             nax->LsuPlugin_peripheralBus_rsp_valid = 1;
             u64 offset = address & (LSU_PERIPHERAL_WIDTH/8-1);
+            u8 *ptr = ((u8*) &data) + offset;
+            assertTrue("bad io length\n", offset + bytes <= LSU_PERIPHERAL_WIDTH/8);
+
             if(write){
-                nax->DataCachePlugin_mem_read_rsp_payload_error = soc->peripheralWrite(address, bytes, ((u8*) &data) + offset);
+                nax->DataCachePlugin_mem_read_rsp_payload_error = soc->peripheralWrite(address, bytes, ptr);
             } else {
-                nax->DataCachePlugin_mem_read_rsp_payload_error = soc->peripheralRead(address, bytes, ((u8*) &nax->LsuPlugin_peripheralBus_rsp_payload_data) + offset);
+                nax->DataCachePlugin_mem_read_rsp_payload_error = soc->peripheralRead(address, bytes, ptr);
+                memcpy(((u8*) &nax->LsuPlugin_peripheralBus_rsp_payload_data) + offset, ptr, bytes);
             }
+
+            IoAccess access;
+            access.addr = address;
+            access.len = bytes;
+            access.write = write;
+            memcpy(((u8*) &access.data), ptr, bytes);
+            mmioDut->push(access);
             valid = false;
         }
         if(stall) nax->LsuPlugin_peripheralBus_cmd_ready = VL_RANDOM_I(7) < 100;
@@ -381,22 +400,40 @@ public:
 #include "processor.h"
 #include "simif.h"
 
+
+
 class sim_wrap : public simif_t{
 public:
 
     Memory memory;
+    queue<IoAccess> mmioDut;
+
     // should return NULL for MMIO addresses
     virtual char* addr_to_mem(reg_t addr)  {
-//        printf("addr_to_mem %lx\n", addr);
+        if((addr & 0xF0000000) == 0x10000000) return NULL;
         return (char*)memory.get(addr);
     }
     // used for MMIO addresses
     virtual bool mmio_load(reg_t addr, size_t len, uint8_t* bytes)  {
-        printf("mmio_load %lx %ld\n", addr, len);
+//        printf("mmio_load %lx %ld\n", addr, len);
+        assertTrue("missing mmio\n", !mmioDut.empty());
+        auto dut = mmioDut.front();
+        assertEq("mmio write\n", dut.write, false);
+        assertEq("mmio address\n", dut.addr, addr);
+        assertEq("mmio len\n", dut.len, len);
+        memcpy(bytes, dut.data, len);
+        mmioDut.pop();
         return true;
     }
     virtual bool mmio_store(reg_t addr, size_t len, const uint8_t* bytes)  {
-        printf("mmio_store %lx %ld\n", addr, len);
+//        printf("mmio_store %lx %ld\n", addr, len);
+        assertTrue("missing mmio\n", !mmioDut.empty());
+        auto dut = mmioDut.front();
+        assertEq("mmio write\n", dut.write, true);
+        assertEq("mmio address\n", dut.addr, addr);
+        assertEq("mmio len\n", dut.len, len);
+        assertTrue("mmio data\n", !memcmp(dut.data, bytes, len));
+        mmioDut.pop();
         return true;
     }
     // Callback for processors to let the simulation know they were reset.
@@ -600,6 +637,16 @@ int main(int argc, char** argv, char** env){
     Verilated::commandArgs(argc, argv);
     Verilated::mkdir("logs");
 
+
+    FILE *fptr;
+    fptr = trace_ref ? fopen((outputDir + "/spike.log").c_str(),"w") : NULL;
+    std::ofstream outfile ("/dev/null",std::ofstream::binary);
+    sim_wrap wrap;
+
+    processor_t proc("RV32IM", "MSU", "", &wrap, 0, false, fptr, outfile);
+    if(trace_ref) proc.enable_log_commits();
+
+
     VNaxRiscv* top = new VNaxRiscv;  // Or use a const unique_ptr, or the VL_UNIQUE_PTR wrapper
 
     NaxWhitebox whitebox(top->NaxRiscv);
@@ -609,20 +656,13 @@ int main(int argc, char** argv, char** env){
 	vector<SimElement*> simElements;
     simElements.push_back(new FetchCached(top, soc, true));
     simElements.push_back(new DataCached(top, soc, true));
-    simElements.push_back(new LsuPeripheral(top, soc, true));
+    simElements.push_back(new LsuPeripheral(top, soc, &wrap.mmioDut, true));
     simElements.push_back(&whitebox);
 #ifdef ALLOCATOR_CHECKS
     simElements.push_back(new NaxAllocatorChecker(top->NaxRiscv));
 #endif
 
 
-    FILE *fptr;
-    fptr = trace_ref ? fopen((outputDir + "/spike.log").c_str(),"w") : NULL;
-    std::ofstream outfile ("/dev/null",std::ofstream::binary);
-    sim_wrap wrap;
-
-    processor_t proc("RV32IM", "MSU", "", &wrap, 0, false, fptr, outfile);
-    if(trace_ref) proc.enable_log_commits();
 
 
 
