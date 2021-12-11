@@ -60,8 +60,9 @@ case class DataStoreCmd(postTranslationWidth: Int,
                         dataWidth: Int) extends Bundle {
   val address = UInt(postTranslationWidth bits)
   val data = Bits(dataWidth bits)
-  val size = UInt(log2Up(log2Up(dataWidth/8)+1) bits)
+  val mask = Bits(dataWidth/8 bits)
   val generation  = Bool()
+  val io = Bool()
 }
 
 case class DataStoreRsp(dataWidth : Int, refillCount : Int) extends Bundle {
@@ -233,7 +234,7 @@ class DataCache(val cacheSize: Int,
   val WAYS_HIT = Stageable(Bool())
   val MISS = Stageable(Bool())
   val REDO = Stageable(Bool())
-  val SIZE = Stageable(UInt(log2Up(log2Up(cpuDataWidth/8)+1) bits))
+  val IO = Stageable(Bool())
   val REFILL_SLOT = Stageable(Bits(refillCount bits))
   val REFILL_SLOT_FULL = Stageable(Bool())
   val GENERATION, GENERATION_OK = Stageable(Bool())
@@ -612,7 +613,6 @@ class DataCache(val cacheSize: Int,
 
       isValid := io.load.cmd.valid
       ADDRESS_PRE_TRANSLATION := io.load.cmd.virtual
-      SIZE := io.load.cmd.size
       WAYS_HAZARD := 0
     }
 
@@ -753,16 +753,10 @@ class DataCache(val cacheSize: Int,
 
       isValid := io.store.cmd.valid
       ADDRESS_POST_TRANSLATION := io.store.cmd.address
-      CPU_WORD.assignDontCare()
-      switch(io.store.cmd.size){
-        for(s <- 0 to log2Up(cpuDataWidth/8)) is(s){
-          val w = (1 << s)*8
-          CPU_WORD.subdivideIn(w bits).foreach(_ := io.store.cmd.data(0, w bits))
-        }
-      }
+      CPU_WORD := io.store.cmd.data
+      CPU_MASK := io.store.cmd.mask
+      IO := io.store.cmd.io
 
-      SIZE := io.store.cmd.size
-      CPU_MASK := AddressToMask(io.store.cmd.address, io.store.cmd.size, widthOf(CPU_MASK))
       GENERATION := io.store.cmd.generation
       WAYS_HAZARD := 0
     }
@@ -820,6 +814,13 @@ class DataCache(val cacheSize: Int,
       val setDirty = writeCache && wasClean
       val wayId = OHToUInt(WAYS_HITS)
       val bankHitId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
+
+      when(IO){
+        REDO := False
+        MISS := False
+        setDirty := False
+        writeCache := False
+      }
 
       when(startRefill || setDirty){
         reservation.takeIt()

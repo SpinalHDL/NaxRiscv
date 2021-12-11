@@ -33,6 +33,7 @@ class DataCachePlugin(val memDataWidth : Int,
                       val reducedBankWidth : Boolean = false
                      ) extends Plugin with LockedImpl{
   def loadRspLatency = loadRspAt
+  def storeRspLatency = storeRspAt
 
   def storeRspHazardFreeLatency = (storeControlAt+1)-storeRspAt
   def loadCmdHazardFreeLatency = (loadReadAt)

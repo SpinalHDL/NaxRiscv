@@ -6,7 +6,7 @@ import naxriscv.{Frontend, Global, ROB}
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces._
 import naxriscv.riscv.CSR
-import naxriscv.utilities.{AddressToMask, Plugin}
+import naxriscv.utilities.{AddressToMask, DocPlugin, Plugin}
 import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Connection.M2S
@@ -36,6 +36,36 @@ case class LsuStorePort(sqSize : Int, wordWidth : Int) extends Bundle {
   val size = UInt(log2Up(log2Up(wordWidth/8)+1) bits)
 }
 
+case class LsuPeripheralBusParameter(addressWidth : Int,
+                                     dataWidth : Int)
+
+case class LsuPeripheralBusCmd(p : LsuPeripheralBusParameter) extends Bundle{
+  val write = Bool()
+  val address = UInt(p.addressWidth bits)
+  val data = Bits(p.dataWidth bits)
+  val mask = Bits(p.dataWidth / 8 bit)
+  val size = UInt(log2Up(log2Up(p.dataWidth/8)+1) bits)
+}
+
+case class LsuPeripheralBusRsp(p : LsuPeripheralBusParameter) extends Bundle{
+  val error = Bool()
+  val data = Bits(p.dataWidth bits)
+}
+
+object LsuPeripheralBus{
+  def apply(addressWidth : Int, dataWidth : Int) : LsuPeripheralBus = LsuPeripheralBus(LsuPeripheralBusParameter(addressWidth,dataWidth))
+}
+
+case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with IMasterSlave {
+  val cmd = Stream(LsuPeripheralBusCmd(p))
+  val rsp = Flow(LsuPeripheralBusRsp(p))
+
+  override def asMaster(): Unit = {
+    master(cmd)
+    slave(rsp)
+  }
+}
+
 
 class LsuPlugin(lqSize: Int,
                 sqSize : Int,
@@ -52,6 +82,10 @@ class LsuPlugin(lqSize: Int,
   val pageOffsetWidth = pageOffsetRange.size
   val pageNumberWidth = pageNumberRange.size
 
+
+  val peripheralBus = create late master(LsuPeripheralBus(postWidth, wordWidth))
+
+  def postWidth = getService[AddressTranslationService].postWidth
   def virtualAddressWidth = getService[AddressTranslationService].preWidth
 
   case class StorePortSpec(port : Flow[LsuStorePort])
@@ -95,6 +129,7 @@ class LsuPlugin(lqSize: Int,
     val regfile = getService[RegfileService]
     val commit = getService[CommitService]
     val translation = getService[AddressTranslationService]
+    val doc = getService[DocPlugin]
 
     rob.retain()
     decoder.retain()
@@ -111,6 +146,7 @@ class LsuPlugin(lqSize: Int,
 
     decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
     decoder.addResourceDecoding(naxriscv.interfaces.SQ, SQ_ALLOC)
+    doc.property("LSU_PERIPHERAL_WIDTH", wordWidth)
   }
 
   val logic = create late new Area{
@@ -233,6 +269,7 @@ class LsuPlugin(lqSize: Int,
         val word = Mem.fill(sqSize)(Bits(wordWidth bits))
         val robId = Mem.fill(sqSize)(ROB.ID_TYPE)
         val lqAlloc = Mem.fill(sqSize)(UInt(log2Up(lqSize) + 1 bits))
+        val io = Mem.fill(sqSize)(Bool())
       }
 
       val ptr = new Area{
@@ -415,7 +452,8 @@ class LsuPlugin(lqSize: Int,
           val stage = stages.last
           import stage._
 
-          val rsp = setup.cacheLoad.rsp
+          val rsp = CombInit(setup.cacheLoad.rsp)
+          val peripheralOverride = False //Allow the peripheral ctrl to cannibalise this data path logic <3
 
           val rspSplits = rsp.data.subdivideIn(8 bits)
           val rspShifted = Bits(wordWidth bits)
@@ -476,8 +514,8 @@ class LsuPlugin(lqSize: Int,
               }
             } elsewhen (rsp.fault) {
               setup.loadTrap.valid := True
-              setup.loadTrap.cause := 5
-            } otherwise {
+              setup.loadTrap.cause := CSR.MCAUSE.LOAD_ACCESS_FAULT
+            } elsewhen(!peripheralOverride) {
               onRegs(_.waitOn.commit := True)
               setup.rfWrite.valid := True
               setup.loadCompletion.valid := True
@@ -658,7 +696,7 @@ class LsuPlugin(lqSize: Int,
 
           setup.storeCompletion.valid := False
           setup.storeCompletion.id := ROB.ID_TYPE
-          
+
           when(YOUNGER_LOAD_RESCHEDULE){
             setup.storeTrap.valid    := isFireing
             setup.storeTrap.trap     := False
@@ -684,6 +722,10 @@ class LsuPlugin(lqSize: Int,
             mem.addressPost.write(
               address = SQ_SEL,
               data   = tpk.TRANSLATED
+            )
+            mem.io.write(
+              address = SQ_SEL,
+              data   = tpk.IO
             )
 
             when(tpk.REDO){
@@ -746,19 +788,39 @@ class LsuPlugin(lqSize: Int,
         }
 
         val feed = new Area{
-          setup.cacheStore.cmd.valid := ptr.writeBack =/= ptr.commit && waitOn.ready
-          setup.cacheStore.cmd.address := mem.addressPost.readAsync(ptr.writeBackReal)
-          setup.cacheStore.cmd.data := mem.word.readAsync(ptr.writeBackReal)
-          setup.cacheStore.cmd.size := regs.map(_.address.size).read(ptr.writeBackReal)
-          setup.cacheStore.cmd.generation := generation
+          //WARNING, setupCacheStore is also used by the peripheral controller to know what to do
+          val io = sq.mem.io.readAsync(ptr.writeBackReal)
+          val size = regs.map(_.address.size).read(ptr.writeBackReal)
+          val data = mem.word.readAsync(ptr.writeBackReal)
+          val doit = ptr.writeBack =/= ptr.commit && waitOn.ready
+          val fire = CombInit(doit)
 
-          ptr.writeBack := ptr.writeBack + U(setup.cacheStore.cmd.valid)
+          setup.cacheStore.cmd.valid := doit
+          setup.cacheStore.cmd.address := mem.addressPost.readAsync(ptr.writeBackReal)
+          setup.cacheStore.cmd.mask :=  AddressToMask(setup.cacheStore.cmd.address, size, widthOf(setup.cacheStore.cmd.mask))
+          setup.cacheStore.cmd.generation := generation
+          setup.cacheStore.cmd.data.assignDontCare()
+          setup.cacheStore.cmd.io := io
+          switch(size){
+            for(s <- 0 to log2Up(widthOf(setup.cacheStore.cmd.data)/8)) is(s){
+              val w = (1 << s)*8
+              setup.cacheStore.cmd.data.subdivideIn(w bits).foreach(_ := data(0, w bits))
+            }
+          }
+
+          ptr.writeBack := ptr.writeBack + U(fire)
         }
+
+//        val peripheralBypass = new Area{
+//          val valid = Delay(feed.fire && feed.io, cache.storeRspLatency, init = False)
+//          val generation = Delay(generation, cache.storeRspLatency)
+//        }
 
         val rsp = new Area{
           val hazardFreeDelay = loadCheckSqAt - (loadFeedAt + cache.loadCmdHazardFreeLatency) + cache.storeRspHazardFreeLatency - 1 // -1 because sq regs update is sequancial
           val delayed = Vec.fill((hazardFreeDelay + 1) max 0)(cloneOf(setup.cacheStore.rsp))
           delayed.head << setup.cacheStore.rsp
+
           for((m,s) <- (delayed, delayed.tail).zipped) {
             val patched = m.combStage()
             s << patched.stage()
@@ -795,6 +857,36 @@ class LsuPlugin(lqSize: Int,
       }
     }
 
+    val peripheral = new Area{
+      val storeHit = sq.regs.map(reg => reg.valid && reg.waitOn.writeback).read(sq.ptr.commitReal) && sq.mem.io.readAsync(sq.ptr.commitReal)
+      val loadHit = False
+      val hit = storeHit || loadHit
+
+      val fire = RegNext(peripheralBus.rsp.fire) init(False)
+      val hitDelay = RegNext(hit)  clearWhen(fire)
+      val storeHitDelay = RegNext(storeHit)
+      val cmdSent = RegInit(False) setWhen(peripheralBus.cmd.fire) clearWhen(fire)
+
+      val robId = RegNext(commit.nextCommitRobId)
+
+      peripheralBus.cmd.valid := False
+      peripheralBus.cmd.write := storeHitDelay
+      peripheralBus.cmd.address := setup.cacheStore.cmd.address
+      peripheralBus.cmd.data := setup.cacheStore.cmd.data
+      peripheralBus.cmd.size := store.writeback.feed.size
+      peripheralBus.cmd.mask := setup.cacheStore.cmd.mask
+
+      when(hitDelay){
+        peripheralBus.cmd.valid := !cmdSent
+      }
+
+      when(peripheralBus.rsp.fire) {
+        setup.loadCompletion.valid := True
+        setup.loadCompletion.id := robId
+        load.pipeline.cacheRsp.peripheralOverride := True
+      }
+    }
+
 
     //Store some robId related context for later uses
     def remapped[T <: Data](key : Stageable[T]) : Seq[T] = (0 until Frontend.DISPATCH_COUNT).map(allocStage(key, _))
@@ -822,6 +914,7 @@ class LsuPlugin(lqSize: Int,
         reg.allLqIsYounger := True
       }
       sq.ptr.alloc := sq.ptr.commitNext
+      peripheral.hitDelay := False
     }
 
     rob.release()

@@ -170,6 +170,7 @@ trait CommitService  extends Service{
   def newSchedulePort(canTrap : Boolean, canJump : Boolean) : Flow[ScheduleCmd]
   def reschedulingPort() : Flow[RescheduleEvent]
   def freePort() : Flow[CommitFree]
+  def nextCommitRobId : UInt
 }
 
 //TODO reduce area usage if physRdType isn't needed by some execution units

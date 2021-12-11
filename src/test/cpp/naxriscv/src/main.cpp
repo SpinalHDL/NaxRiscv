@@ -85,6 +85,21 @@ public:
         memory.write(address, length, data);
         return 0;
     }
+
+    virtual int peripheralWrite(u64 address, uint32_t length, uint8_t *data){
+        switch(address){
+        case 0x10000000: printf("%c", *data); break;
+        default: return 1; break;
+        }
+        return 0;
+    }
+
+    virtual int peripheralRead(u64 address, uint32_t length, uint8_t *data){
+        switch(address){
+        default: return 1; break;
+        }
+        return 0;
+    }
 };
 
 class SimElement{
@@ -300,6 +315,67 @@ public:
     }
 };
 //TODO randomize buses when not valid ^
+
+
+
+
+
+
+class LsuPeripheral: public SimElement{
+public:
+    bool valid;
+    bool write;
+    u64 address;
+    u64 data;
+    u64 mask;
+    u64 bytes;
+
+    bool stall;
+
+    VNaxRiscv* nax;
+    Soc *soc;
+    DataCachedReadChannel *chLock = NULL;
+
+    LsuPeripheral(VNaxRiscv* nax, Soc *soc, bool stall){
+        this->nax = nax;
+        this->soc = soc;
+        this->stall = stall;
+        valid = false;
+    }
+
+    virtual void onReset(){
+        nax->LsuPlugin_peripheralBus_cmd_ready = 0;
+        nax->LsuPlugin_peripheralBus_rsp_valid = 0;
+    }
+
+    virtual void preCycle(){
+        if (nax->LsuPlugin_peripheralBus_cmd_valid && nax->LsuPlugin_peripheralBus_cmd_ready) {
+            assert(!valid);
+            address = nax->LsuPlugin_peripheralBus_cmd_payload_address;
+            data = nax->LsuPlugin_peripheralBus_cmd_payload_data;
+            mask = nax->LsuPlugin_peripheralBus_cmd_payload_mask;
+            bytes = 1 << nax->LsuPlugin_peripheralBus_cmd_payload_size;
+            write = nax->LsuPlugin_peripheralBus_cmd_payload_write;
+            valid = true;
+        }
+    }
+
+    virtual void postCycle(){
+        // Generate read responses
+        nax->LsuPlugin_peripheralBus_rsp_valid = 0;
+        if(valid && (!stall || VL_RANDOM_I(7) < 100)){
+            nax->LsuPlugin_peripheralBus_rsp_valid = 1;
+            u64 offset = address & (LSU_PERIPHERAL_WIDTH/8-1);
+            if(write){
+                nax->DataCachePlugin_mem_read_rsp_payload_error = soc->peripheralWrite(address, bytes, ((u8*) &data) + offset);
+            } else {
+                nax->DataCachePlugin_mem_read_rsp_payload_error = soc->peripheralRead(address, bytes, ((u8*) &nax->LsuPlugin_peripheralBus_rsp_payload_data) + offset);
+            }
+            valid = false;
+        }
+        if(stall) nax->LsuPlugin_peripheralBus_cmd_ready = VL_RANDOM_I(7) < 100;
+    }
+};
 
 
 #include "processor.h"
@@ -533,6 +609,7 @@ int main(int argc, char** argv, char** env){
 	vector<SimElement*> simElements;
     simElements.push_back(new FetchCached(top, soc, true));
     simElements.push_back(new DataCached(top, soc, true));
+    simElements.push_back(new LsuPeripheral(top, soc, true));
     simElements.push_back(&whitebox);
 #ifdef ALLOCATOR_CHECKS
     simElements.push_back(new NaxAllocatorChecker(top->NaxRiscv));

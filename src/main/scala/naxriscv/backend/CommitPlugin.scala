@@ -19,6 +19,7 @@ class CommitPlugin extends Plugin with CommitService{
   override def newSchedulePort(canTrap : Boolean, canJump : Boolean) = completions.addRet(Flow(ScheduleCmd(canTrap = canTrap, canJump = canJump, pcWidth = widthOf(getService[AddressTranslationService].PC))))
   override def reschedulingPort() = logic.commit.reschedulePort
   override def freePort() = logic.free.port
+  override def nextCommitRobId = logic.commit.head
 
   val setup = create early new Area{
     val jump = getService[JumpService].createJumpInterface(JumpService.Priorities.COMMIT) //Flush missing
@@ -123,6 +124,9 @@ class CommitPlugin extends Plugin with CommitService{
       reschedulePort.valid := rescheduleHit
       reschedulePort.nextRob := ptr.allocNext.resized
 
+      val head = Reg(UInt(ROB.ID_WIDTH bits)) init(0)
+      head := head + CountOne(event.mask.asBools)
+
       setup.jump.valid := rescheduleHit
       setup.jump.pc := reschedule.pcTarget //TODO another target for trap
       reschedule.valid clearWhen(rescheduleHit)
@@ -153,11 +157,13 @@ class CommitPlugin extends Plugin with CommitService{
           mask := (1 << ROB.COLS) - 1
           lineEvent.valid := True
         }
+
         when(lineCommited){
           ptr.commit := ptr.commit + ROB.COLS
         }
         when(setup.jump.valid){
           ptr.commit := ptr.allocNext
+          head := ptr.allocNext.resized
         }
       }
     }
