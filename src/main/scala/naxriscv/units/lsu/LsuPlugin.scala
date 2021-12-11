@@ -912,14 +912,16 @@ class LsuPlugin(lqSize: Int,
 
     val peripheral = new Area{
       val lqOnTop = lq.mem.robId.readAsync(lq.ptr.freeReal) === commit.nextCommitRobId
-      val storeHit = sq.regs.map(reg => reg.valid && reg.waitOn.writeback).read(sq.ptr.commitReal) && sq.mem.io.readAsync(sq.ptr.commitReal)
+      val sqOnTop = sq.mem.robId.readAsync(sq.ptr.commitReal) === commit.nextCommitRobId
+      val storeWriteBackUsable = sq.ptr.writeBack === sq.ptr.commit
+      val storeHit = sqOnTop && storeWriteBackUsable && sq.regs.map(reg => reg.valid && reg.waitOn.writeback).read(sq.ptr.commitReal) && sq.mem.io.readAsync(sq.ptr.commitReal)
       val loadHit = lqOnTop && lq.regs.map(reg => reg.valid && reg.waitOn.commit).read(lq.ptr.freeReal) && lq.mem.io.readAsync(lq.ptr.freeReal)
       val hit = storeHit || loadHit
 
       val fire = RegNext(peripheralBus.rsp.fire) init(False)
-      val hitDelay = RegNext(hit)  clearWhen(fire)
-      val isStore = RegNext(storeHit)
-      val isLoad = RegNext(!storeHit)
+      val enabled = RegInit(False) setWhen(hit) clearWhen(fire)
+      val isStore = RegNextWhen(storeHit, hit)
+      val isLoad = RegNextWhen(!storeHit, hit)
       val cmdSent = RegInit(False) setWhen(peripheralBus.cmd.fire) clearWhen(fire)
 
       val robId = RegNext(commit.nextCommitRobId)
@@ -927,17 +929,18 @@ class LsuPlugin(lqSize: Int,
       val loadAddress = RegNext(lq.mem.addressPost.readAsync(lq.ptr.freeReal))
       val loadSize = RegNext(lq.regs.map(_.address.size).read(lq.ptr.freeReal))
       val loadWriteRd = RegNext(lq.mem.writeRd.readAsync(lq.ptr.freeReal))
+      val storeAddress = RegNextWhen(setup.cacheStore.cmd.address, hit)
+      val storeSize = RegNextWhen(store.writeback.feed.size, hit)
+      val storeData = RegNextWhen(setup.cacheStore.cmd.data, hit)
+      val storeMask = RegNextWhen(setup.cacheStore.cmd.mask, hit)
 
-      peripheralBus.cmd.valid   := False
+      peripheralBus.cmd.valid := enabled && !cmdSent
       peripheralBus.cmd.write   := isStore
-      peripheralBus.cmd.address := isStore ? setup.cacheStore.cmd.address otherwise loadAddress
-      peripheralBus.cmd.size    := isStore ? store.writeback.feed.size otherwise loadSize
-      peripheralBus.cmd.data    := setup.cacheStore.cmd.data
-      peripheralBus.cmd.mask    := setup.cacheStore.cmd.mask
+      peripheralBus.cmd.address := isStore ? storeAddress otherwise loadAddress
+      peripheralBus.cmd.size    := isStore ? storeSize otherwise loadSize
+      peripheralBus.cmd.data    := storeData
+      peripheralBus.cmd.mask    := storeMask
 
-      when(hitDelay){
-        peripheralBus.cmd.valid := !cmdSent
-      }
 
       when(peripheralBus.rsp.fire) {
         //TODO handle trap, maybe can use a dedicated port which always win (lighter arbitration) as it is the next to commit
@@ -987,7 +990,7 @@ class LsuPlugin(lqSize: Int,
         reg.allLqIsYounger := True
       }
       sq.ptr.alloc := sq.ptr.commitNext
-      peripheral.hitDelay := False
+      peripheral.enabled := False
     }
 
     rob.release()
