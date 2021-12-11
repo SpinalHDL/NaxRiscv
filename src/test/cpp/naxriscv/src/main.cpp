@@ -73,6 +73,11 @@ void breakMe(){
     failure();\
 }
 
+
+#define BASE 0x10000000
+#define PUTC BASE
+#define CLINT_TIME BASE + 0x1BFF8
+
 class Soc{
 public:
     Memory memory;
@@ -88,7 +93,7 @@ public:
 
     virtual int peripheralWrite(u64 address, uint32_t length, uint8_t *data){
         switch(address){
-        case 0x10000000: printf("%c", *data); break;
+        case PUTC: printf("%c", *data); break;
         default: return 1; break;
         }
         return 0;
@@ -96,6 +101,14 @@ public:
 
     virtual int peripheralRead(u64 address, uint32_t length, uint8_t *data){
         switch(address){
+        case CLINT_TIME:{
+            u64 time = main_time/2;
+            memcpy(data, &time, length);
+        } break;
+        case CLINT_TIME+4:{
+            u64 time = (main_time/2) >> 32;
+            memcpy(data, &time, length);
+        } break;
         default: return 1; break;
         }
         return 0;

@@ -57,7 +57,7 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
       rob.valid := fire
       rob.robId := wbStage(ExecutionUnitKeys.ROB_ID)
 
-      rf.valid := fire
+      rf.valid := fire && wbStage(decode.WRITE_RD)
       rf.physical := wbStage(decode.PHYS_RD)
     }
     override def postInitCallback() = {eu.release() ; this}

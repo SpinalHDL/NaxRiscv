@@ -281,6 +281,7 @@ trait WakeRobService extends Service{
 }
 
 trait WakeRegFileService extends Service{
+  //WARNING, do not wake some index that you do no own, for instance write into x0
   def wakeRegFile : Seq[Flow[WakeRegFile]]
 }
 
@@ -308,7 +309,7 @@ trait WakeWithBypassService extends Service{
 //  val peripheral = Bool()
 //}
 
-class AddressTranslationRsp(s : AddressTranslationService, wakesCount : Int) extends Area{
+class AddressTranslationRsp(s : AddressTranslationService, wakesCount : Int, val rspStage : Stage) extends Area{
   val keys = new AreaRoot {
     val TRANSLATED = Stageable(UInt(s.postWidth bits))
     val IO = Stageable(Bool())

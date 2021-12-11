@@ -22,9 +22,8 @@ class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with
 
   override def newTranslationPort(stages: Seq[Stage], preAddress: Stageable[UInt], pAny: Any) = {
     val p = pAny.asInstanceOf[StaticAddressTranslationParameter]
-    specs.addRet(new Spec(stages, preAddress, p, new AddressTranslationRsp(this, 0){
-      val stage = stages(p.rspAt)
-      import stage._
+    specs.addRet(new Spec(stages, preAddress, p, new AddressTranslationRsp(this, 0, stages(p.rspAt)){
+      import rspStage._
       import keys._
 
       REDO := False

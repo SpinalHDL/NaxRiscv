@@ -25,6 +25,7 @@ case class LsuLoadPort(lqSize : Int, wordWidth : Int, physicalRdWidth : Int, pcW
   val size = UInt(log2Up(log2Up(wordWidth/8)+1) bits)
   val unsigned = Bool()
   val physicalRd = UInt(physicalRdWidth bits)
+  val writeRd = Bool()
   val pc = UInt(pcWidth bits)
 }
 
@@ -111,7 +112,8 @@ class LsuPlugin(lqSize: Int,
     val LQ_ALLOC = Stageable(Bool())
     val LSU_ID = Stageable(UInt(log2Up(lqSize max sqSize) bits))
     val SIZE = Stageable(UInt(wordSizeWidth bits))
-    val UNSIGNED = Stageable(Bool)
+    val UNSIGNED = Stageable(Bool())
+    val WRITE_RD = Stageable(Bool())
     val LQ_SEL = Stageable(UInt(log2Up(lqSize) bits))
     val LQ_SEL_OH = Stageable(Bits(lqSize bits))
     val SQ_SEL = Stageable(UInt(log2Up(sqSize) bits))
@@ -177,6 +179,7 @@ class LsuPlugin(lqSize: Int,
     import keysLocal._
 
     val cpuWordToRfWordRange = log2Up(wordBytes)-1 downto log2Up(wordBytes) //useless for now
+    val memToCpuRange = log2Up(cache.memDataWidth/8)-1 downto log2Up(wordBytes)
 
     val rescheduling = commit.reschedulingPort
 
@@ -214,11 +217,14 @@ class LsuPlugin(lqSize: Int,
         val ready = valid && !waitOn.address && !waitOn.cacheRsp && waitOn.cacheRefill === 0 && !waitOn.cacheRefillAny && !waitOn.commit && !waitOn.sq
       }
       val mem = new Area{
-        val address = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
+        val addressPre = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
+        val addressPost = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
         val physRd = Mem.fill(lqSize)(decoder.PHYS_RD)
         val robId = Mem.fill(lqSize)(ROB.ID_TYPE)
         val pc = Mem.fill(lqSize)(PC)
         val sqAlloc = Mem.fill(lqSize)(UInt(log2Up(sqSize)+1 bits))
+        val io = Mem.fill(lqSize)(Bool())
+        val writeRd = Mem.fill(lqSize)(Bool())
       }
 
       val ptr = new Area{
@@ -291,7 +297,7 @@ class LsuPlugin(lqSize: Int,
       import lq._
       for(spec <- loadPorts){
         import spec._
-        mem.address.write(
+        mem.addressPre.write(
           enable = port.valid,
           address = port.lqId,
           data = port.address
@@ -310,6 +316,11 @@ class LsuPlugin(lqSize: Int,
           enable = port.valid,
           address = port.lqId,
           data = port.pc
+        )
+        mem.writeRd.write(
+          enable = port.valid,
+          address = port.lqId,
+          data = port.writeRd
         )
 
         when(port.valid) {
@@ -381,7 +392,12 @@ class LsuPlugin(lqSize: Int,
 
         stages.last.flushIt(rescheduling.valid, root = false)
 
-
+        val translationPort = translationService.newTranslationPort(
+          stages = this.stages,
+          preAddress = ADDRESS_PRE_TRANSLATION,
+          p = storeTranslationParameter
+        )
+        val tpk = translationPort.keys
 
         val feed = new Area{
           val stage = stages(loadFeedAt)
@@ -395,7 +411,7 @@ class LsuPlugin(lqSize: Int,
 
           val cmd = setup.cacheLoad.cmd //If you move that in another stage, be carefull to update loadFeedAt usages (sq d$ writeback rsp delay)
           cmd.valid := hit
-          cmd.virtual := mem.address.readAsync(sel)
+          cmd.virtual := mem.addressPre.readAsync(sel)
           cmd.size := SIZE
           for(reg <- regs) when(selOh(reg.id)){
             reg.waitOn.cacheRsp := True
@@ -406,10 +422,19 @@ class LsuPlugin(lqSize: Int,
           LQ_SEL_OH := selOh
           decoder.PHYS_RD := mem.physRd.readAsync(sel)
           ROB.ID_TYPE := mem.robId.readAsync(sel)
+          WRITE_RD := mem.writeRd.readAsync(sel)
           ADDRESS_PRE_TRANSLATION := cmd.virtual
           SIZE     := regs.map(_.address.size).read(sel)
           UNSIGNED := regs.map(_.address.unsigned).read(sel)
           DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
+        }
+
+        val feedTranslation = new Area{
+          val stage = stages(setup.cacheLoad.translatedAt)
+          import stage._
+
+          setup.cacheLoad.translated.physical := tpk.TRANSLATED
+          setup.cacheLoad.translated.abord := tpk.IO || tpk.PAGE_FAULT || !tpk.ALLOW_READ || tpk.REDO
         }
 
         val cancels = for((stage, stageId) <- stages.zipWithIndex){
@@ -455,7 +480,10 @@ class LsuPlugin(lqSize: Int,
           val rsp = CombInit(setup.cacheLoad.rsp)
           val peripheralOverride = False //Allow the peripheral ctrl to cannibalise this data path logic <3
 
-          val rspSplits = rsp.data.subdivideIn(8 bits)
+          val rspSize = CombInit(stage(SIZE))
+          val rspAddress = CombInit(stage(ADDRESS_PRE_TRANSLATION))
+          val rspRaw = CombInit(rsp.data.subdivideIn(wordWidth bits).read(ADDRESS_PRE_TRANSLATION(memToCpuRange)))
+          val rspSplits = rspRaw.subdivideIn(8 bits)
           val rspShifted = Bits(wordWidth bits)
 
           //Generate minimal mux to move from a wide aligned memory read to the register file shifter representation
@@ -464,13 +492,13 @@ class LsuPlugin(lqSize: Int,
             val srcZipped = rspSplits.zipWithIndex.filter{case (v, b) => b % (wordBytes/srcSize) == i}
             val src = srcZipped.map(_._1)
             val range = cpuWordToRfWordRange.high downto cpuWordToRfWordRange.high+1-log2Up(srcSize)
-            val sel = ADDRESS_PRE_TRANSLATION(range)
+            val sel = rspAddress(range)
             //        println(s"$i $srcSize $range ${srcZipped.map(_._2).mkString(",")}")
             rspShifted(i*8, 8 bits) := src.read(sel)
           }
 
           assert(Global.XLEN.get == 32)
-          val rspFormated = SIZE.mux(
+          val rspFormated = rspSize.mux(
             0 -> B((31 downto 8) -> (rspShifted(7) && !UNSIGNED),(7 downto 0) -> rspShifted(7 downto 0)),
             1 -> B((31 downto 16) -> (rspShifted(15) && !UNSIGNED),(15 downto 0) -> rspShifted(15 downto 0)),
             default -> rspShifted //W
@@ -498,8 +526,21 @@ class LsuPlugin(lqSize: Int,
           setup.loadTrap.skipCommit := True
           setup.loadTrap.cause.assignDontCare()
 
+          tpk.IO || tpk.PAGE_FAULT || !tpk.ALLOW_READ || tpk.REDO
+          val missAligned = (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
+          val pageFault = !tpk.ALLOW_READ || tpk.PAGE_FAULT
+          val accessFault = CombInit(rsp.fault)
+
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(LQ_SEL_OH(reg.id)){ body(reg) }
-          when(isValid) {
+          when(isFireing) {
+            mem.addressPost.write(
+              address = LQ_SEL,
+              data   = tpk.TRANSLATED
+            )
+            mem.io.write(
+              address = LQ_SEL,
+              data   = tpk.IO
+            )
             onRegs(_.waitOn.cacheRsp := False)
             when(OLDER_STORE_RESCHEDULE){
               onRegs{r =>
@@ -512,15 +553,27 @@ class LsuPlugin(lqSize: Int,
               } otherwise {
                 onRegs(_.waitOn.cacheRefillSet := rsp.refillSlot)
               }
-            } elsewhen (rsp.fault) {
+            } elsewhen(missAligned) {
+              setup.loadTrap.valid := True
+              setup.loadTrap.cause := CSR.MCAUSE.LOAD_MISALIGNED
+            } elsewhen(pageFault) {
+              setup.loadTrap.valid := True
+              setup.loadTrap.cause := CSR.MCAUSE.LOAD_PAGE_FAULT
+            } elsewhen (accessFault) {
               setup.loadTrap.valid := True
               setup.loadTrap.cause := CSR.MCAUSE.LOAD_ACCESS_FAULT
-            } elsewhen(!peripheralOverride) {
-              onRegs(_.waitOn.commit := True)
-              setup.rfWrite.valid := True
-              setup.loadCompletion.valid := True
-              wakeRob.valid := True
-              wakeRf.valid := True
+            } otherwise {
+              when(tpk.IO || !peripheralOverride) {
+                onRegs(_.waitOn.commit := True)
+              }
+              when(!tpk.IO && !peripheralOverride) {
+                setup.loadCompletion.valid := True
+                when(WRITE_RD) {
+                  setup.rfWrite.valid := True
+                  wakeRob.valid := True
+                  wakeRf.valid := True
+                }
+              }
             }
           }
         }
@@ -858,32 +911,52 @@ class LsuPlugin(lqSize: Int,
     }
 
     val peripheral = new Area{
+      val lqOnTop = lq.mem.robId.readAsync(lq.ptr.freeReal) === commit.nextCommitRobId
       val storeHit = sq.regs.map(reg => reg.valid && reg.waitOn.writeback).read(sq.ptr.commitReal) && sq.mem.io.readAsync(sq.ptr.commitReal)
-      val loadHit = False
+      val loadHit = lqOnTop && lq.regs.map(reg => reg.valid && reg.waitOn.commit).read(lq.ptr.freeReal) && lq.mem.io.readAsync(lq.ptr.freeReal)
       val hit = storeHit || loadHit
 
       val fire = RegNext(peripheralBus.rsp.fire) init(False)
       val hitDelay = RegNext(hit)  clearWhen(fire)
-      val storeHitDelay = RegNext(storeHit)
+      val isStore = RegNext(storeHit)
+      val isLoad = RegNext(!storeHit)
       val cmdSent = RegInit(False) setWhen(peripheralBus.cmd.fire) clearWhen(fire)
 
       val robId = RegNext(commit.nextCommitRobId)
+      val physRd = RegNext(lq.mem.physRd.readAsync(lq.ptr.freeReal))
+      val loadAddress = RegNext(lq.mem.addressPost.readAsync(lq.ptr.freeReal))
+      val loadSize = RegNext(lq.regs.map(_.address.size).read(lq.ptr.freeReal))
+      val loadWriteRd = RegNext(lq.mem.writeRd.readAsync(lq.ptr.freeReal))
 
-      peripheralBus.cmd.valid := False
-      peripheralBus.cmd.write := storeHitDelay
-      peripheralBus.cmd.address := setup.cacheStore.cmd.address
-      peripheralBus.cmd.data := setup.cacheStore.cmd.data
-      peripheralBus.cmd.size := store.writeback.feed.size
-      peripheralBus.cmd.mask := setup.cacheStore.cmd.mask
+      peripheralBus.cmd.valid   := False
+      peripheralBus.cmd.write   := isStore
+      peripheralBus.cmd.address := isStore ? setup.cacheStore.cmd.address otherwise loadAddress
+      peripheralBus.cmd.size    := isStore ? store.writeback.feed.size otherwise loadSize
+      peripheralBus.cmd.data    := setup.cacheStore.cmd.data
+      peripheralBus.cmd.mask    := setup.cacheStore.cmd.mask
 
       when(hitDelay){
         peripheralBus.cmd.valid := !cmdSent
       }
 
       when(peripheralBus.rsp.fire) {
+        //TODO handle trap, maybe can use a dedicated port which always win (lighter arbitration) as it is the next to commit
         setup.loadCompletion.valid := True
         setup.loadCompletion.id := robId
         load.pipeline.cacheRsp.peripheralOverride := True
+
+        setup.rfWrite.valid               setWhen(isLoad && loadWriteRd)
+        setup.rfWrite.address             := physRd
+        setup.rfWrite.robId               := robId
+        load.pipeline.cacheRsp.rspAddress := loadAddress
+        load.pipeline.cacheRsp.rspSize    := loadSize
+        load.pipeline.cacheRsp.rspRaw     := peripheralBus.rsp.data
+
+        load.pipeline.cacheRsp.wakeRob.valid setWhen(isLoad && loadWriteRd)
+        load.pipeline.cacheRsp.wakeRob.robId := robId
+
+        load.pipeline.cacheRsp.wakeRf.valid setWhen(isLoad && loadWriteRd)
+        load.pipeline.cacheRsp.wakeRf.physical := physRd
       }
     }
 

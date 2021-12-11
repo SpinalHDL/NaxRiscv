@@ -34,7 +34,7 @@ case class DataLoadCmd(preTranslationWidth : Int, dataWidth : Int) extends Bundl
 
 case class DataLoadTranslated(physicalWidth : Int) extends Bundle {
   val physical   = UInt(physicalWidth bits)
-  val peripheral = Bool()
+  val abord = Bool()
 }
 
 case class DataLoadRsp(dataWidth : Int, refillCount : Int) extends Bundle {
@@ -210,7 +210,8 @@ class DataCache(val cacheSize: Int,
 
 
   val ADDRESS_PRE_TRANSLATION = Stageable(UInt(preTranslationWidth bits))
-  val ADDRESS_POST_TRANSLATION = ADDRESS_PRE_TRANSLATION //Stageable(UInt(postTranslationWidth bits))  //TODO for now
+  val ADDRESS_POST_TRANSLATION = Stageable(UInt(postTranslationWidth bits))
+  val ABORD = Stageable(Bool())
   val CPU_WORD = Stageable(Bits(cpuWordWidth bits))
   val CPU_MASK = Stageable(Bits(cpuWordWidth/8 bits))
 //  val TAGS_CORRUPTED = Stageable(Bool())
@@ -302,9 +303,9 @@ class DataCache(val cacheSize: Int,
 //      }
 //      ret
 //    }
-    def bypass(stage: Stage): Unit ={
+    def bypass(stage: Stage, address : Stageable[UInt]): Unit ={
       stage.overloaded(STATUS) := stage(STATUS)
-      when(write.valid && write.address === stage(ADDRESS_PRE_TRANSLATION)(lineRange)){
+      when(write.valid && write.address === stage(address)(lineRange)){
         stage.overloaded(STATUS)  := write.data
       }
     }
@@ -640,6 +641,10 @@ class DataCache(val cacheSize: Int,
         CPU_WORD := BANKS_MUXES.read(bankId) //MuxOH(WAYS_HITS, BANKS_MUXES)
       }
 
+
+      hitsStage(ADDRESS_POST_TRANSLATION) := io.load.translated.physical
+      hitsStage(ABORD) := io.load.translated.abord
+
       for ((way, wayId) <- ways.zipWithIndex) yield new Area {
         {
           import readStage._
@@ -662,7 +667,7 @@ class DataCache(val cacheSize: Int,
       status.loadRead.cmd.valid := !readStage.isStuck
       status.loadRead.cmd.payload := readStage(ADDRESS_PRE_TRANSLATION)(lineRange)
       pipeline.stages(loadReadAt + 1)(STATUS) := status.loadRead.rsp
-      (loadReadAt + 1 to loadControlAt).map(pipeline.stages(_)).foreach(stage => status.bypass(stage))
+      (loadReadAt + 1 to loadControlAt).map(pipeline.stages(_)).foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION))
     }
 
     val ctrl = new Area {
@@ -683,6 +688,11 @@ class DataCache(val cacheSize: Int,
       val canRefill = !refill.full && !refillLineBusy && reservation.win && !(refillWayNeedWriteback && writeback.full)
       val askRefill = MISS && canRefill && !refillHit
       val startRefill = isValid && askRefill
+
+      when(ABORD){
+        REDO := False
+        MISS := False
+      }
 
       when(startRefill){
         reservation.takeIt()
@@ -745,7 +755,7 @@ class DataCache(val cacheSize: Int,
 
     val target = RegInit(False)
 
-    waysHazard((storeReadAt+1 to storeControlAt).map(pipeline.stages(_)), ADDRESS_PRE_TRANSLATION)
+    waysHazard((storeReadAt+1 to storeControlAt).map(pipeline.stages(_)), ADDRESS_POST_TRANSLATION)
     val start = new Area {
       val stage = pipeline.stages.head
 
@@ -781,9 +791,9 @@ class DataCache(val cacheSize: Int,
       }
 
       status.storeRead.cmd.valid := !readStage.isStuck
-      status.storeRead.cmd.payload := readStage(ADDRESS_PRE_TRANSLATION)(lineRange)
+      status.storeRead.cmd.payload := readStage(ADDRESS_POST_TRANSLATION)(lineRange)
       pipeline.stages(storeReadAt + 1)(STATUS) := status.storeRead.rsp
-      (storeReadAt + 1 to storeControlAt).map(pipeline.stages(_)).foreach(stage => status.bypass(stage))
+      (storeReadAt + 1 to storeControlAt).map(pipeline.stages(_)).foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION))
     }
 
     val ctrl = new Area {
@@ -797,7 +807,7 @@ class DataCache(val cacheSize: Int,
       val refillHits = B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
       val refillHit = refillHits.orR
       val refillLoaded = (B(refill.slots.map(_.loaded)) & refillHits).orR
-      val refillLineBusy = isLineBusy(ADDRESS_PRE_TRANSLATION, refillWay)
+      val refillLineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, refillWay)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
       val wasClean = !(B(STATUS.map(_.dirty)) & WAYS_HITS).orR
 
@@ -813,7 +823,7 @@ class DataCache(val cacheSize: Int,
       val writeCache = isValid && GENERATION_OK && !REDO
       val setDirty = writeCache && wasClean
       val wayId = OHToUInt(WAYS_HITS)
-      val bankHitId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
+      val bankHitId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_POST_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
 
       when(IO){
         REDO := False
@@ -825,7 +835,7 @@ class DataCache(val cacheSize: Int,
       when(startRefill || setDirty){
         reservation.takeIt()
         status.write.valid := True
-        status.write.address := ADDRESS_PRE_TRANSLATION(lineRange)
+        status.write.address := ADDRESS_POST_TRANSLATION(lineRange)
         status.write.data := STATUS
       }
 
@@ -836,12 +846,12 @@ class DataCache(val cacheSize: Int,
         refill.push.victim := writeback.free.andMask(refillWayNeedWriteback)
 
         waysWrite.mask(refillWay) := True
-        waysWrite.address := ADDRESS_PRE_TRANSLATION(lineRange)
+        waysWrite.address := ADDRESS_POST_TRANSLATION(lineRange)
         waysWrite.tag.loaded := True
-        waysWrite.tag.address := ADDRESS_PRE_TRANSLATION(tagRange)
+        waysWrite.tag.address := ADDRESS_POST_TRANSLATION(tagRange)
 
         writeback.push.valid := refillWayNeedWriteback
-        writeback.push.address := (WAYS_TAGS(refillWay).address @@ ADDRESS_PRE_TRANSLATION(lineRange)) << lineRange.low
+        writeback.push.address := (WAYS_TAGS(refillWay).address @@ ADDRESS_POST_TRANSLATION(lineRange)) << lineRange.low
         writeback.push.way := refillWay
 
         whenIndexed(status.write.data, refillWay)(_.dirty := False)
