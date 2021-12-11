@@ -124,8 +124,8 @@ class CommitPlugin extends Plugin with CommitService{
       reschedulePort.valid := rescheduleHit
       reschedulePort.nextRob := ptr.allocNext.resized
 
-      val head = Reg(UInt(ROB.ID_WIDTH bits)) init(0)
-      head := head + CountOne(event.mask.asBools)
+      val head = UInt(ROB.ID_WIDTH bits)
+      head := (ptr.commit + OHToUInt(OHMasking.first(active & mask))).resized
 
       setup.jump.valid := rescheduleHit
       setup.jump.pc := reschedule.pcTarget //TODO another target for trap
