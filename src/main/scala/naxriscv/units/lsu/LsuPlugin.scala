@@ -5,6 +5,7 @@ import naxriscv.backend.RobPlugin
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces._
+import naxriscv.riscv.CSR
 import naxriscv.utilities.{AddressToMask, Plugin}
 import spinal.core._
 import spinal.lib._
@@ -38,6 +39,8 @@ case class LsuStorePort(sqSize : Int, wordWidth : Int) extends Bundle {
 
 class LsuPlugin(lqSize: Int,
                 sqSize : Int,
+                loadTranslationParameter : Any,
+                storeTranslationParameter : Any,
                 loadFeedAt : Int = 0, //Stage at which the d$ cmd is sent
                 loadCheckSqAt : Int = 1) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService {
 
@@ -91,10 +94,12 @@ class LsuPlugin(lqSize: Int,
     val cache = getService[DataCachePlugin]
     val regfile = getService[RegfileService]
     val commit = getService[CommitService]
+    val translation = getService[AddressTranslationService]
 
     rob.retain()
     decoder.retain()
     frontend.retain()
+    translation.retain()
 
     val rfWrite = regfile.newWrite(withReady = false, latency = 1)
     val cacheLoad = cache.newLoadPort()
@@ -114,6 +119,7 @@ class LsuPlugin(lqSize: Int,
     val frontend = getService[FrontendPlugin]
     val cache = getService[DataCachePlugin]
     val commit = getService[CommitService]
+    val translationService = getService[AddressTranslationService]
     val PC = getService[AddressTranslationService].PC
     lock.await()
 
@@ -205,16 +211,25 @@ class LsuPlugin(lqSize: Int,
         val waitOn = new Area {
           val address = Reg(Bool())
           val translationRsp  = Reg(Bool())
+          val translationWake = Reg(Bits(translationService.wakerCount bits))
+          val translationWakeAny = Reg(Bool)
           val writeback  = Reg(Bool())
+
+          val translationWakeSet = translationWake.getZero
+          val translationWakeAnySet = False
+
+          translationWake := (translationWake | translationWakeSet) & ~translationService.wakes
+          translationWakeAny := (translationWakeAny | translationWakeAnySet) & !translationService.wakes.orR
         }
 
         val allLqIsYounger = Reg(Bool())
 
-        val ready = valid && !waitOn.address && !waitOn.translationRsp && !waitOn.writeback
+        val ready = valid && !waitOn.address && !waitOn.translationRsp && !waitOn.writeback && waitOn.translationWake === 0 && !waitOn.translationWakeAny
       }
 
       val mem = new Area{
-        val address = Mem.fill(sqSize)(UInt(virtualAddressWidth bits))
+        val addressPre = Mem.fill(sqSize)(UInt(virtualAddressWidth bits))
+        val addressPost = Mem.fill(sqSize)(UInt(virtualAddressWidth bits))
         val word = Mem.fill(sqSize)(Bits(wordWidth bits))
         val robId = Mem.fill(sqSize)(ROB.ID_TYPE)
         val lqAlloc = Mem.fill(sqSize)(UInt(log2Up(lqSize) + 1 bits))
@@ -500,7 +515,7 @@ class LsuPlugin(lqSize: Int,
       import sq._
       for(spec <- storePorts){
         import spec._
-        mem.address.write(
+        mem.addressPre.write(
           enable = port.valid,
           address = port.sqId,
           data = port.address
@@ -564,6 +579,8 @@ class LsuPlugin(lqSize: Int,
               reg.waitOn.address := True
               reg.waitOn.translationRsp := False
               reg.waitOn.writeback := False
+              reg.waitOn.translationWake := 0
+              reg.waitOn.translationWakeAny := False
             }
           }
         }
@@ -574,6 +591,15 @@ class LsuPlugin(lqSize: Int,
         connect(stages)(List(M2S()))
 
         stages.last.flushIt(rescheduling.valid, root = false)
+
+        val translationPort = translationService.newTranslationPort(
+          stages = this.stages,
+          preAddress = ADDRESS_PRE_TRANSLATION,
+          p = storeTranslationParameter
+        )
+        val tpk = translationPort.keys
+
+
 
         val feed = new Area{
           val stage = stages(0)
@@ -592,15 +618,9 @@ class LsuPlugin(lqSize: Int,
           SQ_SEL := sel
           SQ_SEL_OH := selOh
           ROB.ID_TYPE := mem.robId.readAsync(sel)
-          ADDRESS_PRE_TRANSLATION := mem.address.readAsync(sel)
+          ADDRESS_PRE_TRANSLATION := mem.addressPre.readAsync(sel)
           SIZE := regs.map(_.address.size).read(sel)
           DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
-        }
-
-        val translated = new Area{
-          val stage = stages(1)
-          import stage._
-
         }
 
         //TODO timings
@@ -638,29 +658,55 @@ class LsuPlugin(lqSize: Int,
 
           setup.storeCompletion.valid := False
           setup.storeCompletion.id := ROB.ID_TYPE
+          
+          when(YOUNGER_LOAD_RESCHEDULE){
+            setup.storeTrap.valid    := isFireing
+            setup.storeTrap.trap     := False
+            setup.storeTrap.robId    := YOUNGER_LOAD_ROB
+          } otherwise {
+            setup.storeTrap.valid      := False
+            setup.storeTrap.trap       := True
+            setup.storeTrap.robId      := ROB.ID_TYPE
+          }
 
-          setup.storeTrap.valid      := False
-          setup.storeTrap.trap       := True
-          setup.storeTrap.robId      := ROB.ID_TYPE
           setup.storeTrap.tval       := B(ADDRESS_PRE_TRANSLATION)
           setup.storeTrap.skipCommit := True
           setup.storeTrap.cause.assignDontCare()
           setup.storeTrap.pcTarget   := YOUNGER_LOAD_PC
 
-          when(YOUNGER_LOAD_RESCHEDULE){
-            setup.storeTrap.valid    setWhen(isFireing)
-            setup.storeTrap.trap     := False
-            setup.storeTrap.robId    := YOUNGER_LOAD_ROB
-          }
+          val missAligned = (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
+          val pageFault = !tpk.ALLOW_WRITE || tpk.PAGE_FAULT
 
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(SQ_SEL_OH(reg.id)){ body(reg) }
-          when(isValid) {
+          when(isFireing) {
             onRegs(_.waitOn.translationRsp := False)
 
-            //TODO implement failures
-            onRegs(_.waitOn.writeback := True)
-            setup.storeCompletion.valid := True
+            mem.addressPost.write(
+              address = SQ_SEL,
+              data   = tpk.TRANSLATED
+            )
+
+            when(tpk.REDO){
+              whenMasked(regs, SQ_SEL_OH){reg =>
+                reg.waitOn.translationWakeSet := tpk.WAKER
+                reg.waitOn.translationWakeAnySet := tpk.WAKER_ANY
+              }
+            } elsewhen(missAligned) {
+              setup.storeTrap.valid      := True
+              setup.storeTrap.cause      := CSR.MCAUSE.STORE_MISALIGNED
+            } elsewhen(pageFault) {
+              setup.storeTrap.valid      := True
+              setup.storeTrap.cause      := CSR.MCAUSE.STORE_PAGE_FAULT
+            } otherwise {
+              onRegs(_.waitOn.writeback := True)
+              when(tpk.IO) {
+
+              } otherwise {
+                setup.storeCompletion.valid := True
+              }
+            }
           }
+
         }
 
         build()
@@ -701,7 +747,7 @@ class LsuPlugin(lqSize: Int,
 
         val feed = new Area{
           setup.cacheStore.cmd.valid := ptr.writeBack =/= ptr.commit && waitOn.ready
-          setup.cacheStore.cmd.address := mem.address.readAsync(ptr.writeBackReal)
+          setup.cacheStore.cmd.address := mem.addressPost.readAsync(ptr.writeBackReal)
           setup.cacheStore.cmd.data := mem.word.readAsync(ptr.writeBackReal)
           setup.cacheStore.cmd.size := regs.map(_.address.size).read(ptr.writeBackReal)
           setup.cacheStore.cmd.generation := generation
@@ -713,7 +759,15 @@ class LsuPlugin(lqSize: Int,
           val hazardFreeDelay = loadCheckSqAt - (loadFeedAt + cache.loadCmdHazardFreeLatency) + cache.storeRspHazardFreeLatency - 1 // -1 because sq regs update is sequancial
           val delayed = Vec.fill((hazardFreeDelay + 1) max 0)(cloneOf(setup.cacheStore.rsp))
           delayed.head << setup.cacheStore.rsp
-          for((m,s) <- (delayed, delayed.tail).zipped) s << m.stage()
+          for((m,s) <- (delayed, delayed.tail).zipped) {
+            val patched = m.combStage()
+            s << patched.stage()
+            patched.refillSlot.removeAssignments()
+            patched.refillSlotAny.removeAssignments()
+            patched.refillSlot  := m.refillSlot & ~cache.refillCompletions
+            patched.refillSlotAny := m.refillSlotAny && cache.refillCompletions === 0
+          }
+
 
           sq.ptr.onFree.valid := False
           sq.ptr.onFree.payload := ptr.freeReal
@@ -773,6 +827,7 @@ class LsuPlugin(lqSize: Int,
     rob.release()
     decoder.release()
     frontend.release()
+    translationService.release()
   }
 
 

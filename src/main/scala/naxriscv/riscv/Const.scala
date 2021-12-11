@@ -33,3 +33,14 @@ case class IMM(instruction  : Bits) extends Area{
   assert(Global.XLEN.get == 32)
 }
 
+object CSR {
+  val MCAUSE = new {
+    val STORE_PAGE_FAULT = 15
+    val STORE_MISALIGNED = 6
+    val STORE_ACCESS_FAULT = 7
+
+    val LOAD_PAGE_FAULT = 13
+    val LOAD_MISALIGNED = 4
+    val LOAD_ACCESS_FAULT = 5
+  }
+}

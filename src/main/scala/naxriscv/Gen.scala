@@ -4,7 +4,7 @@ import naxriscv.backend.{CommitPlugin, RegFilePlugin, RobPlugin}
 import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
 import naxriscv.frontend.{FetchAddressTranslationPlugin, _}
-import naxriscv.misc.StaticAddressTranslationPlugin
+import naxriscv.misc.{StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
 import naxriscv.units._
 import naxriscv.units.lsu.{DataCachePlugin, LoadPlugin, LsuPlugin, StorePlugin}
 import naxriscv.utilities._
@@ -34,14 +34,14 @@ object Config{
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
     plugins += new StaticAddressTranslationPlugin(
-      peripheralRange = _(31 downto 28) === 0x1
+      ioRange = _(31 downto 28) === 0x1
     )
     plugins += new FrontendPlugin()
     plugins += new FetchAddressTranslationPlugin()
     plugins += new PcPlugin()
     plugins += new FetchCachePlugin(
-      cacheSize = 4096*4,
-      wayCount = 4,
+      cacheSize = 4096*2,
+      wayCount = 2,
       injectionAt = 2,
       memDataWidth = Frontend.FETCH_DATA_WIDTH,
       reducedBankWidth = false
@@ -58,14 +58,16 @@ object Config{
 
     plugins += new LsuPlugin(
       lqSize = 16,
-      sqSize = 4
+      sqSize = 8,
+      loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
+      storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
     )
     plugins += new DataCachePlugin(
       memDataWidth = Global.XLEN,
-      cacheSize    = 4096*8,
-      wayCount     = 1,
-      refillCount = 4,
-      writebackCount = 4,
+      cacheSize    = 4096*2,
+      wayCount     = 2,
+      refillCount = 2,
+      writebackCount = 2,
       reducedBankWidth = false
     )
 
@@ -92,6 +94,7 @@ object Config{
 //    plugins += new ExecuteUnitDemo("ALU2", false)
 //    plugins += new ExecuteUnit("ALU3")
 //    plugins += new MulPlugin("ALU3")
+
     plugins += new RobPlugin()
     plugins += new CommitPlugin()
     plugins += new RegFilePlugin(
@@ -137,10 +140,15 @@ object Gen extends App{
 //TODO Optimisations
 /*
 - LSU getting PC for reschedule
+- When a reschedule is pending, stop feeding the pipeline with things which will get trashed anyway
+- LSU aliasing prediction, and in general reducing the pessiming nature of checkSq/checkLq
+- RobPlugin completion vector could be stored as a distributed ram with single bit flip. This shouild save 200 lut
+- DataCache banks write sharing per way, instead of allocating them all between refill and store
  */
 
 //TODO fix bellow list
 /*
+- lsu load to load with same address ordering in a far future
 - Manage the verilator seeds
 - having genTests.py generating different seed for each test
 - Data cache handle store which had tag hit but the line is currently being written back to the main memory

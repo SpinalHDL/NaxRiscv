@@ -55,7 +55,7 @@ class RobPlugin() extends Plugin with RobService{
     lock.await()
 
     val lineCount = ROB.SIZE/ROB.COLS
-    val valids = Reg(Bits(ROB.SIZE bits)) init(0)
+    val valids = Reg(Bits(ROB.SIZE bits)) init(0) //TODO this maybe optimized using distributed ram, also this may improve the commit stage path
     for(p <- robLineMaskPort){
       p.mask := valids.subdivideIn(ROB.COLS bits).read(p.line(ROB.lineRange))
     }

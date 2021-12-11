@@ -287,30 +287,48 @@ trait WakeWithBypassService extends Service{
   def wakeRobsWithBypass : Seq[Flow[UInt]]
 }
 
-case class AddressTranslationPort(prenWidth : Int,
-                                  postWidth : Int) extends Bundle with IMasterSlave {
-  val cmd = Flow(AddressTranslationCmd(prenWidth))
-  val rsp = Flow(AddressTranslationRsp(postWidth))
+//case class AddressTranslationPort(prenWidth : Int,
+//                                  postWidth : Int) extends Bundle with IMasterSlave {
+//  val cmd = Flow(AddressTranslationCmd(prenWidth))
+//  val rsp = Flow(AddressTranslationRsp(postWidth))
+//
+//  override def asMaster() = {
+//    master(cmd)
+//    slave(rsp)
+//  }
+//}
+//
+//case class AddressTranslationCmd(preWidth : Int) extends Bundle{
+//  val virtual = UInt(preWidth bits)
+//}
+//
+//case class AddressTranslationRsp(postWidth : Int) extends Bundle{
+//  val physical = UInt(postWidth bits)
+//  val peripheral = Bool()
+//}
 
-  override def asMaster() = {
-    master(cmd)
-    slave(rsp)
+class AddressTranslationRsp(s : AddressTranslationService, wakesCount : Int) extends Area{
+  val keys = new AreaRoot {
+    val TRANSLATED = Stageable(UInt(s.postWidth bits))
+    val IO = Stageable(Bool())
+    val REDO = Stageable(Bool())
+    val ALLOW_READ, ALLOW_WRITE, ALLOW_EXECUTE = Stageable(Bool())
+    val PAGE_FAULT = Bool()
+    val WAKER = Stageable(Bits(wakesCount bits))
+    val WAKER_ANY = Stageable(Bool())
   }
+
+  val wakes = Bits(wakesCount bits)
 }
 
-case class AddressTranslationCmd(preWidth : Int) extends Bundle{
-  val virtual = UInt(preWidth bits)
-}
-
-case class AddressTranslationRsp(postWidth : Int) extends Bundle{
-  val physical = UInt(postWidth bits)
-  val peripheral = Bool()
-}
-
-trait AddressTranslationService extends Service{
+trait AddressTranslationService extends Service with LockedImpl {
   def preWidth : Int
   def postWidth : Int
-  def newTranslationPort(arg : Any) : AddressTranslationPort
-
+  def newTranslationPort(stages: Seq[Stage],
+                         preAddress: Stageable[UInt],
+                         p: Any): AddressTranslationRsp
+  def wakerCount : Int
+  def wakes : Bits
   def PC : Stageable[UInt]
+  def withTranslation : Boolean
 }
