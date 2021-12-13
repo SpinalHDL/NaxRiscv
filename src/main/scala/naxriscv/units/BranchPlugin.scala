@@ -95,6 +95,7 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
       setup.reschedule.cause := 0
       setup.reschedule.tval := 0
       setup.reschedule.pcTarget := stage(PC, "BRANCH")
+      setup.reschedule.reason  := ScheduleReason.BRANCH
 
       setup.reschedule.trap := stage(PC, "BRANCH")(0, sliceShift bits) =/= 0
       setup.reschedule.skipCommit := setup.reschedule.trap

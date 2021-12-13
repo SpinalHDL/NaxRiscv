@@ -111,8 +111,8 @@ class DispatchPlugin(slotCount : Int = 0,
 
       queue.io.clear := rescheduling.valid
       when(rescheduling.valid){
-        next := rescheduling.nextRob - slotCount + Frontend.DISPATCH_COUNT
-        current := rescheduling.nextRob - slotCount
+        next := rescheduling.robIdNext - slotCount + Frontend.DISPATCH_COUNT
+        current := rescheduling.robIdNext - slotCount
       }
     }
 

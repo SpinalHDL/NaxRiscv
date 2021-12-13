@@ -148,7 +148,8 @@ trait RegfileService extends Service{
 
 
 case class RescheduleEvent() extends Bundle{
-  val nextRob = ROB.ID_TYPE()
+  val robId = ROB.ID_TYPE()
+  val robIdNext = ROB.ID_TYPE()
 }
 
 
@@ -244,6 +245,13 @@ case class CommitEntry() extends Bundle {
   val context = ???
 }
 
+object ScheduleReason{
+  val hardType = Stageable(UInt(8 bits))
+  val TRAP = 1
+  val BRANCH = 2
+  val STORE_TO_LOAD_HAZARD = 3
+}
+
 case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int) extends Bundle {
   val robId      = ROB.ID_TYPE()
   val trap       = (canTrap && canJump) generate Bool()
@@ -251,6 +259,7 @@ case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int) exte
   val cause      = canTrap generate UInt(Global.TRAP_CAUSE_WIDTH bits)
   val tval       = canTrap generate Bits(Global.XLEN bits)
   val skipCommit = Bool() //Want to skip commit for exceptions, but not for [jump, ebreak, redo]
+  val reason     = ScheduleReason.hardType()
 
   def isTrap = (canTrap, canJump) match {
     case (false, true) => False

@@ -2,7 +2,7 @@ package naxriscv.backend
 
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, ROB_ID}
 import naxriscv.{Global, ROB}
-import naxriscv.interfaces.{AddressTranslationService, CommitEvent, CommitFree, CommitService, JumpService, RescheduleEvent, RfAllocationService, RobService, ScheduleCmd}
+import naxriscv.interfaces.{AddressTranslationService, CommitEvent, CommitFree, CommitService, JumpService, RescheduleEvent, RfAllocationService, RobService, ScheduleCmd, ScheduleReason}
 import naxriscv.utilities.{DocPlugin, Plugin}
 import spinal.core._
 import spinal.lib._
@@ -59,6 +59,7 @@ class CommitPlugin extends Plugin with CommitService{
       val pcTarget = Reg(PC)
       val cause    = Reg(UInt(Global.TRAP_CAUSE_WIDTH bits))
       val tval     = Reg(Bits(Global.XLEN bits))
+      val reason   = Reg(ScheduleReason.hardType)
       val commit = new Area{
         val (row, col) = robId.splitAt(log2Up(ROB.COLS))
         val rowHit = valid && U(row) === ptr.commitRow.resized
@@ -87,6 +88,7 @@ class CommitPlugin extends Plugin with CommitService{
           trap       := MuxOH.or(hits, completions.map(_.isTrap))
           pcTarget   := MuxOH.or(canJump.map(hits(_)), canJump.map(completions(_).pcTarget))
           cause      := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).cause))
+          reason      := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).reason))
           tval       := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).tval))
           skipCommit := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).skipCommit))
         }
@@ -115,7 +117,8 @@ class CommitPlugin extends Plugin with CommitService{
       val reschedulePort = Flow(RescheduleEvent())
       reschedulePort
       reschedulePort.valid := rescheduleHit
-      reschedulePort.nextRob := ptr.allocNext.resized
+      reschedulePort.robId := reschedule.robId
+      reschedulePort.robIdNext := ptr.allocNext.resized
 
       val head = UInt(ROB.ID_WIDTH bits)
       head := (ptr.commit + OHToUInt(OHMasking.first(active & mask))).resized
@@ -178,6 +181,7 @@ class CommitPlugin extends Plugin with CommitService{
     }
 
     val cmt = commit
+    val rsd = reschedule
     val whitebox = new AreaRoot {
       def patch[T <: Data](that : T) = Verilator.public(CombInit(that))
       val robToPc = new Area {
@@ -187,6 +191,7 @@ class CommitPlugin extends Plugin with CommitService{
       }
       val commit = patch(cmt.event)
       val reschedule = patch(cmt.reschedulePort)
+      val rescheduleReason = patch(rsd.reason)
     }
 
     getService[DocPlugin].property("COMMIT_COUNT", COMMIT_COUNT.get)

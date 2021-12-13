@@ -8,26 +8,27 @@ import naxriscv.misc.{StaticAddressTranslationParameter, StaticAddressTranslatio
 import naxriscv.units._
 import naxriscv.units.lsu.{DataCachePlugin, LoadPlugin, LsuPlugin, StorePlugin}
 import naxriscv.utilities._
+import spinal.lib.eda.bench.Rtl
 
 import scala.collection.mutable.ArrayBuffer
 
 object Config{
   def properties() = {
-//    Frontend.RVC.set(true)
-//    Frontend.FETCH_DATA_WIDTH.set(64)
-//    Frontend.INSTRUCTION_WIDTH.set(32)
-//    Frontend.DECODE_COUNT.set(2)
-//    Global.COMMIT_COUNT.set(2)
-//    ROB.SIZE.set(64)
-//    Global.XLEN.set(32)
-
     Frontend.RVC.set(true)
-    Frontend.FETCH_DATA_WIDTH.set(32)
+    Frontend.FETCH_DATA_WIDTH.set(64)
     Frontend.INSTRUCTION_WIDTH.set(32)
-    Frontend.DECODE_COUNT.set(1)
-    Global.COMMIT_COUNT.set(1)
+    Frontend.DECODE_COUNT.set(2)
+    Global.COMMIT_COUNT.set(2)
     ROB.SIZE.set(64)
     Global.XLEN.set(32)
+
+//    Frontend.RVC.set(true)
+//    Frontend.FETCH_DATA_WIDTH.set(32)
+//    Frontend.INSTRUCTION_WIDTH.set(32)
+//    Frontend.DECODE_COUNT.set(1)
+//    Global.COMMIT_COUNT.set(1)
+//    ROB.SIZE.set(64)
+//    Global.XLEN.set(32)
   }
 
   def plugins(): Seq[Plugin] ={
@@ -58,7 +59,7 @@ object Config{
 
     plugins += new LsuPlugin(
       lqSize = 16,
-      sqSize = 8,
+      sqSize = 16,
       loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
       storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
     )
@@ -76,16 +77,16 @@ object Config{
     plugins += new IntAluPlugin("ALU0")
     plugins += new BranchPlugin("ALU0")
     plugins += new ShiftPlugin("ALU0")
-    plugins += new LoadPlugin("ALU0")
-    plugins += new StorePlugin("ALU0")
+//    plugins += new LoadPlugin("ALU0")
+//    plugins += new StorePlugin("ALU0")
 
-//    plugins += new ExecutionUnitBase("ALU1")
-//    plugins += new SrcPlugin("ALU1")
+    plugins += new ExecutionUnitBase("ALU1")
+    plugins += new SrcPlugin("ALU1")
 //    plugins += new IntAluPlugin("ALU1")
 //    plugins += new BranchPlugin("ALU1")
 //    plugins += new ShiftPlugin("ALU1")
-//    plugins += new LoadPlugin("ALU1")
-//    plugins += new StorePlugin("ALU1")
+    plugins += new LoadPlugin("ALU1")
+    plugins += new StorePlugin("ALU1")
 
 //    plugins += new ExecuteUnit("ALU0")
 //    plugins += new IntAluPlugin("ALU0")
@@ -114,6 +115,9 @@ object Gen extends App{
   spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
 //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
 
+//  def wrapper[T <: Component](c : T) = c
+  def wrapper[T <: Component](c : T) = { c.afterElaboration(Rtl.ffIo(c)); c }
+
   val report = spinalConfig.generateVerilog(new Component {
     setDefinitionName("NaxRiscv")
     Config.properties()
@@ -121,6 +125,12 @@ object Gen extends App{
   })
   val doc = report.toplevel.framework.getService[DocPlugin]
   doc.genC()
+
+  spinalConfig.generateVerilog(wrapper(new Component {
+    setDefinitionName("NaxRiscvSynt")
+    Config.properties()
+    val framework = new Framework(Config.plugins())
+  }))
 }
 
 //object GenSim extends App{
@@ -144,10 +154,12 @@ object Gen extends App{
 - LSU aliasing prediction, and in general reducing the pessiming nature of checkSq/checkLq
 - RobPlugin completion vector could be stored as a distributed ram with single bit flip. This shouild save 200 lut
 - DataCache banks write sharing per way, instead of allocating them all between refill and store
+- Lsu loadFeedAt is currently set to 1 to relax timings on the d$ banks, maybe those banks can use falling edge clock of stage loadFeedAt+1 stage instead ?
  */
 
 //TODO fix bellow list
 /*
+- lsu peripheral do not handle rsp.error yet
 - lsu load to load with same address ordering in a far future
 - Manage the verilator seeds
 - having genTests.py generating different seed for each test
@@ -169,4 +181,11 @@ X0 init =>
 - RfAllocationPlugin will not init physical 0
 - RegFilePlugin will write physical 0 with 0
 
+ */
+
+
+//stats
+
+/*
+checkLq => 6.8slack 550 LUT (16lq/16sq)
  */

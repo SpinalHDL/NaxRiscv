@@ -148,5 +148,6 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
     setup.reschedule.tval := 0
     setup.reschedule.pcTarget := delayed.pcTarget
     setup.reschedule.skipCommit := False
+    setup.reschedule.reason := ScheduleReason.BRANCH
   }
 }

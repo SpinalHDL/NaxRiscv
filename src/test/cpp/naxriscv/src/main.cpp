@@ -471,6 +471,30 @@ public:
     }
 };
 
+class NaxStats{
+public:
+    u64 commits = 0;
+    u64 reschedules = 0;
+    u64 trap = 0;
+    u64 missprediction = 0;
+    u64 storeToLoadHazard = 0;
+
+    string report(string tab){
+        string ret = "";
+        ret += tab + "commits           " + to_string(commits) + "\n";
+        ret += tab + "reschedules       " + to_string(reschedules) + "\n";
+        ret += tab + "trap              " + to_string(trap) + "\n";
+        ret += tab + "missprediction    " + to_string(missprediction) + "\n";
+        ret += tab + "storeToLoadHazard " + to_string(storeToLoadHazard) + "\n";
+        return ret;
+    }
+};
+
+
+#define REASON_TRAP  1
+#define REASON_BRANCH  2
+#define REASON_STORE_TO_LOAD_HAZARD  3
+
 class NaxWhitebox : public SimElement{
 public:
 
@@ -480,6 +504,9 @@ public:
     CData *integer_write_valid[INTEGER_WRITE_COUNT];
     CData *integer_write_robId[INTEGER_WRITE_COUNT];
     IData *integer_write_data[INTEGER_WRITE_COUNT];
+
+    bool statsCaptureEnable = true;
+    NaxStats stats;
 
 
     NaxWhitebox(VNaxRiscv_NaxRiscv* nax): robToPc{MAP_INIT(&nax->robToPc_pc_,  DISPATCH_COUNT,)},
@@ -510,6 +537,20 @@ public:
                 robCtx[robId].integerWriteData = *integer_write_data[i];
             }
         }
+        if(statsCaptureEnable){
+            for(int i = 0;i < COMMIT_COUNT;i++){
+                stats.commits += (nax->commit_mask >> i) & 1;
+            }
+            if(nax->reschedule_valid){
+                stats.reschedules += 1;
+                switch(nax->rescheduleReason){
+                case REASON_TRAP: stats.trap += 1; break;
+                case REASON_BRANCH: stats.missprediction += 1; break;
+                case REASON_STORE_TO_LOAD_HAZARD: stats.storeToLoadHazard += 1; break;
+                }
+            }
+        }
+
     }
 
     virtual void postCycle(){
@@ -581,7 +622,11 @@ enum ARG
     ARG_PROGRESS,
     ARG_SEED,
     ARG_TRACE,
-    ARG_TRACE_REF
+    ARG_TRACE_REF,
+    ARG_STATS_PRINT,
+    ARG_STATS_START_SYMBOLE,
+    ARG_STATS_STOP_SYMBOLE,
+    ARG_STATS_TOGGLE_SYMBOLE,
 };
 
 
@@ -599,6 +644,10 @@ static const struct option long_options[] =
     { "seed", required_argument, 0, ARG_SEED },
     { "trace", no_argument, 0, ARG_TRACE },
     { "trace_ref", no_argument, 0, ARG_TRACE_REF },
+    { "stats_print", no_argument, 0, ARG_STATS_PRINT },
+    { "stats_start_symbole", required_argument, 0, ARG_STATS_START_SYMBOLE },
+    { "stats_stop_symbole", required_argument, 0, ARG_STATS_STOP_SYMBOLE },
+    { "stats_toggle_symbole", required_argument, 0, ARG_STATS_TOGGLE_SYMBOLE },
     0
 };
 
@@ -616,6 +665,7 @@ int main(int argc, char** argv, char** env){
     string name = "???";
     string outputDir = "output";
     double progressPeriod = 0.0;
+    bool statsPrint = false;
 
     while (1) {
         int index = -1;
@@ -640,11 +690,15 @@ int main(int argc, char** argv, char** env){
             case ARG_OUTPUT_DIR: outputDir = optarg; break;
             case ARG_TIMEOUT: timeout = stoi(optarg); break;
             case ARG_PROGRESS: progressPeriod = stod(optarg); break;
+            case ARG_STATS_PRINT: statsPrint = true; break;
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_START_SYMBOL:
             case ARG_PASS_SYMBOL:
-            case ARG_FAIL_SYMBOL: break;
+            case ARG_FAIL_SYMBOL:
+            case ARG_STATS_START_SYMBOLE:
+            case ARG_STATS_STOP_SYMBOLE:
+            case ARG_STATS_TOGGLE_SYMBOLE: break;
             default: failure(); break;
         }
     }
@@ -683,6 +737,9 @@ int main(int argc, char** argv, char** env){
 
 
 
+    u64 statsStartAt = -1;
+    u64 statsStopAt = -1;
+    u64 statsToggleAt = -1;
 
 	u32 nop32 = 0x13;
 	u8 *nop = (u8 *)&nop32;
@@ -715,6 +772,9 @@ int main(int argc, char** argv, char** env){
                 wrap.memory.write(addr, 4, nop);
                 soc->memory.write(addr, 4, nop);
             }break;
+            case ARG_STATS_TOGGLE_SYMBOLE: statsToggleAt = elf->getSymbolAddress(optarg); whitebox.statsCaptureEnable = false; break;
+            case ARG_STATS_START_SYMBOLE: statsStartAt = elf->getSymbolAddress(optarg); whitebox.statsCaptureEnable = false; break;
+            case ARG_STATS_STOP_SYMBOLE: statsStopAt = elf->getSymbolAddress(optarg); break;
             default:  break;
         }
     }
@@ -842,6 +902,10 @@ int main(int argc, char** argv, char** env){
                                 event(pc);
                             }
                         }
+
+                        if(pc == statsToggleAt) whitebox.statsCaptureEnable = !whitebox.statsCaptureEnable;
+                        if(pc == statsStartAt) whitebox.statsCaptureEnable = true;
+                        if(pc == statsStopAt) whitebox.statsCaptureEnable = false;
                         whitebox.robCtx[robId].clear();
                     }
                 }
@@ -867,6 +931,9 @@ int main(int argc, char** argv, char** env){
         printf("FAILURE %s\n", name.c_str());
     }
 
+    if(statsPrint){
+        printf("STATS :\n%s", whitebox.stats.report("  ").c_str());
+    }
 //    printf("Commits=%ld\n", commits);
 //    printf("Time=%ld\n", main_time);
 //    printf("Cycles=%ld\n", main_time/2);
