@@ -1,9 +1,9 @@
-package naxriscv.lsu
+package naxriscv.execute
 
 import naxriscv.Frontend
 import naxriscv.interfaces.{MicroOp, RS2}
+import naxriscv.lsu.LsuPlugin
 import naxriscv.riscv.{Const, IntRegFile, Rvi}
-import naxriscv.execute.{ExecutionUnitBase, ExecutionUnitKeys, SrcKeys, SrcPlugin, SrcStageables}
 import naxriscv.utilities._
 import spinal.core._
 import spinal.lib.pipeline.Stageable

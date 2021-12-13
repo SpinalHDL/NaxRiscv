@@ -6,7 +6,7 @@ import spinal.core._
 import naxriscv.frontend.{FetchAddressTranslationPlugin, _}
 import naxriscv.misc.{StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
 import naxriscv.execute._
-import naxriscv.lsu.{DataCachePlugin, LoadPlugin, LsuPlugin, StorePlugin}
+import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
 import naxriscv.utilities._
 import spinal.lib.eda.bench.Rtl
 
