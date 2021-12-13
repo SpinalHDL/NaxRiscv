@@ -479,14 +479,23 @@ public:
     u64 missprediction = 0;
     u64 storeToLoadHazard = 0;
 
-    string report(string tab){
+    map<RvData, u64> misspredictionHist;
+
+    string report(string tab, bool hist){
+        stringstream ss;
         string ret = "";
-        ret += tab + "commits           " + to_string(commits) + "\n";
-        ret += tab + "reschedules       " + to_string(reschedules) + "\n";
-        ret += tab + "trap              " + to_string(trap) + "\n";
-        ret += tab + "missprediction    " + to_string(missprediction) + "\n";
-        ret += tab + "storeToLoadHazard " + to_string(storeToLoadHazard) + "\n";
-        return ret;
+        ss << tab << "commits           " << commits <<  endl;
+        ss << tab << "reschedules       " << reschedules <<  endl;
+        ss << tab << "trap              " << trap <<  endl;
+        ss << tab << "missprediction    " << missprediction <<  endl;
+        ss << tab << "storeToLoadHazard " << storeToLoadHazard <<  endl;
+        if(hist){
+            ss << tab << "missprediction from :" << endl;
+            for (auto const& [key, val] : misspredictionHist){
+                ss << tab << tab << hex << key <<" " << dec << val << endl;
+            }
+        }
+        return ss.str();
     }
 };
 
@@ -542,10 +551,14 @@ public:
                 stats.commits += (nax->commit_mask >> i) & 1;
             }
             if(nax->reschedule_valid){
+                RvData pc = robCtx[nax->reschedule_payload_robId].pc;
                 stats.reschedules += 1;
                 switch(nax->rescheduleReason){
                 case REASON_TRAP: stats.trap += 1; break;
-                case REASON_BRANCH: stats.missprediction += 1; break;
+                case REASON_BRANCH: {
+                    stats.missprediction += 1;
+                    stats.misspredictionHist[pc] += 1;
+                } break;
                 case REASON_STORE_TO_LOAD_HAZARD: stats.storeToLoadHazard += 1; break;
                 }
             }
@@ -624,6 +637,7 @@ enum ARG
     ARG_TRACE,
     ARG_TRACE_REF,
     ARG_STATS_PRINT,
+    ARG_STATS_PRINT_ALL,
     ARG_STATS_START_SYMBOL,
     ARG_STATS_STOP_SYMBOL,
     ARG_STATS_TOGGLE_SYMBOL,
@@ -645,6 +659,7 @@ static const struct option long_options[] =
     { "trace", no_argument, 0, ARG_TRACE },
     { "trace_ref", no_argument, 0, ARG_TRACE_REF },
     { "stats_print", no_argument, 0, ARG_STATS_PRINT },
+    { "stats_print_all", no_argument, 0, ARG_STATS_PRINT_ALL },
     { "stats_start_symbol", required_argument, 0, ARG_STATS_START_SYMBOL },
     { "stats_stop_symbol", required_argument, 0, ARG_STATS_STOP_SYMBOL },
     { "stats_toggle_symbol", required_argument, 0, ARG_STATS_TOGGLE_SYMBOL },
@@ -666,6 +681,7 @@ int main(int argc, char** argv, char** env){
     string outputDir = "output";
     double progressPeriod = 0.0;
     bool statsPrint = false;
+    bool statsPrintHist = false;
 
     while (1) {
         int index = -1;
@@ -691,6 +707,7 @@ int main(int argc, char** argv, char** env){
             case ARG_TIMEOUT: timeout = stoi(optarg); break;
             case ARG_PROGRESS: progressPeriod = stod(optarg); break;
             case ARG_STATS_PRINT: statsPrint = true; break;
+            case ARG_STATS_PRINT_ALL: statsPrint = true; statsPrintHist = true; break;
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_START_SYMBOL:
@@ -932,7 +949,7 @@ int main(int argc, char** argv, char** env){
     }
 
     if(statsPrint){
-        printf("STATS :\n%s", whitebox.stats.report("  ").c_str());
+        printf("STATS :\n%s", whitebox.stats.report("  ", statsPrintHist).c_str());
     }
 //    printf("Commits=%ld\n", commits);
 //    printf("Time=%ld\n", main_time);

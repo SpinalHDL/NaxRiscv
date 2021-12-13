@@ -151,6 +151,7 @@ object Gen extends App{
 
 //TODO Optimisations
 /*
+- PredoctorPlugin to Branchplugin context storage optimisation
 - LSU getting PC for reschedule
 - When a reschedule is pending, stop feeding the pipeline with things which will get trashed anyway
 - LSU aliasing prediction, and in general reducing the pessiming nature of checkSq/checkLq

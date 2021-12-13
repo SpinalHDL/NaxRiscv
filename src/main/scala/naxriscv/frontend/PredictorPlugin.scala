@@ -1,36 +1,45 @@
 package naxriscv.frontend
 
-import naxriscv.Frontend
-import naxriscv.interfaces.{AddressTranslationService, JumpService}
+import naxriscv.{Frontend, ROB}
+import naxriscv.interfaces.{AddressTranslationService, JumpService, RobService}
 import naxriscv.riscv.{IMM, Rvi}
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.Plugin
 import spinal.lib.logic.{DecodingSpec, DecodingSpecExample, Masked}
-import spinal.lib.pipeline.StageableOffset
+import spinal.lib.pipeline.{Stageable, StageableOffset}
 
+case class RobPrediction(pcWidth : Int) extends Bundle{
+  val pcNext = UInt(pcWidth bits)
+}
 
 class PredictorPlugin() extends Plugin{
-
 
 
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     val jump = getService[JumpService]
+    val rob = getService[RobService]
+    val PC = getService[AddressTranslationService].PC
     val jumpPort = jump.createJumpInterface(JumpService.Priorities.PREDICTOR)
     frontend.retain()
+    rob.retain()
+
+    val key = Stageable(RobPrediction(widthOf(PC)))
   }
 
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
     val decoder = getService[DecoderPlugin]
+    val rob = getService[RobService]
     val PC = getService[AddressTranslationService].PC
     val sliceShift = if(Frontend.RVC) 1 else 2
     val branchKeys = List(Rvi.BEQ, Rvi.BNE, Rvi.BLT, Rvi.BGE, Rvi.BLTU, Rvi.BGEU).map(e => Masked(e.key))
-    val branchDecoder, jalDecoder, jalrDecoder = new DecodingSpec(Bool()).setDefault(Masked.zero)
+    val branchDecoder, jalDecoder, jalrDecoder, anyDecoder = new DecodingSpec(Bool()).setDefault(Masked.zero)
     branchDecoder.addNeeds(branchKeys, Masked.one)
     jalDecoder.addNeeds(Masked(Rvi.JAL.key), Masked.one)
     jalrDecoder.addNeeds(Masked(Rvi.JALR.key), Masked.one)
+    anyDecoder.addNeeds(branchKeys ++ List(Rvi.JAL, Rvi.JALR).map(e => Masked(e.key)), Masked.one)
 
     val stage = frontend.pipeline.decoded
     val stagePrevious = frontend.pipeline.aligned
@@ -41,6 +50,7 @@ class PredictorPlugin() extends Plugin{
       val isJal =  jalDecoder.build(inst, decoder.covers())
       val isJalR =  jalrDecoder.build(inst, decoder.covers())
       val isBranch = branchDecoder.build(inst, decoder.covers())
+      val isAny = anyDecoder.build(inst, decoder.covers())
 
 
       val imm = IMM(inst)
@@ -50,20 +60,32 @@ class PredictorPlugin() extends Plugin{
         True  -> imm.j_sext
       )
 
-      val pcPostPrediction = S(PC) + offset
       val slices = Frontend.INSTRUCTION_SLICE_COUNT+^1
-      val pcPrePredicted = S(PC + (slices << sliceShift)) //TODO
-      val needCorrection = Frontend.DISPATCH_MASK && (isJal) && pcPrePredicted =/= pcPostPrediction
+      val pcInc = S(PC + (slices << sliceShift))
+      val pcTarget = S(PC) + offset
+      val branchedPrediction = offset.msb || isJal
+      val pcNext = CombInit(pcInc) //TODO, ok for now as there is no predictor before decode
+      val pcPrediction = branchedPrediction ? pcTarget otherwise pcInc
+      val needCorrection = Frontend.DISPATCH_MASK && isAny && pcNext =/= pcPrediction
+
+      setup.key.pcNext := U(pcPrediction)
     }
 
     val hit = slots.map(_.needCorrection).orR
     val selOh = OHMasking.first(slots.map(_.needCorrection))
     setup.jumpPort.valid := isFireing && hit
-    setup.jumpPort.pc := U(MuxOH(selOh, slots.map(_.pcPostPrediction)))
+    setup.jumpPort.pc := U(MuxOH(selOh, slots.map(_.pcPrediction)))
 
     flushIt(setup.jumpPort.valid, root = false)
-//    stagePrevious.flushIt(setup.jumpPort.valid)
 
+    rob.write(setup.key, Frontend.DECODE_COUNT, (0 to Frontend.DECODE_COUNT).map(frontend.pipeline.allocated(setup.key, _)),  frontend.pipeline.allocated(Frontend.ROB_ID), frontend.pipeline.allocated.isFireing)
+
+    //WARNING, overloaded(Frontend.DISPATCH_MASK) may not be reconized by some downstream plugins if you move this futher the decoding stage
+    for(slotId <- 1 until Frontend.DECODE_COUNT){
+      stage.overloaded(Frontend.DISPATCH_MASK) := Frontend.DISPATCH_MASK && !(0 until slotId).map(i => slots(i).needCorrection).orR
+    }
+
+    rob.release()
     frontend.release()
   }
 }
