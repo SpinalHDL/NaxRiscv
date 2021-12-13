@@ -174,7 +174,15 @@ class LsuPlugin(lqSize: Int,
 
       val OLDER_STORE_RESCHEDULE  = Stageable(Bool())
       val OLDER_STORE_ID = Stageable(SQ_ID)
-      val OLDER_STORE_COMPLETED = Stageable(Bool())
+      val OLDER_STORE_COMPLETED = Stageable(Bool()) //Used to avoid LQ waiting on SQ which just fired
+
+      val LQCHECK_START_ID = Stageable(UInt(log2Up(lqSize) + 1 bits))
+      val LQCHECK_HITS = Stageable(Bits(lqSize bits))
+      val LQCHECK_NO_YOUNGER = Stageable(Bool())
+
+      val SQCHECK_END_ID = Stageable(UInt(log2Up(sqSize) + 1 bits))
+      val SQCHECK_HITS = Stageable(Bits(sqSize bits))
+      val SQCHECK_NO_OLDER = Stageable(Bool())
     }
     import keysLocal._
 
@@ -290,6 +298,7 @@ class LsuPlugin(lqSize: Int,
         def isFull(ptr : UInt) = (ptr ^ free) === sqSize
 
         val onFree = Flow(UInt(log2Up(sqSize) bits))
+        val onFreeLast = onFree.stage()
       }
     }
 
@@ -423,6 +432,8 @@ class LsuPlugin(lqSize: Int,
           SIZE     := regs.map(_.address.size).read(sel)
           UNSIGNED := regs.map(_.address.unsigned).read(sel)
           DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
+          SQCHECK_END_ID :=  mem.sqAlloc.readAsync(sel)
+          PC := mem.pc(sel)
         }
 
         val feedCache = new Area{
@@ -447,17 +458,16 @@ class LsuPlugin(lqSize: Int,
           setup.cacheLoad.cancels(stageId) := stages(loadFeedAt + stageId).isValid && rescheduling.valid
         }
 
-        val checkSq = new Area{
+        val checkSqMask = new Area{
           val stage = stages(loadCheckSqAt) //WARNING, SQ delay between writeback and entry.valid := False should not be smaller than the delay of reading the cache and checkSq !!
           import stage._
 
           val startId = CombInit(sq.ptr.free)
-          val endId = mem.sqAlloc.readAsync(LQ_SEL)
           val startMask = U(UIntToOh(U(startId.dropHigh(1))))-1
-          val endMask   = U(UIntToOh(U(endId.dropHigh(1))))-1
+          val endMask   = U(UIntToOh(U(SQCHECK_END_ID.dropHigh(1))))-1
           val loopback = endMask <= startMask
           val youngerMask = loopback ? ~(endMask ^ startMask) otherwise (endMask & ~startMask)
-          val olderMaskEmpty = startId === endId
+          val olderMaskEmpty = startId === SQCHECK_END_ID
 
           val hits = Bits(sqSize bits)
           val entries = for(sqReg <- sq.regs) yield new Area {
@@ -465,18 +475,27 @@ class LsuPlugin(lqSize: Int,
             val wordHit = (sqReg.address.mask & DATA_MASK) =/= 0
             hits(sqReg.id) := sqReg.valid && !sqReg.waitOn.address && pageHit && wordHit && youngerMask(sqReg.id)
           }
-          val olderHit = !olderMaskEmpty && hits =/= 0
-          val olderOh   = if(sqSize == 1) B(1) else OHMasking.roundRobinMaskedFull(hits.reversed, ~((sq.ptr.priority ## !sq.ptr.priority.msb).reversed)).reversed //reverted priority, imprecise would be ok
-          val olderSel  = OHToUInt(olderOh)
 
-          PC := mem.pc(LQ_SEL)
+          SQCHECK_HITS := hits
+          SQCHECK_NO_OLDER := olderMaskEmpty
+        }
+
+        val checkSqArbi = new Area{
+          val stage = stages(loadCheckSqAt + 1) //Warning, if you remove the +1 remove some of the OLDER_STORE_COMPLETED bypass
+          import stage._
+
+          val olderHit = !SQCHECK_NO_OLDER && SQCHECK_HITS =/= 0
+          val olderOh   = if(sqSize == 1) B(1) else OHMasking.roundRobinMaskedFull(SQCHECK_HITS.reversed, ~((sq.ptr.priority ## !sq.ptr.priority.msb).reversed)).reversed //reverted priority, imprecise would be ok
+          val olderSel  = OHToUInt(olderOh)
 
           OLDER_STORE_RESCHEDULE := olderHit
           OLDER_STORE_ID := olderSel
-          OLDER_STORE_COMPLETED := False
+          OLDER_STORE_COMPLETED := sq.ptr.onFreeLast.valid && sq.ptr.onFreeLast.payload === OLDER_STORE_ID
           for(s <- stages.dropWhile(_ != stage)){
             s.overloaded(OLDER_STORE_COMPLETED) := s(OLDER_STORE_COMPLETED) || sq.ptr.onFree.valid && sq.ptr.onFree.payload === s(OLDER_STORE_ID)
           }
+
+
 //          OLDER_STORE_RESCHEDULE := False
 //          OLDER_STORE_ID := 0
 //          OLDER_STORE_COMPLETED := False
@@ -534,6 +553,7 @@ class LsuPlugin(lqSize: Int,
           setup.loadTrap.tval       := B(ADDRESS_PRE_TRANSLATION)
           setup.loadTrap.skipCommit := True
           setup.loadTrap.cause.assignDontCare()
+          setup.loadTrap.reason := ScheduleReason.TRAP
 
           tpk.IO || tpk.PAGE_FAULT || !tpk.ALLOW_READ || tpk.REDO
           val missAligned = (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
@@ -687,7 +707,7 @@ class LsuPlugin(lqSize: Int,
       }
 
       val pipeline = new Pipeline {
-        val stages = Array.fill(3)(newStage()) //TODO
+        val stages = Array.fill(4)(newStage()) //TODO
         connect(stages)(List(M2S()))
 
         stages.last.flushIt(rescheduling.valid, root = false)
@@ -698,8 +718,6 @@ class LsuPlugin(lqSize: Int,
           p = storeTranslationParameter
         )
         val tpk = translationPort.keys
-
-
 
         val feed = new Area{
           val stage = stages(0)
@@ -721,30 +739,37 @@ class LsuPlugin(lqSize: Int,
           ADDRESS_PRE_TRANSLATION := mem.addressPre.readAsync(sel)
           SIZE := regs.map(_.address.size).read(sel)
           DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
+          LQCHECK_START_ID := mem.lqAlloc.readAsync(sel)
         }
 
         //TODO timings
-        val checkLq = new Area{
+        val checkLqHits = new Area{
           val stage = stages(1)
           import stage._
 
-          val startId = mem.lqAlloc.readAsync(SQ_SEL)
           val endId = CombInit(lq.ptr.alloc)
-          val startMask = U(UIntToOh(U(startId.dropHigh(1))))-1
+          val startMask = U(UIntToOh(U(LQCHECK_START_ID.dropHigh(1))))-1
           val endMask   = U(UIntToOh(U(endId.dropHigh(1))))-1
           val loopback = endMask <= startMask
           val youngerMask = loopback ? ~(endMask ^ startMask) otherwise (endMask & ~startMask)
-          val youngerMaskEmpty = startId === endId
+          val youngerMaskEmpty = LQCHECK_START_ID === endId
           val allLqIsYounger = regs.map(_.allLqIsYounger).read(SQ_SEL)
 
-          val hits = Bits(lqSize bits)
           val entries = for(lqReg <- lq.regs) yield new Area {
             val pageHit = lqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
             val wordHit = (lqReg.address.mask & DATA_MASK) =/= 0
-            hits(lqReg.id) := lqReg.valid && !lqReg.waitOn.address && pageHit && wordHit && (youngerMask(lqReg.id) || allLqIsYounger)
+            LQCHECK_HITS(lqReg.id) := lqReg.valid && !lqReg.waitOn.address && pageHit && wordHit && (youngerMask(lqReg.id) || allLqIsYounger)
           }
-          val youngerHit  = hits =/= 0 && !youngerMaskEmpty
-          val youngerOh   = OHMasking.roundRobinMasked(hits, lq.ptr.priority)
+
+          LQCHECK_NO_YOUNGER := youngerMaskEmpty
+        }
+
+        val checkLqPrio = new Area{
+          val stage = stages(2)
+          import stage._
+
+          val youngerHit  = LQCHECK_HITS =/= 0 && !LQCHECK_NO_YOUNGER
+          val youngerOh   = OHMasking.roundRobinMasked(stage(LQCHECK_HITS), lq.ptr.priority)
           val youngerSel  = OHToUInt(youngerOh)
 
           YOUNGER_LOAD_PC := lq.mem.pc(youngerSel)
@@ -767,10 +792,12 @@ class LsuPlugin(lqSize: Int,
             setup.storeTrap.valid    := isFireing
             setup.storeTrap.trap     := False
             setup.storeTrap.robId    := YOUNGER_LOAD_ROB
+            setup.storeTrap.reason   := ScheduleReason.STORE_TO_LOAD_HAZARD
           } otherwise {
             setup.storeTrap.valid      := False
             setup.storeTrap.trap       := True
             setup.storeTrap.robId      := ROB.ID_TYPE
+            setup.storeTrap.reason     := ScheduleReason.TRAP
           }
 
           setup.storeTrap.tval       := B(ADDRESS_PRE_TRANSLATION)
