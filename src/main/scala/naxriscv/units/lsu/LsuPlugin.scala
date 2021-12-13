@@ -72,7 +72,7 @@ class LsuPlugin(lqSize: Int,
                 sqSize : Int,
                 loadTranslationParameter : Any,
                 storeTranslationParameter : Any,
-                loadFeedAt : Int = 0, //Stage at which the d$ cmd is sent
+                loadFeedAt : Int = 1, //Stage at which the d$ cmd is sent
                 loadCheckSqAt : Int = 1) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService {
 
   val wordWidth = Global.XLEN.get
@@ -387,7 +387,7 @@ class LsuPlugin(lqSize: Int,
       }
 
       val pipeline = new Pipeline{
-        val stages = Array.fill(cache.loadRspLatency + 1)(newStage())
+        val stages = Array.fill(loadFeedAt + cache.loadRspLatency + 1)(newStage())
         connect(stages)(List(M2S()))
 
         stages.last.flushIt(rescheduling.valid, root = false)
@@ -400,45 +400,51 @@ class LsuPlugin(lqSize: Int,
         val tpk = translationPort.keys
 
         val feed = new Area{
-          val stage = stages(loadFeedAt)
+          val stage = stages(0)
           import stage._
 
-          val hits = B(regs.map(_.ready))
+          val hits = B(regs.map(reg => reg.ready))
           val hit = hits.orR
 
           val selOh = OHMasking.roundRobinMasked(hits, ptr.priority)
           val sel = OHToUInt(selOh)
 
-          val cmd = setup.cacheLoad.cmd //If you move that in another stage, be carefull to update loadFeedAt usages (sq d$ writeback rsp delay)
-          cmd.valid := hit
-          cmd.virtual := mem.addressPre.readAsync(sel)
-          cmd.size := SIZE
           for(reg <- regs) when(selOh(reg.id)){
             reg.waitOn.cacheRsp := True
           }
 
-          isValid := cmd.fire
+          isValid := hit
           LQ_SEL := sel
           LQ_SEL_OH := selOh
           decoder.PHYS_RD := mem.physRd.readAsync(sel)
           ROB.ID_TYPE := mem.robId.readAsync(sel)
           WRITE_RD := mem.writeRd.readAsync(sel)
-          ADDRESS_PRE_TRANSLATION := cmd.virtual
+          ADDRESS_PRE_TRANSLATION := mem.addressPre.readAsync(LQ_SEL)
           SIZE     := regs.map(_.address.size).read(sel)
           UNSIGNED := regs.map(_.address.unsigned).read(sel)
           DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
         }
 
+        val feedCache = new Area{
+          val stage = stages(loadFeedAt)
+          import stage._
+
+          val cmd = setup.cacheLoad.cmd //If you move that in another stage, be carefull to update loadFeedAt usages (sq d$ writeback rsp delay)
+          cmd.valid := stage.isFireing
+          cmd.virtual := ADDRESS_PRE_TRANSLATION
+          cmd.size := SIZE
+        }
+
         val feedTranslation = new Area{
-          val stage = stages(setup.cacheLoad.translatedAt)
+          val stage = stages(loadFeedAt + setup.cacheLoad.translatedAt)
           import stage._
 
           setup.cacheLoad.translated.physical := tpk.TRANSLATED
           setup.cacheLoad.translated.abord := tpk.IO || tpk.PAGE_FAULT || !tpk.ALLOW_READ || tpk.REDO
         }
 
-        val cancels = for((stage, stageId) <- stages.zipWithIndex){
-          setup.cacheLoad.cancels(stageId) := stage.isValid && rescheduling.valid
+        val cancels = for(stageId <- 0 to cache.loadRspLatency){
+          setup.cacheLoad.cancels(stageId) := stages(loadFeedAt + stageId).isValid && rescheduling.valid
         }
 
         val checkSq = new Area{
@@ -463,14 +469,17 @@ class LsuPlugin(lqSize: Int,
           val olderOh   = if(sqSize == 1) B(1) else OHMasking.roundRobinMaskedFull(hits.reversed, ~((sq.ptr.priority ## !sq.ptr.priority.msb).reversed)).reversed //reverted priority, imprecise would be ok
           val olderSel  = OHToUInt(olderOh)
 
-          OLDER_STORE_RESCHEDULE := olderHit
-          OLDER_STORE_ID := olderSel
           PC := mem.pc(LQ_SEL)
 
+          OLDER_STORE_RESCHEDULE := olderHit
+          OLDER_STORE_ID := olderSel
           OLDER_STORE_COMPLETED := False
           for(s <- stages.dropWhile(_ != stage)){
             s.overloaded(OLDER_STORE_COMPLETED) := s(OLDER_STORE_COMPLETED) || sq.ptr.onFree.valid && sq.ptr.onFree.payload === s(OLDER_STORE_ID)
           }
+//          OLDER_STORE_RESCHEDULE := False
+//          OLDER_STORE_ID := 0
+//          OLDER_STORE_COMPLETED := False
         }
 
         val cacheRsp = new Area{
@@ -544,7 +553,7 @@ class LsuPlugin(lqSize: Int,
             onRegs(_.waitOn.cacheRsp := False)
             when(OLDER_STORE_RESCHEDULE){
               onRegs{r =>
-                r.waitOn.sq setWhen(!stage.overloaded(OLDER_STORE_COMPLETED))
+                r.waitOn.sq setWhen(!stage.resulting(OLDER_STORE_COMPLETED))
                 r.waitOn.sqId := OLDER_STORE_ID
               }
             } elsewhen(rsp.redo) {
@@ -741,6 +750,10 @@ class LsuPlugin(lqSize: Int,
           YOUNGER_LOAD_PC := lq.mem.pc(youngerSel)
           YOUNGER_LOAD_ROB := lq.mem.robId.readAsync(youngerSel)
           YOUNGER_LOAD_RESCHEDULE := youngerHit
+
+//          YOUNGER_LOAD_PC := 0
+//          YOUNGER_LOAD_ROB := 0
+//          YOUNGER_LOAD_RESCHEDULE := False
         }
 
         val completion = new Area{
