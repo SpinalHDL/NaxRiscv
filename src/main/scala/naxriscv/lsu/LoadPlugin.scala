@@ -1,11 +1,11 @@
-package naxriscv.units.lsu
+package naxriscv.lsu
 
 import naxriscv.{Frontend, ROB}
 import naxriscv.interfaces.{AddressTranslationService, DecoderService, MicroOp, RD, RfResource}
 import naxriscv.riscv.{Const, Rvi}
 import spinal.core._
 import spinal.lib._
-import naxriscv.units.{ExecutionUnitBase, ExecutionUnitKeys, SrcKeys, SrcPlugin, SrcStageables}
+import naxriscv.execute.{ExecutionUnitBase, ExecutionUnitKeys, SrcKeys, SrcPlugin, SrcStageables}
 import naxriscv.utilities._
 import spinal.lib.pipeline.Stageable
 

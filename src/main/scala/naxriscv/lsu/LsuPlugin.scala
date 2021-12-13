@@ -1,4 +1,4 @@
-package naxriscv.units.lsu
+package naxriscv.lsu
 
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, ROB_ID}
 import naxriscv.backend.RobPlugin

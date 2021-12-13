@@ -1,4 +1,4 @@
-package naxriscv.units.lsu
+package naxriscv.lsu
 
 import naxriscv.utilities.{AddressToMask, Reservation}
 import spinal.core._

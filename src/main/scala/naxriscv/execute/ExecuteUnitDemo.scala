@@ -1,4 +1,4 @@
-package naxriscv.units
+package naxriscv.execute
 
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.interfaces._

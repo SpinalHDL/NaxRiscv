@@ -1,4 +1,4 @@
-package naxriscv.units.lsu
+package naxriscv.lsu
 
 import naxriscv.Global
 import naxriscv.Global.XLEN

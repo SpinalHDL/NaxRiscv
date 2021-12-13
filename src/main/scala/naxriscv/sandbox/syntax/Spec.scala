@@ -38,7 +38,7 @@ src2 values input => 3+[1]
 
  */
 import naxriscv.interfaces.{RegfileSpec}
-import naxriscv.units.ExecuteUnitDemo
+import naxriscv.execute.ExecuteUnitDemo
 import spinal.core._
 //object Miaou{
 //  class Resource

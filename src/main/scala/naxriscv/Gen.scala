@@ -5,8 +5,8 @@ import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifie
 import spinal.core._
 import naxriscv.frontend.{FetchAddressTranslationPlugin, _}
 import naxriscv.misc.{StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
-import naxriscv.units._
-import naxriscv.units.lsu.{DataCachePlugin, LoadPlugin, LsuPlugin, StorePlugin}
+import naxriscv.execute._
+import naxriscv.lsu.{DataCachePlugin, LoadPlugin, LsuPlugin, StorePlugin}
 import naxriscv.utilities._
 import spinal.lib.eda.bench.Rtl
 
@@ -188,4 +188,17 @@ X0 init =>
 
 /*
 checkLq => 6.8slack 550 LUT (16lq/16sq)
+ */
+
+/*
+obj_dir/VNaxRiscv --name dhrystone --output_dir output/nax/dhrystone --load_elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/dhrystone.elf --start_symbol _start --pass_symbol pass --fail_symbol fail --stats_print --stats_toggle_symbol sim_time
+
+SUCCESS dhrystone
+STATS :
+  commits           73612 => 368
+  reschedules       8803  => 44
+  trap              0
+  missprediction    8803
+  storeToLoadHazard 0
+
  */

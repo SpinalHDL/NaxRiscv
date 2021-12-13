@@ -624,9 +624,9 @@ enum ARG
     ARG_TRACE,
     ARG_TRACE_REF,
     ARG_STATS_PRINT,
-    ARG_STATS_START_SYMBOLE,
-    ARG_STATS_STOP_SYMBOLE,
-    ARG_STATS_TOGGLE_SYMBOLE,
+    ARG_STATS_START_SYMBOL,
+    ARG_STATS_STOP_SYMBOL,
+    ARG_STATS_TOGGLE_SYMBOL,
 };
 
 
@@ -645,9 +645,9 @@ static const struct option long_options[] =
     { "trace", no_argument, 0, ARG_TRACE },
     { "trace_ref", no_argument, 0, ARG_TRACE_REF },
     { "stats_print", no_argument, 0, ARG_STATS_PRINT },
-    { "stats_start_symbole", required_argument, 0, ARG_STATS_START_SYMBOLE },
-    { "stats_stop_symbole", required_argument, 0, ARG_STATS_STOP_SYMBOLE },
-    { "stats_toggle_symbole", required_argument, 0, ARG_STATS_TOGGLE_SYMBOLE },
+    { "stats_start_symbol", required_argument, 0, ARG_STATS_START_SYMBOL },
+    { "stats_stop_symbol", required_argument, 0, ARG_STATS_STOP_SYMBOL },
+    { "stats_toggle_symbol", required_argument, 0, ARG_STATS_TOGGLE_SYMBOL },
     0
 };
 
@@ -696,9 +696,9 @@ int main(int argc, char** argv, char** env){
             case ARG_START_SYMBOL:
             case ARG_PASS_SYMBOL:
             case ARG_FAIL_SYMBOL:
-            case ARG_STATS_START_SYMBOLE:
-            case ARG_STATS_STOP_SYMBOLE:
-            case ARG_STATS_TOGGLE_SYMBOLE: break;
+            case ARG_STATS_START_SYMBOL:
+            case ARG_STATS_STOP_SYMBOL:
+            case ARG_STATS_TOGGLE_SYMBOL: break;
             default: failure(); break;
         }
     }
@@ -772,9 +772,9 @@ int main(int argc, char** argv, char** env){
                 wrap.memory.write(addr, 4, nop);
                 soc->memory.write(addr, 4, nop);
             }break;
-            case ARG_STATS_TOGGLE_SYMBOLE: statsToggleAt = elf->getSymbolAddress(optarg); whitebox.statsCaptureEnable = false; break;
-            case ARG_STATS_START_SYMBOLE: statsStartAt = elf->getSymbolAddress(optarg); whitebox.statsCaptureEnable = false; break;
-            case ARG_STATS_STOP_SYMBOLE: statsStopAt = elf->getSymbolAddress(optarg); break;
+            case ARG_STATS_TOGGLE_SYMBOL: statsToggleAt = elf->getSymbolAddress(optarg); whitebox.statsCaptureEnable = false; break;
+            case ARG_STATS_START_SYMBOL: statsStartAt = elf->getSymbolAddress(optarg); whitebox.statsCaptureEnable = false; break;
+            case ARG_STATS_STOP_SYMBOL: statsStopAt = elf->getSymbolAddress(optarg); break;
             default:  break;
         }
     }

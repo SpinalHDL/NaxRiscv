@@ -1,8 +1,8 @@
-package naxriscv.units
+package naxriscv.execute
 
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.interfaces.{MicroOp, _}
-import naxriscv.units.lsu.LsuPlugin
+import naxriscv.lsu.LsuPlugin
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._

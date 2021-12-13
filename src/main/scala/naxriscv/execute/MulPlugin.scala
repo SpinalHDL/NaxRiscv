@@ -1,4 +1,4 @@
-package naxriscv.units
+package naxriscv.execute
 
 import naxriscv.riscv.Rvi
 import naxriscv.utilities.Plugin

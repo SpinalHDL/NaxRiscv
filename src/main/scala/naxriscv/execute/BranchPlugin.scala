@@ -1,4 +1,4 @@
-package naxriscv.units
+package naxriscv.execute
 
 import naxriscv.Frontend.MICRO_OP
 import naxriscv.{Frontend, Global}

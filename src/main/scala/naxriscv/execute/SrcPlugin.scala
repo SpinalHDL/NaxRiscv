@@ -1,4 +1,4 @@
-package naxriscv.units
+package naxriscv.execute
 
 import naxriscv.{Frontend, Global}
 import naxriscv.interfaces.{AddressTranslationService, MicroOp, RS1, RS2}
