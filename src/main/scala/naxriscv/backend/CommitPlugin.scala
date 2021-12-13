@@ -47,13 +47,6 @@ class CommitPlugin extends Plugin with CommitService{
       stage(ROB_ID) := alloc.resized
       stage.haltIt(full)
 
-      val whitebox = new Area{
-        setName("robToPc")
-        val valid = Verilator.public(CombInit(stage.isFireing))
-        val robId = Verilator.public(CombInit(stage(ROB_ID)))
-        val pc = (0 until DISPATCH_COUNT).map(i => Verilator.public(CombInit(stage(PC, i))))
-      }
-
       val allocNext = alloc + (stage.isFireing ? U(ROB.COLS) | U(0))
       alloc := allocNext
     }
@@ -110,7 +103,7 @@ class CommitPlugin extends Plugin with CommitService{
       val lineCommited = (maskComb & active) === 0
 
       val event = CommitEvent()
-      event.setName("commit").addAttribute(Verilator.public)
+      event
       event.mask := 0
       event.robId := ptr.commit.resized
 
@@ -120,7 +113,7 @@ class CommitPlugin extends Plugin with CommitService{
       lineEvent.robId := ptr.commit.resized
 
       val reschedulePort = Flow(RescheduleEvent())
-      reschedulePort.setName("reschedule").addAttribute(Verilator.public)
+      reschedulePort
       reschedulePort.valid := rescheduleHit
       reschedulePort.nextRob := ptr.allocNext.resized
 
@@ -184,6 +177,17 @@ class CommitPlugin extends Plugin with CommitService{
       }
     }
 
+    val cmt = commit
+    val whitebox = new AreaRoot {
+      def patch[T <: Data](that : T) = Verilator.public(CombInit(that))
+      val robToPc = new Area {
+        val valid = patch(ptr.stage.isFireing)
+        val robId = patch(ptr.stage(ROB_ID))
+        val pc = (0 until DISPATCH_COUNT).map(i => patch(ptr.stage(PC, i)))
+      }
+      val commit = patch(cmt.event)
+      val reschedule = patch(cmt.reschedulePort)
+    }
 
     getService[DocPlugin].property("COMMIT_COUNT", COMMIT_COUNT.get)
     getService[DocPlugin].property("DISPATCH_COUNT", DISPATCH_COUNT)
