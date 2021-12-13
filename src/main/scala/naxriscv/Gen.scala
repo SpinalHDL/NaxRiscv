@@ -14,21 +14,21 @@ import scala.collection.mutable.ArrayBuffer
 
 object Config{
   def properties() = {
-    Frontend.RVC.set(true)
-    Frontend.FETCH_DATA_WIDTH.set(64)
-    Frontend.INSTRUCTION_WIDTH.set(32)
-    Frontend.DECODE_COUNT.set(2)
-    Global.COMMIT_COUNT.set(2)
-    ROB.SIZE.set(64)
-    Global.XLEN.set(32)
-
 //    Frontend.RVC.set(true)
-//    Frontend.FETCH_DATA_WIDTH.set(32)
+//    Frontend.FETCH_DATA_WIDTH.set(64)
 //    Frontend.INSTRUCTION_WIDTH.set(32)
-//    Frontend.DECODE_COUNT.set(1)
-//    Global.COMMIT_COUNT.set(1)
+//    Frontend.DECODE_COUNT.set(2)
+//    Global.COMMIT_COUNT.set(2)
 //    ROB.SIZE.set(64)
 //    Global.XLEN.set(32)
+
+    Frontend.RVC.set(true)
+    Frontend.FETCH_DATA_WIDTH.set(32)
+    Frontend.INSTRUCTION_WIDTH.set(32)
+    Frontend.DECODE_COUNT.set(1)
+    Global.COMMIT_COUNT.set(1)
+    ROB.SIZE.set(64)
+    Global.XLEN.set(32)
   }
 
   def plugins(): Seq[Plugin] ={
@@ -57,6 +57,9 @@ object Config{
       slotCount = 32
     )
 
+
+    plugins += new PredictorPlugin()
+
     plugins += new LsuPlugin(
       lqSize = 16,
       sqSize = 16,
@@ -77,16 +80,16 @@ object Config{
     plugins += new IntAluPlugin("ALU0")
     plugins += new BranchPlugin("ALU0")
     plugins += new ShiftPlugin("ALU0")
-//    plugins += new LoadPlugin("ALU0")
-//    plugins += new StorePlugin("ALU0")
+    plugins += new LoadPlugin("ALU0")
+    plugins += new StorePlugin("ALU0")
 
-    plugins += new ExecutionUnitBase("ALU1")
-    plugins += new SrcPlugin("ALU1")
+//    plugins += new ExecutionUnitBase("ALU1")
+//    plugins += new SrcPlugin("ALU1")
 //    plugins += new IntAluPlugin("ALU1")
 //    plugins += new BranchPlugin("ALU1")
 //    plugins += new ShiftPlugin("ALU1")
-    plugins += new LoadPlugin("ALU1")
-    plugins += new StorePlugin("ALU1")
+//    plugins += new LoadPlugin("ALU1")
+//    plugins += new StorePlugin("ALU1")
 
 //    plugins += new ExecuteUnit("ALU0")
 //    plugins += new IntAluPlugin("ALU0")
@@ -103,7 +106,6 @@ object Config{
       physicalDepth = 64,
       bankCount = 1
     )
-    plugins += new PlayPlugin()
     plugins
   }
 }

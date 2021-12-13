@@ -72,6 +72,8 @@ class Stage extends Nameable {
   def flushNext() : Unit = flushNext(ConditionalContext.isTrue)
   def haltIt(cond : Bool)(implicit loc: Location) : Unit = internals.request.halts += nameFromLocation(CombInit(cond), "haltRequest")
   def throwIt(cond : Bool)(implicit loc: Location) : Unit = internals.request.throws += nameFromLocation(CombInit(cond), "throwRequest")
+
+  //Not being root will not clear the output valid of the stage, which can be quite usefull
   def flushIt(cond : Bool, root : Boolean = true) : Unit = {
     internals.request.flush += cond
     if(root) internals.request.flushRoot += cond

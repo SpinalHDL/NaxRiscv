@@ -8,6 +8,7 @@ import naxriscv.Frontend._
 import spinal.lib.pipeline._
 import naxriscv.utilities.{AllocatorMultiPortPop, Service}
 import spinal.core.fiber.{Handle, Lock}
+import spinal.lib.logic.Masked
 import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable.ArrayBuffer
@@ -41,7 +42,7 @@ case class EuGroup(eus : Seq[ExecuteUnitService],
 trait DecoderService extends Service with LockedService {
   def addEuOp(fu: ExecuteUnitService, microOp : MicroOp) : Unit
   def addResourceDecoding(resource : Resource, stageable : Stageable[Bool])
-
+  def covers() : Seq[Masked] //List of all instruction implemented
   def euGroups : Seq[EuGroup]
 
   def READ_RS(id : Int)  : Stageable[Bool]

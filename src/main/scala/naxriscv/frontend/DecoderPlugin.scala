@@ -38,6 +38,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
 
 
   override def addResourceDecoding(resource: Resource, stageable: Stageable[Bool]) = resourceToStageable(resource) = stageable
+  override def covers() = logic.encodings.all.toList
 
   def rsToId(id : RfRead) = id match {
     case RS1 => 0

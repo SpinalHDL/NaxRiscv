@@ -14,9 +14,10 @@ object BranchPlugin extends AreaObject {
   val COND = Stageable(Bool())
   val EQ = Stageable(Bool())
   val BranchCtrlEnum = new SpinalEnum(binarySequential){
-    val B,JAL,JALR = newElement()
+    val B, JALR = newElement()
   }
   val BRANCH_CTRL = new Stageable(BranchCtrlEnum())
+  val CHECK_PREDICTION = new Stageable(Bool())
 }
 
 class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int = 0, branchAt : Int = 1) extends ExecutionUnitElementSimple(euId, staticLatency)  {
@@ -29,14 +30,14 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
   override val setup = create early new Setup{
     val sk = SrcKeys
 
-    add(Rvi.JAL , List(                                    ), List(BRANCH_CTRL -> BranchCtrlEnum.JAL))
-    add(Rvi.JALR, List(              sk.SRC1.RF            ), List(BRANCH_CTRL -> BranchCtrlEnum.JALR))
-    add(Rvi.BEQ , List(              sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BNE , List(              sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BLT , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BGE , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BLTU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BGEU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.JAL , List(                                    ), List(CHECK_PREDICTION -> False))
+    add(Rvi.JALR, List(              sk.SRC1.RF            ), List(CHECK_PREDICTION -> True, BRANCH_CTRL -> BranchCtrlEnum.JALR))
+    add(Rvi.BEQ , List(              sk.SRC1.RF, sk.SRC2.RF), List(CHECK_PREDICTION -> True, BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BNE , List(              sk.SRC1.RF, sk.SRC2.RF), List(CHECK_PREDICTION -> True, BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BLT , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), List(CHECK_PREDICTION -> True, BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BGE , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), List(CHECK_PREDICTION -> True, BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BLTU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(CHECK_PREDICTION -> True, BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BGEU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(CHECK_PREDICTION -> True, BRANCH_CTRL -> BranchCtrlEnum.B))
 
     val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
   }
@@ -54,7 +55,6 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
       EQ := ss.SRC1 === ss.SRC2
 
       COND := BRANCH_CTRL.mux(
-        BranchCtrlEnum.JAL  -> True,
         BranchCtrlEnum.JALR -> True,
         BranchCtrlEnum.B    -> MICRO_OP(14 downto 12).mux(
           B"000"  -> EQ,
@@ -67,13 +67,11 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
       val imm = IMM(Frontend.MICRO_OP)
       val target_a = BRANCH_CTRL.mux(
         BranchCtrlEnum.B    -> S(stage(PC)),
-        BranchCtrlEnum.JAL  -> S(stage(PC)),
         BranchCtrlEnum.JALR -> stage(ss.SRC1)
       )
 
       val target_b = BRANCH_CTRL.mux(
         BranchCtrlEnum.B    -> imm.b_sext,
-        BranchCtrlEnum.JAL  -> imm.j_sext,
         BranchCtrlEnum.JALR -> imm.i_sext
       )
 
@@ -90,7 +88,7 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
       val stage = eu.getExecute(branchAt)
       import stage._
 
-      setup.reschedule.valid := isFireing && SEL && NEED_BRANCH
+      setup.reschedule.valid := isFireing && SEL && NEED_BRANCH && CHECK_PREDICTION
       setup.reschedule.robId := ExecutionUnitKeys.ROB_ID
       setup.reschedule.cause := 0
       setup.reschedule.tval := 0
