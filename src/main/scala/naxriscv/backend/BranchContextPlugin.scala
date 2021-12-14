@@ -86,6 +86,8 @@ class BranchContextPlugin(branchCount : Int) extends Plugin with LockedImpl {
         ptr.alloc := allocNext
       }
 
+      haltIt(full) //This could be optimized easily for timings, but that's maybe already ok
+
       rob.write(BRANCH_ID, DISPATCH_COUNT, (0 until DISPATCH_COUNT).map(stage(BRANCH_ID, _)),  Frontend.ROB_ID, isFireing)
       rob.write(BRANCH_SEL, DISPATCH_COUNT, (0 until DISPATCH_COUNT).map(stage(BRANCH_SEL, _)),  Frontend.ROB_ID, isFireing)
     }
