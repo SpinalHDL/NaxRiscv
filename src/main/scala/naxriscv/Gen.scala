@@ -1,6 +1,6 @@
 package naxriscv
 
-import naxriscv.backend.{CommitPlugin, RegFilePlugin, RobPlugin}
+import naxriscv.backend.{CommitPlugin, BranchContextPlugin, RegFilePlugin, RobPlugin}
 import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
 import naxriscv.frontend.{FetchAddressTranslationPlugin, _}
@@ -57,7 +57,9 @@ object Config{
       slotCount = 32
     )
 
-
+    plugins += new BranchContextPlugin(
+      branchCount = 16
+    )
     plugins += new PredictorPlugin()
 
     plugins += new LsuPlugin(

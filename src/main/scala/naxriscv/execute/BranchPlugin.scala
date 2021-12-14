@@ -1,6 +1,7 @@
 package naxriscv.execute
 
 import naxriscv.Frontend.MICRO_OP
+import naxriscv.backend.BranchContextPlugin
 import naxriscv.frontend.PredictorPlugin
 import naxriscv.{Frontend, Global}
 import naxriscv.interfaces._
@@ -39,6 +40,9 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
     add(Rvi.BLTU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
     add(Rvi.BGEU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
 
+    val branchContext = getService[BranchContextPlugin]
+    eu.addRobStageable(branchContext.keys.BRANCH_ID)
+
     val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
   }
 
@@ -46,6 +50,9 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
     val predictor = getService[PredictorPlugin]
     val PC = getService[AddressTranslationService].PC
     val sliceShift = if(Frontend.RVC) 1 else 2
+    val branchContext = getService[BranchContextPlugin]
+    val bck = branchContext.keys.get
+    import bck._
 
     val process = new Area {
       val stage = eu.getExecute(0)
@@ -85,15 +92,14 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
       (PC, "TARGET") := COND ? stage(PC, "TRUE") | stage(PC, "FALSE")
       wb.payload := B(stage(PC, "FALSE"))
 
-      eu.addRobStageable(predictor.setup.key)
-
+      stage(BRANCH_EARLY) := branchContext.readEarly(BRANCH_ID)
     }
 
     val branch = new Area{
       val stage = eu.getExecute(branchAt)
       import stage._
 
-      val misspredicted = predictor.setup.key.pcNext =/= stage(PC, "TARGET")
+      val misspredicted = BRANCH_EARLY.pcNext =/= stage(PC, "TARGET")
 
       setup.reschedule.valid := isFireing && SEL && misspredicted
       setup.reschedule.robId := ExecutionUnitKeys.ROB_ID
@@ -107,3 +113,4 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
     }
   }
 }
+

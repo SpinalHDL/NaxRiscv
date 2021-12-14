@@ -1,5 +1,6 @@
 package naxriscv.frontend
 
+import naxriscv.backend.BranchContextPlugin
 import naxriscv.{Frontend, ROB}
 import naxriscv.interfaces.{AddressTranslationService, JumpService, RobService}
 import naxriscv.riscv.{IMM, Rvi}
@@ -8,10 +9,6 @@ import spinal.lib._
 import naxriscv.utilities.Plugin
 import spinal.lib.logic.{DecodingSpec, DecodingSpecExample, Masked}
 import spinal.lib.pipeline.{Stageable, StageableOffset}
-
-case class RobPrediction(pcWidth : Int) extends Bundle{
-  val pcNext = UInt(pcWidth bits)
-}
 
 class PredictorPlugin() extends Plugin{
 
@@ -24,15 +21,15 @@ class PredictorPlugin() extends Plugin{
     val jumpPort = jump.createJumpInterface(JumpService.Priorities.PREDICTOR)
     frontend.retain()
     rob.retain()
-
-    val key = Stageable(RobPrediction(widthOf(PC)))
   }
 
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
     val decoder = getService[DecoderPlugin]
     val rob = getService[RobService]
+    val branchContext = getService[BranchContextPlugin]
     val PC = getService[AddressTranslationService].PC
+
     val sliceShift = if(Frontend.RVC) 1 else 2
     val branchKeys = List(Rvi.BEQ, Rvi.BNE, Rvi.BLT, Rvi.BGE, Rvi.BLTU, Rvi.BGEU).map(e => Masked(e.key))
     val branchDecoder, jalDecoder, jalrDecoder, anyDecoder = new DecodingSpec(Bool()).setDefault(Masked.zero)
@@ -52,7 +49,6 @@ class PredictorPlugin() extends Plugin{
       val isBranch = branchDecoder.build(inst, decoder.covers())
       val isAny = anyDecoder.build(inst, decoder.covers())
 
-
       val imm = IMM(inst)
 
       val offset = Frontend.INSTRUCTION_DECOMPRESSED(2).mux(
@@ -68,7 +64,8 @@ class PredictorPlugin() extends Plugin{
       val pcPrediction = branchedPrediction ? pcTarget otherwise pcInc
       val needCorrection = Frontend.DISPATCH_MASK && isAny && pcNext =/= pcPrediction
 
-      setup.key.pcNext := U(pcPrediction)
+      branchContext.keys.BRANCH_SEL := isAny
+      branchContext.keys.BRANCH_EARLY.pcNext := U(pcPrediction)
     }
 
     val hit = slots.map(_.needCorrection).orR
@@ -77,8 +74,6 @@ class PredictorPlugin() extends Plugin{
     setup.jumpPort.pc := U(MuxOH(selOh, slots.map(_.pcPrediction)))
 
     flushIt(setup.jumpPort.valid, root = false)
-
-    rob.write(setup.key, Frontend.DECODE_COUNT, (0 to Frontend.DECODE_COUNT).map(frontend.pipeline.allocated(setup.key, _)),  frontend.pipeline.allocated(Frontend.ROB_ID), frontend.pipeline.allocated.isFireing)
 
     //WARNING, overloaded(Frontend.DISPATCH_MASK) may not be reconized by some downstream plugins if you move this futher the decoding stage
     for(slotId <- 1 until Frontend.DECODE_COUNT){
