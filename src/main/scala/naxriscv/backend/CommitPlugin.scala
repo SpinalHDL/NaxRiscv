@@ -22,7 +22,7 @@ class CommitPlugin extends Plugin with CommitService{
   override def nextCommitRobId = logic.commit.head
 
   val setup = create early new Area{
-    val jump = getService[JumpService].createJumpInterface(JumpService.Priorities.COMMIT) //Flush missing
+    val jump = getService[JumpService].createJumpInterface(JumpService.Priorities.COMMIT_RESCHEDULE) //Flush missing
     val rob = getService[RobService]
     val robLineMask = rob.newRobLineValids()
     rob.retain()

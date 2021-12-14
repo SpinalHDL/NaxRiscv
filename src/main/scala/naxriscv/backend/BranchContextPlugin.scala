@@ -31,6 +31,7 @@ class BranchContextPlugin(branchCount : Int) extends Plugin with LockedImpl {
   assert(isPow2(branchCount))
 
   def readEarly(address : UInt) = logic.mem.earlyBranch.readAsync(address)
+  def writeFinal() = logic.mem.finalBranch.writePort
 
   val keys = create early new AreaRoot{
     val BRANCH_SEL   = Stageable(Bool())

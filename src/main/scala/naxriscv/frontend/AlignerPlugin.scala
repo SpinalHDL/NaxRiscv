@@ -30,6 +30,15 @@ class AlignerPlugin() extends Plugin{
     }
   }
 
+  val keys = create early new AreaRoot{
+    val ALIGNED_BRANCH_VALID = Stageable(Bool())
+    val ALIGNED_BRANCH_PC_NEXT = Stageable(getService[AddressTranslationService].PC)
+
+    val WORD_BRANCH_VALID = Stageable(Bool())
+    val WORD_BRANCH_SLICE = Stageable(UInt(log2Up(SLICE_COUNT) bits)) //TODO implement me
+    val WORD_BRANCH_PC_NEXT = Stageable(getService[AddressTranslationService].PC)
+  }
+
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     frontend.retain()
@@ -60,6 +69,8 @@ class AlignerPlugin() extends Plugin{
       val data = Reg(WORD)
       val mask = Reg(MASK) init (0)
       val pc   = Reg(PC())
+      val branchValid = Reg(keys.WORD_BRANCH_VALID())
+      val branchPcNext = Reg(keys.WORD_BRANCH_PC_NEXT())
     }
 
     val slices = new Area {
@@ -85,8 +96,6 @@ class AlignerPlugin() extends Plugin{
         !rvc && !MASK.lsb
       else
         False
-
-
     }
 
 
@@ -105,6 +114,15 @@ class AlignerPlugin() extends Plugin{
       output(MASK_ALIGNED, i) := valid
       output(INSTRUCTION_SLICE_COUNT, i) := (if(RVC) U(!rvc) else U(0))
 
+      val lastWord = maskOh.drop(SLICE_COUNT-i).orR || rvc && maskOh(SLICE_COUNT-i-1)
+      when(lastWord) {
+        output(keys.ALIGNED_BRANCH_VALID, i)   := input(keys.WORD_BRANCH_VALID)
+        output(keys.ALIGNED_BRANCH_PC_NEXT, i) := input(keys.WORD_BRANCH_PC_NEXT)
+      } otherwise {
+        output(keys.ALIGNED_BRANCH_VALID, i)   := buffer.branchValid
+        output(keys.ALIGNED_BRANCH_PC_NEXT, i) := buffer.branchPcNext
+      }
+
       val sliceOffset = OHToUInt(maskOh << i)
       val pcWord = Vec(buffer.pc, output(frontend.keys.FETCH_PC_PRE_TRANSLATION)).read(U(sliceOffset.msb))
       output(PC, i) := (pcWord >> sliceRange.high+1) @@ U(sliceOffset.dropHigh(1)) @@ U(0, sliceRangeLow bits)
@@ -120,6 +138,8 @@ class AlignerPlugin() extends Plugin{
       buffer.mask := fireOutput ? slices.mask(SLICE_COUNT, SLICE_COUNT bits) | MASK
       buffer.data := WORD
       buffer.pc   := frontend.keys.FETCH_PC_PRE_TRANSLATION
+      buffer.branchValid := keys.WORD_BRANCH_VALID
+      buffer.branchPcNext := keys.WORD_BRANCH_PC_NEXT
     }
 //    val fireOutput = CombInit(output.isFireing)
 //    val fireInput = False

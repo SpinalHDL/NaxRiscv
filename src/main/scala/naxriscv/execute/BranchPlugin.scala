@@ -110,6 +110,13 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
 
       setup.reschedule.trap := stage(PC, "TARGET")(0, sliceShift bits) =/= 0
       setup.reschedule.skipCommit := setup.reschedule.trap
+
+      val finalBranch = branchContext.writeFinal()
+      finalBranch.valid := isValid && SEL
+      finalBranch.address := BRANCH_ID
+      finalBranch.data.pc := PC
+      finalBranch.data.pcNext := stage(PC, "TARGET")
+      finalBranch.data.taken := COND
     }
   }
 }

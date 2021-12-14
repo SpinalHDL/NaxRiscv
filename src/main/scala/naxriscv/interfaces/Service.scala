@@ -17,9 +17,9 @@ import scala.collection.mutable.ArrayBuffer
 
 object JumpService{
   object Priorities{
-    val FETCH_WORD = 0
-    val PREDICTOR = 100
-    val COMMIT = 200
+    def FETCH_WORD(stage : Int, prediction : Boolean) = stage*2 + (if(prediction) -1 else 0)
+    val DECODE_PREDICTION = 100
+    val COMMIT_RESCHEDULE = 200
   }
 }
 
@@ -27,7 +27,7 @@ case class JumpCmd(pcWidth : Int) extends Bundle{
   val pc = UInt(pcWidth bits)
 }
 trait JumpService extends Service{
-  def createJumpInterface(priority : Int = 0) : Flow[JumpCmd] //High priority win
+  def createJumpInterface(priority : Int) : Flow[JumpCmd] //High priority win
 }
 
 trait InitCycles extends Service{

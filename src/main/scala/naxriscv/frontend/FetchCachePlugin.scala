@@ -4,7 +4,7 @@ import spinal.lib._
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
-import naxriscv.interfaces.AddressTranslationService
+import naxriscv.interfaces.{AddressTranslationService, JumpService}
 import naxriscv.utilities._
 import spinal.lib.pipeline.Stageable
 
@@ -49,7 +49,7 @@ class FetchCachePlugin(val cacheSize : Int,
     pipeline.lock.retain()
 
     val pcPlugin = getService[PcPlugin]
-    val redoJump = pcPlugin.createJumpInterface()
+    val redoJump = pcPlugin.createJumpInterface(JumpService.Priorities.FETCH_WORD(controlAt, false))
 
     mem.flatten.filter(_.isOutput).foreach(_.assignDontCare())
 

@@ -16,7 +16,7 @@ import scala.collection.mutable.ArrayBuffer
 class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpService{
   case class JumpInfo(interface :  Flow[JumpCmd], priority : Int)
   val jumpInfos = ArrayBuffer[JumpInfo]()
-  override def createJumpInterface(priority : Int = 0): Flow[JumpCmd] = {
+  override def createJumpInterface(priority : Int): Flow[JumpCmd] = {
     val interface = Flow(JumpCmd(widthOf(getService[AddressTranslationService].PC)))
     jumpInfos += JumpInfo(interface, priority)
     interface
