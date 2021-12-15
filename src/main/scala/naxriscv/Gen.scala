@@ -1,11 +1,13 @@
 package naxriscv
 
-import naxriscv.backend.{CommitPlugin, BranchContextPlugin, RegFilePlugin, RobPlugin}
+import naxriscv.backend.{BranchContextPlugin, CommitPlugin, RegFilePlugin, RobPlugin}
 import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
-import naxriscv.frontend.{FetchAddressTranslationPlugin, _}
+import naxriscv.frontend._
+import naxriscv.fetch._
 import naxriscv.misc.{StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
 import naxriscv.execute._
+import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
 import naxriscv.utilities._
 import spinal.lib.eda.bench.Rtl
@@ -37,7 +39,7 @@ object Config{
     plugins += new StaticAddressTranslationPlugin(
       ioRange = _(31 downto 28) === 0x1
     )
-    plugins += new FrontendPlugin()
+    plugins += new FetchPlugin()
     plugins += new FetchAddressTranslationPlugin()
     plugins += new PcPlugin()
     plugins += new FetchCachePlugin(
@@ -48,6 +50,7 @@ object Config{
       reducedBankWidth = false
     )
     plugins += new AlignerPlugin()
+    plugins += new FrontendPlugin()
     plugins += new DecompressorPlugin()
     plugins += new DecoderPlugin()
     plugins += new RfTranslationPlugin()

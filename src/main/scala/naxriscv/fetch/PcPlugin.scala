@@ -1,4 +1,4 @@
-package naxriscv.frontend
+package naxriscv.fetch
 
 import spinal.core._
 import spinal.core.fiber._
@@ -8,9 +8,10 @@ import spinal.lib.pipeline._
 import naxriscv.utilities.Plugin
 import naxriscv._
 import naxriscv.Global._
-import naxriscv.Frontend._
+import naxriscv.fetch._
 
 import scala.collection.mutable.ArrayBuffer
+import Frontend._
 
 
 class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpService{
@@ -23,15 +24,15 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
   }
 
   val setup = create early new Area{
-    val pipeline = getService[FrontendPlugin]
+    val pipeline = getService[FetchPlugin]
     pipeline.lock.retain()
   }
 
   val logic = create late new Area{
     val PC = getService[AddressTranslationService].PC
     val stage = setup.pipeline.getStage(0)
-    val frontend = getService[FrontendPlugin]
-    val pipeline = frontend.getPipeline()
+    val fetch = getService[FetchPlugin]
+    val pipeline = fetch.getPipeline()
     import stage._
 
     val sliceRangeLow = if (RVC) 1 else 2
@@ -97,7 +98,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
 
     fetchPc.output.ready := stage.isReady
     stage.valid := fetchPc.output.valid
-    stage(frontend.keys.FETCH_PC_PRE_TRANSLATION) := fetchPc.output.payload
+    stage(fetch.keys.FETCH_PC_PRE_TRANSLATION) := fetchPc.output.payload
 
     setup.pipeline.lock.release()
   }

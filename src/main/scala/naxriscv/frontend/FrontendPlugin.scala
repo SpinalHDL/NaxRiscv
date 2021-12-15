@@ -1,7 +1,7 @@
 package naxriscv.frontend
 
 import naxriscv.Global
-import naxriscv.interfaces.{AddressTranslationService, CommitService}
+import naxriscv.interfaces.{AddressTranslationService, CommitService, LockedImpl}
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib.pipeline.Connection._
@@ -26,22 +26,13 @@ trait FetchPipelineRequirements{
 //  }
 //}
 
-class FrontendPlugin() extends Plugin {
-  val lock = Lock()
-
-  val keys = create early new Area{
-
-    val spec = getService[AddressTranslationService]
-    val FETCH_PC_POST_TRANSLATION   = Stageable(UInt(spec.postWidth bits))
-    val FETCH_PC_PRE_TRANSLATION  = Stageable(UInt(spec.preWidth bits))
-  }.setName("")
-
+class FrontendPlugin() extends Plugin with LockedImpl{
   val pipeline = create early new Pipeline{
     val stagesCount = framework.getServices.map{
       case s : FetchPipelineRequirements => s.stagesCountMin
       case _ => 0
     }.max
-    val fetches = Array.fill(stagesCount)(newStage())
+
     val aligned = newStage()
     val decompressed = newStage()
     val decoded = newStage()
@@ -49,10 +40,6 @@ class FrontendPlugin() extends Plugin {
     val dispatch = newStage()
 
     import spinal.lib.pipeline.Connection._
-    for((m, s) <- (fetches.dropRight(1), fetches.tail).zipped){
-      connect(m, s)(M2S(flushPreserveInput = m == fetches.head))
-    }
-
     connect(decoded, allocated)(M2S())
     connect(allocated, dispatch)(M2S())
   }
@@ -65,11 +52,5 @@ class FrontendPlugin() extends Plugin {
     pipeline.build()
   }
 
-  def getStage(id : Int) = pipeline.fetches(id)
   def getPipeline() = pipeline.get
-
-  def retain() = lock.retain()
-  def release() = lock.release()
-
-
 }

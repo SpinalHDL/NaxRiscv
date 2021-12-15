@@ -1,7 +1,8 @@
 package naxriscv.frontend
 
-import naxriscv.Frontend.{FETCH_DATA_WIDTH}
+import naxriscv.Frontend.FETCH_DATA_WIDTH
 import naxriscv.backend.BranchContextPlugin
+import naxriscv.fetch.{AlignerPlugin, FetchPlugin}
 import naxriscv.{Frontend, ROB}
 import naxriscv.interfaces.{AddressTranslationService, JumpService, RobService}
 import naxriscv.riscv.{IMM, Rvi}
@@ -16,17 +17,20 @@ class PredictorPlugin() extends Plugin{
 
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
+    val fetch = getService[FetchPlugin]
     val jump = getService[JumpService]
     val rob = getService[RobService]
     val PC = getService[AddressTranslationService].PC
     val decodeJump = jump.createJumpInterface(JumpService.Priorities.DECODE_PREDICTION)
     val btbJump = jump.createJumpInterface(JumpService.Priorities.FETCH_WORD(btbJumpAt, true))
     frontend.retain()
+    fetch.retain()
     rob.retain()
   }
 
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
+    val fetch = getService[FetchPlugin]
     val decoder = getService[DecoderPlugin]
     val rob = getService[RobService]
     val branchContext = getService[BranchContextPlugin]
@@ -34,7 +38,7 @@ class PredictorPlugin() extends Plugin{
     val ak = getService[AlignerPlugin].keys.get
     import ak._
 
-    val FETCH_PC = frontend.keys.FETCH_PC_PRE_TRANSLATION
+    val FETCH_PC = fetch.keys.FETCH_PC_PRE_TRANSLATION
 
     val sliceShift = if(Frontend.RVC) 1 else 2
 
@@ -64,13 +68,13 @@ class PredictorPlugin() extends Plugin{
       }
 
       val read = new Area{
-        val stage = frontend.pipeline.fetches(btbJumpAt-1)
+        val stage = fetch.getStage(btbJumpAt-1)
         import stage._
         val hash = getHash(FETCH_PC)
         val entryAddress = (FETCH_PC >> wordBytesWidth).resize(mem.addressWidth)
       }
       val applyIt = new Area{
-        val stage = frontend.pipeline.fetches(btbJumpAt)
+        val stage = fetch.getStage(btbJumpAt)
         import stage._
         val entry = mem.readSync(read.entryAddress, read.stage.isReady)
         val hit = isValid && entry.hash === getHash(FETCH_PC)
@@ -142,5 +146,6 @@ class PredictorPlugin() extends Plugin{
 
     rob.release()
     frontend.release()
+    fetch.release()
   }
 }

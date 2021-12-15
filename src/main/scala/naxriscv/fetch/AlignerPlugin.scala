@@ -1,4 +1,4 @@
-package naxriscv.frontend
+package naxriscv.fetch
 
 import spinal.core._
 import spinal.core.fiber._
@@ -9,6 +9,7 @@ import scala.collection.mutable.ArrayBuffer
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
+import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.AddressTranslationService
 import naxriscv.utilities.Plugin
 import spinal.lib.pipeline.Connection.M2S
@@ -16,19 +17,19 @@ import spinal.lib.pipeline.{ConnectionLogic, ConnectionPoint, Stageable}
 
 class AlignerPlugin() extends Plugin{
 
-  class CustomConnector extends ConnectionLogic{
-    override def on(m: ConnectionPoint, s: ConnectionPoint, flush: Bool, flushNext : Bool, flushNextHit : Bool) = new Area {
-      val l = logic.get
-      import l._
-      assert(flushNext == null)
-      s.valid := extractors.map(_.valid).orR
-      if(m.ready != null) m.ready := fireInput
-      if(flush != null) when(flush){
-        buffer.mask := 0
-      }
-      (s.payload, m.payload).zipped.foreach(_ := _)
-    }
-  }
+//  class CustomConnector extends ConnectionLogic{
+//    override def on(m: ConnectionPoint, s: ConnectionPoint, flush: Bool, flushNext : Bool, flushNextHit : Bool) = new Area {
+//      val l = logic.get
+//      import l._
+//      assert(flushNext == null)
+//      s.valid := extractors.map(_.valid).orR
+//      if(m.ready != null) m.ready := fireInput
+//      if(flush != null) when(flush){
+//        buffer.mask := 0
+//      }
+//      (s.payload, m.payload).zipped.foreach(_ := _)
+//    }
+//  }
 
   val keys = create early new AreaRoot{
     val ALIGNED_BRANCH_VALID = Stageable(Bool())
@@ -40,19 +41,23 @@ class AlignerPlugin() extends Plugin{
   }
 
   val setup = create early new Area{
+    val fetch = getService[FetchPlugin]
     val frontend = getService[FrontendPlugin]
+    fetch.retain()
     frontend.retain()
-    val buffer = frontend.pipeline.newStage()
-    frontend.pipeline.connect(frontend.pipeline.fetches.last, buffer)(new M2S())
-    frontend.pipeline.connect(buffer, frontend.pipeline.aligned)(new CustomConnector)
+
+    val buffer = fetch.pipeline.newStage()
+    fetch.pipeline.connect(fetch.pipeline.stages.last, buffer)(new M2S())
+//    frontend.pipeline.connect(buffer, frontend.pipeline.aligned)(new CustomConnector)
   }
 
   val MASK = Stageable(Bits(FETCH_DATA_WIDTH/SLICE_WIDTH bits))
   val logic = create late new Area {
+    val frontend = getService[FrontendPlugin]
+    val fetch = getService[FetchPlugin]
     val PC = getService[AddressTranslationService].PC
     val input = setup.buffer
     val output = setup.frontend.pipeline.aligned
-    val frontend = getService[FrontendPlugin]
 
     import input._
 
@@ -60,9 +65,9 @@ class AlignerPlugin() extends Plugin{
     val sliceRangeLow = if (RVC) 1 else 2
     val sliceRange = (sliceRangeLow + log2Up(SLICE_COUNT) - 1) downto sliceRangeLow
     val _ = {
-      val maskStage = frontend.getStage(1)
+      val maskStage = fetch.getStage(1)
       import maskStage._
-      MASK := (0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(frontend.keys.FETCH_PC_PRE_TRANSLATION(sliceRange))
+      MASK := (0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(fetch.keys.FETCH_PC_PRE_TRANSLATION(sliceRange))
     }
 
     val buffer = new Area {
@@ -124,7 +129,7 @@ class AlignerPlugin() extends Plugin{
       }
 
       val sliceOffset = OHToUInt(maskOh << i)
-      val pcWord = Vec(buffer.pc, output(frontend.keys.FETCH_PC_PRE_TRANSLATION)).read(U(sliceOffset.msb))
+      val pcWord = Vec(buffer.pc, input(fetch.keys.FETCH_PC_PRE_TRANSLATION)).read(U(sliceOffset.msb))
       output(PC, i) := (pcWord >> sliceRange.high+1) @@ U(sliceOffset.dropHigh(1)) @@ U(0, sliceRangeLow bits)
     }
 
@@ -137,7 +142,7 @@ class AlignerPlugin() extends Plugin{
     when(fireInput){
       buffer.mask := fireOutput ? slices.mask(SLICE_COUNT, SLICE_COUNT bits) | MASK
       buffer.data := WORD
-      buffer.pc   := frontend.keys.FETCH_PC_PRE_TRANSLATION
+      buffer.pc   := fetch.keys.FETCH_PC_PRE_TRANSLATION
       buffer.branchValid := keys.WORD_BRANCH_VALID
       buffer.branchPcNext := keys.WORD_BRANCH_PC_NEXT
     }
@@ -149,7 +154,15 @@ class AlignerPlugin() extends Plugin{
 //      fireInput := True
 //    }
 
+    output.valid := extractors.map(_.valid).orR
+    input.haltIt(!fireInput)
+    input.flushIt(output.isFlushed, root = false)
+    when(output.isFlushed){
+      buffer.mask := 0
+    }
+
     setup.frontend.release()
+    setup.fetch.release()
   }
 }
 

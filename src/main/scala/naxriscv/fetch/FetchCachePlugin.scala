@@ -1,12 +1,11 @@
-package naxriscv.frontend
-import spinal.core._
-import spinal.lib._
-import naxriscv._
-import naxriscv.Global._
-import naxriscv.Frontend._
+package naxriscv.fetch
+
 import naxriscv.interfaces.{AddressTranslationService, JumpService}
 import naxriscv.utilities._
+import spinal.core._
+import spinal.lib._
 import spinal.lib.pipeline.Stageable
+import naxriscv.Frontend._
 
 case class FetchL1Cmd(p : FetchCachePlugin, physicalWidth : Int) extends Bundle{
   val address = UInt(physicalWidth bits)
@@ -45,7 +44,7 @@ class FetchCachePlugin(val cacheSize : Int,
   val mem = create early master(FetchL1Bus(this, getService[AddressTranslationService].postWidth))
 
   val setup = create early new Area{
-    val pipeline = getService[FrontendPlugin]
+    val pipeline = getService[FetchPlugin]
     pipeline.lock.retain()
 
     val pcPlugin = getService[PcPlugin]
@@ -59,7 +58,7 @@ class FetchCachePlugin(val cacheSize : Int,
   }
 
   val logic = create late new Area{
-    val frontend = getService[FrontendPlugin]
+    val fetch = getService[FetchPlugin]
     val preTranslationWidth = getService[AddressTranslationService].postWidth
     val cpuWordWidth = FETCH_DATA_WIDTH.get
     val bytePerMemWord = memDataWidth/8
@@ -202,20 +201,20 @@ class FetchCachePlugin(val cacheSize : Int,
       setup.pipeline.getStage(0).haltIt(valid)
     }
 
-    val fetch = new Area{
+    val read = new Area{
       for((bank, bankId) <- banks.zipWithIndex) yield new Area{
         {
           import readStage._
           bank.read.cmd.valid := !isStuck
-          bank.read.cmd.payload := frontend.keys.FETCH_PC_PRE_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
+          bank.read.cmd.payload := fetch.keys.FETCH_PC_PRE_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
         }
-        {import bankMuxesStage._; BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(frontend.keys.FETCH_PC_PRE_TRANSLATION(bankWordToCpuWordRange)) }
+        {import bankMuxesStage._; BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(fetch.keys.FETCH_PC_PRE_TRANSLATION(bankWordToCpuWordRange)) }
       }
 
       val bankMux = new Area {
         import bankMuxStage._
         val wayId = OHToUInt(WAYS_HITS)
-        val bankId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (frontend.keys.FETCH_PC_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
+        val bankId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (fetch.keys.FETCH_PC_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
         WORD := BANKS_MUXES.read(bankId) //MuxOH(WAYS_HITS, BANKS_MUXES)
       }
 
@@ -224,10 +223,10 @@ class FetchCachePlugin(val cacheSize : Int,
         {
           import readStage._
           way.read.cmd.valid := !isStuck
-          way.read.cmd.payload := frontend.keys.FETCH_PC_PRE_TRANSLATION(lineRange)
+          way.read.cmd.payload := fetch.keys.FETCH_PC_PRE_TRANSLATION(lineRange)
         }
 
-        {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === frontend.keys.FETCH_PC_POST_TRANSLATION(tagRange) }
+        {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === fetch.keys.FETCH_PC_POST_TRANSLATION(tagRange) }
       }
 
       {import hitStage._;   WAYS_HIT := B(WAYS_HITS).orR}
@@ -236,12 +235,12 @@ class FetchCachePlugin(val cacheSize : Int,
         import controlStage._
 
         setup.redoJump.valid := False
-        setup.redoJump.pc := frontend.keys.FETCH_PC_PRE_TRANSLATION
+        setup.redoJump.pc := fetch.keys.FETCH_PC_PRE_TRANSLATION
 
         when(isValid) {
           when(!WAYS_HIT) {
             refill.valid := True
-            refill.address := frontend.keys.FETCH_PC_POST_TRANSLATION
+            refill.address := fetch.keys.FETCH_PC_POST_TRANSLATION
 
             setup.redoJump.valid := True
             flushIt()
@@ -253,7 +252,6 @@ class FetchCachePlugin(val cacheSize : Int,
       }
 
       val inject = new Area{
-        import injectionStage._
       }
     }
 
