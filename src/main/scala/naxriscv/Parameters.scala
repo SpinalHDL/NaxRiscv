@@ -1,20 +1,23 @@
 package naxriscv
 
+import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib.pipeline.Stageable
+
+import scala.collection.mutable
 
 
 object ROB extends AreaObject{
   def COLS = Frontend.DISPATCH_COUNT
   def LINES = SIZE/COLS
-  val SIZE = ScopeProperty[Int]
+  val SIZE = NaxParameter[Int]
   def ID_WIDTH = log2Up(SIZE.get)
   val ID_TYPE = Stageable(UInt(ID_WIDTH bits))
   def lineRange = ID_WIDTH-1 downto log2Up(COLS)
 }
 
 object Global extends AreaObject {
-//  val PHYSICAL_WIDTH = ScopeProperty[Int]
+//  val PHYSICAL_WIDTH = NaxParameter[Int]
 //  def VIRTUAL_WIDTH = PHYSICAL_WIDTH.get //for now
 
 //  val PHYSICAL_ADDRESS = Stageable(UInt(PHYSICAL_WIDTH bits))
@@ -29,30 +32,29 @@ object Global extends AreaObject {
 //  val pageNumberWidth = pageNumberRange.size
 
 
-  val COMMIT_COUNT = ScopeProperty[Int]
+  val COMMIT_COUNT = NaxParameter[Int]
 
 
   val TRAP_CAUSE_WIDTH = 4 //TODO
-  val XLEN = ScopeProperty[Int]
+  val XLEN = NaxParameter[Int]
 }
 
 object Fetch extends AreaObject{
-  val RVC = ScopeProperty[Boolean]
-  val FETCH_DATA_WIDTH = ScopeProperty[Int]
-
+  val RVC = NaxParameter[Boolean]
+  val FETCH_DATA_WIDTH = NaxParameter[Int]
   def SLICE_WIDTH = if(RVC) 16 else 32
   def SLICE_BYTES = if(RVC) 2 else 4
   def SLICE_COUNT = FETCH_DATA_WIDTH/SLICE_WIDTH
   val INSTRUCTION_SLICE_COUNT = Stageable(UInt(if(RVC) 1 bits else 0 bits)) // minus one => RVC => 0, normal => 1
 
   val WORD = Stageable(Bits(FETCH_DATA_WIDTH bits))
-  val INSTRUCTION_WIDTH = ScopeProperty[Int]
+  val INSTRUCTION_WIDTH = NaxParameter[Int]
 }
 
 
 object Frontend extends AreaObject {
-  val BRANCH_HISTORY_WIDTH = ScopeProperty[Int]
-  val DECODE_COUNT = ScopeProperty[Int]
+  val BRANCH_HISTORY_WIDTH = NaxParameter[Int]
+  val DECODE_COUNT = NaxParameter[Int]
   def FETCH_COUNT = DECODE_COUNT.get
   def DISPATCH_COUNT = DECODE_COUNT.get
 
@@ -66,4 +68,38 @@ object Frontend extends AreaObject {
 
   val ROB_ID = Stageable(ROB.ID_TYPE)
 }
+
+class Thing[T]
+class DataBase{
+  val storage = mutable.LinkedHashMap[Thing[_ <: Any], Any]()
+  def update[T](key : Thing[T], value : T) = storage.update(key, value)
+  def apply[T](key : Thing[T]) : T = storage.apply(key).asInstanceOf[T]
+}
+
+object NaxThing{
+  def apply[T] = new NaxThing[T]
+
+  implicit def toValue[T](p : NaxThing[T]) : T = p.get()
+
+  class NaxPropertyInt(p: NaxThing[Int]) {
+    def bits = BitCount(p.get())
+  }
+  implicit def toBits(p: NaxThing[Int]) : NaxPropertyInt = new NaxPropertyInt(p)
+}
+
+class NaxThing[T] extends Thing[T]{
+  def get() : T = NaxDataBase.get.apply(this)
+  def set(value : T) = NaxDataBase.update(this, value)
+}
+
+object NaxParameter {
+  def apply[T] = new NaxThing[T]
+}
+
+object NaxDataBase extends ScopeProperty[DataBase]{
+  def create() = {
+    this.set(new DataBase)
+  }
+}
+
 

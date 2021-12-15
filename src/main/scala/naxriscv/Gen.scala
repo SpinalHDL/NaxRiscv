@@ -24,6 +24,7 @@ object Config{
 //    ROB.SIZE.set(64)
 //    Global.XLEN.set(32)
 
+    NaxDataBase.create()
     Fetch.RVC.set(true)
     Fetch.FETCH_DATA_WIDTH.set(32)
     Fetch.INSTRUCTION_WIDTH.set(32)
