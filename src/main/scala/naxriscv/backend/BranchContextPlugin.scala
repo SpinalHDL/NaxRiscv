@@ -76,18 +76,20 @@ class BranchContextPlugin(branchCount : Int) extends Plugin with LockedImpl {
         BRANCH_ID := allocNext.resized
         when(isValid && BRANCH_SEL && DISPATCH_MASK){
           full setWhen(ptr.isFull(allocNext))
+          allocNext \= allocNext + 1
           when(isReady){
             mem.earlyBranch.write(
               address = BRANCH_ID,
               data = BRANCH_EARLY
             )
-            allocNext \= allocNext + 1
           }
         }
-        ptr.alloc := allocNext
       }
 
       haltIt(full) //This could be optimized easily for timings, but that's maybe already ok
+      when(isFireing) {
+        ptr.alloc := allocNext
+      }
 
       rob.write(BRANCH_ID, DISPATCH_COUNT, (0 until DISPATCH_COUNT).map(stage(BRANCH_ID, _)),  ROB.ROB_ID, isFireing)
       rob.write(BRANCH_SEL, DISPATCH_COUNT, (0 until DISPATCH_COUNT).map(stage(BRANCH_SEL, _)),  ROB.ROB_ID, isFireing)
