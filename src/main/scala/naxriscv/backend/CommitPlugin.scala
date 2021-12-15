@@ -1,6 +1,6 @@
 package naxriscv.backend
 
-import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, ROB_ID}
+import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK}
 import naxriscv.{Global, ROB}
 import naxriscv.interfaces.{AddressTranslationService, CommitEvent, CommitFree, CommitService, JumpService, RescheduleEvent, RfAllocationService, RobService, ScheduleCmd, ScheduleReason}
 import naxriscv.utilities.{DocPlugin, Plugin}
@@ -44,7 +44,7 @@ class CommitPlugin extends Plugin with CommitService{
       //Manage frontend ROB id allocation
       val frontend = getService[FrontendPlugin]
       val stage = frontend.pipeline.allocated
-      stage(ROB_ID) := alloc.resized
+      stage(ROB.ROB_ID) := alloc.resized
       stage.haltIt(full)
 
       val allocNext = alloc + (stage.isFireing ? U(ROB.COLS) | U(0))
@@ -186,7 +186,7 @@ class CommitPlugin extends Plugin with CommitService{
       def patch[T <: Data](that : T) = Verilator.public(CombInit(that))
       val robToPc = new Area {
         val valid = patch(ptr.stage.isFireing)
-        val robId = patch(ptr.stage(ROB_ID))
+        val robId = patch(ptr.stage(ROB.ROB_ID))
         val pc = (0 until DISPATCH_COUNT).map(i => patch(ptr.stage(PC, i)))
       }
       val commit = patch(cmt.event)

@@ -3,6 +3,7 @@ package naxriscv
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib.pipeline.Stageable
+import naxriscv.utilities._
 
 import scala.collection.mutable
 
@@ -12,7 +13,7 @@ object ROB extends AreaObject{
   def LINES = SIZE/COLS
   val SIZE = NaxParameter[Int]
   def ID_WIDTH = log2Up(SIZE.get)
-  val ID_TYPE = Stageable(UInt(ID_WIDTH bits))
+  val ROB_ID = Stageable(UInt(ID_WIDTH bits))
   def lineRange = ID_WIDTH-1 downto log2Up(COLS)
 }
 
@@ -65,41 +66,6 @@ object Frontend extends AreaObject {
   val INSTRUCTION_DECOMPRESSED = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
   val MICRO_OP = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
   val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
-
-  val ROB_ID = Stageable(ROB.ID_TYPE)
-}
-
-class Thing[T]
-class DataBase{
-  val storage = mutable.LinkedHashMap[Thing[_ <: Any], Any]()
-  def update[T](key : Thing[T], value : T) = storage.update(key, value)
-  def apply[T](key : Thing[T]) : T = storage.apply(key).asInstanceOf[T]
-}
-
-object NaxThing{
-  def apply[T] = new NaxThing[T]
-
-  implicit def toValue[T](p : NaxThing[T]) : T = p.get()
-
-  class NaxPropertyInt(p: NaxThing[Int]) {
-    def bits = BitCount(p.get())
-  }
-  implicit def toBits(p: NaxThing[Int]) : NaxPropertyInt = new NaxPropertyInt(p)
-}
-
-class NaxThing[T] extends Thing[T]{
-  def get() : T = NaxDataBase.get.apply(this)
-  def set(value : T) = NaxDataBase.update(this, value)
-}
-
-object NaxParameter {
-  def apply[T] = new NaxThing[T]
-}
-
-object NaxDataBase extends ScopeProperty[DataBase]{
-  def create() = {
-    this.set(new DataBase)
-  }
 }
 
 

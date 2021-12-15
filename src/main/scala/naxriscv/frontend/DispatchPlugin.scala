@@ -102,8 +102,8 @@ class DispatchPlugin(slotCount : Int = 0,
     val queueStaticWakeTransposedHistory = History(queueStaticWakeTransposed, 0 to staticHitAt)
 
     val ptr = new Area{
-      val next = Reg(ROB.ID_TYPE)  init(ROB.SIZE-slotCount + Frontend.DISPATCH_COUNT)
-      val current = Reg(ROB.ID_TYPE)  init(ROB.SIZE-slotCount)
+      val next = Reg(ROB.ROB_ID)  init(ROB.SIZE-slotCount + Frontend.DISPATCH_COUNT)
+      val current = Reg(ROB.ROB_ID)  init(ROB.SIZE-slotCount)
       when(queue.io.push.fire){
         next := next + Frontend.DISPATCH_COUNT
         current := current + Frontend.DISPATCH_COUNT
@@ -152,7 +152,7 @@ class DispatchPlugin(slotCount : Int = 0,
         setName("")
         val OH = Stageable(Bits(slotCount bits))
         val UINT = Stageable(UInt(log2Up(slotCount) bits))
-        val ROB_ID = Stageable(ROB.ID_TYPE)
+        val ROB_ID = Stageable(ROB.ROB_ID)
         val OFFSET = Stageable(cloneOf(ptr.current))
       }
 

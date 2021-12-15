@@ -190,7 +190,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
           key = key,
           size = DISPATCH_COUNT,
           value = value,
-          robId = stage(ROB_ID),
+          robId = stage(ROB.ROB_ID),
           enable = stage.isFireing
         )
       }

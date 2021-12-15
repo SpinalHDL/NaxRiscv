@@ -14,7 +14,7 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 object ExecutionUnitKeys extends AreaObject {
-  val ROB_ID = Stageable(ROB.ID_TYPE)
+  val ROB_ID = Stageable(ROB.ROB_ID)
 }
 
 class ExecutionUnitBase(euId : String,

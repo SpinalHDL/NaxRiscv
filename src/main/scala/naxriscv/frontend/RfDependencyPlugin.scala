@@ -1,6 +1,6 @@
 package naxriscv.frontend
 
-import naxriscv.Frontend.{DISPATCH_MASK, ROB_ID}
+import naxriscv.Frontend.{DISPATCH_MASK}
 import naxriscv.{Frontend, Global, ROB, riscv}
 import naxriscv.compatibility.MultiPortWritesSymplifier
 import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, RegfileService, RegfileSpec, WakeRegFileService, WakeWithBypassService}
@@ -153,7 +153,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
       val port = impl.io.writes(slotId)
       port.valid := stage.isFireing && (decoder.WRITE_RD, slotId) && (DISPATCH_MASK, slotId)
       port.physical := stage(decoder.PHYS_RD, slotId)
-      port.robId := ROB_ID | slotId
+      port.robId := ROB.ROB_ID | slotId
     }
 
     //Commit
@@ -195,7 +195,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
             val writeRd = (decoder.ARCH_RD, priorId)
             when(useRd && writeRd === archRs){
               (setup.waits(rsId).ENABLE, slotId) := True
-              (setup.waits(rsId).ID    , slotId) := ROB_ID | priorId
+              (setup.waits(rsId).ID    , slotId) := ROB.ROB_ID | priorId
             }
           }
           for(wake <- wakeIds; if wake.needBypass){

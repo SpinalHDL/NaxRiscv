@@ -1,6 +1,6 @@
 package naxriscv.lsu
 
-import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, ROB_ID}
+import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK}
 import naxriscv.backend.RobPlugin
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.frontend.FrontendPlugin
@@ -19,7 +19,7 @@ object LsuUtils{
 }
 
 case class LsuLoadPort(lqSize : Int, wordWidth : Int, physicalRdWidth : Int, pcWidth : Int) extends Bundle {
-  val robId = ROB.ID_TYPE()
+  val robId = ROB.ROB_ID()
   val lqId = UInt(log2Up(lqSize) bits)
   val address = UInt(Global.XLEN bits)
   val size = UInt(log2Up(log2Up(wordWidth/8)+1) bits)
@@ -30,7 +30,7 @@ case class LsuLoadPort(lqSize : Int, wordWidth : Int, physicalRdWidth : Int, pcW
 }
 
 case class LsuStorePort(sqSize : Int, wordWidth : Int) extends Bundle {
-  val robId = ROB.ID_TYPE()
+  val robId = ROB.ROB_ID()
   val sqId = UInt(log2Up(sqSize) bits)
   val address = UInt(Global.XLEN bits)
   val data = Bits(wordWidth bits)
@@ -169,7 +169,7 @@ class LsuPlugin(lqSize: Int,
       val SQ_ID_CARRY = Stageable(Bool())
 
       val YOUNGER_LOAD_PC         = Stageable(PC)
-      val YOUNGER_LOAD_ROB        = Stageable(ROB.ID_TYPE)
+      val YOUNGER_LOAD_ROB        = Stageable(ROB.ROB_ID)
       val YOUNGER_LOAD_RESCHEDULE = Stageable(Bool())
 
       val OLDER_STORE_RESCHEDULE  = Stageable(Bool())
@@ -228,7 +228,7 @@ class LsuPlugin(lqSize: Int,
         val addressPre = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
         val addressPost = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
         val physRd = Mem.fill(lqSize)(decoder.PHYS_RD)
-        val robId = Mem.fill(lqSize)(ROB.ID_TYPE)
+        val robId = Mem.fill(lqSize)(ROB.ROB_ID)
         val pc = Mem.fill(lqSize)(PC)
         val sqAlloc = Mem.fill(lqSize)(UInt(log2Up(sqSize)+1 bits))
         val io = Mem.fill(lqSize)(Bool())
@@ -281,7 +281,7 @@ class LsuPlugin(lqSize: Int,
         val addressPre = Mem.fill(sqSize)(UInt(virtualAddressWidth bits))
         val addressPost = Mem.fill(sqSize)(UInt(virtualAddressWidth bits))
         val word = Mem.fill(sqSize)(Bits(wordWidth bits))
-        val robId = Mem.fill(sqSize)(ROB.ID_TYPE)
+        val robId = Mem.fill(sqSize)(ROB.ROB_ID)
         val lqAlloc = Mem.fill(sqSize)(UInt(log2Up(lqSize) + 1 bits))
         val io = Mem.fill(sqSize)(Bool())
       }
@@ -426,7 +426,7 @@ class LsuPlugin(lqSize: Int,
           LQ_SEL := sel
           LQ_SEL_OH := selOh
           decoder.PHYS_RD := mem.physRd.readAsync(sel)
-          ROB.ID_TYPE := mem.robId.readAsync(sel)
+          ROB.ROB_ID := mem.robId.readAsync(sel)
           WRITE_RD := mem.writeRd.readAsync(sel)
           ADDRESS_PRE_TRANSLATION := mem.addressPre.readAsync(LQ_SEL)
           SIZE     := regs.map(_.address.size).read(sel)
@@ -535,21 +535,21 @@ class LsuPlugin(lqSize: Int,
           setup.rfWrite.valid   := False
           setup.rfWrite.address := decoder.PHYS_RD
           setup.rfWrite.data    := rspFormated
-          setup.rfWrite.robId   := ROB.ID_TYPE
+          setup.rfWrite.robId   := ROB.ROB_ID
 
           setup.loadCompletion.valid := False
-          setup.loadCompletion.id := ROB.ID_TYPE
+          setup.loadCompletion.id := ROB.ROB_ID
 
           val wakeRob = Flow(WakeRob())
           wakeRob.valid := False
-          wakeRob.robId := ROB.ID_TYPE
+          wakeRob.robId := ROB.ROB_ID
 
           val wakeRf = Flow(WakeRegFile(decoder.PHYS_RD, needBypass = false))
           wakeRf.valid := False
           wakeRf.physical := decoder.PHYS_RD
 
           setup.loadTrap.valid      := False
-          setup.loadTrap.robId      := ROB.ID_TYPE
+          setup.loadTrap.robId      := ROB.ROB_ID
           setup.loadTrap.tval       := B(ADDRESS_PRE_TRANSLATION)
           setup.loadTrap.skipCommit := True
           setup.loadTrap.cause.assignDontCare()
@@ -735,7 +735,7 @@ class LsuPlugin(lqSize: Int,
           isValid := hit
           SQ_SEL := sel
           SQ_SEL_OH := selOh
-          ROB.ID_TYPE := mem.robId.readAsync(sel)
+          ROB.ROB_ID := mem.robId.readAsync(sel)
           ADDRESS_PRE_TRANSLATION := mem.addressPre.readAsync(sel)
           SIZE := regs.map(_.address.size).read(sel)
           DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
@@ -786,7 +786,7 @@ class LsuPlugin(lqSize: Int,
           import stage._
 
           setup.storeCompletion.valid := False
-          setup.storeCompletion.id := ROB.ID_TYPE
+          setup.storeCompletion.id := ROB.ROB_ID
 
           when(YOUNGER_LOAD_RESCHEDULE){
             setup.storeTrap.valid    := isFireing
@@ -796,7 +796,7 @@ class LsuPlugin(lqSize: Int,
           } otherwise {
             setup.storeTrap.valid      := False
             setup.storeTrap.trap       := True
-            setup.storeTrap.robId      := ROB.ID_TYPE
+            setup.storeTrap.robId      := ROB.ROB_ID
             setup.storeTrap.reason     := ScheduleReason.TRAP
           }
 
@@ -1012,7 +1012,7 @@ class LsuPlugin(lqSize: Int,
         key = key,
         size = DISPATCH_COUNT,
         value = value,
-        robId = allocStage(ROB_ID),
+        robId = allocStage(ROB.ROB_ID),
         enable = allocStage.isFireing
       )
     }
