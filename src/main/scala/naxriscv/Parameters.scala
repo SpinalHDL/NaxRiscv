@@ -36,32 +36,33 @@ object Global extends AreaObject {
   val XLEN = ScopeProperty[Int]
 }
 
+object Fetch extends AreaObject{
+  val RVC = ScopeProperty[Boolean]
+  val FETCH_DATA_WIDTH = ScopeProperty[Int]
+
+  def SLICE_WIDTH = if(RVC) 16 else 32
+  def SLICE_BYTES = if(RVC) 2 else 4
+  def SLICE_COUNT = FETCH_DATA_WIDTH/SLICE_WIDTH
+  val INSTRUCTION_SLICE_COUNT = Stageable(UInt(if(RVC) 1 bits else 0 bits)) // minus one => RVC => 0, normal => 1
+
+  val WORD = Stageable(Bits(FETCH_DATA_WIDTH bits))
+  val INSTRUCTION_WIDTH = ScopeProperty[Int]
+}
+
 
 object Frontend extends AreaObject {
-  val RVC = ScopeProperty[Boolean]
-  val INSTRUCTION_SLICE_COUNT = Stageable(UInt(if(RVC) 1 bits else 0 bits)) // minus one => RVC => 0, normal => 1
-  val FETCH_DATA_WIDTH = ScopeProperty[Int]
-  val INSTRUCTION_WIDTH = ScopeProperty[Int]
   val BRANCH_HISTORY_WIDTH = ScopeProperty[Int]
   val DECODE_COUNT = ScopeProperty[Int]
   def FETCH_COUNT = DECODE_COUNT.get
   def DISPATCH_COUNT = DECODE_COUNT.get
 
-  def SLICE_WIDTH = if(RVC) 16 else 32
-  def SLICE_BYTES = if(RVC) 2 else 4
-  def SLICE_COUNT = FETCH_DATA_WIDTH/SLICE_WIDTH
-
-  val WORD = Stageable(Bits(FETCH_DATA_WIDTH bits))
-
   val DISPATCH_MASK = Stageable(Bool())
 
   val MASK_ALIGNED = Stageable(Bool())
-  val INSTRUCTION_ALIGNED = Stageable(Bits(INSTRUCTION_WIDTH bits))
-  val INSTRUCTION_DECOMPRESSED = Stageable(Bits(INSTRUCTION_WIDTH bits))
-  val MICRO_OP = Stageable(Bits(INSTRUCTION_WIDTH bits))
+  val INSTRUCTION_ALIGNED = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
+  val INSTRUCTION_DECOMPRESSED = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
+  val MICRO_OP = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
   val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
-
-
 
   val ROB_ID = Stageable(ROB.ID_TYPE)
 }

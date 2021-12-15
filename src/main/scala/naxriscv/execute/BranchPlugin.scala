@@ -3,7 +3,7 @@ package naxriscv.execute
 import naxriscv.Frontend.MICRO_OP
 import naxriscv.backend.BranchContextPlugin
 import naxriscv.frontend.PredictorPlugin
-import naxriscv.{Frontend, Global}
+import naxriscv.{Fetch, Frontend, Global}
 import naxriscv.interfaces._
 import naxriscv.riscv._
 import naxriscv.utilities.Plugin
@@ -49,7 +49,7 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
   override val logic = create late new Logic{
     val predictor = getService[PredictorPlugin]
     val PC = getService[AddressTranslationService].PC
-    val sliceShift = if(Frontend.RVC) 1 else 2
+    val sliceShift = if(Fetch.RVC) 1 else 2
     val branchContext = getService[BranchContextPlugin]
     val bck = branchContext.keys.get
     import bck._
@@ -87,7 +87,7 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
       )
 
       (PC, "TRUE") := U(target_a + target_b)
-      val slices = Frontend.INSTRUCTION_SLICE_COUNT+^1
+      val slices = Fetch.INSTRUCTION_SLICE_COUNT+^1
       (PC, "FALSE") := PC + (slices << sliceShift)
       (PC, "TARGET") := COND ? stage(PC, "TRUE") | stage(PC, "FALSE")
       wb.payload := B(stage(PC, "FALSE"))

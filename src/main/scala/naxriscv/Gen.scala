@@ -24,9 +24,9 @@ object Config{
 //    ROB.SIZE.set(64)
 //    Global.XLEN.set(32)
 
-    Frontend.RVC.set(true)
-    Frontend.FETCH_DATA_WIDTH.set(32)
-    Frontend.INSTRUCTION_WIDTH.set(32)
+    Fetch.RVC.set(true)
+    Fetch.FETCH_DATA_WIDTH.set(32)
+    Fetch.INSTRUCTION_WIDTH.set(32)
     Frontend.DECODE_COUNT.set(1)
     Global.COMMIT_COUNT.set(1)
     ROB.SIZE.set(64)
@@ -46,7 +46,7 @@ object Config{
       cacheSize = 4096*2,
       wayCount = 2,
       injectionAt = 2,
-      memDataWidth = Frontend.FETCH_DATA_WIDTH,
+      memDataWidth = Fetch.FETCH_DATA_WIDTH,
       reducedBankWidth = false
     )
     plugins += new AlignerPlugin()

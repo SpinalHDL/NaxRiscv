@@ -9,6 +9,7 @@ import naxriscv.utilities.Plugin
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.fetch._
+import naxriscv.Fetch._
 
 import scala.collection.mutable.ArrayBuffer
 import Frontend._

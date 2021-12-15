@@ -6,6 +6,7 @@ import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Stageable
 import naxriscv.Frontend._
+import naxriscv.Fetch._
 
 case class FetchL1Cmd(p : FetchCachePlugin, physicalWidth : Int) extends Bundle{
   val address = UInt(physicalWidth bits)

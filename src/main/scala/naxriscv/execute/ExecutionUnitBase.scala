@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.{Frontend, Global, ROB}
+import naxriscv.{Fetch, Frontend, Global, ROB}
 import naxriscv.interfaces.{MicroOp, _}
 import naxriscv.lsu.LsuPlugin
 import naxriscv.utilities.Plugin
@@ -211,7 +211,7 @@ class ExecutionUnitBase(euId : String,
         readAndInsert(PC)
       }
       if(ressources.contains(INSTRUCTION_SIZE)){
-        readAndInsert(Frontend.INSTRUCTION_SLICE_COUNT)
+        readAndInsert(Fetch.INSTRUCTION_SLICE_COUNT)
       }
       for(s <- robStageable){
         readAndInsert(s)

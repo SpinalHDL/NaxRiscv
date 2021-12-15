@@ -1,6 +1,6 @@
 package naxriscv.frontend
 
-import naxriscv.Frontend.FETCH_DATA_WIDTH
+import naxriscv.Fetch._
 import naxriscv.backend.BranchContextPlugin
 import naxriscv.fetch.{AlignerPlugin, FetchPlugin}
 import naxriscv.{Frontend, ROB}
@@ -40,7 +40,7 @@ class PredictorPlugin() extends Plugin{
 
     val FETCH_PC = fetch.keys.FETCH_PC_PRE_TRANSLATION
 
-    val sliceShift = if(Frontend.RVC) 1 else 2
+    val sliceShift = if(RVC) 1 else 2
 
     val btb = new Area{
       val btbDepth = 8096
@@ -50,7 +50,7 @@ class PredictorPlugin() extends Plugin{
       def getHash(value : UInt) = value(wordBytesWidth, hashWidth bits) //TODO better hash
       case class BtbEntry() extends Bundle {
         val hash = UInt(hashWidth bits)
-        val slice  = UInt(log2Up(Frontend.SLICE_COUNT) bits)
+        val slice  = UInt(log2Up(SLICE_COUNT) bits)
         val pcNext = PC()
       }
 
@@ -117,7 +117,7 @@ class PredictorPlugin() extends Plugin{
           True -> imm.j_sext
         )
 
-        val slices = Frontend.INSTRUCTION_SLICE_COUNT +^ 1
+        val slices = INSTRUCTION_SLICE_COUNT +^ 1
         val pcInc = S(PC + (slices << sliceShift))
         val pcTarget = S(PC) + offset
         val canImprove = isJal// || isBranch

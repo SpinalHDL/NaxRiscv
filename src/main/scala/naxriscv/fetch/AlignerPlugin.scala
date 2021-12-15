@@ -9,6 +9,7 @@ import scala.collection.mutable.ArrayBuffer
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
+import naxriscv.Fetch._
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.AddressTranslationService
 import naxriscv.utilities.Plugin
