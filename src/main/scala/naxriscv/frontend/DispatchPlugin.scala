@@ -82,6 +82,7 @@ class DispatchPlugin(slotCount : Int = 0,
     case class Context() extends Bundle{
       val staticWake = Bits(globalStaticLatencies.latencies.size bits)
       val physRd = decoder.PHYS_RD()
+      val robId = ROB.ROB_ID() //Only for debug so far
     }
     val queue = new IssueQueue(
       p = IssueQueueParameter(
@@ -127,6 +128,7 @@ class DispatchPlugin(slotCount : Int = 0,
         slot.event := (self +: events).reduceBalancedTree(_ | _)
         slot.sel   := (DISPATCH_MASK, slotId) ? groups.map(g => stage(g.sel, slotId)).asBits() | B(0)
         slot.context.physRd := stage(decoder.PHYS_RD, slotId)
+        slot.context.robId := stage(ROB.ROB_ID) | slotId
         for(latency <- globalStaticLatencies.latencies){
           val bitId = globalStaticLatencies.toBits(latency)
           slot.context.staticWake(bitId) := (decoder.WRITE_RD, slotId) && (globalStaticLatencies.latenciesStageable(latency), slotId)

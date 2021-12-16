@@ -65,7 +65,7 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
     }
   }
 
-  io.push.ready := lines.head.ways.map(!_.triggers.msb).andR
+  io.push.ready := lines.head.ways.map(s => !s.triggers.msb && s.sel === 0).andR
 
   val compaction = new Area {
     val moveIt = io.push.fire
