@@ -19,6 +19,7 @@ class FetchPlugin() extends Plugin with LockedImpl {
     val spec = getService[AddressTranslationService]
     val FETCH_PC_POST_TRANSLATION   = Stageable(UInt(spec.postWidth bits))
     val FETCH_PC_PRE_TRANSLATION  = Stageable(UInt(spec.preWidth bits))
+    val FETCH_PC_NEXT  = Stageable(UInt(spec.preWidth bits))
   }
 
   val pipeline = create early new Pipeline{
@@ -41,5 +42,6 @@ class FetchPlugin() extends Plugin with LockedImpl {
   }
 
   def getStage(id : Int) = pipeline.stages(id)
+  def getLastStage = pipeline.stages.last
   def getPipeline() = pipeline.get
 }

@@ -20,7 +20,7 @@ case class BranchEarlyContext(pcWidth : Int) extends Bundle{
 
 
 case class BranchFinalContext(pcWidth : Int) extends Bundle{
-  val pc     = UInt(pcWidth bits)
+  val pcOnLastSlice = UInt(pcWidth bits)
   val pcNext = UInt(pcWidth bits)
   val taken = Bool()
 }

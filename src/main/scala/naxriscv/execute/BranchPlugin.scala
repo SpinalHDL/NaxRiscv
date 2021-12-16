@@ -114,7 +114,7 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
       val finalBranch = branchContext.writeFinal()
       finalBranch.valid := isValid && SEL
       finalBranch.address := BRANCH_ID
-      finalBranch.data.pc := PC
+      finalBranch.data.pcOnLastSlice := PC + (Fetch.INSTRUCTION_SLICE_COUNT << sliceShift)
       finalBranch.data.pcNext := stage(PC, "TARGET")
       finalBranch.data.taken := COND
     }

@@ -116,7 +116,8 @@ with open('tests.mk', 'w') as f:
             "--start_symbol", "test_2",
             "--pass_symbol", "pass",
             "--fail_symbol", "fail",
-            "--timeout", "10000"
+            "--timeout", "10000",
+           "${ARGS}"
         ]))
         f.write(f"\n\n")
 
@@ -132,7 +133,8 @@ with open('tests.mk', 'w') as f:
             "--load_elf", f"../../../../ext/NaxSoftware/{spec[1]}",
             "--start_symbol", "_start",
             "--pass_symbol", "pass",
-            "--fail_symbol", "fail"
+            "--fail_symbol", "fail",
+           "${ARGS}"
         ]))
         f.write(f"\n\n")
 

@@ -136,11 +136,16 @@ class Stage extends Nameable {
   def overloaded[T <: Data](key : Stageable[T]) : T = {
     overloaded(StageableKey(key.asInstanceOf[Stageable[Data]], null)).asInstanceOf[T]
   }
+  def overloaded[T <: Data](key : Stageable[T], key2 : Any) : T = {
+    overloaded(StageableKey(key.asInstanceOf[Stageable[Data]], key2)).asInstanceOf[T]
+  }
 
   def resulting[T <: Data](key : Stageable[T]) : T = {
     resulting(StageableKey(key.asInstanceOf[Stageable[Data]], null)).asInstanceOf[T]
   }
-
+  def resulting[T <: Data](key : Stageable[T], key2 : Any) : T = {
+    resulting(StageableKey(key.asInstanceOf[Stageable[Data]], key2)).asInstanceOf[T]
+  }
 
   //  def <<(that : Stage) = {
   //

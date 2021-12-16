@@ -16,15 +16,16 @@ import scala.collection.mutable.ArrayBuffer
 
 object Config{
   def properties() = {
-//    Frontend.RVC.set(true)
-//    Frontend.FETCH_DATA_WIDTH.set(64)
-//    Frontend.INSTRUCTION_WIDTH.set(32)
+    NaxDataBase.create()
+
+//    Fetch.RVC.set(true)
+//    Fetch.FETCH_DATA_WIDTH.set(64)
+//    Fetch.INSTRUCTION_WIDTH.set(32)
 //    Frontend.DECODE_COUNT.set(2)
 //    Global.COMMIT_COUNT.set(2)
 //    ROB.SIZE.set(64)
 //    Global.XLEN.set(32)
 
-    NaxDataBase.create()
     Fetch.RVC.set(true)
     Fetch.FETCH_DATA_WIDTH.set(32)
     Fetch.INSTRUCTION_WIDTH.set(32)
@@ -157,6 +158,7 @@ object Gen extends App{
 
 //TODO Optimisations
 /*
+- optimize aligner for non-rvc config
 - PredoctorPlugin to Branchplugin context storage optimisation
 - LSU getting PC for reschedule
 - When a reschedule is pending, stop feeding the pipeline with things which will get trashed anyway

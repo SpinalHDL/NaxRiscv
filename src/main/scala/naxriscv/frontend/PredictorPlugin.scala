@@ -45,8 +45,8 @@ class PredictorPlugin() extends Plugin{
     val btb = new Area{
       val btbDepth = 8096
       val hashWidth = 16
-      val wordBytesWidth =log2Up(FETCH_DATA_WIDTH/8)
-      assert(FETCH_DATA_WIDTH.get == 32) //also doesn't support rvc
+      val wordBytesWidth = log2Up(FETCH_DATA_WIDTH/8)
+
       def getHash(value : UInt) = value(wordBytesWidth, hashWidth bits) //TODO better hash
       case class BtbEntry() extends Bundle {
         val hash = UInt(hashWidth bits)
@@ -58,12 +58,12 @@ class PredictorPlugin() extends Plugin{
 
       val onLearn = new Area{
         val event = branchContext.logic.free.learn
-        val hash = getHash(event.pc)
+        val hash = getHash(event.pcOnLastSlice)
         val port = mem.writePort
         port.valid := event.valid
-        port.address := (event.pc >> wordBytesWidth).resized
+        port.address := (event.pcOnLastSlice >> wordBytesWidth).resized
         port.data.hash := hash
-        port.data.slice := (event.pc >> sliceShift).resized
+        port.data.slice := (event.pcOnLastSlice >> sliceShift).resized
         port.data.pcNext := event.pcNext
       }
 
@@ -77,7 +77,7 @@ class PredictorPlugin() extends Plugin{
         val stage = fetch.getStage(btbJumpAt)
         import stage._
         val entry = mem.readSync(read.entryAddress, read.stage.isReady)
-        val hit = isValid && entry.hash === getHash(FETCH_PC)
+        val hit = isValid && entry.hash === getHash(FETCH_PC)// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE)
         flushNext(hit)
         setup.btbJump.valid := hit
         setup.btbJump.pc := entry.pcNext
@@ -120,12 +120,12 @@ class PredictorPlugin() extends Plugin{
         val slices = INSTRUCTION_SLICE_COUNT +^ 1
         val pcInc = S(PC + (slices << sliceShift))
         val pcTarget = S(PC) + offset
-        val canImprove = isJal// || isBranch
-        val branchedPrediction = offset.msb || isJal
+        val canImprove = !isJalR && !isBranch
+        val branchedPrediction = isBranch && offset.msb || isJal
         val pcPrediction = branchedPrediction ? pcTarget otherwise pcInc
         val pcNext = canImprove ?  U(pcPrediction) otherwise ALIGNED_BRANCH_PC_NEXT
-        val missmatch = ALIGNED_BRANCH_VALID =/= branchedPrediction || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(pcTarget)
-        val needCorrection = Frontend.DISPATCH_MASK && isAny && canImprove && missmatch
+        val missmatch = ALIGNED_BRANCH_VALID =/= branchedPrediction || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(pcPrediction)
+        val needCorrection = Frontend.DISPATCH_MASK && canImprove && missmatch
 
         branchContext.keys.BRANCH_SEL := isAny
         branchContext.keys.BRANCH_EARLY.pcNext := pcNext
@@ -140,7 +140,7 @@ class PredictorPlugin() extends Plugin{
 
       //WARNING, overloaded(Frontend.DISPATCH_MASK) may not be reconized by some downstream plugins if you move this futher the decoding stage
       for (slotId <- 1 until Frontend.DECODE_COUNT) {
-        stage.overloaded(Frontend.DISPATCH_MASK) := Frontend.DISPATCH_MASK && !(0 until slotId).map(i => slots(i).needCorrection).orR
+        stage.overloaded(Frontend.DISPATCH_MASK, slotId) := stage(Frontend.DISPATCH_MASK, slotId)&& !(0 until slotId).map(i => slots(i).needCorrection).orR
       }
     }
 

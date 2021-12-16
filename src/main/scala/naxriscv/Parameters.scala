@@ -48,6 +48,9 @@ object Fetch extends AreaObject{
   def SLICE_COUNT = FETCH_DATA_WIDTH/SLICE_WIDTH
   val INSTRUCTION_SLICE_COUNT = Stageable(UInt(if(RVC) 1 bits else 0 bits)) // minus one => RVC => 0, normal => 1
 
+  def SLICE_RANGE_LOW = if (RVC) 1 else 2
+  def SLICE_RANGE = (SLICE_RANGE_LOW + log2Up(SLICE_COUNT) - 1) downto SLICE_RANGE_LOW
+
   val WORD = Stageable(Bits(FETCH_DATA_WIDTH bits))
   val INSTRUCTION_WIDTH = NaxParameter[Int]
 }

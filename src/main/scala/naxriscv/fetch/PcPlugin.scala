@@ -101,6 +101,12 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
     stage.valid := fetchPc.output.valid
     stage(fetch.keys.FETCH_PC_PRE_TRANSLATION) := fetchPc.output.payload
 
+    val pcNext = new Area{
+      val stage = fetch.getLastStage
+      stage(fetch.keys.FETCH_PC_NEXT) := stage(fetch.keys.FETCH_PC_PRE_TRANSLATION) + (1 << sliceRange.high+1)
+      stage(fetch.keys.FETCH_PC_NEXT)(sliceRange.high downto 0) := 0
+    }
+
     setup.pipeline.lock.release()
   }
 }
