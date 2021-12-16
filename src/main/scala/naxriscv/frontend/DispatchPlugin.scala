@@ -82,7 +82,7 @@ class DispatchPlugin(slotCount : Int = 0,
     case class Context() extends Bundle{
       val staticWake = Bits(globalStaticLatencies.latencies.size bits)
       val physRd = decoder.PHYS_RD()
-      val robId = ROB.ROB_ID() //Only for debug so far
+      val robId = ROB.ID() //Only for debug so far
     }
     val queue = new IssueQueue(
       p = IssueQueueParameter(
@@ -103,8 +103,8 @@ class DispatchPlugin(slotCount : Int = 0,
     val queueStaticWakeTransposedHistory = History(queueStaticWakeTransposed, 0 to staticHitAt)
 
     val ptr = new Area{
-      val next = Reg(ROB.ROB_ID)  init(ROB.SIZE-slotCount + Frontend.DISPATCH_COUNT)
-      val current = Reg(ROB.ROB_ID)  init(ROB.SIZE-slotCount)
+      val next = Reg(ROB.ID)  init(ROB.SIZE-slotCount + Frontend.DISPATCH_COUNT)
+      val current = Reg(ROB.ID)  init(ROB.SIZE-slotCount)
       when(queue.io.push.fire){
         next := next + Frontend.DISPATCH_COUNT
         current := current + Frontend.DISPATCH_COUNT
@@ -128,7 +128,7 @@ class DispatchPlugin(slotCount : Int = 0,
         slot.event := (self +: events).reduceBalancedTree(_ | _)
         slot.sel   := (DISPATCH_MASK, slotId) ? groups.map(g => stage(g.sel, slotId)).asBits() | B(0)
         slot.context.physRd := stage(decoder.PHYS_RD, slotId)
-        slot.context.robId := stage(ROB.ROB_ID) | slotId
+        slot.context.robId := stage(ROB.ID) | slotId
         for(latency <- globalStaticLatencies.latencies){
           val bitId = globalStaticLatencies.toBits(latency)
           slot.context.staticWake(bitId) := (decoder.WRITE_RD, slotId) && (globalStaticLatencies.latenciesStageable(latency), slotId)
@@ -154,7 +154,7 @@ class DispatchPlugin(slotCount : Int = 0,
         setName("")
         val OH = Stageable(Bits(slotCount bits))
         val UINT = Stageable(UInt(log2Up(slotCount) bits))
-        val ROB_ID = Stageable(ROB.ROB_ID)
+        val ROB_ID = Stageable(ROB.ID)
         val OFFSET = Stageable(cloneOf(ptr.current))
       }
 

@@ -3,7 +3,7 @@ package naxriscv.execute
 import naxriscv.Frontend.MICRO_OP
 import naxriscv.backend.BranchContextPlugin
 import naxriscv.frontend.PredictorPlugin
-import naxriscv.{Fetch, Frontend, Global}
+import naxriscv.{Fetch, Frontend, Global, ROB}
 import naxriscv.interfaces._
 import naxriscv.riscv._
 import naxriscv.utilities.Plugin
@@ -102,7 +102,7 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
       val misspredicted = BRANCH_EARLY.pcNext =/= stage(PC, "TARGET")
 
       setup.reschedule.valid := isFireing && SEL && misspredicted
-      setup.reschedule.robId := ExecutionUnitKeys.ROB_ID
+      setup.reschedule.robId := ROB.ID
       setup.reschedule.cause := 0
       setup.reschedule.tval := 0
       setup.reschedule.pcTarget := stage(PC, "TARGET")

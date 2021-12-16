@@ -120,8 +120,8 @@ class PredictorPlugin() extends Plugin{
         val slices = INSTRUCTION_SLICE_COUNT +^ 1
         val pcInc = S(PC + (slices << sliceShift))
         val pcTarget = S(PC) + offset
-        val canImprove = !isJalR && !isBranch
-        val branchedPrediction = isBranch && offset.msb || isJal
+        val canImprove = !isJalR && !isBranch//TODO improve isBranches with GSHARE
+        val branchedPrediction = isBranch && offset.msb || isJal //TODO  isBranch && offset.msb is useless
         val pcPrediction = branchedPrediction ? pcTarget otherwise pcInc
         val pcNext = canImprove ?  U(pcPrediction) otherwise ALIGNED_BRANCH_PC_NEXT
         val missmatch = ALIGNED_BRANCH_VALID =/= branchedPrediction || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(pcPrediction)

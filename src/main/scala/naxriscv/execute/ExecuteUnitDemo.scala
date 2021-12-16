@@ -57,7 +57,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
     val so = euGroup.eus.indexOf(ExecuteUnitDemo.this)
 
     case class Front() extends Bundle{
-      val robId = ROB.ROB_ID()
+      val robId = ROB.ID()
       val instruction = Frontend.MICRO_OP()
       val pc = PC()
       val rs1 = Bits(Global.XLEN bits)
@@ -98,7 +98,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
 
 
       case class Result() extends Bundle{
-        val robId = ROB.ROB_ID()
+        val robId = ROB.ID()
         val rd = UInt(log2Up(setup.rf.getPhysicalDepth) bits)
         val value = Bits(32 bits)
         val writeRd = Bool()
@@ -134,7 +134,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
     setup.rfWriteRd.address := delayed.rd
     setup.rfWriteRd.data := delayed.value
 
-    val wakePort = Flow(ROB.ROB_ID)
+    val wakePort = Flow(ROB.ID)
     wakePort.valid := delayed.valid
     wakePort.payload := delayed.robId
 

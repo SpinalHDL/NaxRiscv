@@ -13,7 +13,7 @@ object ROB extends AreaObject{
   def LINES = SIZE/COLS
   val SIZE = NaxParameter[Int]
   def ID_WIDTH = log2Up(SIZE.get)
-  val ROB_ID = Stageable(UInt(ID_WIDTH bits))
+  val ID = Stageable(UInt(ID_WIDTH bits))
   def lineRange = ID_WIDTH-1 downto log2Up(COLS)
 }
 

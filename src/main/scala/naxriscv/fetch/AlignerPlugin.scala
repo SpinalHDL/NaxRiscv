@@ -14,30 +14,15 @@ import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.{AddressTranslationService, JumpService}
 import naxriscv.utilities.Plugin
 import spinal.lib.pipeline.Connection.M2S
-import spinal.lib.pipeline.{ConnectionLogic, ConnectionPoint, Stageable}
+import spinal.lib.pipeline.{Stageable}
 
 class AlignerPlugin() extends Plugin{
-
-//  class CustomConnector extends ConnectionLogic{
-//    override def on(m: ConnectionPoint, s: ConnectionPoint, flush: Bool, flushNext : Bool, flushNextHit : Bool) = new Area {
-//      val l = logic.get
-//      import l._
-//      assert(flushNext == null)
-//      s.valid := extractors.map(_.valid).orR
-//      if(m.ready != null) m.ready := fireInput
-//      if(flush != null) when(flush){
-//        buffer.mask := 0
-//      }
-//      (s.payload, m.payload).zipped.foreach(_ := _)
-//    }
-//  }
-
-  val keys = create early new AreaRoot{
+    val keys = create early new AreaRoot{
     val ALIGNED_BRANCH_VALID = Stageable(Bool())
     val ALIGNED_BRANCH_PC_NEXT = Stageable(getService[AddressTranslationService].PC)
 
     val WORD_BRANCH_VALID = Stageable(Bool())
-    val WORD_BRANCH_SLICE = Stageable(UInt(log2Up(SLICE_COUNT) bits)) //TODO implement me
+    val WORD_BRANCH_SLICE = Stageable(UInt(log2Up(SLICE_COUNT) bits))
     val WORD_BRANCH_PC_NEXT = Stageable(getService[AddressTranslationService].PC)
   }
 
@@ -124,12 +109,12 @@ class AlignerPlugin() extends Plugin{
         skips(i) := skip
       }
 
-      val backMaskError = errors(SLICE_COUNT, SLICE_COUNT bits).orR
-      val partialFetchError = keys.WORD_BRANCH_SLICE.andR && skip
-      val postPredictionPc = fetch.keys.FETCH_PC_PRE_TRANSLATION(sliceRange) > keys.WORD_BRANCH_SLICE
+      val backMaskError = errors(SLICE_COUNT, SLICE_COUNT bits).orR // The prediction is cutting on of the non RVC instruction (doesn't check last slice)
+      val partialFetchError = keys.WORD_BRANCH_SLICE.andR && skip  // The prediction is cutting the last slice non rvc instruction
+      val postPredictionPc = fetch.keys.FETCH_PC_PRE_TRANSLATION(sliceRange) > keys.WORD_BRANCH_SLICE // The prediction was for an instruction before the input start PC
       val failure = input.isValid && keys.WORD_BRANCH_VALID && (backMaskError || partialFetchError || postPredictionPc) //TODO check that it only set in the right cases (as it can silently produce false positive)
 
-      when(backMaskError){
+      when(backMaskError || postPredictionPc){
         for(decoder <- decoders.drop(SLICE_COUNT)){
           decoder.pastPrediction := False
         }
@@ -189,7 +174,7 @@ class AlignerPlugin() extends Plugin{
     val correctionSent = RegInit(False) setWhen(setup.sequenceJump.valid) clearWhen(input.isReady)
     fetch.getLastStage.flushIt(predictionSanity.failure && !correctionSent)
     setup.sequenceJump.valid := predictionSanity.failure && !correctionSent
-    setup.sequenceJump.pc    := input(fetch.keys.FETCH_PC_NEXT)
+    setup.sequenceJump.pc    := input(fetch.keys.FETCH_PC_INC)
 
 
 

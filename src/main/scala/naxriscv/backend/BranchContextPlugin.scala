@@ -91,8 +91,8 @@ class BranchContextPlugin(branchCount : Int) extends Plugin with LockedImpl {
         ptr.alloc := allocNext
       }
 
-      rob.write(BRANCH_ID, DISPATCH_COUNT, (0 until DISPATCH_COUNT).map(stage(BRANCH_ID, _)),  ROB.ROB_ID, isFireing)
-      rob.write(BRANCH_SEL, DISPATCH_COUNT, (0 until DISPATCH_COUNT).map(stage(BRANCH_SEL, _)),  ROB.ROB_ID, isFireing)
+      rob.write(BRANCH_ID, DISPATCH_COUNT, (0 until DISPATCH_COUNT).map(stage(BRANCH_ID, _)),  ROB.ID, isFireing)
+      rob.write(BRANCH_SEL, DISPATCH_COUNT, (0 until DISPATCH_COUNT).map(stage(BRANCH_SEL, _)),  ROB.ID, isFireing)
     }
 
     val onCommit = new Area{

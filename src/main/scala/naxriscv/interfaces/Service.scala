@@ -80,7 +80,7 @@ trait RobService extends Service{
 
 
 case class RobLineMask() extends Bundle{
-  val line = ROB.ROB_ID()
+  val line = ROB.ID()
   val mask = Bits(ROB.COLS bits)
 }
 
@@ -94,7 +94,7 @@ case class RegFileWrite(addressWidth : Int, dataWidth : Int, withReady : Boolean
   val ready = withReady generate Bool()
   val address = UInt(addressWidth bits)
   val data = Bits(dataWidth bits)
-  val robId = ROB.ROB_ID()
+  val robId = ROB.ID()
 
   def fire = if(withReady) valid && ready else valid
 
@@ -150,19 +150,19 @@ trait RegfileService extends Service{
 
 
 case class RescheduleEvent() extends Bundle{
-  val robId = ROB.ROB_ID()
-  val robIdNext = ROB.ROB_ID()
+  val robId = ROB.ID()
+  val robIdNext = ROB.ID()
 }
 
 
 
 
 case class CommitFree() extends Bundle{
-  val robId = ROB.ROB_ID()
+  val robId = ROB.ID()
   val commited = Bits(COMMIT_COUNT bits)
 }
 case class CommitEvent() extends Bundle{
-  val robId = ROB.ROB_ID()
+  val robId = ROB.ID()
   val mask = Bits(COMMIT_COUNT bits)
 }
 
@@ -180,7 +180,7 @@ trait CommitService  extends Service{
 case class ExecutionUnitPush(physRdType : Stageable[UInt], withReady : Boolean, withValid : Boolean = true) extends Bundle{
   val valid = withValid generate Bool()
   val ready = withReady generate Bool()
-  val robId = ROB.ROB_ID()
+  val robId = ROB.ID()
   val physRd = physRdType()
 
   def toStream ={
@@ -255,7 +255,7 @@ object ScheduleReason{
 }
 
 case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int) extends Bundle {
-  val robId      = ROB.ROB_ID()
+  val robId      = ROB.ID()
   val trap       = (canTrap && canJump) generate Bool()
   val pcTarget   = canJump generate UInt(pcWidth bits)
   val cause      = canTrap generate UInt(Global.TRAP_CAUSE_WIDTH bits)
@@ -271,7 +271,7 @@ case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int) exte
 }
 
 case class RobWait() extends Area with OverridedEqualsHashCode {
-  val ID = Stageable(ROB.ROB_ID)
+  val ID = Stageable(ROB.ID)
   val ENABLE = Stageable(Bool())
 }
 
@@ -280,7 +280,7 @@ trait IssueService extends Service with LockedService {
 }
 
 case class WakeRob() extends Bundle {
-  val robId = ROB.ROB_ID()
+  val robId = ROB.ID()
 }
 
 case class WakeRegFile(physicalType : HardType[UInt], needBypass : Boolean) extends Bundle {

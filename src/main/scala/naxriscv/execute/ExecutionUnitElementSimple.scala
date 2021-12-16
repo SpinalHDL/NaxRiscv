@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.{Frontend, Global}
+import naxriscv.{Frontend, Global, ROB}
 import naxriscv.interfaces._
 import naxriscv.riscv._
 import naxriscv.utilities.Plugin
@@ -55,7 +55,7 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
       val rf = Flow(WakeRegFile(decode.PHYS_RD, needBypass = false))
 
       rob.valid := fire
-      rob.robId := wbStage(ExecutionUnitKeys.ROB_ID)
+      rob.robId := wbStage(ROB.ID)
 
       rf.valid := fire && wbStage(decode.WRITE_RD)
       rf.physical := wbStage(decode.PHYS_RD)

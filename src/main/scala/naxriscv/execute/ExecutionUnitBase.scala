@@ -13,10 +13,6 @@ import spinal.lib.pipeline.{Pipeline, Stage, Stageable}
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-object ExecutionUnitKeys extends AreaObject {
-  val ROB_ID = Stageable(ROB.ROB_ID)
-}
-
 class ExecutionUnitBase(euId : String,
                         contextStage : Int = 0,
                         rfReadStage : Int = 0,
@@ -148,7 +144,6 @@ class ExecutionUnitBase(euId : String,
       executeStages += s
     }
 
-    import ExecutionUnitKeys._
     val withReady = false
 
     val rob = getService[RobService]
@@ -187,7 +182,7 @@ class ExecutionUnitBase(euId : String,
       val stage = fetch(0)
       val port = ExecutionUnitPush(withReady = staticLatenciesStorage.isEmpty, physRdType = decoder.PHYS_RD)
       stage.valid := port.valid
-      stage(ROB_ID) := port.robId
+      stage(ROB.ID) := port.robId
       if(implementRd) stage(decoder.PHYS_RD) := port.physRd
       if(port.withReady) port.ready := stage.isReady
     }
@@ -196,7 +191,7 @@ class ExecutionUnitBase(euId : String,
       val stage = fetch(contextStage)
       import stage._
 
-      def read[T <: Data](key : Stageable[T]) = rob.readAsyncSingle(key, ROB_ID, sf, so)
+      def read[T <: Data](key : Stageable[T]) = rob.readAsyncSingle(key, ROB.ID, sf, so)
       def readAndInsert[T <: Data](key : Stageable[T]) = stage(key) := read(key)
 
       readAndInsert(Frontend.MICRO_OP)
@@ -247,7 +242,7 @@ class ExecutionUnitBase(euId : String,
       val rfService = getService[RegfileService](key.rf)
       val write = rfService.newWrite(withReady, spec.latency)
       write.valid := key.stage.isFireing && key.stage(decoder.WRITE_RD)
-      write.robId := key.stage(ROB_ID)
+      write.robId := key.stage(ROB.ID)
       write.address := key.stage(decoder.PHYS_RD)
       write.data := MuxOH.or(spec.ports.map(_.valid), spec.ports.map(_.payload))
 
@@ -263,7 +258,7 @@ class ExecutionUnitBase(euId : String,
       val stage = executeStages(stageId)
       val port = rob.newRobCompletion()
       port.valid := stage.isFireing && stage(spec.sel)
-      port.id := stage(ROB_ID)
+      port.id := stage(ROB.ID)
     }
 
 

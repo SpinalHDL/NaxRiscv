@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.Frontend
+import naxriscv.{Frontend, ROB}
 import naxriscv.interfaces.{MicroOp, RS2}
 import naxriscv.lsu.LsuPlugin
 import naxriscv.riscv.{Const, IntRegFile, Rvi}
@@ -48,7 +48,7 @@ class StorePlugin(euId : String) extends Plugin{
     setup.port.address := U(SrcStageables.ADD_SUB)
     setup.port.data    := eu(IntRegFile, RS2)
     setup.port.sqId := lsu.keys.LSU_ID.resized
-    setup.port.robId := ExecutionUnitKeys.ROB_ID
+    setup.port.robId := ROB.ID
     setup.port.size := U(func3(1 downto 0))
     eu.release()
   }

@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.Frontend
+import naxriscv.{Frontend, ROB}
 import naxriscv.interfaces.{AddressTranslationService, DecoderService, MicroOp}
 import naxriscv.lsu.LsuPlugin
 import naxriscv.riscv.{Const, Rvi}
@@ -51,7 +51,7 @@ class LoadPlugin(euId : String) extends Plugin{
 
     val func3 = Frontend.MICRO_OP(Const.funct3Range)
     setup.port.valid := isFireing && SEL
-    setup.port.robId := ExecutionUnitKeys.ROB_ID
+    setup.port.robId := ROB.ID
     setup.port.lqId := lsu.keys.LSU_ID.resized
     setup.port.address := U(SrcStageables.ADD_SUB)
     setup.port.size := U(func3(1 downto 0))
