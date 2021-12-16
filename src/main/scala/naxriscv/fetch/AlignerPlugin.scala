@@ -189,7 +189,7 @@ class AlignerPlugin() extends Plugin{
     val correctionSent = RegInit(False) setWhen(setup.sequenceJump.valid) clearWhen(input.isReady)
     fetch.getLastStage.flushIt(predictionSanity.failure && !correctionSent)
     setup.sequenceJump.valid := predictionSanity.failure && !correctionSent
-    setup.sequenceJump.pc    := input(keys.WORD_BRANCH_PC_NEXT)
+    setup.sequenceJump.pc    := input(fetch.keys.FETCH_PC_NEXT)
 
 
 
