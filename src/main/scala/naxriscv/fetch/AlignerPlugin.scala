@@ -11,10 +11,12 @@ import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.Fetch._
 import naxriscv.frontend.FrontendPlugin
-import naxriscv.interfaces.{AddressTranslationService, JumpService}
+import naxriscv.interfaces.{AddressTranslationService, JumpService, LockedImpl}
 import naxriscv.utilities.Plugin
 import spinal.lib.pipeline.Connection.M2S
-import spinal.lib.pipeline.{Stageable}
+import spinal.lib.pipeline.Stageable
+
+import scala.collection.mutable
 
 class AlignerPlugin() extends Plugin{
     val keys = create early new AreaRoot{
@@ -25,6 +27,9 @@ class AlignerPlugin() extends Plugin{
     val WORD_BRANCH_SLICE = Stageable(UInt(log2Up(SLICE_COUNT) bits))
     val WORD_BRANCH_PC_NEXT = Stageable(getService[AddressTranslationService].PC)
   }
+
+  val addedWordContext = mutable.LinkedHashSet[Stageable[_ <: Data]]()
+  def addWordContext(key : Stageable[_ <: Data]*): Unit = addedWordContext ++= key
 
   val setup = create early new Area{
     val fetch = getService[FetchPlugin]
@@ -67,6 +72,7 @@ class AlignerPlugin() extends Plugin{
       val branchValid = Reg(keys.WORD_BRANCH_VALID())
       val branchSlice = Reg(keys.WORD_BRANCH_SLICE())
       val branchPcNext = Reg(keys.WORD_BRANCH_PC_NEXT())
+      val wordContexts = addedWordContext.map(Reg(_))
     }
 
     val slices = new Area {
@@ -143,9 +149,11 @@ class AlignerPlugin() extends Plugin{
       when(lastWord) {
         output(keys.ALIGNED_BRANCH_VALID, i)   := keys.WORD_BRANCH_VALID && !predictionSanity.failure && inputPredictionLast
         output(keys.ALIGNED_BRANCH_PC_NEXT, i) := keys.WORD_BRANCH_PC_NEXT
+        for(key <- addedWordContext) output(key, i).assignFrom(input(key))
       } otherwise {
         output(keys.ALIGNED_BRANCH_VALID, i)   := buffer.branchValid && bufferPredictionLast
         output(keys.ALIGNED_BRANCH_PC_NEXT, i) := buffer.branchPcNext
+        for((value, key) <- (buffer.wordContexts, addedWordContext).zipped) output(key, i).assignFrom(value)
       }
 
       val sliceOffset = OHToUInt(maskOh << i)
@@ -169,6 +177,7 @@ class AlignerPlugin() extends Plugin{
       buffer.branchValid  := keys.WORD_BRANCH_VALID && !predictionSanity.failure
       buffer.branchSlice  := keys.WORD_BRANCH_SLICE
       buffer.branchPcNext := keys.WORD_BRANCH_PC_NEXT
+      for((reg, key) <- (buffer.wordContexts, addedWordContext).zipped) reg := key
     }
 
     val correctionSent = RegInit(False) setWhen(setup.sequenceJump.valid) clearWhen(input.isReady)

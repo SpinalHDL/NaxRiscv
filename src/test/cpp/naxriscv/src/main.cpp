@@ -473,6 +473,7 @@ public:
 
 class NaxStats{
 public:
+    u64 cycles = 0;
     u64 commits = 0;
     u64 reschedules = 0;
     u64 trap = 0;
@@ -484,6 +485,8 @@ public:
     string report(string tab, bool hist){
         stringstream ss;
         string ret = "";
+        ss << tab << "IPC               " << (double)commits/cycles <<  endl;
+        ss << tab << "cycles            " << cycles <<  endl;
         ss << tab << "commits           " << commits <<  endl;
         ss << tab << "reschedules       " << reschedules <<  endl;
         ss << tab << "trap              " << trap <<  endl;
@@ -547,6 +550,7 @@ public:
             }
         }
         if(statsCaptureEnable){
+            stats.cycles += 1;
             for(int i = 0;i < COMMIT_COUNT;i++){
                 stats.commits += (nax->commit_mask >> i) & 1;
             }

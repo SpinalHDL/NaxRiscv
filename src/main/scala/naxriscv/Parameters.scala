@@ -4,6 +4,7 @@ import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib.pipeline.Stageable
 import naxriscv.utilities._
+import spinal.core.fiber.Handle
 
 import scala.collection.mutable
 
@@ -57,7 +58,6 @@ object Fetch extends AreaObject{
 
 
 object Frontend extends AreaObject {
-  val BRANCH_HISTORY_WIDTH = NaxParameter[Int]
   val DECODE_COUNT = NaxParameter[Int]
   def FETCH_COUNT = DECODE_COUNT.get
   def DISPATCH_COUNT = DECODE_COUNT.get
@@ -68,7 +68,6 @@ object Frontend extends AreaObject {
   val INSTRUCTION_ALIGNED = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
   val INSTRUCTION_DECOMPRESSED = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
   val MICRO_OP = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
-  val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
 }
 
 

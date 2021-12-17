@@ -29,6 +29,7 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
   override def completionAt = branchAt
 
   override val setup = create early new Setup{
+    getService[RobService].retain()
     val sk = SrcKeys
 
     add(Rvi.JAL , List(                                    ), List(BRANCH_CTRL -> BranchCtrlEnum.JAL))
@@ -47,6 +48,7 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
   }
 
   override val logic = create late new Logic{
+    val rob = getService[RobService]
     val predictor = getService[PredictorPlugin]
     val PC = getService[AddressTranslationService].PC
     val sliceShift = if(Fetch.RVC) 1 else 2
@@ -117,7 +119,10 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
       finalBranch.data.pcOnLastSlice := PC + (Fetch.INSTRUCTION_SLICE_COUNT << sliceShift)
       finalBranch.data.pcNext := stage(PC, "TARGET")
       finalBranch.data.taken := COND
+
+      rob.write(branchContext.keys.BRANCH_TAKEN, 1, List(stage(COND)), ROB.ID, isFireing)
     }
+    rob.release()
   }
 }
 

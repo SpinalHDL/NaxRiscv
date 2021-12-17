@@ -65,6 +65,13 @@ class Stage extends Nameable {
     def of(key : Any) = Stage.this.apply(stageable, key)
   }
   implicit def stageablePiped3[T <: Data](key: Tuple2[Stageable[T], Any]) = Stage.this(key._1, key._2)
+
+  implicit def stageablePipedVec[T <: Data](stageable: Stageable[Vec[T]])(implicit key : StageableOffset = StageableOffsetNone) : Vec[T] = Stage.this(stageable, key.value)
+  implicit def stageablePipedVec2[T <: Data](stageable: Stageable[Vec[T]]) = new {
+    def of(key : Any) = Stage.this.apply(stageable, key)
+  }
+  implicit def stageablePipedVec3[T <: Data](key: Tuple2[Stageable[Vec[T]], Any]) = Stage.this(key._1, key._2)
+
   //  implicit def stageablePiped2[T <: Data](stageable: Stageable[T]) = new DataPimper(Stage.this(stageable))
   def haltIt()(implicit loc: Location) : Unit = haltIt(ConditionalContext.isTrue)
   def throwIt()(implicit loc: Location) : Unit = throwIt(ConditionalContext.isTrue)

@@ -16,12 +16,18 @@ import Frontend._
 
 
 class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpService{
-  case class JumpInfo(interface :  Flow[JumpCmd], priority : Int)
+  case class JumpInfo(interface :  Flow[JumpCmd], priority : Int, fetchStage : Int)
   val jumpInfos = ArrayBuffer[JumpInfo]()
-  override def createJumpInterface(priority : Int): Flow[JumpCmd] = {
+  override def createJumpInterface(priority : Int): Flow[JumpCmd] = createFetchJumpInterface(priority, Int.MaxValue)
+  override def createFetchJumpInterface(priority: Int, stageId: Int) = {
     val interface = Flow(JumpCmd(widthOf(getService[AddressTranslationService].PC)))
-    jumpInfos += JumpInfo(interface, priority)
+    jumpInfos += JumpInfo(interface, priority, stageId)
     interface
+  }
+
+  override def getFetchJumps() = {
+    logic.get
+    jumpInfos.filter(_.fetchStage != Int.MaxValue).map(e => e.fetchStage -> e.interface.valid)
   }
 
   val setup = create early new Area{

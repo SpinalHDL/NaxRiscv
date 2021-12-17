@@ -29,6 +29,8 @@ case class JumpCmd(pcWidth : Int) extends Bundle{
 }
 trait JumpService extends Service{
   def createJumpInterface(priority : Int) : Flow[JumpCmd] //High priority win
+  def createFetchJumpInterface(priority : Int, stageId : Int) : Flow[JumpCmd] //High priority win
+  def getFetchJumps() : Seq[(Int, Bool)]
 }
 
 trait InitCycles extends Service{

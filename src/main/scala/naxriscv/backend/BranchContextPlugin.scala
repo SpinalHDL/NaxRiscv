@@ -25,8 +25,13 @@ case class BranchFinalContext(pcWidth : Int) extends Bundle{
   val taken = Bool()
 }
 
+case class BranchLearn(pcWidth : Int, branchCount : Int) extends Bundle{
+  val finalContext = BranchFinalContext(pcWidth)
+  val id = UInt(log2Up(branchCount) bits)
+}
 
-class BranchContextPlugin(branchCount : Int) extends Plugin with LockedImpl {
+
+class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl {
   def PC = getService[AddressTranslationService].PC
   assert(isPow2(branchCount))
 
@@ -38,6 +43,7 @@ class BranchContextPlugin(branchCount : Int) extends Plugin with LockedImpl {
     val BRANCH_ID    = Stageable(UInt(log2Up(branchCount) bits))
     val BRANCH_EARLY = Stageable(BranchEarlyContext(widthOf(PC)))
     val BRANCH_FINAL = Stageable(BranchFinalContext(widthOf(PC)))
+    val BRANCH_TAKEN = Stageable(Bool())
   }
 
   val setup = create early new Area{
@@ -103,9 +109,10 @@ class BranchContextPlugin(branchCount : Int) extends Plugin with LockedImpl {
     }
 
     val free = new Area{
-      val learn = Flow(BRANCH_FINAL())
+      val learn = Flow(BranchLearn(pcWidth = widthOf(PC), branchCount = branchCount))
       learn.valid := ptr.free =/= ptr.commited
-      learn.payload := mem.finalBranch.readAsync(ptr.free.resized)
+      learn.finalContext := mem.finalBranch.readAsync(ptr.free.resized)
+      learn.id := ptr.free.resized
 
       when(learn.fire){
         ptr.free := ptr.free + 1
