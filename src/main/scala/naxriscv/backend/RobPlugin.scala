@@ -85,7 +85,8 @@ class RobPlugin() extends Plugin with RobService{
         val readSizeMin = ral.map(_.size).min
         val sizeMin = readSizeMin min writeSizeMin
         val bankCount = writeSizeMax/sizeMin
-        val banks = Seq.fill(bankCount)(Mem.fill(ROB.SIZE/bankCount/sizeMin)(Vec.fill(sizeMin)(key())))
+        val elementPerBank = sizeMin
+        val banks = Seq.fill(bankCount)(Mem.fill(ROB.SIZE/bankCount/sizeMin)(Vec.fill(elementPerBank)(key())))
 
         for(e <- wl){
           assert(isPow2(e.size))
@@ -105,7 +106,11 @@ class RobPlugin() extends Plugin with RobService{
         for(e <- ral){
           assert(isPow2(e.size))
           if(e.size > writeSizeMax){
-            ???
+            assert(e.skipFactor == 1)
+            val ratio = e.size/elementPerBank
+            val address =  e.robId >> log2Up(ratio*elementPerBank*bankCount)
+            val reads = for(slice <- 0 until ratio) yield banks(slice % bankCount).readAsync(address @@ U(slice / bankCount, log2Up(ratio*elementPerBank*bankCount) bits))
+            e.rsp.assignFromBits(B(reads))
           } else if(e.skipFactor == 1){
             val address =  e.robId >> log2Up(bankCount*sizeMin)
             val reads = banks.map(_.readAsync(

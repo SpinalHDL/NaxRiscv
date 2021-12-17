@@ -252,7 +252,7 @@ class PredictorPlugin() extends Plugin{
       }
       when(isFireing){
         branchHistory.onDecode.value := branchHistoryNext
-        branchHistory.onFetch.value := branchHistoryNext //TODO REMOVE ME (DEBUG)
+        branchHistory.onFetch.value := branchHistoryNext //TODO REMOVE ME (DEBUG), instead the update of the onFetch history should be done by gshare itself, in the fetch stages, to provide a more responsive branch history
       }
     }
 

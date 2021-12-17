@@ -18,21 +18,21 @@ object Config{
   def properties() = {
     NaxDataBase.create()
 
-//    Fetch.RVC.set(true)
-//    Fetch.FETCH_DATA_WIDTH.set(64)
-//    Fetch.INSTRUCTION_WIDTH.set(32)
-//    Frontend.DECODE_COUNT.set(2)
-//    Global.COMMIT_COUNT.set(2)
-//    ROB.SIZE.set(64)
-//    Global.XLEN.set(32)
-
     Fetch.RVC.set(true)
-    Fetch.FETCH_DATA_WIDTH.set(32)
+    Fetch.FETCH_DATA_WIDTH.set(64)
     Fetch.INSTRUCTION_WIDTH.set(32)
-    Frontend.DECODE_COUNT.set(1)
-    Global.COMMIT_COUNT.set(1)
+    Frontend.DECODE_COUNT.set(2)
+    Global.COMMIT_COUNT.set(2)
     ROB.SIZE.set(64)
     Global.XLEN.set(32)
+
+//    Fetch.RVC.set(true)
+//    Fetch.FETCH_DATA_WIDTH.set(32)
+//    Fetch.INSTRUCTION_WIDTH.set(32)
+//    Frontend.DECODE_COUNT.set(1)
+//    Global.COMMIT_COUNT.set(1)
+//    ROB.SIZE.set(64)
+//    Global.XLEN.set(32)
   }
 
   def plugins(): Seq[Plugin] ={
@@ -82,29 +82,29 @@ object Config{
       reducedBankWidth = false
     )
 
-    plugins += new ExecutionUnitBase("ALU0")
-    plugins += new SrcPlugin("ALU0")
-    plugins += new IntAluPlugin("ALU0")
-    plugins += new BranchPlugin("ALU0")
-    plugins += new ShiftPlugin("ALU0")
-    plugins += new LoadPlugin("ALU0")
-    plugins += new StorePlugin("ALU0")
+    plugins += new ExecutionUnitBase("EU0")
+    plugins += new SrcPlugin("EU0")
+    plugins += new IntAluPlugin("EU0")
+    plugins += new ShiftPlugin("EU0")
+//    plugins += new BranchPlugin("EU0")
+//    plugins += new LoadPlugin("EU0")
+//    plugins += new StorePlugin("EU0")
 
-//    plugins += new ExecutionUnitBase("ALU1")
-//    plugins += new SrcPlugin("ALU1")
-//    plugins += new IntAluPlugin("ALU1")
-//    plugins += new BranchPlugin("ALU1")
-//    plugins += new ShiftPlugin("ALU1")
-//    plugins += new LoadPlugin("ALU1")
-//    plugins += new StorePlugin("ALU1")
+    plugins += new ExecutionUnitBase("EU1")
+    plugins += new SrcPlugin("EU1")
+    plugins += new BranchPlugin("EU1")
+    plugins += new LoadPlugin("EU1")
+    plugins += new StorePlugin("EU1")
+    //    plugins += new IntAluPlugin("EU1")
+    //    plugins += new ShiftPlugin("EU1")
 
-//    plugins += new ExecuteUnit("ALU0")
-//    plugins += new IntAluPlugin("ALU0")
-//    plugins += new ExecuteUnit("ALU1")
-//    plugins += new IntAluPlugin("ALU1", withAdd = false)
-//    plugins += new ExecuteUnitDemo("ALU2", false)
-//    plugins += new ExecuteUnit("ALU3")
-//    plugins += new MulPlugin("ALU3")
+//    plugins += new ExecuteUnit("EU0")
+//    plugins += new IntAluPlugin("EU0")
+//    plugins += new ExecuteUnit("EU1")
+//    plugins += new IntAluPlugin("EU1", withAdd = false)
+//    plugins += new ExecuteUnitDemo("EU2", false)
+//    plugins += new ExecuteUnit("EU3")
+//    plugins += new MulPlugin("EU3")
 
     plugins += new RobPlugin()
     plugins += new CommitPlugin()
@@ -158,6 +158,7 @@ object Gen extends App{
 
 //TODO Optimisations
 /*
+- gshare should update the fetch branchHistory himself, instead of the decode stage update workaround
 - optimize aligner for non-rvc config
 - PredoctorPlugin to Branchplugin context storage optimisation
 - LSU getting PC for reschedule
