@@ -113,7 +113,7 @@ class PredictorPlugin() extends Plugin{
 
     val gshare = new Area{
       val gshareWords = 4096
-      def gshareHash(address : UInt, history : Bits) = address(SLICE_RANGE.high + 1, log2Up(gshareWords) bits) ^ U(history).resized
+      def gshareHash(address : UInt, history : Bits) = address(SLICE_RANGE.high + 1, log2Up(gshareWords) bits).reversed ^ U(history).resized
 
       class Entry extends Bundle{
 //        val
