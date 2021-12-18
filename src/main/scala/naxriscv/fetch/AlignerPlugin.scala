@@ -180,7 +180,7 @@ class AlignerPlugin() extends Plugin{
       for((reg, key) <- (buffer.wordContexts, addedWordContext).zipped) reg := key
     }
 
-    val correctionSent = RegInit(False) setWhen(setup.sequenceJump.valid) clearWhen(input.isReady)
+    val correctionSent = RegInit(False) setWhen(setup.sequenceJump.valid) clearWhen(input.isReady || input.isFlushed)
     fetch.getLastStage.flushIt(predictionSanity.failure && !correctionSent)
     setup.sequenceJump.valid := predictionSanity.failure && !correctionSent
     setup.sequenceJump.pc    := input(fetch.keys.FETCH_PC_INC)
