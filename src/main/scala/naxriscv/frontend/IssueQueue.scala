@@ -38,6 +38,7 @@ case class IssueQueueIo[T <: Data](p : IssueQueueParameter, slotContextType : Ha
   val push = slave Stream(IssueQueuePush(p, slotContextType))
   val schedules = Vec(p.schedules.map(sp => master Stream(Schedule(sp, p.slotCount))))
   val contexts = out(Vec.fill(p.slotCount)(slotContextType()))
+  val usage = out Bits(p.slotCount bits)
 }
 
 
@@ -62,6 +63,8 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
 
       val context = Reg(slotContextType())
       io.contexts(line*p.wayCount + way) := context
+
+      io.usage(priority) := sel =/= 0 || triggers.msb
     }
   }
 

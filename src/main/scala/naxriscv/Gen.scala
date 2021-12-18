@@ -18,21 +18,21 @@ object Config{
   def properties() = {
     NaxDataBase.create()
 
-    Fetch.RVC.set(true)
-    Fetch.FETCH_DATA_WIDTH.set(64)
-    Fetch.INSTRUCTION_WIDTH.set(32)
-    Frontend.DECODE_COUNT.set(2)
-    Global.COMMIT_COUNT.set(2)
-    ROB.SIZE.set(64)
-    Global.XLEN.set(32)
-
 //    Fetch.RVC.set(true)
-//    Fetch.FETCH_DATA_WIDTH.set(32)
+//    Fetch.FETCH_DATA_WIDTH.set(64)
 //    Fetch.INSTRUCTION_WIDTH.set(32)
-//    Frontend.DECODE_COUNT.set(1)
-//    Global.COMMIT_COUNT.set(1)
+//    Frontend.DECODE_COUNT.set(2)
+//    Global.COMMIT_COUNT.set(2)
 //    ROB.SIZE.set(64)
 //    Global.XLEN.set(32)
+
+    Fetch.RVC.set(true)
+    Fetch.FETCH_DATA_WIDTH.set(32)
+    Fetch.INSTRUCTION_WIDTH.set(32)
+    Frontend.DECODE_COUNT.set(1)
+    Global.COMMIT_COUNT.set(1)
+    ROB.SIZE.set(64)
+    Global.XLEN.set(32)
   }
 
   def plugins(): Seq[Plugin] ={
@@ -45,8 +45,8 @@ object Config{
     plugins += new FetchAddressTranslationPlugin()
     plugins += new PcPlugin()
     plugins += new FetchCachePlugin(
-      cacheSize = 4096*2,
-      wayCount = 2,
+      cacheSize = 4096*4,
+      wayCount = 4,
       injectionAt = 2,
       memDataWidth = Fetch.FETCH_DATA_WIDTH,
       reducedBankWidth = false
@@ -75,8 +75,8 @@ object Config{
     )
     plugins += new DataCachePlugin(
       memDataWidth = Global.XLEN,
-      cacheSize    = 4096*2,
-      wayCount     = 2,
+      cacheSize    = 4096*4,
+      wayCount     = 4,
       refillCount = 2,
       writebackCount = 2,
       reducedBankWidth = false
@@ -86,25 +86,24 @@ object Config{
     plugins += new SrcPlugin("EU0")
     plugins += new IntAluPlugin("EU0")
     plugins += new ShiftPlugin("EU0")
-//    plugins += new BranchPlugin("EU0")
-//    plugins += new LoadPlugin("EU0")
-//    plugins += new StorePlugin("EU0")
+    plugins += new BranchPlugin("EU0")
+    plugins += new LoadPlugin("EU0")
+    plugins += new StorePlugin("EU0")
 
-    plugins += new ExecutionUnitBase("EU1")
-    plugins += new SrcPlugin("EU1")
-    plugins += new BranchPlugin("EU1")
-    plugins += new LoadPlugin("EU1")
-    plugins += new StorePlugin("EU1")
-    //    plugins += new IntAluPlugin("EU1")
-    //    plugins += new ShiftPlugin("EU1")
+//    plugins += new ExecutionUnitBase("EU1")
+//    plugins += new SrcPlugin("EU1")
+//    plugins += new IntAluPlugin("EU1")
+//    plugins += new ShiftPlugin("EU1")
+//    plugins += new BranchPlugin("EU1")
+//    plugins += new LoadPlugin("EU1")
+//    plugins += new StorePlugin("EU1")
 
-//    plugins += new ExecuteUnit("EU0")
-//    plugins += new IntAluPlugin("EU0")
-//    plugins += new ExecuteUnit("EU1")
-//    plugins += new IntAluPlugin("EU1", withAdd = false)
-//    plugins += new ExecuteUnitDemo("EU2", false)
-//    plugins += new ExecuteUnit("EU3")
-//    plugins += new MulPlugin("EU3")
+
+//    plugins += new ExecutionUnitBase("EU2")
+//    plugins += new SrcPlugin("EU2")
+//    plugins += new IntAluPlugin("EU2")
+//    plugins += new ShiftPlugin("EU2")
+//    plugins += new BranchPlugin("EU2")
 
     plugins += new RobPlugin()
     plugins += new CommitPlugin()
@@ -158,6 +157,7 @@ object Gen extends App{
 
 //TODO Optimisations
 /*
+- RAS implement healing
 - gshare should update the fetch branchHistory himself, instead of the decode stage update workaround
 - optimize aligner for non-rvc config
 - PredoctorPlugin to Branchplugin context storage optimisation

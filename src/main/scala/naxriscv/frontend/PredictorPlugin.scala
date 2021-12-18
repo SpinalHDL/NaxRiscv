@@ -91,6 +91,26 @@ class PredictorPlugin() extends Plugin{
       }
     }
 
+    val ras = new Area{
+      val rasDepth = 32
+      val mem = new Area{
+        val stack = Mem.fill(rasDepth)(PC)
+      }
+      val ptr = new Area{
+        val push = Reg(UInt(log2Up(rasDepth) bits)) init(0)
+        val pop = Reg(UInt(log2Up(rasDepth) bits)) init(rasDepth-1)
+        val pushIt, popIt = False
+
+        push := push + U(pushIt) - U(popIt)
+        pop  := pop + U(pushIt) - U(popIt)
+      }
+      val read = mem.stack.readAsync(ptr.pop)
+      val write = mem.stack.writePort
+      write.valid := ptr.pushIt
+      write.address := ptr.push
+      write.data.assignDontCare()
+    }
+
     val gshare = new Area{
       val gshareWords = 4096
       def gshareHash(address : UInt, history : Bits) = address(SLICE_RANGE.high + 1, log2Up(gshareWords) bits) ^ U(history).resized
@@ -195,7 +215,8 @@ class PredictorPlugin() extends Plugin{
 
       import stage._
 
-
+      var rasPushUsed = False
+      var rasPopUsed = False
       val slots = for (slotId <- 0 until Frontend.DECODE_COUNT) yield new Area {
         implicit val _ = StageableOffset(slotId)
 
@@ -205,9 +226,13 @@ class PredictorPlugin() extends Plugin{
         val isJalR = jalrDecoder.build(inst, decoder.covers())
         val isBranch = branchDecoder.build(inst, decoder.covers())
         val isAny = anyDecoder.build(inst, decoder.covers())
+        val rdLink  = List(1,5).map(decoder.ARCH_RD === _).orR
+        val rs1Link = List(1,5).map(decoder.ARCH_RS(0) === _).orR
+        val rdEquRs1 = decoder.ARCH_RD === decoder.ARCH_RS(0)
+        val rasPush = (isJal || isJalR) && rdLink
+        val rasPop  = isJalR && (!rdLink && rs1Link || rdLink && rs1Link && !rdEquRs1)
 
         val imm = IMM(inst)
-
         val offset = Frontend.INSTRUCTION_DECOMPRESSED(2).mux(
           False -> imm.b_sext,
           True -> imm.j_sext
@@ -219,8 +244,9 @@ class PredictorPlugin() extends Plugin{
         val slices = INSTRUCTION_SLICE_COUNT +^ 1
         val pcInc = S(PC + (slices << sliceShift))
         val pcTarget = S(PC) + offset
-        val canImprove = !isJalR //TODO improve isBranches with GSHARE
-        val branchedPrediction = isBranch && conditionalPrediction || isJal //TODO  isBranch && offset.msb is useless
+        when(isJalR){ pcTarget := S(ras.read) }
+        val canImprove = !isJalR || rasPop
+        val branchedPrediction = isBranch && conditionalPrediction || isJal || isJalR
         val pcPrediction = branchedPrediction ? pcTarget otherwise pcInc
         val pcNext = canImprove ?  U(pcPrediction) otherwise ALIGNED_BRANCH_PC_NEXT
         val missmatch = !ALIGNED_BRANCH_VALID && branchedPrediction || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(pcPrediction)
@@ -229,6 +255,20 @@ class PredictorPlugin() extends Plugin{
         branchContext.keys.BRANCH_SEL := isAny
         branchContext.keys.BRANCH_EARLY.pcNext := pcNext
         keys.BRANCH_CONDITIONAL := isBranch
+
+        when(stage.resulting(DISPATCH_MASK, slotId) && rasPush) { //WARNING use resulting DISPATCH_MASK ! (if one day things are moved around)
+          when(!rasPushUsed){
+            ras.write.data := U(pcInc)
+          }
+          rasPushUsed \= True
+        }
+        when(stage.resulting(DISPATCH_MASK, slotId) && rasPop) { //WARNING use resulting DISPATCH_MASK ! (if one day things are moved around)
+          rasPopUsed \= True
+        }
+      }
+      when(isFireing){
+        ras.ptr.pushIt    setWhen(rasPushUsed)
+        ras.ptr.popIt     setWhen(rasPopUsed)
       }
 
       val hit = slots.map(_.needCorrection).orR
@@ -256,7 +296,7 @@ class PredictorPlugin() extends Plugin{
       }
     }
 
-    val updateRob = new Area{
+    val update = new Area{
       val stage = frontend.pipeline.dispatch
       import stage._
       rob.write(keys.BRANCH_CONDITIONAL, DISPATCH_COUNT, (0 until DISPATCH_COUNT).map(stage(keys.BRANCH_CONDITIONAL, _)),  ROB.ID, isFireing)
