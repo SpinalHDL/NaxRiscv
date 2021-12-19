@@ -12,13 +12,15 @@ import naxriscv.Frontend._
 import naxriscv.Fetch._
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.{AddressTranslationService, JumpService, LockedImpl}
-import naxriscv.utilities.Plugin
+import naxriscv.utilities.{Plugin, Service}
 import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable
 
-class AlignerPlugin(inputAt : Int, noPrediction : Boolean = false) extends Plugin with FetchPipelineRequirements{
+trait FetchWordPrediction extends Service
+
+class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements{
     val keys = create early new AreaRoot{
     val ALIGNED_BRANCH_VALID = Stageable(Bool())
     val ALIGNED_BRANCH_PC_NEXT = Stageable(getService[AddressTranslationService].PC)
@@ -42,10 +44,10 @@ class AlignerPlugin(inputAt : Int, noPrediction : Boolean = false) extends Plugi
 
     val sequenceJump = jump.createFetchJumpInterface(JumpService.Priorities.ALIGNER, inputAt)
 
-    if(noPrediction){
+    if(!isServiceAvailable[FetchWordPrediction]){
       val stage = fetch.getStage(inputAt-1)
       import stage._
-      keys.WORD_BRANCH_VALID := False
+      keys.WORD_BRANCH_VALID := False //TODO instead of tidding it low, we should remove its usage conditionaly ? seems so painefull todo XD
       keys.WORD_BRANCH_SLICE := 0
       keys.WORD_BRANCH_PC_NEXT.assignDontCare()
     }

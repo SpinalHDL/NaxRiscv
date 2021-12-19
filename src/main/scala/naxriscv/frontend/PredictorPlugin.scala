@@ -108,16 +108,11 @@ class PredictorPlugin() extends Plugin{
       val gshareWords = 1024 // 1024 4096
       def gshareHash(address : UInt, history : Bits) = address(SLICE_RANGE.high + 1, log2Up(gshareWords) bits).reversed ^ U(history).resized
 
-      class Entry extends Bundle{
-//        val
-      }
-
       val mem = new Area{ //TODO bypass read durring write ?
         val takeIt = Mem.fill(gshareWords)(keys.GSHARE_TAKE_IT)
         val strong = Mem.fill(gshareWords)(keys.GSHARE_STRONG)
-//        val takeItReaded = Mem.fill(branchContext.branchCount)(keys.GSHARE_TAKE_IT)
-//        val strongReaded = Mem.fill(branchContext.branchCount)(keys.GSHARE_STRONG)
       }
+
       val readCmd = new Area{
         val stage = fetch.getStage(branchHistoryFetchAt)
         import stage._
@@ -135,7 +130,6 @@ class PredictorPlugin() extends Plugin{
 
       val onLearn = new Area{
         val ctx = branchContext.learnRead(branchContext.keys.BRANCH_FINAL)
-        val bid = branchContext.learnRead(branchContext.keys.BRANCH_ID)
         val hash = gshareHash(ctx.pcOnLastSlice, branchContext.learnRead(keys.BRANCH_HISTORY))
 
         val takeItPort = mem.takeIt.writePort

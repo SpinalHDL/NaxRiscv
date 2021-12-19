@@ -3,7 +3,7 @@ package naxriscv.frontend
 import naxriscv.Fetch._
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK}
 import naxriscv.backend.BranchContextPlugin
-import naxriscv.fetch.{AlignerPlugin, FetchPlugin, PcPlugin}
+import naxriscv.fetch.{AlignerPlugin, FetchPlugin, FetchWordPrediction, PcPlugin}
 import naxriscv.interfaces.{AddressTranslationService, CommitService, JumpService, RobService}
 import naxriscv.riscv.{IMM, Rvi}
 import naxriscv.utilities.Plugin
@@ -15,14 +15,16 @@ import spinal.lib.pipeline.{Stageable, StageableOffset}
 
 class BtbPlugin(entries : Int,
                 hashWidth : Int = 16,
-                jumpAt : Int = 1) extends Plugin{
+                jumpAt : Int = 1) extends Plugin with FetchWordPrediction{
 
   val setup = create early new Area{
     val fetch = getService[FetchPlugin]
     val jump = getService[JumpService]
+    val branchContext = getService[BranchContextPlugin]
 
     val btbJump = jump.createJumpInterface(JumpService.Priorities.FETCH_WORD(jumpAt, true))
     fetch.retain()
+    branchContext.retain()
   }
 
   val logic = create late new Area{
@@ -44,7 +46,7 @@ class BtbPlugin(entries : Int,
       val pcNext = PC()
     }
 
-    val mem = Mem.fill(entries)(BtbEntry())
+    val mem = Mem.fill(entries)(BtbEntry()) //TODO bypass read durring write ?
 
     val onLearn = new Area{
       val ctx = branchContext.learnRead(branchContext.keys.BRANCH_FINAL)
@@ -61,14 +63,13 @@ class BtbPlugin(entries : Int,
     val read = new Area{
       val stage = fetch.getStage(jumpAt-1)
       import stage._
-      val hash = getHash(FETCH_PC)
       val entryAddress = (FETCH_PC >> wordBytesWidth).resize(mem.addressWidth)
     }
     val applyIt = new Area{
       val stage = fetch.getStage(jumpAt)
       import stage._
       val entry = mem.readSync(read.entryAddress, read.stage.isReady)
-      val hit = isValid && entry.hash === getHash(FETCH_PC)// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE)
+      val hit = isValid && entry.hash === getHash(FETCH_PC)// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE) //TODO ?
       flushNext(hit)
       setup.btbJump.valid := hit
       setup.btbJump.pc := entry.pcNext
@@ -79,5 +80,6 @@ class BtbPlugin(entries : Int,
     }
 
     fetch.release()
+    branchContext.release()
   }
 }
