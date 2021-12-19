@@ -32,7 +32,7 @@ class BtbPlugin(entries : Int,
     val ak = getService[AlignerPlugin].keys.get
     import ak._
 
-    val FETCH_PC = fetch.keys.FETCH_PC_PRE_TRANSLATION
+    val FETCH_PC = fetch.keys.FETCH_PC
 
     //TODO learn conditional bias
     val wordBytesWidth = log2Up(FETCH_DATA_WIDTH/8)

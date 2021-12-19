@@ -207,15 +207,15 @@ class FetchCachePlugin(val cacheSize : Int,
         {
           import readStage._
           bank.read.cmd.valid := !isStuck
-          bank.read.cmd.payload := fetch.keys.FETCH_PC_PRE_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
+          bank.read.cmd.payload := fetch.keys.FETCH_PC(lineRange.high downto log2Up(bankWidth / 8))
         }
-        {import bankMuxesStage._; BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(fetch.keys.FETCH_PC_PRE_TRANSLATION(bankWordToCpuWordRange)) }
+        {import bankMuxesStage._; BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(fetch.keys.FETCH_PC(bankWordToCpuWordRange)) }
       }
 
       val bankMux = new Area {
         import bankMuxStage._
         val wayId = OHToUInt(WAYS_HITS)
-        val bankId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (fetch.keys.FETCH_PC_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
+        val bankId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (fetch.keys.FETCH_PC(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
         WORD := BANKS_MUXES.read(bankId) //MuxOH(WAYS_HITS, BANKS_MUXES)
       }
 
@@ -224,10 +224,10 @@ class FetchCachePlugin(val cacheSize : Int,
         {
           import readStage._
           way.read.cmd.valid := !isStuck
-          way.read.cmd.payload := fetch.keys.FETCH_PC_PRE_TRANSLATION(lineRange)
+          way.read.cmd.payload := fetch.keys.FETCH_PC(lineRange)
         }
 
-        {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === fetch.keys.FETCH_PC_POST_TRANSLATION(tagRange) }
+        {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === fetch.keys.FETCH_PC_TRANSLATED(tagRange) }
       }
 
       {import hitStage._;   WAYS_HIT := B(WAYS_HITS).orR}
@@ -236,12 +236,12 @@ class FetchCachePlugin(val cacheSize : Int,
         import controlStage._
 
         setup.redoJump.valid := False
-        setup.redoJump.pc := fetch.keys.FETCH_PC_PRE_TRANSLATION
+        setup.redoJump.pc := fetch.keys.FETCH_PC
 
         when(isValid) {
           when(!WAYS_HIT) {
             refill.valid := True
-            refill.address := fetch.keys.FETCH_PC_POST_TRANSLATION
+            refill.address := fetch.keys.FETCH_PC_TRANSLATED
 
             setup.redoJump.valid := True
             flushIt()

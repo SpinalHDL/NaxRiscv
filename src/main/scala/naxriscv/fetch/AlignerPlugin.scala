@@ -68,7 +68,7 @@ class AlignerPlugin(inputAt : Int, noPrediction : Boolean = false) extends Plugi
     val maskGen = new Area {
       val maskStage = fetch.getStage(inputAt-1)
       import maskStage._
-      MASK_FRONT := B((0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(fetch.keys.FETCH_PC_PRE_TRANSLATION(sliceRange)))
+      MASK_FRONT := B((0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(fetch.keys.FETCH_PC(sliceRange)))
       MASK_BACK  := B((0 until SLICE_COUNT).map(i => B((2 << i)-1, SLICE_COUNT bits)).read(keys.WORD_BRANCH_SLICE))
       when(!keys.WORD_BRANCH_VALID){ MASK_BACK.setAll() }
     }
@@ -125,7 +125,7 @@ class AlignerPlugin(inputAt : Int, noPrediction : Boolean = false) extends Plugi
 
       val backMaskError = errors(SLICE_COUNT, SLICE_COUNT bits).orR // The prediction is cutting on of the non RVC instruction (doesn't check last slice)
       val partialFetchError = keys.WORD_BRANCH_SLICE.andR && skip  // The prediction is cutting the last slice non rvc instruction
-      val postPredictionPc = fetch.keys.FETCH_PC_PRE_TRANSLATION(sliceRange) > keys.WORD_BRANCH_SLICE // The prediction was for an instruction before the input start PC
+      val postPredictionPc = fetch.keys.FETCH_PC(sliceRange) > keys.WORD_BRANCH_SLICE // The prediction was for an instruction before the input start PC
       val failure = isInputValid && keys.WORD_BRANCH_VALID && (backMaskError || partialFetchError || postPredictionPc) //TODO check that it only set in the right cases (as it can silently produce false positive)
 
       when(backMaskError || postPredictionPc){
@@ -165,7 +165,7 @@ class AlignerPlugin(inputAt : Int, noPrediction : Boolean = false) extends Plugi
       }
 
       val sliceOffset = OHToUInt(maskOh << i)
-      val pcWord = Vec(buffer.pc, input(fetch.keys.FETCH_PC_PRE_TRANSLATION)).read(U(sliceOffset.msb))
+      val pcWord = Vec(buffer.pc, input(fetch.keys.FETCH_PC)).read(U(sliceOffset.msb))
       output(PC, i) := (pcWord >> sliceRange.high+1) @@ U(sliceOffset.dropHigh(1)) @@ U(0, sliceRangeLow bits)
     }
 
@@ -181,7 +181,7 @@ class AlignerPlugin(inputAt : Int, noPrediction : Boolean = false) extends Plugi
     when(fireInput){
       buffer.mask := (fireOutput ? slices.mask(SLICE_COUNT, SLICE_COUNT bits) otherwise MASK_FRONT) & postMask
       buffer.data := WORD
-      buffer.pc   := fetch.keys.FETCH_PC_PRE_TRANSLATION
+      buffer.pc   := fetch.keys.FETCH_PC
       buffer.branchValid  := keys.WORD_BRANCH_VALID && !predictionSanity.failure
       buffer.branchSlice  := keys.WORD_BRANCH_SLICE
       buffer.branchPcNext := keys.WORD_BRANCH_PC_NEXT

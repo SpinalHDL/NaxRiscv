@@ -105,11 +105,11 @@ class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) exten
 
     fetchPc.output.ready := stage.isReady
     stage.valid := fetchPc.output.valid
-    stage(fetch.keys.FETCH_PC_PRE_TRANSLATION) := fetchPc.output.payload
+    stage(fetch.keys.FETCH_PC) := fetchPc.output.payload
 
     val pcNext = new Area{
       val stage = fetch.getStage(fetchPcIncAt)
-      stage(fetch.keys.FETCH_PC_INC) := stage(fetch.keys.FETCH_PC_PRE_TRANSLATION) + (1 << sliceRange.high+1)
+      stage(fetch.keys.FETCH_PC_INC) := stage(fetch.keys.FETCH_PC) + (1 << sliceRange.high+1)
       stage(fetch.keys.FETCH_PC_INC)(sliceRange.high downto 0) := 0
     }
 

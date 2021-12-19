@@ -57,7 +57,7 @@ class PredictorPlugin() extends Plugin{
     val ak = getService[AlignerPlugin].keys.get
     import ak._
 
-    val FETCH_PC = fetch.keys.FETCH_PC_PRE_TRANSLATION
+    val FETCH_PC = fetch.keys.FETCH_PC
 
     val branchHistory = new Area{
       val onCommit = new Area {
@@ -122,7 +122,7 @@ class PredictorPlugin() extends Plugin{
         val stage = fetch.getStage(branchHistoryFetchAt)
         import stage._
 
-        val address = gshareHash(fetch.keys.FETCH_PC_PRE_TRANSLATION, keys.BRANCH_HISTORY)
+        val address = gshareHash(fetch.keys.FETCH_PC, keys.BRANCH_HISTORY)
       }
 
       val readRsp = new Area{
