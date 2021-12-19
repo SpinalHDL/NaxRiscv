@@ -51,7 +51,7 @@ object Config{
       memDataWidth = Fetch.FETCH_DATA_WIDTH,
       reducedBankWidth = false
     )
-    plugins += new AlignerPlugin(inputAt = 2, noPrediction = false)
+    plugins += new AlignerPlugin(inputAt = 2)
     plugins += new FrontendPlugin()
     plugins += new DecompressorPlugin()
     plugins += new DecoderPlugin()
