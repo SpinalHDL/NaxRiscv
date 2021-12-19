@@ -41,7 +41,6 @@ class AlignerPlugin(inputAt : Int, noPrediction : Boolean = false) extends Plugi
     frontend.retain()
 
     val sequenceJump = jump.createFetchJumpInterface(JumpService.Priorities.ALIGNER, inputAt)
-//    frontend.pipeline.connect(buffer, frontend.pipeline.aligned)(new CustomConnector)
 
     if(noPrediction){
       val stage = fetch.getStage(inputAt-1)

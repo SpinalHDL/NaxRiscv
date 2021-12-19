@@ -31,11 +31,13 @@ class PredictorPlugin() extends Plugin{
     val jump = getService[JumpService]
     val rob = getService[RobService]
     val aligner = getService[AlignerPlugin]
+    val branchContext = getService[BranchContextPlugin]
     val PC = getService[AddressTranslationService].PC
     val decodeJump = jump.createJumpInterface(JumpService.Priorities.DECODE_PREDICTION)
     frontend.retain()
     fetch.retain()
     rob.retain()
+    branchContext.retain()
 
     aligner.addWordContext(
       keys.GSHARE_TAKE_IT,
@@ -56,13 +58,6 @@ class PredictorPlugin() extends Plugin{
     import ak._
 
     val FETCH_PC = fetch.keys.FETCH_PC_PRE_TRANSLATION
-
-    val sliceShift = if(RVC) 1 else 2
-
-    val learnContext = new Area{
-      val history = Mem.fill(branchContext.branchCount)(keys.BRANCH_HISTORY)
-      val conditionalBranch = Mem.fill(branchContext.branchCount)(Bool())
-    }
 
     val branchHistory = new Area{
       val onCommit = new Area {
@@ -120,8 +115,8 @@ class PredictorPlugin() extends Plugin{
       val mem = new Area{ //TODO bypass read durring write ?
         val takeIt = Mem.fill(gshareWords)(keys.GSHARE_TAKE_IT)
         val strong = Mem.fill(gshareWords)(keys.GSHARE_STRONG)
-        val takeItReaded = Mem.fill(branchContext.branchCount)(keys.GSHARE_TAKE_IT)
-        val strongReaded = Mem.fill(branchContext.branchCount)(keys.GSHARE_STRONG)
+//        val takeItReaded = Mem.fill(branchContext.branchCount)(keys.GSHARE_TAKE_IT)
+//        val strongReaded = Mem.fill(branchContext.branchCount)(keys.GSHARE_STRONG)
       }
       val readCmd = new Area{
         val stage = fetch.getStage(branchHistoryFetchAt)
@@ -139,17 +134,15 @@ class PredictorPlugin() extends Plugin{
       }
 
       val onLearn = new Area{
-        val event = branchContext.logic.free.learn
-        val history = learnContext.history.readAsync(event.id)
-        val isConditionalBranch = learnContext.conditionalBranch.readAsync(event.id)
-        val takeItReaded = mem.takeItReaded.readAsync(event.id)
-        val hash = gshareHash(event.finalContext.pcOnLastSlice, history)
+        val ctx = branchContext.learnRead(branchContext.keys.BRANCH_FINAL)
+        val bid = branchContext.learnRead(branchContext.keys.BRANCH_ID)
+        val hash = gshareHash(ctx.pcOnLastSlice, branchContext.learnRead(keys.BRANCH_HISTORY))
 
         val takeItPort = mem.takeIt.writePort
-        takeItPort.valid := event.valid
+        takeItPort.valid := branchContext.learnValid && branchContext.learnRead(keys.BRANCH_CONDITIONAL)
         takeItPort.address := hash
-        takeItPort.data := takeItReaded
-        takeItPort.data(event.finalContext.pcOnLastSlice(SLICE_RANGE)) := event.finalContext.taken
+        takeItPort.data := branchContext.learnRead(keys.GSHARE_TAKE_IT)
+        takeItPort.data(ctx.pcOnLastSlice(SLICE_RANGE)) := ctx.taken
       }
     }
 
@@ -192,7 +185,7 @@ class PredictorPlugin() extends Plugin{
         val conditionalPrediction =  keys.GSHARE_TAKE_IT(lastSlice)//TODO pipeline it from earlier stage
 
         val slices = INSTRUCTION_SLICE_COUNT +^ 1
-        val pcInc = S(PC + (slices << sliceShift))
+        val pcInc = S(PC + (slices << SLICE_RANGE_LOW))
         val pcTarget = S(PC) + offset
         when(isJalR){ pcTarget := S(ras.read) }
         val canImprove = !isJalR || rasPop
@@ -257,10 +250,12 @@ class PredictorPlugin() extends Plugin{
         val enable = isFireing && branchContext.keys.BRANCH_SEL && DISPATCH_MASK
         val bid = branchContext.keys.BRANCH_ID
 
-        learnContext.history.write(bid, keys.BRANCH_HISTORY, enable)
-        learnContext.conditionalBranch.write(bid, keys.BRANCH_CONDITIONAL, enable)
-        gshare.mem.takeItReaded.write(bid, keys.GSHARE_TAKE_IT, enable)
-        gshare.mem.strongReaded.write(bid, keys.GSHARE_STRONG, enable)
+        branchContext.dispatchWrite(
+          keys.BRANCH_HISTORY,
+          keys.BRANCH_CONDITIONAL,
+          keys.GSHARE_TAKE_IT,
+          keys.GSHARE_STRONG
+        )
       }
     }
 
@@ -290,5 +285,6 @@ class PredictorPlugin() extends Plugin{
     rob.release()
     frontend.release()
     fetch.release()
+    branchContext.release()
   }
 }

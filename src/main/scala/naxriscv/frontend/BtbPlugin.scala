@@ -47,15 +47,15 @@ class BtbPlugin(entries : Int,
     val mem = Mem.fill(entries)(BtbEntry())
 
     val onLearn = new Area{
-      val event = branchContext.logic.free.learn
-      val hash = getHash(event.finalContext.pcOnLastSlice)
+      val ctx = branchContext.learnRead(branchContext.keys.BRANCH_FINAL)
+      val hash = getHash(ctx.pcOnLastSlice)
 
       val port = mem.writePort
-      port.valid := event.valid
-      port.address := (event.finalContext.pcOnLastSlice >> wordBytesWidth).resized
+      port.valid := branchContext.learnValid
+      port.address := (ctx.pcOnLastSlice >> wordBytesWidth).resized
       port.data.hash := hash
-      port.data.slice := (event.finalContext.pcOnLastSlice >> SLICE_RANGE_LOW).resized
-      port.data.pcNext := event.finalContext.pcNext
+      port.data.slice := (ctx.pcOnLastSlice >> SLICE_RANGE_LOW).resized
+      port.data.pcNext := ctx.pcNext
     }
 
     val read = new Area{

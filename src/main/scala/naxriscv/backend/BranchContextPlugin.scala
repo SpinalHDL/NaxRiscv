@@ -38,6 +38,12 @@ class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl 
   def readEarly(address : UInt) = logic.mem.earlyBranch.readAsync(address)
   def writeFinal() = logic.mem.finalBranch.writePort
 
+  val dispatchWriteModel = mutable.LinkedHashSet[Stageable[_ <: Data]]()
+  val learnReadModel = mutable.LinkedHashMap[Stageable[_ <: Data], Data]()
+  def dispatchWrite(key : Stageable[_ <: Data]*) = dispatchWriteModel ++= key
+  def learnRead[T <: Data](key : Stageable[T])  = learnReadModel.getOrElseUpdate(key, key()).asInstanceOf[T]
+  def learnValid = setup.learnValid
+
   val keys = create early new AreaRoot{
     val BRANCH_SEL   = Stageable(Bool())
     val BRANCH_ID    = Stageable(UInt(log2Up(branchCount) bits))
@@ -49,6 +55,7 @@ class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl 
   val setup = create early new Area{
     getService[RobService].retain()
     getService[FrontendPlugin].retain()
+    val learnValid = Bool()
   }
 
 
@@ -58,8 +65,6 @@ class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl 
     val commit = getService[CommitService]
     val k = keys.get
     import k._
-
-    lock.await()
 
     val ptr = new Area{
       val alloc, commited, free = Reg(UInt(log2Up(branchCount) + 1 bits)) init(0)
@@ -108,17 +113,6 @@ class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl 
       ptr.commited := ptr.commited + CountOne(isBranchCommit)
     }
 
-    val free = new Area{
-      val learn = Flow(BranchLearn(pcWidth = widthOf(PC), branchCount = branchCount))
-      learn.valid := ptr.free =/= ptr.commited
-      learn.finalContext := mem.finalBranch.readAsync(ptr.free.resized)
-      learn.id := ptr.free.resized
-
-      when(learn.fire){
-        ptr.free := ptr.free + 1
-      }
-    }
-
     val onReschedule = new Area{
       val event = RegNext(commit.reschedulingPort.valid) init(False)
       when(event){
@@ -128,5 +122,56 @@ class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl 
 
     frontend.release()
     rob.release()
+  }
+
+  val free = create late new Area {
+    lock.await()
+    val l = logic.get
+
+    import l._
+
+    val dispatchMem = new Area {
+      val lrmks = learnReadModel.keySet
+      val dataKeys = dispatchWriteModel.filter(lrmks.contains)
+      val width = dataKeys.map(widthOf(_)).sum
+      val mem = Mem.fill(branchCount)(Bits(width bits))
+      val writes = for (slotId <- 0 until Frontend.DISPATCH_COUNT) yield new Area {
+        val stage = frontend.pipeline.dispatch
+        import stage._
+        implicit val _ = StageableOffset(slotId)
+
+        val port = mem.writePort
+        port.valid := isFireing && keys.BRANCH_SEL && DISPATCH_MASK
+        port.address := keys.BRANCH_ID
+        port.data := Cat(dataKeys.map(e => B(stage(e, slotId))))
+      }
+    }
+
+    val learn = new Area {
+      val valid = ptr.free =/= ptr.commited
+      val bid = ptr.free.resize(log2Up(branchCount) bits)
+
+      learnReadModel.get(keys.BRANCH_FINAL) match {
+        case Some(x) => x := mem.finalBranch.readAsync(bid)
+        case None =>
+      }
+      learnReadModel.get(keys.BRANCH_ID) match {
+        case Some(x) => x := bid
+        case None =>
+      }
+
+      val raw = dispatchMem.mem.readAsync(bid)
+      val offsets = dispatchMem.dataKeys.scanLeft(0)(_ + widthOf(_))
+      for((key, offset) <- (dispatchMem.dataKeys, offsets).zipped){
+        val value = learnReadModel(key)
+        value.assignFromBits(raw(offset, widthOf(value) bits))
+      }
+
+      setup.learnValid := valid
+
+      when(valid) {
+        ptr.free := ptr.free + 1
+      }
+    }
   }
 }
