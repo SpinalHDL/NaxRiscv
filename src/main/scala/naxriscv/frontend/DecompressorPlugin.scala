@@ -14,7 +14,7 @@ class DecompressorPlugin() extends Plugin{
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     frontend.retain()
-    frontend.pipeline.connect(frontend.pipeline.aligned, frontend.pipeline.decompressed)(M2S())
+    frontend.pipeline.connect(frontend.pipeline.aligned, frontend.pipeline.decompressed)(M2S()) //TODO optional
   }
 
   val logic = create late new Area{
