@@ -163,7 +163,7 @@ class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl 
       val raw = dispatchMem.mem.readAsync(bid)
       val offsets = dispatchMem.dataKeys.scanLeft(0)(_ + widthOf(_))
       for((key, offset) <- (dispatchMem.dataKeys, offsets).zipped){
-        val value = learnReadModel(key)
+        val value = learnReadModel(key).setCompositeName(this, key.getName())
         value.assignFromBits(raw(offset, widthOf(value) bits))
       }
 

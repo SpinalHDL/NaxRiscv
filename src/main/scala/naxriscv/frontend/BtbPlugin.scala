@@ -21,8 +21,8 @@ class BtbPlugin(entries : Int,
     val fetch = getService[FetchPlugin]
     val jump = getService[JumpService]
     val branchContext = getService[BranchContextPlugin]
-
     val btbJump = jump.createJumpInterface(JumpService.Priorities.FETCH_WORD(jumpAt, true))
+
     fetch.retain()
     branchContext.retain()
   }
@@ -33,8 +33,6 @@ class BtbPlugin(entries : Int,
     val PC = getService[AddressTranslationService].PC
     val ak = getService[AlignerPlugin].keys.get
     import ak._
-
-    val FETCH_PC = fetch.keys.FETCH_PC
 
     //TODO learn conditional bias
     val wordBytesWidth = log2Up(FETCH_DATA_WIDTH/8)
@@ -63,13 +61,13 @@ class BtbPlugin(entries : Int,
     val read = new Area{
       val stage = fetch.getStage(jumpAt-1)
       import stage._
-      val entryAddress = (FETCH_PC >> wordBytesWidth).resize(mem.addressWidth)
+      val entryAddress = (fetch.keys.FETCH_PC >> wordBytesWidth).resize(mem.addressWidth)
     }
     val applyIt = new Area{
       val stage = fetch.getStage(jumpAt)
       import stage._
       val entry = mem.readSync(read.entryAddress, read.stage.isReady)
-      val hit = isValid && entry.hash === getHash(FETCH_PC)// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE) //TODO ?
+      val hit = isValid && entry.hash === getHash(fetch.keys.FETCH_PC)// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE) //TODO ?
       flushNext(hit)
       setup.btbJump.valid := hit
       setup.btbJump.pc := entry.pcNext
