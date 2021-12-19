@@ -14,7 +14,6 @@ import spinal.lib.logic.{DecodingSpec, DecodingSpecExample, Masked}
 import spinal.lib.pipeline.{Stageable, StageableOffset}
 
 class PredictorPlugin() extends Plugin{
-  val btbJumpAt = 1
   val branchHistoryFetchAt = 1
 
   val keys = create early new AreaRoot{
@@ -34,7 +33,6 @@ class PredictorPlugin() extends Plugin{
     val aligner = getService[AlignerPlugin]
     val PC = getService[AddressTranslationService].PC
     val decodeJump = jump.createJumpInterface(JumpService.Priorities.DECODE_PREDICTION)
-    val btbJump = jump.createJumpInterface(JumpService.Priorities.FETCH_WORD(btbJumpAt, true))
     frontend.retain()
     fetch.retain()
     rob.retain()
@@ -152,54 +150,6 @@ class PredictorPlugin() extends Plugin{
         takeItPort.address := hash
         takeItPort.data := takeItReaded
         takeItPort.data(event.finalContext.pcOnLastSlice(SLICE_RANGE)) := event.finalContext.taken
-      }
-    }
-
-    //TODO learn conditional bias
-    val btb = new Area{
-      val btbDepth = 512 // 8096 256
-      val hashWidth = 16
-      val wordBytesWidth = log2Up(FETCH_DATA_WIDTH/8)
-
-      def getHash(value : UInt) = value(wordBytesWidth, hashWidth bits) //TODO better hash
-      case class BtbEntry() extends Bundle {
-        val hash = UInt(hashWidth bits)
-        val slice  = UInt(log2Up(SLICE_COUNT) bits)
-        val pcNext = PC()
-      }
-
-      val mem = Mem.fill(btbDepth)(BtbEntry())
-
-      val onLearn = new Area{
-        val event = branchContext.logic.free.learn
-        val hash = getHash(event.finalContext.pcOnLastSlice)
-
-        val port = mem.writePort
-        port.valid := event.valid// && False //TODO REMOVE FALSE ! (debug)
-        port.address := (event.finalContext.pcOnLastSlice >> wordBytesWidth).resized
-        port.data.hash := hash
-        port.data.slice := (event.finalContext.pcOnLastSlice >> sliceShift).resized
-        port.data.pcNext := event.finalContext.pcNext
-      }
-
-      val read = new Area{
-        val stage = fetch.getStage(btbJumpAt-1)
-        import stage._
-        val hash = getHash(FETCH_PC)
-        val entryAddress = (FETCH_PC >> wordBytesWidth).resize(mem.addressWidth)
-      }
-      val applyIt = new Area{
-        val stage = fetch.getStage(btbJumpAt)
-        import stage._
-        val entry = mem.readSync(read.entryAddress, read.stage.isReady)
-        val hit = isValid && entry.hash === getHash(FETCH_PC)// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE)
-        flushNext(hit)
-        setup.btbJump.valid := hit
-        setup.btbJump.pc := entry.pcNext
-
-        WORD_BRANCH_VALID := hit
-        WORD_BRANCH_SLICE := entry.slice
-        WORD_BRANCH_PC_NEXT := entry.pcNext
       }
     }
 

@@ -66,6 +66,10 @@ object Config{
       branchCount = 16
     )
     plugins += new PredictorPlugin()
+    plugins += new BtbPlugin(
+      entries = 8192,
+      jumpAt = 1
+    )
 
     plugins += new LsuPlugin(
       lqSize = 16,
