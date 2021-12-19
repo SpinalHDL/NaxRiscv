@@ -18,7 +18,7 @@ import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable
 
-class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements{
+class AlignerPlugin(inputAt : Int, noPrediction : Boolean = false) extends Plugin with FetchPipelineRequirements{
     val keys = create early new AreaRoot{
     val ALIGNED_BRANCH_VALID = Stageable(Bool())
     val ALIGNED_BRANCH_PC_NEXT = Stageable(getService[AddressTranslationService].PC)
@@ -42,6 +42,14 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
 
     val sequenceJump = jump.createFetchJumpInterface(JumpService.Priorities.ALIGNER, inputAt)
 //    frontend.pipeline.connect(buffer, frontend.pipeline.aligned)(new CustomConnector)
+
+    if(noPrediction){
+      val stage = fetch.getStage(inputAt-1)
+      import stage._
+      keys.WORD_BRANCH_VALID := False
+      keys.WORD_BRANCH_SLICE := 0
+      keys.WORD_BRANCH_PC_NEXT.assignDontCare()
+    }
   }
 
   val MASK_BACK, MASK_FRONT = Stageable(Bits(FETCH_DATA_WIDTH/SLICE_WIDTH bits))

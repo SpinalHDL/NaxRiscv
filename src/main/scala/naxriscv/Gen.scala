@@ -51,7 +51,7 @@ object Config{
       memDataWidth = Fetch.FETCH_DATA_WIDTH,
       reducedBankWidth = false
     )
-    plugins += new AlignerPlugin(inputAt = 2)
+    plugins += new AlignerPlugin(inputAt = 2, noPrediction = false)
     plugins += new FrontendPlugin()
     plugins += new DecompressorPlugin()
     plugins += new DecoderPlugin()
@@ -87,14 +87,14 @@ object Config{
     plugins += new IntAluPlugin("EU0")
     plugins += new ShiftPlugin("EU0")
     plugins += new BranchPlugin("EU0")
-    plugins += new LoadPlugin("EU0")
-    plugins += new StorePlugin("EU0")
+//    plugins += new LoadPlugin("EU0")
+//    plugins += new StorePlugin("EU0")
 
     plugins += new ExecutionUnitBase("EU1")
     plugins += new SrcPlugin("EU1")
-    plugins += new IntAluPlugin("EU1")
-    plugins += new ShiftPlugin("EU1")
-    plugins += new BranchPlugin("EU1")
+//    plugins += new IntAluPlugin("EU1")
+//    plugins += new ShiftPlugin("EU1")
+//    plugins += new BranchPlugin("EU1")
     plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
 

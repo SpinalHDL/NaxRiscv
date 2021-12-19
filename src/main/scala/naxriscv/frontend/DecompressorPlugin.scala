@@ -2,7 +2,7 @@ package naxriscv.frontend
 
 import spinal.core._
 import spinal.lib._
-import spinal.lib.pipeline.Connection.DIRECT
+import spinal.lib.pipeline.Connection.{DIRECT, M2S}
 import naxriscv.utilities._
 import naxriscv._
 import naxriscv.Global._
@@ -14,7 +14,7 @@ class DecompressorPlugin() extends Plugin{
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     frontend.retain()
-    frontend.pipeline.connect(frontend.pipeline.aligned, frontend.pipeline.decompressed)(new DIRECT)
+    frontend.pipeline.connect(frontend.pipeline.aligned, frontend.pipeline.decompressed)(M2S())
   }
 
   val logic = create late new Area{

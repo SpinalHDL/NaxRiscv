@@ -41,19 +41,20 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
     add(Rvi.BLTU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
     add(Rvi.BGEU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
 
-    val branchContext = getService[BranchContextPlugin]
-    eu.addRobStageable(branchContext.keys.BRANCH_ID)
+    val withBranchContext = isServiceAvailable[BranchContextPlugin]
+    if(withBranchContext){
+      eu.addRobStageable(getService[BranchContextPlugin].keys.BRANCH_ID)
+    }
 
     val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
   }
 
   override val logic = create late new Logic{
     val rob = getService[RobService]
-    val predictor = getService[PredictorPlugin]
     val PC = getService[AddressTranslationService].PC
     val sliceShift = if(Fetch.RVC) 1 else 2
-    val branchContext = getService[BranchContextPlugin]
-    val bck = branchContext.keys.get
+    val branchContext = setup.withBranchContext generate getService[BranchContextPlugin]
+    val bck = setup.withBranchContext generate branchContext.keys.get
     import bck._
 
     val process = new Area {
@@ -94,33 +95,40 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
       (PC, "TARGET") := COND ? stage(PC, "TRUE") | stage(PC, "FALSE")
       wb.payload := B(stage(PC, "FALSE"))
 
-      stage(BRANCH_EARLY) := branchContext.readEarly(BRANCH_ID)
+      if(setup.withBranchContext) stage(BRANCH_EARLY) := branchContext.readEarly(BRANCH_ID)
     }
 
     val branch = new Area{
       val stage = eu.getExecute(branchAt)
       import stage._
 
-      val misspredicted = BRANCH_EARLY.pcNext =/= stage(PC, "TARGET")
+      val misspredicted = if(setup.withBranchContext)
+        BRANCH_EARLY.pcNext =/= stage(PC, "TARGET")
+      else
+        CombInit(stage(COND))
+
+      def target = if(setup.withBranchContext)  stage(PC, "TARGET") else stage(PC, "TRUE")
 
       setup.reschedule.valid := isFireing && SEL && misspredicted
       setup.reschedule.robId := ROB.ID
       setup.reschedule.cause := 0
       setup.reschedule.tval := 0
-      setup.reschedule.pcTarget := stage(PC, "TARGET")
+      setup.reschedule.pcTarget := target
       setup.reschedule.reason  := ScheduleReason.BRANCH
 
-      setup.reschedule.trap := stage(PC, "TARGET")(0, sliceShift bits) =/= 0
+      setup.reschedule.trap := target(0, sliceShift bits) =/= 0
       setup.reschedule.skipCommit := setup.reschedule.trap
 
-      val finalBranch = branchContext.writeFinal()
-      finalBranch.valid := isValid && SEL
-      finalBranch.address := BRANCH_ID
-      finalBranch.data.pcOnLastSlice := PC + (Fetch.INSTRUCTION_SLICE_COUNT << sliceShift)
-      finalBranch.data.pcNext := stage(PC, "TARGET")
-      finalBranch.data.taken := COND
+      val finalBranch = setup.withBranchContext generate branchContext.writeFinal()
+      if(setup.withBranchContext) {
+        finalBranch.valid := isValid && SEL
+        finalBranch.address := BRANCH_ID
+        finalBranch.data.pcOnLastSlice := PC + (Fetch.INSTRUCTION_SLICE_COUNT << sliceShift)
+        finalBranch.data.pcNext := target
+        finalBranch.data.taken := COND
 
-      rob.write(branchContext.keys.BRANCH_TAKEN, 1, List(stage(COND)), ROB.ID, isFireing)
+        rob.write(branchContext.keys.BRANCH_TAKEN, 1, List(stage(COND)), ROB.ID, isFireing)
+      }
     }
     rob.release()
   }
