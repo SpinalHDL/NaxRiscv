@@ -18,21 +18,21 @@ object Config{
   def properties() = {
     NaxDataBase.create()
 
-//    Fetch.RVC.set(true)
-//    Fetch.FETCH_DATA_WIDTH.set(64)
-//    Fetch.INSTRUCTION_WIDTH.set(32)
-//    Frontend.DECODE_COUNT.set(2)
-//    Global.COMMIT_COUNT.set(2)
-//    ROB.SIZE.set(64)
-//    Global.XLEN.set(32)
-
     Fetch.RVC.set(true)
-    Fetch.FETCH_DATA_WIDTH.set(32)
+    Fetch.FETCH_DATA_WIDTH.set(64)
     Fetch.INSTRUCTION_WIDTH.set(32)
-    Frontend.DECODE_COUNT.set(1)
-    Global.COMMIT_COUNT.set(1)
+    Frontend.DECODE_COUNT.set(2)
+    Global.COMMIT_COUNT.set(2)
     ROB.SIZE.set(64)
     Global.XLEN.set(32)
+
+//    Fetch.RVC.set(true)
+//    Fetch.FETCH_DATA_WIDTH.set(32)
+//    Fetch.INSTRUCTION_WIDTH.set(32)
+//    Frontend.DECODE_COUNT.set(1)
+//    Global.COMMIT_COUNT.set(1)
+//    ROB.SIZE.set(64)
+//    Global.XLEN.set(32)
   }
 
   def plugins(): Seq[Plugin] ={
@@ -51,7 +51,7 @@ object Config{
       memDataWidth = Fetch.FETCH_DATA_WIDTH,
       reducedBankWidth = false
     )
-    plugins += new AlignerPlugin()
+    plugins += new AlignerPlugin(inputAt = 2)
     plugins += new FrontendPlugin()
     plugins += new DecompressorPlugin()
     plugins += new DecoderPlugin()
@@ -90,13 +90,13 @@ object Config{
     plugins += new LoadPlugin("EU0")
     plugins += new StorePlugin("EU0")
 
-//    plugins += new ExecutionUnitBase("EU1")
-//    plugins += new SrcPlugin("EU1")
-//    plugins += new IntAluPlugin("EU1")
-//    plugins += new ShiftPlugin("EU1")
-//    plugins += new BranchPlugin("EU1")
-//    plugins += new LoadPlugin("EU1")
-//    plugins += new StorePlugin("EU1")
+    plugins += new ExecutionUnitBase("EU1")
+    plugins += new SrcPlugin("EU1")
+    plugins += new IntAluPlugin("EU1")
+    plugins += new ShiftPlugin("EU1")
+    plugins += new BranchPlugin("EU1")
+    plugins += new LoadPlugin("EU1")
+    plugins += new StorePlugin("EU1")
 
 
 //    plugins += new ExecutionUnitBase("EU2")
@@ -104,6 +104,8 @@ object Config{
 //    plugins += new IntAluPlugin("EU2")
 //    plugins += new ShiftPlugin("EU2")
 //    plugins += new BranchPlugin("EU2")
+//    plugins += new LoadPlugin("EU2")
+//    plugins += new StorePlugin("EU2")
 
     plugins += new RobPlugin()
     plugins += new CommitPlugin()
@@ -141,6 +143,12 @@ object Gen extends App{
   }))
 }
 
+
+//CMD
+/*
+make clean compile  test_clean output/nax/dhrystone/PASS ARGS="--stats_print_all --stats_toggle_symbol sim_time"
+
+ */
 //object GenSim extends App{
 //  import spinal.core.sim._
 //  SimConfig.withFstWave.compile(new Component {
@@ -157,6 +165,8 @@ object Gen extends App{
 
 //TODO Optimisations
 /*
+- store to load hazard prediction
+- less pessimistic store to load detection (only trigger if the load got the data from the cache, instead of just having its address)
 - RAS implement healing
 - gshare should update the fetch branchHistory himself, instead of the decode stage update workaround
 - optimize aligner for non-rvc config

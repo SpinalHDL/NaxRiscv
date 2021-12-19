@@ -112,7 +112,7 @@ class PredictorPlugin() extends Plugin{
     }
 
     val gshare = new Area{
-      val gshareWords = 4096
+      val gshareWords = 4096 // 1024 4096
       def gshareHash(address : UInt, history : Bits) = address(SLICE_RANGE.high + 1, log2Up(gshareWords) bits).reversed ^ U(history).resized
 
       class Entry extends Bundle{
@@ -157,7 +157,7 @@ class PredictorPlugin() extends Plugin{
 
     //TODO learn conditional bias
     val btb = new Area{
-      val btbDepth = 8096
+      val btbDepth = 8096 // 8096 256
       val hashWidth = 16
       val wordBytesWidth = log2Up(FETCH_DATA_WIDTH/8)
 

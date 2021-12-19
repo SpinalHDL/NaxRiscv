@@ -175,6 +175,12 @@ class Pipeline extends Area{
       propagateRequirements(end)
     }
 
+
+    for(s <- stagesSet){
+      if(s.internals.request.flushRoot.nonEmpty) s.isFlushingRoot
+      if(s.internals.arbitration.isFlushingRoot != null)s.internals.arbitration.isFlushingRoot := s.internals.request.flushRoot.orR
+    }
+
     //Name stuff
     for(s <- stagesSet){
       import s.internals._
@@ -184,14 +190,15 @@ class Pipeline extends Area{
       if(s.internals.input.ready != null) s.internals.input.ready.setCompositeName(s, "ready", true)
       if(arbitration.isFlushed != null) arbitration.isFlushed.setCompositeName(s, "isFlushed", true)
       if(arbitration.isFlushingNext != null) arbitration.isFlushingNext.setCompositeName(s, "isFlushingNext", true)
-      if(arbitration.isHalted != null) arbitration.isFlushingNext.setCompositeName(s, "isHalted", true)
-      if(arbitration.isHaltedByOthers != null) arbitration.isFlushingNext.setCompositeName(s, "isHaltedByOthers", true)
+      if(arbitration.isFlushingRoot != null) arbitration.isFlushingRoot.setCompositeName(s, "isFlushingRoot", true)
+      if(arbitration.isHalted != null) arbitration.isHalted.setCompositeName(s, "isHalted", true)
+      if(arbitration.isHaltedByOthers != null) arbitration.isHaltedByOthers.setCompositeName(s, "isHaltedByOthers", true)
     }
 
     //Internal connections
     for(s <- stagesSet){
       s.output.valid := s.input.valid
-      if(s.internals.request.flushRoot.nonEmpty) s.output.valid clearWhen(s.internals.request.flushRoot.orR)
+      if(s.internals.request.flushRoot.nonEmpty) s.output.valid clearWhen(s.internals.arbitration.isFlushingRoot)
 
       (s.input.ready,  s.output.ready) match {
         case (null, null) =>

@@ -15,7 +15,7 @@ import scala.collection.mutable.ArrayBuffer
 import Frontend._
 
 
-class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpService{
+class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) extends Plugin with JumpService{
   case class JumpInfo(interface :  Flow[JumpCmd], priority : Int, fetchStage : Int)
   val jumpInfos = ArrayBuffer[JumpInfo]()
   override def createJumpInterface(priority : Int): Flow[JumpCmd] = createFetchJumpInterface(priority, Int.MaxValue)
@@ -108,7 +108,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l) extends Plugin with JumpServi
     stage(fetch.keys.FETCH_PC_PRE_TRANSLATION) := fetchPc.output.payload
 
     val pcNext = new Area{
-      val stage = fetch.getLastStage
+      val stage = fetch.getStage(fetchPcIncAt)
       stage(fetch.keys.FETCH_PC_INC) := stage(fetch.keys.FETCH_PC_PRE_TRANSLATION) + (1 << sliceRange.high+1)
       stage(fetch.keys.FETCH_PC_INC)(sliceRange.high downto 0) := 0
     }

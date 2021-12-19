@@ -18,7 +18,7 @@ import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable
 
-class AlignerPlugin() extends Plugin{
+class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements{
     val keys = create early new AreaRoot{
     val ALIGNED_BRANCH_VALID = Stageable(Bool())
     val ALIGNED_BRANCH_PC_NEXT = Stageable(getService[AddressTranslationService].PC)
@@ -27,6 +27,8 @@ class AlignerPlugin() extends Plugin{
     val WORD_BRANCH_SLICE = Stageable(UInt(log2Up(SLICE_COUNT) bits))
     val WORD_BRANCH_PC_NEXT = Stageable(getService[AddressTranslationService].PC)
   }
+
+  override def stagesCountMin = inputAt + 1
 
   val addedWordContext = mutable.LinkedHashSet[Stageable[_ <: Data]]()
   def addWordContext(key : Stageable[_ <: Data]*): Unit = addedWordContext ++= key
@@ -38,9 +40,7 @@ class AlignerPlugin() extends Plugin{
     fetch.retain()
     frontend.retain()
 
-    val sequenceJump = jump.createJumpInterface(JumpService.Priorities.ALIGNER)
-    val buffer = fetch.pipeline.newStage()
-    fetch.pipeline.connect(fetch.pipeline.stages.last, buffer)(new M2S()) //WARNING, maskGen pipeline is assuming there is a buffer stage (fmax)
+    val sequenceJump = jump.createFetchJumpInterface(JumpService.Priorities.ALIGNER, inputAt)
 //    frontend.pipeline.connect(buffer, frontend.pipeline.aligned)(new CustomConnector)
   }
 
@@ -49,16 +49,17 @@ class AlignerPlugin() extends Plugin{
     val frontend = getService[FrontendPlugin]
     val fetch = getService[FetchPlugin]
     val PC = getService[AddressTranslationService].PC
-    val input = setup.buffer
+    val input = fetch.getStage(inputAt)
     val output = setup.frontend.pipeline.aligned
 
     import input._
 
-
+    val ignoreInput = CombInit(input.isSelfRemoved) // This is to ensure we don't propagate stuff futher if the instruction cache has a cache miss on that instruction
+    val isInputValid = input.isValid && !ignoreInput
     val sliceRangeLow = if (RVC) 1 else 2
     val sliceRange = (sliceRangeLow + log2Up(SLICE_COUNT) - 1) downto sliceRangeLow
     val maskGen = new Area {
-      val maskStage = fetch.pipeline.stages.last
+      val maskStage = fetch.getStage(inputAt-1)
       import maskStage._
       MASK_FRONT := B((0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(fetch.keys.FETCH_PC_PRE_TRANSLATION(sliceRange)))
       MASK_BACK  := B((0 until SLICE_COUNT).map(i => B((2 << i)-1, SLICE_COUNT bits)).read(keys.WORD_BRANCH_SLICE))
@@ -77,7 +78,7 @@ class AlignerPlugin() extends Plugin{
 
     val slices = new Area {
       val data = (WORD ## buffer.data).subdivideIn(SLICE_WIDTH bits)
-      var mask = (input.isValid ? input(MASK_FRONT) | B(0)) ## buffer.mask //Which slice have valid data
+      var mask = (isInputValid ? input(MASK_FRONT) | B(0)) ## buffer.mask //Which slice have valid data
       var used = B(0, SLICE_COUNT*2 bits)
     }
 
@@ -118,7 +119,7 @@ class AlignerPlugin() extends Plugin{
       val backMaskError = errors(SLICE_COUNT, SLICE_COUNT bits).orR // The prediction is cutting on of the non RVC instruction (doesn't check last slice)
       val partialFetchError = keys.WORD_BRANCH_SLICE.andR && skip  // The prediction is cutting the last slice non rvc instruction
       val postPredictionPc = fetch.keys.FETCH_PC_PRE_TRANSLATION(sliceRange) > keys.WORD_BRANCH_SLICE // The prediction was for an instruction before the input start PC
-      val failure = input.isValid && keys.WORD_BRANCH_VALID && (backMaskError || partialFetchError || postPredictionPc) //TODO check that it only set in the right cases (as it can silently produce false positive)
+      val failure = isInputValid && keys.WORD_BRANCH_VALID && (backMaskError || partialFetchError || postPredictionPc) //TODO check that it only set in the right cases (as it can silently produce false positive)
 
       when(backMaskError || postPredictionPc){
         for(decoder <- decoders.drop(SLICE_COUNT)){
@@ -162,7 +163,7 @@ class AlignerPlugin() extends Plugin{
     }
 
     val fireOutput = CombInit(output.isFireing)
-    val fireInput = isValid && buffer.mask === 0 || fireOutput && slices.mask(0, SLICE_COUNT bits) === 0 //WARNING NEED RVC FIX this seems to not handle unaligned none RVC
+    val fireInput = isInputValid && buffer.mask === 0 || fireOutput && slices.mask(0, SLICE_COUNT bits) === 0 //WARNING NEED RVC FIX this seems to not handle unaligned none RVC
 
 
     when(fireOutput){
@@ -181,7 +182,7 @@ class AlignerPlugin() extends Plugin{
     }
 
     val correctionSent = RegInit(False) setWhen(setup.sequenceJump.valid) clearWhen(input.isReady || input.isFlushed)
-    fetch.getLastStage.flushIt(predictionSanity.failure && !correctionSent)
+    fetch.getStage(inputAt-1).flushIt(predictionSanity.failure && !correctionSent)
     setup.sequenceJump.valid := predictionSanity.failure && !correctionSent
     setup.sequenceJump.pc    := input(fetch.keys.FETCH_PC_INC)
 

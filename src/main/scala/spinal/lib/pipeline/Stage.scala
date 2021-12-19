@@ -28,6 +28,7 @@ class Stage extends Nameable {
       var isRemoved : Bool = null
       var isFlushed : Bool = null
       var isFlushingNext : Bool = null
+      var isFlushingRoot : Bool = null
       var isHalted : Bool = null
       var isHaltedByOthers : Bool = null
       var propagateReady = false
@@ -102,10 +103,15 @@ class Stage extends Nameable {
     if(internals.arbitration.isFlushingNext == null) internals.arbitration.isFlushingNext = Misc.outsideCondScope(Bool())
     internals.arbitration.isFlushingNext
   }
+  def isFlushingRoot : Bool = {
+    if(internals.arbitration.isFlushingRoot == null) internals.arbitration.isFlushingRoot = Misc.outsideCondScope(Bool())
+    internals.arbitration.isFlushingRoot
+  }
   def isReady : Bool = {
     if(internals.input.ready == null) internals.input.ready = Misc.outsideCondScope(Bool())
     internals.input.ready
   }
+  def isSelfRemoved : Bool = isFlushingRoot
 
   def valid = internals.input.valid
 
