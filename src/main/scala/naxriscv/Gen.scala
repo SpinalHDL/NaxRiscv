@@ -43,7 +43,7 @@ object Config{
       ioRange = _(31 downto 28) === 0x1
     )
 
-    // FETCH
+    //FETCH
     plugins += new FetchPlugin()
     plugins += new FetchAddressTranslationPlugin()
     plugins += new PcPlugin()
@@ -75,10 +75,12 @@ object Config{
     plugins += new DecoderPredictionPlugin()
     plugins += new BtbPlugin(
       entries = 8192,
+//      entries = 512,
       jumpAt = 1
     )
     plugins += new GSharePlugin(
       entries = 8192,
+//      entries = 1024,
       historyWidth = 16,
       insertAt = 2
     )
@@ -96,7 +98,8 @@ object Config{
       wayCount     = 4,
       refillCount = 2,
       writebackCount = 2,
-      reducedBankWidth = false
+      reducedBankWidth = false,
+      loadRspAt = 3 //TODO optimise timings to reduce to 2 again
     )
 
     //MISC

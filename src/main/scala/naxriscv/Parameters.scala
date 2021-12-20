@@ -72,6 +72,7 @@ object Frontend extends AreaObject {
   def FETCH_COUNT = DECODE_COUNT.get
   def DISPATCH_COUNT = DECODE_COUNT.get
 
+  val DECODED_MASK = Stageable(Bool())
   val DISPATCH_MASK = Stageable(Bool())
 
   val MASK_ALIGNED = Stageable(Bool())

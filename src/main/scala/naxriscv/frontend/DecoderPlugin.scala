@@ -6,7 +6,7 @@ import naxriscv.Frontend._
 import naxriscv.Fetch._
 import naxriscv.interfaces.{AddressTranslationService, DecoderService, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, Resource, RfRead, RfResource, RobService, SingleDecoding}
 import naxriscv.riscv.Const
-import spinal.lib.pipeline.Connection.DIRECT
+import spinal.lib.pipeline.Connection.{DIRECT, M2S}
 import spinal.lib.pipeline._
 import spinal.core._
 import spinal.lib._
@@ -64,7 +64,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     frontend.retain()
-    frontend.pipeline.connect(frontend.pipeline.decompressed, frontend.pipeline.decoded)(new DIRECT)
+    frontend.pipeline.connect(frontend.pipeline.decompressed, frontend.pipeline.decoded)(DIRECT())
 
     getService[RobService].retain()
 
@@ -167,8 +167,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       for((r, s) <- resourceToStageable){
         s := encodings.resourceToSpec(r).build(INSTRUCTION_DECOMPRESSED, encodings.all)
       }
-
-      DISPATCH_MASK := MASK_ALIGNED
+      DECODED_MASK := MASK_ALIGNED
 
       MICRO_OP := INSTRUCTION_DECOMPRESSED
       terminal(INSTRUCTION_DECOMPRESSED, i)

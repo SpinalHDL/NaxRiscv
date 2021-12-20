@@ -722,15 +722,23 @@ class DataCache(val cacheSize: Int,
     }
 
     val inject = new Area {
-
       import rspStage._
-      assert(rspStage == controlStage, "Need to implement refillSlot bypass otherwise")
+
       io.load.rsp.valid := isValid
       io.load.rsp.data := CPU_WORD
       io.load.rsp.fault := False //TODO
       io.load.rsp.redo := REDO
-      io.load.rsp.refillSlotAny := REFILL_SLOT_FULL
-      io.load.rsp.refillSlot := REFILL_SLOT
+
+      (loadRspAt-loadControlAt) match {
+        case 0 =>{
+          io.load.rsp.refillSlotAny := REFILL_SLOT_FULL
+          io.load.rsp.refillSlot := REFILL_SLOT
+        }
+        case 1 => {
+          io.load.rsp.refillSlotAny := REFILL_SLOT_FULL && !io.refillCompletions.orR
+          io.load.rsp.refillSlot    := REFILL_SLOT & io.refillCompletions
+        }
+      }
     }
 
     pipeline.build()

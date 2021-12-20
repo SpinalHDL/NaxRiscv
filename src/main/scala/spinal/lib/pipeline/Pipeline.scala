@@ -265,5 +265,13 @@ class Pipeline extends Area{
     }
   }
 
+  def getFollowing(m : Stage, latency : Int): Stage = latency match{
+    case 0 => m
+    case x if latency > 0 => connections.find(_.m == m) match {
+      case Some(c) => getFollowing(c.s, latency - c.logics.map(_.latency).sum)
+      case None => ???
+    }
+  }
+
   //  Component.current.afterElaboration(build)
 }

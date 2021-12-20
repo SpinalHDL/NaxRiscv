@@ -53,4 +53,5 @@ class FrontendPlugin() extends Plugin with LockedImpl{
   }
 
   def getPipeline() = pipeline.get
+  def getFollowing(m : Stage, latency : Int) : Stage = pipeline.getFollowing(m, latency)
 }
