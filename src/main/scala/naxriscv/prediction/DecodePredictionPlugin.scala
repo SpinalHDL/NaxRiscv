@@ -71,7 +71,6 @@ class DecodePredictionPlugin() extends Plugin{
 
     val decodePatch = new Area {
       val stage = frontend.pipeline.decoded
-      val stagePrevious = frontend.pipeline.aligned
       val branchKeys = List(Rvi.BEQ, Rvi.BNE, Rvi.BLT, Rvi.BGE, Rvi.BLTU, Rvi.BGEU).map(e => Masked(e.key))
       val branchDecoder, jalDecoder, jalrDecoder, anyDecoder = new DecodingSpec(Bool()).setDefault(Masked.zero)
       branchDecoder.addNeeds(branchKeys, Masked.one)

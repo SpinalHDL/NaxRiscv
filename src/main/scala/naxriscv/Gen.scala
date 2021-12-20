@@ -42,6 +42,8 @@ object Config{
     plugins += new StaticAddressTranslationPlugin(
       ioRange = _(31 downto 28) === 0x1
     )
+
+    // FETCH
     plugins += new FetchPlugin()
     plugins += new FetchAddressTranslationPlugin()
     plugins += new PcPlugin()
@@ -53,6 +55,8 @@ object Config{
       reducedBankWidth = false
     )
     plugins += new AlignerPlugin(inputAt = 2)
+
+    //FRONTEND
     plugins += new FrontendPlugin()
     plugins += new DecompressorPlugin()
     plugins += new DecoderPlugin()
@@ -63,21 +67,23 @@ object Config{
       slotCount = 32
     )
 
+    //BRANCH PREDICTION
     plugins += new BranchContextPlugin(
       branchCount = 16
     )
     plugins += new HistoryPlugin()
     plugins += new DecodePredictionPlugin()
     plugins += new BtbPlugin(
-      entries = 8192,
+      entries = 512,
       jumpAt = 1
     )
     plugins += new GSharePlugin(
-      entries = 8192,
+      entries = 1024,
       historyWidth = 16,
       insertAt = 2
     )
 
+    //LOAD / STORE
     plugins += new LsuPlugin(
       lqSize = 16,
       sqSize = 16,
@@ -93,6 +99,7 @@ object Config{
       reducedBankWidth = false
     )
 
+    //EXECUTION UNITES
     plugins += new ExecutionUnitBase("EU0")
     plugins += new SrcPlugin("EU0")
     plugins += new IntAluPlugin("EU0")
@@ -118,6 +125,7 @@ object Config{
 //    plugins += new LoadPlugin("EU2")
 //    plugins += new StorePlugin("EU2")
 
+    //MISC
     plugins += new RobPlugin()
     plugins += new CommitPlugin()
     plugins += new RegFilePlugin(

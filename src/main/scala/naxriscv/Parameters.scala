@@ -19,7 +19,7 @@ object ROB extends AreaObject{
   def lineRange = ID_WIDTH-1 downto log2Up(COLS)
 }
 
-object Global extends AreaObject {
+object Global extends AreaRoot {
 //  val PHYSICAL_WIDTH = NaxParameter[Int]
 //  def VIRTUAL_WIDTH = PHYSICAL_WIDTH.get //for now
 

@@ -85,6 +85,7 @@ class HistoryPlugin extends Plugin{
       }
 
       val pushes = for(spec <- historyPushSpecs.sortBy(_.priority)) yield new Area{
+        assert(historyPushSpecs.count(_.priority == spec.priority) == 1)
         var stateNext = CombInit(spec.state)
         for(slotId <- 0 until spec.width){
           when(spec.port.mask(slotId)) {
