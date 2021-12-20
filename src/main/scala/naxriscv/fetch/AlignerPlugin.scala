@@ -15,20 +15,14 @@ import naxriscv.interfaces.{AddressTranslationService, JumpService, LockedImpl}
 import naxriscv.utilities.{Plugin, Service}
 import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline.Stageable
+import naxriscv.prediction.Prediction._
 
 import scala.collection.mutable
 
 trait FetchWordPrediction extends Service
 
 class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements{
-  val keys = create early new AreaRoot{
-    val ALIGNED_BRANCH_VALID = Stageable(Bool())
-    val ALIGNED_BRANCH_PC_NEXT = Stageable(UInt(PC_WIDTH bits))
 
-    val WORD_BRANCH_VALID = Stageable(Bool())
-    val WORD_BRANCH_SLICE = Stageable(UInt(log2Up(SLICE_COUNT) bits))
-    val WORD_BRANCH_PC_NEXT = Stageable(UInt(PC_WIDTH bits))
-  }
 
   override def stagesCountMin = inputAt + 1
 
@@ -47,9 +41,9 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
     if(!isServiceAvailable[FetchWordPrediction]){
       val stage = fetch.getStage(inputAt-1)
       import stage._
-      keys.WORD_BRANCH_VALID := False //TODO instead of tidding it low, we should remove its usage conditionaly ? seems so painefull todo XD
-      keys.WORD_BRANCH_SLICE := 0
-      keys.WORD_BRANCH_PC_NEXT.assignDontCare()
+      WORD_BRANCH_VALID := False //TODO instead of tidding it low, we should remove its usage conditionaly ? seems so painefull todo XD
+      WORD_BRANCH_SLICE := 0
+      WORD_BRANCH_PC_NEXT.assignDontCare()
     }
   }
 
@@ -69,18 +63,18 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
     val maskGen = new Area {
       val maskStage = fetch.getStage(inputAt-1)
       import maskStage._
-      MASK_FRONT := B((0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(fetch.keys.FETCH_PC(sliceRange)))
-      MASK_BACK  := B((0 until SLICE_COUNT).map(i => B((2 << i)-1, SLICE_COUNT bits)).read(keys.WORD_BRANCH_SLICE))
-      when(!keys.WORD_BRANCH_VALID){ MASK_BACK.setAll() }
+      MASK_FRONT := B((0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(FETCH_PC(sliceRange)))
+      MASK_BACK  := B((0 until SLICE_COUNT).map(i => B((2 << i)-1, SLICE_COUNT bits)).read(WORD_BRANCH_SLICE))
+      when(!WORD_BRANCH_VALID){ MASK_BACK.setAll() }
     }
 
     val buffer = new Area {
       val data = Reg(WORD)
       val mask = Reg(MASK_FRONT) init (0)
       val pc   = Reg(PC())
-      val branchValid = Reg(keys.WORD_BRANCH_VALID())
-      val branchSlice = Reg(keys.WORD_BRANCH_SLICE())
-      val branchPcNext = Reg(keys.WORD_BRANCH_PC_NEXT())
+      val branchValid = Reg(WORD_BRANCH_VALID())
+      val branchSlice = Reg(WORD_BRANCH_SLICE())
+      val branchPcNext = Reg(WORD_BRANCH_PC_NEXT())
       val wordContexts = addedWordContext.map(Reg(_))
     }
 
@@ -108,7 +102,7 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       else
         False
 
-      val pastPrediction = if(i <= SLICE_COUNT) False else keys.WORD_BRANCH_VALID && U(i - SLICE_COUNT) > keys.WORD_BRANCH_SLICE //TODO may use MASK_BACK instead for timings ?
+      val pastPrediction = if(i <= SLICE_COUNT) False else WORD_BRANCH_VALID && U(i - SLICE_COUNT) > WORD_BRANCH_SLICE //TODO may use MASK_BACK instead for timings ?
       val usable = !notEnoughData && !pastPrediction
     }
 
@@ -125,9 +119,9 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       }
 
       val backMaskError = errors(SLICE_COUNT, SLICE_COUNT bits).orR // The prediction is cutting on of the non RVC instruction (doesn't check last slice)
-      val partialFetchError = keys.WORD_BRANCH_SLICE.andR && skip  // The prediction is cutting the last slice non rvc instruction
-      val postPredictionPc = fetch.keys.FETCH_PC(sliceRange) > keys.WORD_BRANCH_SLICE // The prediction was for an instruction before the input start PC
-      val failure = isInputValid && keys.WORD_BRANCH_VALID && (backMaskError || partialFetchError || postPredictionPc) //TODO check that it only set in the right cases (as it can silently produce false positive)
+      val partialFetchError = WORD_BRANCH_SLICE.andR && skip  // The prediction is cutting the last slice non rvc instruction
+      val postPredictionPc = FETCH_PC(sliceRange) > WORD_BRANCH_SLICE // The prediction was for an instruction before the input start PC
+      val failure = isInputValid && WORD_BRANCH_VALID && (backMaskError || partialFetchError || postPredictionPc) //TODO check that it only set in the right cases (as it can silently produce false positive)
 
       when(backMaskError || postPredictionPc){
         for(decoder <- decoders.drop(SLICE_COUNT)){
@@ -153,20 +147,20 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
 
       val sliceLast = output(PC, i)(sliceRange) + U(!rvc)
       val bufferPredictionLast = buffer.branchSlice     === sliceLast
-      val inputPredictionLast  = keys.WORD_BRANCH_SLICE === sliceLast
+      val inputPredictionLast  = WORD_BRANCH_SLICE === sliceLast
       val lastWord = maskOh.drop(SLICE_COUNT-i).orR || rvc && maskOh(SLICE_COUNT-i-1)
       when(lastWord) {
-        output(keys.ALIGNED_BRANCH_VALID, i)   := keys.WORD_BRANCH_VALID && !predictionSanity.failure && inputPredictionLast
-        output(keys.ALIGNED_BRANCH_PC_NEXT, i) := keys.WORD_BRANCH_PC_NEXT
+        output(ALIGNED_BRANCH_VALID, i)   := WORD_BRANCH_VALID && !predictionSanity.failure && inputPredictionLast
+        output(ALIGNED_BRANCH_PC_NEXT, i) := WORD_BRANCH_PC_NEXT
         for(key <- addedWordContext) output(key, i).assignFrom(input(key))
       } otherwise {
-        output(keys.ALIGNED_BRANCH_VALID, i)   := buffer.branchValid && bufferPredictionLast
-        output(keys.ALIGNED_BRANCH_PC_NEXT, i) := buffer.branchPcNext
+        output(ALIGNED_BRANCH_VALID, i)   := buffer.branchValid && bufferPredictionLast
+        output(ALIGNED_BRANCH_PC_NEXT, i) := buffer.branchPcNext
         for((value, key) <- (buffer.wordContexts, addedWordContext).zipped) output(key, i).assignFrom(value)
       }
 
       val sliceOffset = OHToUInt(maskOh << i)
-      val pcWord = Vec(buffer.pc, input(fetch.keys.FETCH_PC)).read(U(sliceOffset.msb))
+      val pcWord = Vec(buffer.pc, input(FETCH_PC)).read(U(sliceOffset.msb))
       output(PC, i) := (pcWord >> sliceRange.high+1) @@ U(sliceOffset.dropHigh(1)) @@ U(0, sliceRangeLow bits)
     }
 
@@ -182,17 +176,17 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
     when(fireInput){
       buffer.mask := (fireOutput ? slices.mask(SLICE_COUNT, SLICE_COUNT bits) otherwise MASK_FRONT) & postMask
       buffer.data := WORD
-      buffer.pc   := fetch.keys.FETCH_PC
-      buffer.branchValid  := keys.WORD_BRANCH_VALID && !predictionSanity.failure
-      buffer.branchSlice  := keys.WORD_BRANCH_SLICE
-      buffer.branchPcNext := keys.WORD_BRANCH_PC_NEXT
+      buffer.pc   := FETCH_PC
+      buffer.branchValid  := WORD_BRANCH_VALID && !predictionSanity.failure
+      buffer.branchSlice  := WORD_BRANCH_SLICE
+      buffer.branchPcNext := WORD_BRANCH_PC_NEXT
       for((reg, key) <- (buffer.wordContexts, addedWordContext).zipped) reg := key
     }
 
     val correctionSent = RegInit(False) setWhen(setup.sequenceJump.valid) clearWhen(input.isReady || input.isFlushed)
     fetch.getStage(inputAt-1).flushIt(predictionSanity.failure && !correctionSent)
     setup.sequenceJump.valid := predictionSanity.failure && !correctionSent
-    setup.sequenceJump.pc    := input(fetch.keys.FETCH_PC_INC)
+    setup.sequenceJump.pc    := input(FETCH_PC_INC)
 
 
 

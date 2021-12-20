@@ -1,6 +1,7 @@
 package naxriscv.fetch
 
 import naxriscv.Global
+import naxriscv.Global._
 import naxriscv.interfaces.{AddressTranslationService, CommitService, LockedImpl}
 import spinal.core._
 import spinal.core.fiber._
@@ -15,13 +16,6 @@ trait FetchPipelineRequirements{
 
 
 class FetchPlugin() extends Plugin with LockedImpl {
-  val keys = create early new AreaRoot{
-    val spec = getService[AddressTranslationService]
-    val FETCH_PC_TRANSLATED   = Stageable(UInt(spec.postWidth bits))
-    val FETCH_PC  = Stageable(UInt(spec.preWidth bits))
-    val FETCH_PC_INC  = Stageable(UInt(spec.preWidth bits))
-  }
-
   val pipeline = create early new Pipeline{
     val stagesCount = framework.getServices.map{
       case s : FetchPipelineRequirements => s.stagesCountMin

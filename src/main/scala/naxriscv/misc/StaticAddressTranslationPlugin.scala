@@ -16,6 +16,7 @@ class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with
   override def withTranslation = true
 
   Global.PC_WIDTH.set(preWidth)
+  Global.PC_TRANSLATED_WIDTH.set(postWidth)
 
   case class Spec(stages: Seq[Stage], preAddress: Stageable[UInt], p: StaticAddressTranslationParameter, rsp : AddressTranslationRsp)
   val specs = ArrayBuffer[Spec]()

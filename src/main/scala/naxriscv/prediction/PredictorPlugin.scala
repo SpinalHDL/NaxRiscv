@@ -3,6 +3,7 @@ package naxriscv.prediction
 import naxriscv.Fetch._
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK}
 import naxriscv.Global._
+import naxriscv.prediction.Prediction._
 import naxriscv.fetch.{AlignerPlugin, FetchPlugin, PcPlugin}
 import naxriscv.frontend.{DecoderPlugin, FrontendPlugin}
 import naxriscv.interfaces.{CommitService, JumpService, RobService}
@@ -53,10 +54,6 @@ class PredictorPlugin() extends Plugin{
     val rob = getService[RobService]
     val commit = getService[CommitService]
     val branchContext = getService[BranchContextPlugin]
-    val ak = getService[AlignerPlugin].keys.get
-    import ak._
-
-    val FETCH_PC = fetch.keys.FETCH_PC
 
     val branchHistory = new Area{
       val onCommit = new Area {
@@ -116,7 +113,7 @@ class PredictorPlugin() extends Plugin{
         val stage = fetch.getStage(branchHistoryFetchAt)
         import stage._
 
-        val address = gshareHash(fetch.keys.FETCH_PC, keys.BRANCH_HISTORY)
+        val address = gshareHash(FETCH_PC, keys.BRANCH_HISTORY)
       }
 
       val readRsp = new Area{

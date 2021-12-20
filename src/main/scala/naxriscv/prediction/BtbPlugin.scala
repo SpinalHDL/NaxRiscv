@@ -4,6 +4,7 @@ import naxriscv.Fetch._
 import naxriscv.Global._
 import naxriscv.fetch.{AlignerPlugin, FetchPlugin, FetchWordPrediction}
 import naxriscv.interfaces.JumpService
+import naxriscv.prediction.Prediction._
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -25,8 +26,6 @@ class BtbPlugin(entries : Int,
   val logic = create late new Area{
     val fetch = getService[FetchPlugin]
     val branchContext = getService[BranchContextPlugin]
-    val ak = getService[AlignerPlugin].keys.get
-    import ak._
 
     //TODO learn conditional bias
     val wordBytesWidth = log2Up(FETCH_DATA_WIDTH/8)
@@ -55,13 +54,13 @@ class BtbPlugin(entries : Int,
     val read = new Area{
       val stage = fetch.getStage(jumpAt-1)
       import stage._
-      val entryAddress = (fetch.keys.FETCH_PC >> wordBytesWidth).resize(mem.addressWidth)
+      val entryAddress = (FETCH_PC >> wordBytesWidth).resize(mem.addressWidth)
     }
     val applyIt = new Area{
       val stage = fetch.getStage(jumpAt)
       import stage._
       val entry = mem.readSync(read.entryAddress, read.stage.isReady)
-      val hit = isValid && entry.hash === getHash(fetch.keys.FETCH_PC)// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE) //TODO ?
+      val hit = isValid && entry.hash === getHash(FETCH_PC)// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE) //TODO ?
       flushNext(hit)
       setup.btbJump.valid := hit
       setup.btbJump.pc := entry.pcNext

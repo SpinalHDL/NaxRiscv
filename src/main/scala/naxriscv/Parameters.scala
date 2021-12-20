@@ -1,5 +1,6 @@
 package naxriscv
 
+import naxriscv.Global.{PC, PC_TRANSLATED_WIDTH}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib.pipeline.Stageable
@@ -41,7 +42,9 @@ object Global extends AreaObject {
   val XLEN = NaxParameter[Int]
 
   val PC_WIDTH = NaxParameter[Int]
+  val PC_TRANSLATED_WIDTH = NaxParameter[Int]
   val PC = Stageable(UInt(PC_WIDTH bits))
+  val PC_TRANSLATED = Stageable(UInt(PC_TRANSLATED_WIDTH bits))
 }
 
 object Fetch extends AreaObject{
@@ -57,6 +60,10 @@ object Fetch extends AreaObject{
 
   val WORD = Stageable(Bits(FETCH_DATA_WIDTH bits))
   val INSTRUCTION_WIDTH = NaxParameter[Int]
+
+  val FETCH_PC_TRANSLATED   = Stageable(UInt(PC_TRANSLATED_WIDTH bits))
+  val FETCH_PC  = Stageable(PC)
+  val FETCH_PC_INC  = Stageable(PC)
 }
 
 

@@ -2,6 +2,7 @@ package naxriscv.fetch
 
 import naxriscv._
 import naxriscv.utilities.Plugin
+import naxriscv.Fetch._
 import spinal.core._
 
 class FetchAddressTranslationPlugin extends Plugin{
@@ -13,7 +14,7 @@ class FetchAddressTranslationPlugin extends Plugin{
   val logic = create late new Area{
     val stage = setup.fetch.getStage(0)
     val fetch = getService[FetchPlugin]
-    stage(fetch.keys.FETCH_PC_TRANSLATED) := stage(fetch.keys.FETCH_PC)
+    stage(FETCH_PC_TRANSLATED) := stage(FETCH_PC)
     setup.fetch.release()
   }
 }
