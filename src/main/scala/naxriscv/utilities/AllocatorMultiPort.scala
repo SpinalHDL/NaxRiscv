@@ -24,7 +24,8 @@ case class AllocatorMultiPortPop[T <: Data](dataType : HardType[T], popCount : I
 case class AllocatorMultiPortMem[T <: Data](dataType : HardType[T],
                                             depth : Int,
                                             pushCount : Int,
-                                            popCount : Int) extends Component{
+                                            popCount : Int,
+                                            pessimisticReady : Boolean) extends Component{
   assert(isPow2(depth))
   assert(depth >= pushCount)
   assert(depth >= popCount)
@@ -86,7 +87,7 @@ case class AllocatorMultiPortMem[T <: Data](dataType : HardType[T],
       popOffset \= popOffset + io.pop.mask(i).asUInt
     }
   }
-  io.pop.ready := ptr.occupancy >= popMaskCount
+  io.pop.ready := ptr.occupancy >= (if(pessimisticReady) U(popCount) else popMaskCount)
 }
 
 object AllocatorMultiPortSynth extends App{
@@ -97,7 +98,8 @@ object AllocatorMultiPortSynth extends App{
     dataType  = UInt(6 bits),
     depth     = 64,
     pushCount = 2,
-    popCount  = 2
+    popCount  = 2,
+    pessimisticReady = false
   ))))
   val targets = XilinxStdTargets().take(2)
 

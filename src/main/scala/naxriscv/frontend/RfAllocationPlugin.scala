@@ -11,7 +11,8 @@ import spinal.lib.pipeline.StageableOffset
 import scala.collection.mutable.ArrayBuffer
 
 
-class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationService with InitCycles {
+class RfAllocationPlugin(rf : RegfileSpec,
+                         pessimisticReady : Boolean = true) extends Plugin with RfAllocationService with InitCycles {
   override def initCycles = logic.entryCount
 
   override def getAllocPort() = logic.allocator.io.pop
@@ -39,7 +40,8 @@ class RfAllocationPlugin(rf : RegfileSpec) extends Plugin with RfAllocationServi
       dataType = entryType,
       depth = entryCount,
       pushCount = Global.COMMIT_COUNT,
-      popCount = Frontend.DISPATCH_COUNT
+      popCount = Frontend.DISPATCH_COUNT,
+      pessimisticReady = pessimisticReady
     )
     Verilator.public(allocator.io)
 
