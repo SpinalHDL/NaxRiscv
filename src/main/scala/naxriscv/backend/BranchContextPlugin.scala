@@ -1,6 +1,7 @@
 package naxriscv.backend
 
 import naxriscv.Frontend._
+import naxriscv.Global._
 import naxriscv._
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.{AddressTranslationService, CommitService, LockedImpl, RobCompletion, RobLineMask, RobService}
@@ -32,7 +33,6 @@ case class BranchLearn(pcWidth : Int, branchCount : Int) extends Bundle{
 
 
 class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl {
-  def PC = getService[AddressTranslationService].PC
   assert(isPow2(branchCount))
 
   def readEarly(address : UInt) = logic.mem.earlyBranch.readAsync(address)
@@ -47,8 +47,8 @@ class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl 
   val keys = create early new AreaRoot{
     val BRANCH_SEL   = Stageable(Bool())
     val BRANCH_ID    = Stageable(UInt(log2Up(branchCount) bits))
-    val BRANCH_EARLY = Stageable(BranchEarlyContext(widthOf(PC)))
-    val BRANCH_FINAL = Stageable(BranchFinalContext(widthOf(PC)))
+    val BRANCH_EARLY = Stageable(BranchEarlyContext(PC_WIDTH))
+    val BRANCH_FINAL = Stageable(BranchFinalContext(PC_WIDTH))
     val BRANCH_TAKEN = Stageable(Bool())
   }
 

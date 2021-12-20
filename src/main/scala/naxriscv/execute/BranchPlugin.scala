@@ -10,6 +10,7 @@ import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib.Flow
 import spinal.lib.pipeline.Stageable
+import naxriscv.Global._
 
 object BranchPlugin extends AreaObject {
   val NEED_BRANCH = Stageable(Bool())
@@ -51,7 +52,6 @@ class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int =
 
   override val logic = create late new Logic{
     val rob = getService[RobService]
-    val PC = getService[AddressTranslationService].PC
     val sliceShift = if(Fetch.RVC) 1 else 2
     val branchContext = setup.withBranchContext generate getService[BranchContextPlugin]
     val bck = setup.withBranchContext generate branchContext.keys.get

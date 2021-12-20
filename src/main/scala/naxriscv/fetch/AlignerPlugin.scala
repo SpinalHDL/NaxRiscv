@@ -21,13 +21,13 @@ import scala.collection.mutable
 trait FetchWordPrediction extends Service
 
 class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements{
-    val keys = create early new AreaRoot{
+  val keys = create early new AreaRoot{
     val ALIGNED_BRANCH_VALID = Stageable(Bool())
-    val ALIGNED_BRANCH_PC_NEXT = Stageable(getService[AddressTranslationService].PC)
+    val ALIGNED_BRANCH_PC_NEXT = Stageable(UInt(PC_WIDTH bits))
 
     val WORD_BRANCH_VALID = Stageable(Bool())
     val WORD_BRANCH_SLICE = Stageable(UInt(log2Up(SLICE_COUNT) bits))
-    val WORD_BRANCH_PC_NEXT = Stageable(getService[AddressTranslationService].PC)
+    val WORD_BRANCH_PC_NEXT = Stageable(UInt(PC_WIDTH bits))
   }
 
   override def stagesCountMin = inputAt + 1
@@ -57,7 +57,6 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
   val logic = create late new Area {
     val frontend = getService[FrontendPlugin]
     val fetch = getService[FetchPlugin]
-    val PC = getService[AddressTranslationService].PC
     val input = fetch.getStage(inputAt)
     val output = setup.frontend.pipeline.aligned
 

@@ -12,6 +12,7 @@ import spinal.core._
 import spinal.lib._
 import spinal.lib.logic.{DecodingSpec, Masked}
 import spinal.lib.pipeline.{Stageable, StageableOffset}
+import naxriscv.Global._
 
 class BtbPlugin(entries : Int,
                 hashWidth : Int = 16,
@@ -30,7 +31,6 @@ class BtbPlugin(entries : Int,
   val logic = create late new Area{
     val fetch = getService[FetchPlugin]
     val branchContext = getService[BranchContextPlugin]
-    val PC = getService[AddressTranslationService].PC
     val ak = getService[AlignerPlugin].keys.get
     import ak._
 

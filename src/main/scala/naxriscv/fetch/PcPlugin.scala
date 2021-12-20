@@ -20,7 +20,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) exten
   val jumpInfos = ArrayBuffer[JumpInfo]()
   override def createJumpInterface(priority : Int): Flow[JumpCmd] = createFetchJumpInterface(priority, Int.MaxValue)
   override def createFetchJumpInterface(priority: Int, stageId: Int) = {
-    val interface = Flow(JumpCmd(widthOf(getService[AddressTranslationService].PC)))
+    val interface = Flow(JumpCmd(PC_WIDTH))
     jumpInfos += JumpInfo(interface, priority, stageId)
     interface
   }
@@ -36,7 +36,6 @@ class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) exten
   }
 
   val logic = create late new Area{
-    val PC = getService[AddressTranslationService].PC
     val stage = setup.pipeline.getStage(0)
     val fetch = getService[FetchPlugin]
     val pipeline = fetch.getPipeline()

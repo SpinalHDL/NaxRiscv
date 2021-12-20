@@ -269,6 +269,7 @@ case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int) exte
     case (false, true) => False
     case (true, false) => True
     case (true, true) =>  trap
+    case _ => ???
   }
 }
 
@@ -344,6 +345,5 @@ trait AddressTranslationService extends Service with LockedImpl {
                          p: Any): AddressTranslationRsp
   def wakerCount : Int
   def wakes : Bits
-  def PC : Stageable[UInt]
   def withTranslation : Boolean
 }

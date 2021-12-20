@@ -7,6 +7,7 @@ import naxriscv.riscv.{Const, Rvi}
 import naxriscv.utilities._
 import spinal.core._
 import spinal.lib.pipeline.Stageable
+import naxriscv.Global._
 
 object LoadPlugin extends AreaObject{
   val SEL = Stageable(Bool())
@@ -45,7 +46,6 @@ class LoadPlugin(euId : String) extends Plugin{
     val eu = setup.eu
     val lsu = getService[LsuPlugin]
     val decoder = getService[DecoderService]
-    val PC = getService[AddressTranslationService].PC
     val stage = eu.getExecute(0)
     import stage._
 

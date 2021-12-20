@@ -13,6 +13,7 @@ import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline.{Pipeline, Stageable, StageableOffset}
 
 import scala.collection.mutable.ArrayBuffer
+import naxriscv.Global._
 
 object LsuUtils{
   def sizeWidth(wordWidth : Int) = log2Up(log2Up(wordWidth/8)+1)
@@ -158,7 +159,6 @@ class LsuPlugin(lqSize: Int,
     val cache = getService[DataCachePlugin]
     val commit = getService[CommitService]
     val translationService = getService[AddressTranslationService]
-    val PC = getService[AddressTranslationService].PC
     lock.await()
 
     val keysLocal = new AreaRoot {

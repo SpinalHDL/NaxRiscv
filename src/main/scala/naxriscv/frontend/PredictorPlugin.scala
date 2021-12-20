@@ -12,6 +12,7 @@ import spinal.lib._
 import naxriscv.utilities.{NaxParameter, Plugin}
 import spinal.lib.logic.{DecodingSpec, DecodingSpecExample, Masked}
 import spinal.lib.pipeline.{Stageable, StageableOffset}
+import naxriscv.Global._
 
 class PredictorPlugin() extends Plugin{
   val branchHistoryFetchAt = 1
@@ -32,7 +33,6 @@ class PredictorPlugin() extends Plugin{
     val rob = getService[RobService]
     val aligner = getService[AlignerPlugin]
     val branchContext = getService[BranchContextPlugin]
-    val PC = getService[AddressTranslationService].PC
     val decodeJump = jump.createJumpInterface(JumpService.Priorities.DECODE_PREDICTION)
     frontend.retain()
     fetch.retain()
@@ -53,7 +53,6 @@ class PredictorPlugin() extends Plugin{
     val rob = getService[RobService]
     val commit = getService[CommitService]
     val branchContext = getService[BranchContextPlugin]
-    val PC = getService[AddressTranslationService].PC
     val ak = getService[AlignerPlugin].keys.get
     import ak._
 

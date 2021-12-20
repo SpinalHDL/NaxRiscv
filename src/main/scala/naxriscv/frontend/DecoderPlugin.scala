@@ -85,7 +85,6 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
 
   val logic = create late new Area{
     lock.await()
-    val PC = getService[AddressTranslationService].PC
 
     val frontend = getService[FrontendPlugin]
     val rob = getService[RobService]

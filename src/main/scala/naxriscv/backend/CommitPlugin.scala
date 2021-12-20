@@ -10,13 +10,14 @@ import naxriscv.Global._
 import naxriscv.frontend.FrontendPlugin
 
 import scala.collection.mutable.ArrayBuffer
+import naxriscv.Global._
 
 class CommitPlugin extends Plugin with CommitService{
   override def onCommit() : CommitEvent = logic.commit.event
 //  override def onCommitLine() =  logic.commit.lineEvent
 
   val completions = ArrayBuffer[Flow[ScheduleCmd]]()
-  override def newSchedulePort(canTrap : Boolean, canJump : Boolean) = completions.addRet(Flow(ScheduleCmd(canTrap = canTrap, canJump = canJump, pcWidth = widthOf(getService[AddressTranslationService].PC))))
+  override def newSchedulePort(canTrap : Boolean, canJump : Boolean) = completions.addRet(Flow(ScheduleCmd(canTrap = canTrap, canJump = canJump, pcWidth = PC_WIDTH)))
   override def reschedulingPort() = logic.commit.reschedulePort
   override def freePort() = logic.free.port
   override def nextCommitRobId = logic.commit.head
@@ -30,7 +31,6 @@ class CommitPlugin extends Plugin with CommitService{
 
   val logic = create late new Area {
     val rob = getService[RobService]
-    val PC = getService[AddressTranslationService].PC
 
     val ptr = new Area {
       val alloc, commit, free = Reg(UInt(ROB.ID_WIDTH + 1 bits)) init (0)
@@ -115,7 +115,6 @@ class CommitPlugin extends Plugin with CommitService{
       lineEvent.robId := ptr.commit.resized
 
       val reschedulePort = Flow(RescheduleEvent())
-      reschedulePort
       reschedulePort.valid := rescheduleHit
       reschedulePort.robId := reschedule.robId
       reschedulePort.robIdNext := ptr.allocNext.resized

@@ -39,6 +39,9 @@ object Global extends AreaObject {
 
   val TRAP_CAUSE_WIDTH = 4 //TODO
   val XLEN = NaxParameter[Int]
+
+  val PC_WIDTH = NaxParameter[Int]
+  val PC = Stageable(UInt(PC_WIDTH bits))
 }
 
 object Fetch extends AreaObject{

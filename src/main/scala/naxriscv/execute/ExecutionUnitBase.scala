@@ -12,6 +12,7 @@ import spinal.lib.pipeline.{Pipeline, Stage, Stageable}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import naxriscv.Global._
 
 class ExecutionUnitBase(euId : String,
                         contextStage : Int = 0,
@@ -119,8 +120,6 @@ class ExecutionUnitBase(euId : String,
   }
 
   val pipeline = create late new Pipeline{
-    val PC = getService[AddressTranslationService].PC
-
     // Define stages
     val fetch = List.fill(executeStage + 1)(newStage())
     for((m,s) <- (fetch.dropRight(1), fetch.drop(1)).zipped){

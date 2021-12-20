@@ -6,6 +6,7 @@ import naxriscv.riscv.{IMM, Rvi}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
+import naxriscv.Global._
 
 class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin with ExecuteUnitService with WakeRobService with WakeRegFileService with LockedImpl {
   setName(euId)
@@ -45,7 +46,6 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
 
   val logic = create late new Area{
     lock.await()
-    val PC = getService[AddressTranslationService].PC
 
     val rob = getService[RobService]
     val decoder = getService[DecoderService]

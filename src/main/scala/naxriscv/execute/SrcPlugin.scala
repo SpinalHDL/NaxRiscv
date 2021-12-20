@@ -10,6 +10,7 @@ import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import naxriscv.Global._
 
 object SrcStageables extends AreaObject {
   val SRC1, SRC2 = Stageable(SInt(Global.XLEN bits))
@@ -62,7 +63,6 @@ class SrcPlugin(euId : String) extends Plugin{
   }
 
   val logic = create late new Area{
-    val PC = getService[AddressTranslationService].PC
     val eu = getService[ExecutionUnitBase](euId)
     val ss = SrcStageables
     val sk = SrcKeys
