@@ -18,8 +18,6 @@ import spinal.lib.pipeline.{Stageable, StageableOffset}
 class PredictorPlugin() extends Plugin{
   val keys = create early new AreaRoot{
     val BRANCH_CONDITIONAL = Stageable(Bool())
-    val BRANCH_HISTORY_WIDTH = 16 //TODO
-    val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
   }
 
   val setup = create early new Area{
@@ -30,14 +28,15 @@ class PredictorPlugin() extends Plugin{
     val aligner = getService[AlignerPlugin]
     val branchContext = getService[BranchContextPlugin]
     val decodeJump = jump.createJumpInterface(JumpService.Priorities.DECODE_PREDICTION)
+    val historyPush = getService[HistoryPlugin].createPushPort(0, DISPATCH_COUNT)
+
     frontend.retain()
     fetch.retain()
     rob.retain()
     branchContext.retain()
 
     aligner.addWordContext(
-      CONDITIONAL_TAKE_IT,
-      keys.BRANCH_HISTORY
+      CONDITIONAL_TAKE_IT
     )
   }
 
@@ -48,32 +47,6 @@ class PredictorPlugin() extends Plugin{
     val rob = getService[RobService]
     val commit = getService[CommitService]
     val branchContext = getService[BranchContextPlugin]
-
-    val branchHistory = new Area{
-      val fetchInsertAt = getServicesOf[FetchConditionalPrediction].map(_.useHistoryAt).min
-      val onCommit = new Area {
-        val value = Reg(keys.BRANCH_HISTORY) init (0)
-
-        val event = commit.onCommit()
-        val isConditionalBranch = rob.readAsync(keys.BRANCH_CONDITIONAL, Global.COMMIT_COUNT, event.robId)
-        val isTaken = rob.readAsync(branchContext.keys.BRANCH_TAKEN, Global.COMMIT_COUNT, event.robId)
-        var valueNext = CombInit(value)
-        for (slotId <- 0 until Global.COMMIT_COUNT) {
-          when(event.mask(slotId) && isConditionalBranch(slotId)) {
-            valueNext \= valueNext.dropHigh(1) ## isTaken(slotId)
-          }
-        }
-        value := valueNext.resized
-      }
-
-      val onDecode = new Area{
-        val value = Reg(keys.BRANCH_HISTORY) init (0)
-      }
-
-      val onFetch = new Area{
-        val value = Reg(keys.BRANCH_HISTORY) init (0)
-      }
-    }
 
     val ras = new Area{
       val rasDepth = 32
@@ -176,16 +149,10 @@ class PredictorPlugin() extends Plugin{
         stage.overloaded(Frontend.DISPATCH_MASK, slotId) := stage(Frontend.DISPATCH_MASK, slotId)&& !(0 until slotId).map(i => slots(i).needCorrection).orR
       }
 
-      var branchHistoryNext  = CombInit(branchHistory.onDecode.value)
       for (slotId <- 0 until Frontend.DECODE_COUNT) {
         val slot = slots(slotId)
-        when(slot.isBranch && (Frontend.DISPATCH_MASK, slotId) && B(slots.take(slotId).map(s => s.needCorrection)) === 0){
-          branchHistoryNext \= branchHistoryNext.dropHigh(1) ## slot.branchedPrediction
-        }
-      }
-      when(isFireing){
-        branchHistory.onDecode.value := branchHistoryNext
-        branchHistory.onFetch.value := branchHistoryNext //TODO REMOVE ME (DEBUG), instead the update of the onFetch history should be done by gshare itself, in the fetch stages, to provide a more responsive branch history
+        setup.historyPush.mask(slotId) := isFireing && slot.isBranch && (Frontend.DISPATCH_MASK, slotId) && B(slots.take(slotId).map(s => s.needCorrection)) === 0
+        setup.historyPush.taken(slotId) := slot.branchedPrediction
       }
     }
 
@@ -195,35 +162,11 @@ class PredictorPlugin() extends Plugin{
       rob.write(keys.BRANCH_CONDITIONAL, DISPATCH_COUNT, (0 until DISPATCH_COUNT).map(stage(keys.BRANCH_CONDITIONAL, _)),  ROB.ID, isFireing)
 
       branchContext.dispatchWrite(
-        keys.BRANCH_HISTORY,
         keys.BRANCH_CONDITIONAL,
         CONDITIONAL_TAKE_IT
       )
     }
 
-    val branchHistoryUpdates = new Area{
-      import branchHistory._
-
-      assert(fetchInsertAt >= 1, "Would require some bypass of the stage(0) value, maybe later it could be implemented")
-      fetch.getStage(fetchInsertAt)(keys.BRANCH_HISTORY) := onFetch.value
-
-      val fetchJumps = getService[PcPlugin].getFetchJumps()
-      val grouped = fetchJumps.groupBy(_._1)
-      val ordered = grouped.toSeq.sortBy(_._1).map(_._2)
-      val group = for(group <- grouped) yield new Area{ //TODO manage case where the group is < than branchHistoryFetchAt
-        val valid = group._2.map(_._2).orR
-        when(valid){
-          onFetch.value := fetch.getStage(group._1).resulting(keys.BRANCH_HISTORY)
-        }
-      }
-      when(setup.decodeJump.valid){
-        onFetch.value := decodePatch.branchHistoryNext
-      }
-      when(commit.reschedulingPort().valid){
-        onFetch.value := onCommit.valueNext
-        onDecode.value := onCommit.valueNext
-      }
-    }
     rob.release()
     frontend.release()
     fetch.release()

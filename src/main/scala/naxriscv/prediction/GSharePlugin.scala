@@ -11,11 +11,13 @@ import spinal.lib._
 import spinal.lib.pipeline.Stageable
 
 class GSharePlugin(entries : Int,
-                   insertAt : Int = 2) extends Plugin with FetchConditionalPrediction{
+                   historyWidth : Int,
+                   insertAt : Int = 2) extends Plugin with FetchConditionalPrediction with HistoryUser{
   val words = entries / SLICE_COUNT
 
   val readAt = insertAt - 1
   override def useHistoryAt = readAt
+  override def historyWidthUsed = historyWidth
 
   val setup = create early new Area{
     val fetch = getService[FetchPlugin]
@@ -29,6 +31,7 @@ class GSharePlugin(entries : Int,
     val fetch = getService[FetchPlugin]
     val branchContext = getService[BranchContextPlugin]
     val predictor = getService[PredictorPlugin]
+    val BRANCH_HISTORY = getService[HistoryPlugin].keys.BRANCH_HISTORY
 
 //    val keys = new AreaRoot {
 //      val GSHARE_STRONG = Stageable(Bits(SLICE_COUNT bits))
@@ -45,7 +48,7 @@ class GSharePlugin(entries : Int,
       val stage = fetch.getStage(readAt)
       import stage._
 
-      val address = gshareHash(FETCH_PC, predictor.keys.BRANCH_HISTORY)
+      val address = gshareHash(FETCH_PC, BRANCH_HISTORY)
     }
 
     val readRsp = new Area{
@@ -57,7 +60,7 @@ class GSharePlugin(entries : Int,
 
     val onLearn = new Area{
       val ctx = branchContext.learnRead(branchContext.keys.BRANCH_FINAL)
-      val hash = gshareHash(ctx.pcOnLastSlice, branchContext.learnRead(predictor.keys.BRANCH_HISTORY))
+      val hash = gshareHash(ctx.pcOnLastSlice, branchContext.learnRead(BRANCH_HISTORY))
 
       val takeItPort = mem.takeIt.writePort
       takeItPort.valid := branchContext.learnValid && branchContext.learnRead(predictor.keys.BRANCH_CONDITIONAL)

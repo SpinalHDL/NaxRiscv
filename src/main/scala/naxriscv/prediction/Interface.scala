@@ -2,6 +2,7 @@ package naxriscv.prediction
 
 import naxriscv.Fetch.SLICE_COUNT
 import naxriscv.Global.PC_WIDTH
+import naxriscv.utilities.Service
 import spinal.core._
 import spinal.lib.pipeline.Stageable
 
@@ -17,4 +18,9 @@ object Prediction extends AreaObject{
 
   //Set by fetch prediction to propose conditional branch prediction, could be used by another fetch level prediction, or later on in decode to correct things
   val CONDITIONAL_TAKE_IT = Stageable(Bits(SLICE_COUNT bits))
+}
+
+
+trait HistoryUser extends Service{
+  def historyWidthUsed : Int
 }
