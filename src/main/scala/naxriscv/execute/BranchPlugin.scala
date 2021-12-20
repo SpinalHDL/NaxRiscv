@@ -1,8 +1,6 @@
 package naxriscv.execute
 
 import naxriscv.Frontend.MICRO_OP
-import naxriscv.backend.BranchContextPlugin
-import naxriscv.frontend.PredictorPlugin
 import naxriscv.{Fetch, Frontend, Global, ROB}
 import naxriscv.interfaces._
 import naxriscv.riscv._
@@ -11,6 +9,7 @@ import spinal.core._
 import spinal.lib.Flow
 import spinal.lib.pipeline.Stageable
 import naxriscv.Global._
+import naxriscv.prediction.{BranchContextPlugin, PredictorPlugin}
 
 object BranchPlugin extends AreaObject {
   val NEED_BRANCH = Stageable(Bool())

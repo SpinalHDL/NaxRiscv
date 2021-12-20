@@ -1,18 +1,18 @@
-package naxriscv.frontend
+package naxriscv.prediction
 
 import naxriscv.Fetch._
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK}
-import naxriscv.backend.BranchContextPlugin
+import naxriscv.Global._
 import naxriscv.fetch.{AlignerPlugin, FetchPlugin, PcPlugin}
-import naxriscv.{Frontend, Global, ROB}
-import naxriscv.interfaces.{AddressTranslationService, CommitService, JumpService, RobService}
+import naxriscv.frontend.{DecoderPlugin, FrontendPlugin}
+import naxriscv.interfaces.{CommitService, JumpService, RobService}
 import naxriscv.riscv.{IMM, Rvi}
+import naxriscv.utilities.Plugin
+import naxriscv.{Frontend, Global, ROB}
 import spinal.core._
 import spinal.lib._
-import naxriscv.utilities.{NaxParameter, Plugin}
-import spinal.lib.logic.{DecodingSpec, DecodingSpecExample, Masked}
+import spinal.lib.logic.{DecodingSpec, Masked}
 import spinal.lib.pipeline.{Stageable, StageableOffset}
-import naxriscv.Global._
 
 class PredictorPlugin() extends Plugin{
   val branchHistoryFetchAt = 1
@@ -121,7 +121,6 @@ class PredictorPlugin() extends Plugin{
 
       val readRsp = new Area{
         val stage = fetch.getStage(branchHistoryFetchAt+1)
-        import stage._
 
         stage(keys.GSHARE_TAKE_IT) := mem.takeIt.readSync(readCmd.address, readCmd.stage.isReady)
         stage(keys.GSHARE_STRONG) := mem.strong.readSync(readCmd.address, readCmd.stage.isReady)

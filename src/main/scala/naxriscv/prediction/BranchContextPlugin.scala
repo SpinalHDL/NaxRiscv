@@ -1,18 +1,16 @@
-package naxriscv.backend
+package naxriscv.prediction
 
 import naxriscv.Frontend._
 import naxriscv.Global._
 import naxriscv._
 import naxriscv.frontend.FrontendPlugin
-import naxriscv.interfaces.{AddressTranslationService, CommitService, LockedImpl, RobCompletion, RobLineMask, RobService}
-import naxriscv.utilities.{DocPlugin, Plugin}
+import naxriscv.interfaces.{CommitService, LockedImpl, RobService}
+import naxriscv.utilities.Plugin
 import spinal.core._
-import spinal.core.fiber.Lock
 import spinal.lib._
 import spinal.lib.pipeline.{Stageable, StageableOffset}
 
 import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
 
 
 case class BranchEarlyContext(pcWidth : Int) extends Bundle{

@@ -1,18 +1,12 @@
-package naxriscv.frontend
+package naxriscv.prediction
 
 import naxriscv.Fetch._
-import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK}
-import naxriscv.backend.BranchContextPlugin
-import naxriscv.fetch.{AlignerPlugin, FetchPlugin, FetchWordPrediction, PcPlugin}
-import naxriscv.interfaces.{AddressTranslationService, CommitService, JumpService, RobService}
-import naxriscv.riscv.{IMM, Rvi}
+import naxriscv.Global._
+import naxriscv.fetch.{AlignerPlugin, FetchPlugin, FetchWordPrediction}
+import naxriscv.interfaces.JumpService
 import naxriscv.utilities.Plugin
-import naxriscv.{Frontend, Global, ROB}
 import spinal.core._
 import spinal.lib._
-import spinal.lib.logic.{DecodingSpec, Masked}
-import spinal.lib.pipeline.{Stageable, StageableOffset}
-import naxriscv.Global._
 
 class BtbPlugin(entries : Int,
                 hashWidth : Int = 16,

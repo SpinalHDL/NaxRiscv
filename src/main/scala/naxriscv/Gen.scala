@@ -1,6 +1,6 @@
 package naxriscv
 
-import naxriscv.backend.{BranchContextPlugin, CommitPlugin, RegFilePlugin, RobPlugin}
+import naxriscv.backend.{CommitPlugin, RegFilePlugin, RobPlugin}
 import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
 import naxriscv.frontend._
@@ -9,6 +9,7 @@ import naxriscv.misc.{StaticAddressTranslationParameter, StaticAddressTranslatio
 import naxriscv.execute._
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
+import naxriscv.prediction.{BranchContextPlugin, BtbPlugin, PredictorPlugin}
 import naxriscv.utilities._
 import spinal.lib.eda.bench.Rtl
 
