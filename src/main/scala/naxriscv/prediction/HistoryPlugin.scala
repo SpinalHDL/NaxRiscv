@@ -19,10 +19,10 @@ case class HistoryPush(width : Int) extends Bundle{
 }
 
 class HistoryPlugin extends Plugin{
-  case class HistoryPushSpec(priority : Int, width : Int, port : HistoryPush)
+  case class HistoryPushSpec(priority : Int, width : Int, port : HistoryPush, state : Bits)
   val historyPushSpecs = mutable.ArrayBuffer[HistoryPushSpec]()
   def createPushPort(priority : Int, width : Int): HistoryPush = {
-    historyPushSpecs.addRet(HistoryPushSpec(priority, width, HistoryPush(width))).port
+    historyPushSpecs.addRet(HistoryPushSpec(priority, width, HistoryPush(width), Reg(keys.BRANCH_HISTORY()) init(0))).port
   }
 
   val keys = create early new AreaRoot{
@@ -85,22 +85,22 @@ class HistoryPlugin extends Plugin{
       }
 
       val pushes = for(spec <- historyPushSpecs.sortBy(_.priority)) yield new Area{
-        val state = Reg(keys.BRANCH_HISTORY) init (0)
-        var stateNext = CombInit(state)
+        var stateNext = CombInit(spec.state)
         for(slotId <- 0 until spec.width){
           when(spec.port.mask(slotId)) {
             stateNext \= stateNext.dropHigh(1) ## spec.port.taken(slotId)
           }
         }
-        state := stateNext
+        spec.state := stateNext
         when(spec.port.mask =/= 0){
           onFetch.value := stateNext
+          historyPushSpecs.filter(_.priority < spec.priority).foreach(_.state := stateNext)
         }
       }
 
       when(commit.reschedulingPort().valid){
         onFetch.value := onCommit.valueNext
-        pushes.foreach(_.state := onCommit.valueNext)
+        historyPushSpecs.foreach(_.state := onCommit.valueNext)
       }
     }
     frontend.release()
