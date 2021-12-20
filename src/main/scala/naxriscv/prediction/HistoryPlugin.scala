@@ -26,7 +26,7 @@ class HistoryPlugin extends Plugin{
   }
 
   val keys = create early new AreaRoot{
-    val BRANCH_HISTORY_WIDTH = getServicesOf[HistoryUser].map(_.historyWidthUsed).max
+    val BRANCH_HISTORY_WIDTH = (0 +: getServicesOf[HistoryUser].map(_.historyWidthUsed)).max
     val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
   }
 
@@ -34,6 +34,7 @@ class HistoryPlugin extends Plugin{
     val frontend = getService[FrontendPlugin]
     val fetch = getService[FetchPlugin]
     val rob = getService[RobService]
+
     frontend.retain()
     fetch.retain()
     rob.retain()
@@ -50,7 +51,8 @@ class HistoryPlugin extends Plugin{
     val branchContext = getService[BranchContextPlugin]
     val rob = getService[RobService]
 
-    val fetchInsertAt = getServicesOf[FetchConditionalPrediction].map(_.useHistoryAt).min
+    val fetchUsages = getServicesOf[FetchConditionalPrediction]
+    val fetchInsertAt = if(fetchUsages.nonEmpty) fetchUsages.map(_.useHistoryAt).min else fetch.pipeline.stages.size-1
     val onCommit = new Area {
       val value = Reg(keys.BRANCH_HISTORY) init (0)
 
@@ -60,7 +62,7 @@ class HistoryPlugin extends Plugin{
       var valueNext = CombInit(value)
       for (slotId <- 0 until Global.COMMIT_COUNT) {
         when(event.mask(slotId) && isConditionalBranch(slotId)) {
-          valueNext \= valueNext.dropHigh(1) ## isTaken(slotId)
+          valueNext \= (valueNext ## isTaken(slotId)).resize(keys.BRANCH_HISTORY_WIDTH)
         }
       }
       value := valueNext.resized
@@ -89,7 +91,7 @@ class HistoryPlugin extends Plugin{
         var stateNext = CombInit(spec.state)
         for(slotId <- 0 until spec.width){
           when(spec.port.mask(slotId)) {
-            stateNext \= stateNext.dropHigh(1) ## spec.port.taken(slotId)
+            stateNext \= (stateNext ## spec.port.taken(slotId)).resize(keys.BRANCH_HISTORY_WIDTH)
           }
         }
         spec.state := stateNext

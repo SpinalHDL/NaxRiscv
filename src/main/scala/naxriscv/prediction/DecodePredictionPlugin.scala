@@ -1,7 +1,7 @@
 package naxriscv.prediction
 
 import naxriscv.Fetch._
-import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK}
+import naxriscv.Frontend.{DECODE_COUNT, DISPATCH_COUNT, DISPATCH_MASK}
 import naxriscv.Global._
 import naxriscv.prediction.Prediction._
 import naxriscv.fetch.{AlignerPlugin, FetchConditionalPrediction, FetchPlugin, PcPlugin}
@@ -47,6 +47,18 @@ class DecodePredictionPlugin() extends Plugin{
     val rob = getService[RobService]
     val commit = getService[CommitService]
     val branchContext = getService[BranchContextPlugin]
+
+    val k = new AreaRoot{
+      val PC_INC = Stageable(SInt(PC_WIDTH bits))
+      val PC_TARGET = Stageable(SInt(PC_WIDTH bits))
+      val PC_PREDICTION = Stageable(SInt(PC_WIDTH bits))
+      val MISSMATCH = Stageable(Bool())
+    }
+    import k._
+
+    if(!isServiceAvailable[FetchConditionalPrediction]){
+      fetch.getLastStage(CONDITIONAL_TAKE_IT) := 0
+    }
 
     val ras = new Area{
       val rasDepth = 32
@@ -107,15 +119,15 @@ class DecodePredictionPlugin() extends Plugin{
         val conditionalPrediction =  CONDITIONAL_TAKE_IT(lastSlice)//TODO pipeline it from earlier stage
 
         val slices = INSTRUCTION_SLICE_COUNT +^ 1
-        val pcInc = S(PC + (slices << SLICE_RANGE_LOW))
-        val pcTarget = S(PC) + offset
-        when(isJalR){ pcTarget := S(ras.read) }
+        PC_INC := S(PC + (slices << SLICE_RANGE_LOW))
+        PC_TARGET := S(PC) + offset
+        when(isJalR){ PC_TARGET := S(ras.read) }
         val canImprove = !isJalR || rasPop
         val branchedPrediction = isBranch && conditionalPrediction || isJal || isJalR
-        val pcPrediction = branchedPrediction ? pcTarget otherwise pcInc
-        val pcNext = canImprove ?  U(pcPrediction) otherwise ALIGNED_BRANCH_PC_NEXT
-        val missmatch = !ALIGNED_BRANCH_VALID && branchedPrediction || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(pcPrediction)
-        val needCorrection = Frontend.DISPATCH_MASK && canImprove && missmatch
+        PC_PREDICTION := branchedPrediction ? stage(PC_TARGET, slotId) otherwise PC_INC
+        val pcNext = canImprove ?  U(PC_PREDICTION) otherwise ALIGNED_BRANCH_PC_NEXT
+        MISSMATCH := !ALIGNED_BRANCH_VALID && branchedPrediction || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
+        val needCorrection = Frontend.DISPATCH_MASK && canImprove && MISSMATCH
 
         branchContext.keys.BRANCH_SEL := isAny
         branchContext.keys.BRANCH_EARLY.pcNext := pcNext
@@ -123,7 +135,7 @@ class DecodePredictionPlugin() extends Plugin{
 
         when(stage.resulting(DISPATCH_MASK, slotId) && rasPush) { //WARNING use resulting DISPATCH_MASK ! (if one day things are moved around)
           when(!rasPushUsed){
-            ras.write.data := U(pcInc)
+            ras.write.data := U(PC_INC)
           }
           rasPushUsed \= True
         }
@@ -139,7 +151,7 @@ class DecodePredictionPlugin() extends Plugin{
       val hit = slots.map(_.needCorrection).orR
       val selOh = OHMasking.first(slots.map(_.needCorrection))
       setup.decodeJump.valid := isFireing && hit
-      setup.decodeJump.pc := U(MuxOH(selOh, slots.map(_.pcPrediction)))
+      setup.decodeJump.pc := U(MuxOH(selOh, (0 until DECODE_COUNT).map(stage(PC_PREDICTION, _))))
 
       flushIt(setup.decodeJump.valid, root = false)
 

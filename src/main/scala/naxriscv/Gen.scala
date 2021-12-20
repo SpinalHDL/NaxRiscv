@@ -74,11 +74,11 @@ object Config{
     plugins += new HistoryPlugin()
     plugins += new DecodePredictionPlugin()
     plugins += new BtbPlugin(
-      entries = 512,
+      entries = 8192,
       jumpAt = 1
     )
     plugins += new GSharePlugin(
-      entries = 1024,
+      entries = 8192,
       historyWidth = 16,
       insertAt = 2
     )
@@ -97,6 +97,15 @@ object Config{
       refillCount = 2,
       writebackCount = 2,
       reducedBankWidth = false
+    )
+
+    //MISC
+    plugins += new RobPlugin()
+    plugins += new CommitPlugin()
+    plugins += new RegFilePlugin(
+      spec = riscv.IntRegFile,
+      physicalDepth = 64,
+      bankCount = 1
     )
 
     //EXECUTION UNITES
@@ -125,14 +134,6 @@ object Config{
 //    plugins += new LoadPlugin("EU2")
 //    plugins += new StorePlugin("EU2")
 
-    //MISC
-    plugins += new RobPlugin()
-    plugins += new CommitPlugin()
-    plugins += new RegFilePlugin(
-      spec = riscv.IntRegFile,
-      physicalDepth = 64,
-      bankCount = 1
-    )
     plugins
   }
 }
