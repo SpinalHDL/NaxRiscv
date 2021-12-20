@@ -4,7 +4,7 @@ import naxriscv.Fetch._
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK}
 import naxriscv.Global._
 import naxriscv.prediction.Prediction._
-import naxriscv.fetch.{AlignerPlugin, FetchPlugin, PcPlugin}
+import naxriscv.fetch.{AlignerPlugin, FetchConditionalPrediction, FetchPlugin, PcPlugin}
 import naxriscv.frontend.{DecoderPlugin, FrontendPlugin}
 import naxriscv.interfaces.{CommitService, JumpService, RobService}
 import naxriscv.riscv.{IMM, Rvi}
@@ -16,8 +16,6 @@ import spinal.lib.logic.{DecodingSpec, Masked}
 import spinal.lib.pipeline.{Stageable, StageableOffset}
 
 class PredictorPlugin() extends Plugin{
-  val branchHistoryFetchAt = 1
-
   val keys = create early new AreaRoot{
     val BRANCH_CONDITIONAL = Stageable(Bool())
     val BRANCH_HISTORY_WIDTH = 16 //TODO
@@ -52,6 +50,7 @@ class PredictorPlugin() extends Plugin{
     val branchContext = getService[BranchContextPlugin]
 
     val branchHistory = new Area{
+      val fetchInsertAt = getServicesOf[FetchConditionalPrediction].map(_.useHistoryAt).min
       val onCommit = new Area {
         val value = Reg(keys.BRANCH_HISTORY) init (0)
 
@@ -205,8 +204,8 @@ class PredictorPlugin() extends Plugin{
     val branchHistoryUpdates = new Area{
       import branchHistory._
 
-      assert(branchHistoryFetchAt >= 1, "Would require some bypass of the stage(0) value, maybe later it could be implemented")
-      fetch.getStage(branchHistoryFetchAt)(keys.BRANCH_HISTORY) := onFetch.value
+      assert(fetchInsertAt >= 1, "Would require some bypass of the stage(0) value, maybe later it could be implemented")
+      fetch.getStage(fetchInsertAt)(keys.BRANCH_HISTORY) := onFetch.value
 
       val fetchJumps = getService[PcPlugin].getFetchJumps()
       val grouped = fetchJumps.groupBy(_._1)

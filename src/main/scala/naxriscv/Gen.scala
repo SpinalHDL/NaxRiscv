@@ -72,7 +72,8 @@ object Config{
       jumpAt = 1
     )
     plugins += new GSharePlugin(
-      entries = 8192
+      entries = 8192,
+      insertAt = 2
     )
 
     plugins += new LsuPlugin(

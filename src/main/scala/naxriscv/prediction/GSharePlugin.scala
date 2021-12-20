@@ -10,9 +10,12 @@ import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Stageable
 
-class GSharePlugin(entries : Int) extends Plugin with FetchConditionalPrediction{
+class GSharePlugin(entries : Int,
+                   insertAt : Int = 2) extends Plugin with FetchConditionalPrediction{
   val words = entries / SLICE_COUNT
-  val branchHistoryFetchAt = 1
+
+  val readAt = insertAt - 1
+  override def useHistoryAt = readAt
 
   val setup = create early new Area{
     val fetch = getService[FetchPlugin]
@@ -39,14 +42,14 @@ class GSharePlugin(entries : Int) extends Plugin with FetchConditionalPrediction
     }
 
     val readCmd = new Area{
-      val stage = fetch.getStage(branchHistoryFetchAt)
+      val stage = fetch.getStage(readAt)
       import stage._
 
       val address = gshareHash(FETCH_PC, predictor.keys.BRANCH_HISTORY)
     }
 
     val readRsp = new Area{
-      val stage = fetch.getStage(branchHistoryFetchAt+1)
+      val stage = fetch.getStage(insertAt)
 
       stage(CONDITIONAL_TAKE_IT) := mem.takeIt.readSync(readCmd.address, readCmd.stage.isReady)
 //      stage(keys.GSHARE_STRONG) := mem.strong.readSync(readCmd.address, readCmd.stage.isReady)
