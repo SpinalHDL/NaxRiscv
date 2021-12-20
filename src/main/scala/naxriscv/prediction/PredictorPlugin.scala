@@ -22,9 +22,6 @@ class PredictorPlugin() extends Plugin{
     val BRANCH_CONDITIONAL = Stageable(Bool())
     val BRANCH_HISTORY_WIDTH = 16 //TODO
     val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
-
-
-    val GSHARE_STRONG  = Stageable(Bits(SLICE_COUNT bits))
   }
 
   val setup = create early new Area{
@@ -42,7 +39,6 @@ class PredictorPlugin() extends Plugin{
 
     aligner.addWordContext(
       CONDITIONAL_TAKE_IT,
-      keys.GSHARE_STRONG,
       keys.BRANCH_HISTORY
     )
   }
@@ -100,40 +96,6 @@ class PredictorPlugin() extends Plugin{
       write.data.assignDontCare()
     }
 
-    val gshare = new Area{
-      val gshareWords = 1024 // 1024 4096
-      def gshareHash(address : UInt, history : Bits) = address(SLICE_RANGE.high + 1, log2Up(gshareWords) bits).reversed ^ U(history).resized
-
-      val mem = new Area{ //TODO bypass read durring write ?
-        val takeIt = Mem.fill(gshareWords)(CONDITIONAL_TAKE_IT)
-        val strong = Mem.fill(gshareWords)(keys.GSHARE_STRONG)
-      }
-
-      val readCmd = new Area{
-        val stage = fetch.getStage(branchHistoryFetchAt)
-        import stage._
-
-        val address = gshareHash(FETCH_PC, keys.BRANCH_HISTORY)
-      }
-
-      val readRsp = new Area{
-        val stage = fetch.getStage(branchHistoryFetchAt+1)
-
-        stage(CONDITIONAL_TAKE_IT) := mem.takeIt.readSync(readCmd.address, readCmd.stage.isReady)
-        stage(keys.GSHARE_STRONG) := mem.strong.readSync(readCmd.address, readCmd.stage.isReady)
-      }
-
-      val onLearn = new Area{
-        val ctx = branchContext.learnRead(branchContext.keys.BRANCH_FINAL)
-        val hash = gshareHash(ctx.pcOnLastSlice, branchContext.learnRead(keys.BRANCH_HISTORY))
-
-        val takeItPort = mem.takeIt.writePort
-        takeItPort.valid := branchContext.learnValid && branchContext.learnRead(keys.BRANCH_CONDITIONAL)
-        takeItPort.address := hash
-        takeItPort.data := branchContext.learnRead(CONDITIONAL_TAKE_IT)
-        takeItPort.data(ctx.pcOnLastSlice(SLICE_RANGE)) := ctx.taken
-      }
-    }
 
     val decodePatch = new Area {
       val stage = frontend.pipeline.decoded
@@ -233,19 +195,11 @@ class PredictorPlugin() extends Plugin{
       import stage._
       rob.write(keys.BRANCH_CONDITIONAL, DISPATCH_COUNT, (0 until DISPATCH_COUNT).map(stage(keys.BRANCH_CONDITIONAL, _)),  ROB.ID, isFireing)
 
-
-      for (slotId <- 0 until Frontend.DECODE_COUNT) {
-        implicit val _ = StageableOffset(slotId)
-        val enable = isFireing && branchContext.keys.BRANCH_SEL && DISPATCH_MASK
-        val bid = branchContext.keys.BRANCH_ID
-
-        branchContext.dispatchWrite(
-          keys.BRANCH_HISTORY,
-          keys.BRANCH_CONDITIONAL,
-          CONDITIONAL_TAKE_IT,
-          keys.GSHARE_STRONG
-        )
-      }
+      branchContext.dispatchWrite(
+        keys.BRANCH_HISTORY,
+        keys.BRANCH_CONDITIONAL,
+        CONDITIONAL_TAKE_IT
+      )
     }
 
     val branchHistoryUpdates = new Area{

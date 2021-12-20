@@ -20,6 +20,7 @@ import naxriscv.prediction.Prediction._
 import scala.collection.mutable
 
 trait FetchWordPrediction extends Service
+trait FetchConditionalPrediction extends Service
 
 class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements{
 
