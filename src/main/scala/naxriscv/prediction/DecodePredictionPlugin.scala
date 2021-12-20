@@ -15,7 +15,7 @@ import spinal.lib._
 import spinal.lib.logic.{DecodingSpec, Masked}
 import spinal.lib.pipeline.{Stageable, StageableOffset}
 
-class PredictorPlugin() extends Plugin{
+class DecodePredictionPlugin() extends Plugin{
   val keys = create early new AreaRoot{
     val BRANCH_CONDITIONAL = Stageable(Bool())
   }

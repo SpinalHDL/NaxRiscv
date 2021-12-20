@@ -46,7 +46,7 @@ class HistoryPlugin extends Plugin{
     val frontend = getService[FrontendPlugin]
     val fetch = getService[FetchPlugin]
     val commit = getService[CommitPlugin]
-    val predictor = getService[PredictorPlugin]
+    val predictor = getService[DecodePredictionPlugin]
     val branchContext = getService[BranchContextPlugin]
     val rob = getService[RobService]
 
