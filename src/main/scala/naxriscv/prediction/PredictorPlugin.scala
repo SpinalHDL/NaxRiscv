@@ -23,7 +23,7 @@ class PredictorPlugin() extends Plugin{
     val BRANCH_HISTORY_WIDTH = 16 //TODO
     val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
 
-    val GSHARE_TAKE_IT = Stageable(Bits(SLICE_COUNT bits))
+
     val GSHARE_STRONG  = Stageable(Bits(SLICE_COUNT bits))
   }
 
@@ -41,7 +41,7 @@ class PredictorPlugin() extends Plugin{
     branchContext.retain()
 
     aligner.addWordContext(
-      keys.GSHARE_TAKE_IT,
+      CONDITIONAL_TAKE_IT,
       keys.GSHARE_STRONG,
       keys.BRANCH_HISTORY
     )
@@ -105,7 +105,7 @@ class PredictorPlugin() extends Plugin{
       def gshareHash(address : UInt, history : Bits) = address(SLICE_RANGE.high + 1, log2Up(gshareWords) bits).reversed ^ U(history).resized
 
       val mem = new Area{ //TODO bypass read durring write ?
-        val takeIt = Mem.fill(gshareWords)(keys.GSHARE_TAKE_IT)
+        val takeIt = Mem.fill(gshareWords)(CONDITIONAL_TAKE_IT)
         val strong = Mem.fill(gshareWords)(keys.GSHARE_STRONG)
       }
 
@@ -119,7 +119,7 @@ class PredictorPlugin() extends Plugin{
       val readRsp = new Area{
         val stage = fetch.getStage(branchHistoryFetchAt+1)
 
-        stage(keys.GSHARE_TAKE_IT) := mem.takeIt.readSync(readCmd.address, readCmd.stage.isReady)
+        stage(CONDITIONAL_TAKE_IT) := mem.takeIt.readSync(readCmd.address, readCmd.stage.isReady)
         stage(keys.GSHARE_STRONG) := mem.strong.readSync(readCmd.address, readCmd.stage.isReady)
       }
 
@@ -130,7 +130,7 @@ class PredictorPlugin() extends Plugin{
         val takeItPort = mem.takeIt.writePort
         takeItPort.valid := branchContext.learnValid && branchContext.learnRead(keys.BRANCH_CONDITIONAL)
         takeItPort.address := hash
-        takeItPort.data := branchContext.learnRead(keys.GSHARE_TAKE_IT)
+        takeItPort.data := branchContext.learnRead(CONDITIONAL_TAKE_IT)
         takeItPort.data(ctx.pcOnLastSlice(SLICE_RANGE)) := ctx.taken
       }
     }
@@ -171,7 +171,7 @@ class PredictorPlugin() extends Plugin{
         )
 
         val lastSlice = PC(SLICE_RANGE) + INSTRUCTION_SLICE_COUNT
-        val conditionalPrediction =  keys.GSHARE_TAKE_IT(lastSlice)//TODO pipeline it from earlier stage
+        val conditionalPrediction =  CONDITIONAL_TAKE_IT(lastSlice)//TODO pipeline it from earlier stage
 
         val slices = INSTRUCTION_SLICE_COUNT +^ 1
         val pcInc = S(PC + (slices << SLICE_RANGE_LOW))
@@ -242,7 +242,7 @@ class PredictorPlugin() extends Plugin{
         branchContext.dispatchWrite(
           keys.BRANCH_HISTORY,
           keys.BRANCH_CONDITIONAL,
-          keys.GSHARE_TAKE_IT,
+          CONDITIONAL_TAKE_IT,
           keys.GSHARE_STRONG
         )
       }
