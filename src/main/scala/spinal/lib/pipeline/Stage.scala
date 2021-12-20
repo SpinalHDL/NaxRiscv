@@ -143,6 +143,14 @@ class Stage extends Nameable {
   def apply[T <: Data](key : Stageable[T], key2 : Any) : T = {
     apply(StageableKey(key.asInstanceOf[Stageable[Data]], key2)).asInstanceOf[T]
   }
+
+  def apply(keys2 : Seq[Any]) = new OffsetApi(keys2)
+  class OffsetApi(keys2 : Seq[Any]){
+    def apply[T <: Data](key : Stageable[T]) : Seq[T] = {
+      keys2.map(key2 => Stage.this.apply(key, key2))
+    }
+  }
+
   def terminal[T <: Data](key : Stageable[T], key2 : Any) : StageableKey = {
     terminal(StageableKey(key.asInstanceOf[Stageable[Data]], key2))
   }

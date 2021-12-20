@@ -52,7 +52,18 @@ class DecodePredictionPlugin() extends Plugin{
       val PC_INC = Stageable(SInt(PC_WIDTH bits))
       val PC_TARGET = Stageable(SInt(PC_WIDTH bits))
       val PC_PREDICTION = Stageable(SInt(PC_WIDTH bits))
+      val PC_NEXT = Stageable(UInt(PC_WIDTH bits))
       val MISSMATCH = Stageable(Bool())
+      val IS_JAL    = Stageable(Bool())
+      val IS_JALR   = Stageable(Bool())
+      val IS_BRANCH = Stageable(Bool())
+      val IS_ANY    = Stageable(Bool())
+      val RAS_PUSH  = Stageable(Bool())
+      val RAS_POP   = Stageable(Bool())
+      val CAN_IMPROVE = Stageable(Bool())
+      val BRANCHED_PREDICTION = Stageable(Bool())
+      val NEED_CORRECTION = Stageable(Bool())
+
     }
     import k._
 
@@ -99,15 +110,15 @@ class DecodePredictionPlugin() extends Plugin{
 
         def inst = Frontend.INSTRUCTION_DECOMPRESSED
 
-        val isJal = jalDecoder.build(inst, decoder.covers())
-        val isJalR = jalrDecoder.build(inst, decoder.covers())
-        val isBranch = branchDecoder.build(inst, decoder.covers())
-        val isAny = anyDecoder.build(inst, decoder.covers())
         val rdLink  = List(1,5).map(decoder.ARCH_RD === _).orR
         val rs1Link = List(1,5).map(decoder.ARCH_RS(0) === _).orR
         val rdEquRs1 = decoder.ARCH_RD === decoder.ARCH_RS(0)
-        val rasPush = (isJal || isJalR) && rdLink
-        val rasPop  = isJalR && (!rdLink && rs1Link || rdLink && rs1Link && !rdEquRs1)
+        IS_JAL    := jalDecoder.build(inst, decoder.covers())
+        IS_JALR   := jalrDecoder.build(inst, decoder.covers())
+        IS_BRANCH := branchDecoder.build(inst, decoder.covers())
+        IS_ANY    := anyDecoder.build(inst, decoder.covers())
+        RAS_PUSH  := (IS_JAL || IS_JALR) && rdLink
+        RAS_POP   := IS_JALR && (!rdLink && rs1Link || rdLink && rs1Link && !rdEquRs1)
 
         val imm = IMM(inst)
         val offset = Frontend.INSTRUCTION_DECOMPRESSED(2).mux(
@@ -121,25 +132,25 @@ class DecodePredictionPlugin() extends Plugin{
         val slices = INSTRUCTION_SLICE_COUNT +^ 1
         PC_INC := S(PC + (slices << SLICE_RANGE_LOW))
         PC_TARGET := S(PC) + offset
-        when(isJalR){ PC_TARGET := S(ras.read) }
-        val canImprove = !isJalR || rasPop
-        val branchedPrediction = isBranch && conditionalPrediction || isJal || isJalR
-        PC_PREDICTION := branchedPrediction ? stage(PC_TARGET, slotId) otherwise PC_INC
-        val pcNext = canImprove ?  U(PC_PREDICTION) otherwise ALIGNED_BRANCH_PC_NEXT
-        MISSMATCH := !ALIGNED_BRANCH_VALID && branchedPrediction || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
-        val needCorrection = Frontend.DISPATCH_MASK && canImprove && MISSMATCH
+        when(IS_JALR){ PC_TARGET := S(ras.read) }
+        CAN_IMPROVE := !IS_JALR || RAS_POP
+        BRANCHED_PREDICTION := IS_BRANCH && conditionalPrediction || IS_JAL || IS_JALR
+        PC_PREDICTION := BRANCHED_PREDICTION ? stage(PC_TARGET, slotId) otherwise PC_INC
+        PC_NEXT := CAN_IMPROVE ?  U(PC_PREDICTION) otherwise ALIGNED_BRANCH_PC_NEXT
+        MISSMATCH := !ALIGNED_BRANCH_VALID && BRANCHED_PREDICTION || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
+        NEED_CORRECTION := Frontend.DISPATCH_MASK && CAN_IMPROVE && MISSMATCH
 
-        branchContext.keys.BRANCH_SEL := isAny
-        branchContext.keys.BRANCH_EARLY.pcNext := pcNext
-        keys.BRANCH_CONDITIONAL := isBranch
+        branchContext.keys.BRANCH_SEL := IS_ANY
+        branchContext.keys.BRANCH_EARLY.pcNext := PC_NEXT
+        keys.BRANCH_CONDITIONAL := IS_BRANCH
 
-        when(stage.resulting(DISPATCH_MASK, slotId) && rasPush) { //WARNING use resulting DISPATCH_MASK ! (if one day things are moved around)
+        when(stage.resulting(DISPATCH_MASK, slotId) && RAS_PUSH) { //WARNING use resulting DISPATCH_MASK ! (if one day things are moved around)
           when(!rasPushUsed){
             ras.write.data := U(PC_INC)
           }
           rasPushUsed \= True
         }
-        when(stage.resulting(DISPATCH_MASK, slotId) && rasPop) { //WARNING use resulting DISPATCH_MASK ! (if one day things are moved around)
+        when(stage.resulting(DISPATCH_MASK, slotId) && RAS_POP) { //WARNING use resulting DISPATCH_MASK ! (if one day things are moved around)
           rasPopUsed \= True
         }
       }
@@ -148,8 +159,9 @@ class DecodePredictionPlugin() extends Plugin{
         ras.ptr.popIt     setWhen(rasPopUsed)
       }
 
-      val hit = slots.map(_.needCorrection).orR
-      val selOh = OHMasking.first(slots.map(_.needCorrection))
+      val slotIds = (0 until DECODE_COUNT)
+      val hit = slotIds.map(stage(NEED_CORRECTION, _)).orR
+      val selOh = OHMasking.first(slotIds.map(stage(NEED_CORRECTION, _)))
       setup.decodeJump.valid := isFireing && hit
       setup.decodeJump.pc := U(MuxOH(selOh, (0 until DECODE_COUNT).map(stage(PC_PREDICTION, _))))
 
@@ -157,13 +169,14 @@ class DecodePredictionPlugin() extends Plugin{
 
       //WARNING, overloaded(Frontend.DISPATCH_MASK) may not be reconized by some downstream plugins if you move this futher the decoding stage
       for (slotId <- 1 until Frontend.DECODE_COUNT) {
-        stage.overloaded(Frontend.DISPATCH_MASK, slotId) := stage(Frontend.DISPATCH_MASK, slotId)&& !(0 until slotId).map(i => slots(i).needCorrection).orR
+        stage.overloaded(Frontend.DISPATCH_MASK, slotId) := stage(Frontend.DISPATCH_MASK, slotId) && !stage(0 until slotId)(NEED_CORRECTION).orR
       }
 
       for (slotId <- 0 until Frontend.DECODE_COUNT) {
         val slot = slots(slotId)
-        setup.historyPush.mask(slotId) := isFireing && slot.isBranch && (Frontend.DISPATCH_MASK, slotId) && B(slots.take(slotId).map(s => s.needCorrection)) === 0
-        setup.historyPush.taken(slotId) := slot.branchedPrediction
+        implicit val _ = StageableOffset(slotId)
+        setup.historyPush.mask(slotId) := isFireing && IS_BRANCH && Frontend.DISPATCH_MASK && !stage(0 until slotId)(NEED_CORRECTION).orR
+        setup.historyPush.taken(slotId) := BRANCHED_PREDICTION
       }
     }
 
