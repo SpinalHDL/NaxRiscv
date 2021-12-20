@@ -9,7 +9,7 @@ import naxriscv.misc.{StaticAddressTranslationParameter, StaticAddressTranslatio
 import naxriscv.execute._
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
-import naxriscv.prediction.{BranchContextPlugin, BtbPlugin, GSharePlugin, HistoryPlugin, DecodePredictionPlugin}
+import naxriscv.prediction.{BranchContextPlugin, BtbPlugin, GSharePlugin, HistoryPlugin, DecoderPredictionPlugin}
 import naxriscv.utilities._
 import spinal.lib.eda.bench.Rtl
 
@@ -72,7 +72,7 @@ object Config{
       branchCount = 16
     )
     plugins += new HistoryPlugin()
-    plugins += new DecodePredictionPlugin()
+    plugins += new DecoderPredictionPlugin()
     plugins += new BtbPlugin(
       entries = 8192,
       jumpAt = 1

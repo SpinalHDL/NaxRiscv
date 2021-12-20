@@ -9,7 +9,7 @@ import spinal.core._
 import spinal.lib.Flow
 import spinal.lib.pipeline.Stageable
 import naxriscv.Global._
-import naxriscv.prediction.{BranchContextPlugin, DecodePredictionPlugin}
+import naxriscv.prediction.{BranchContextPlugin, DecoderPredictionPlugin}
 
 object BranchPlugin extends AreaObject {
   val NEED_BRANCH = Stageable(Bool())

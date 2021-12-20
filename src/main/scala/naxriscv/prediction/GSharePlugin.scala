@@ -30,7 +30,7 @@ class GSharePlugin(entries : Int,
   val logic = create late new Area{
     val fetch = getService[FetchPlugin]
     val branchContext = getService[BranchContextPlugin]
-    val predictor = getService[DecodePredictionPlugin]
+    val predictor = getService[DecoderPredictionPlugin]
     val BRANCH_HISTORY = getService[HistoryPlugin].keys.BRANCH_HISTORY
 
 //    val keys = new AreaRoot {
