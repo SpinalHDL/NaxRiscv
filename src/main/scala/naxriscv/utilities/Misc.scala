@@ -44,3 +44,24 @@ class Reservation{
     }
   }
 }
+
+object MulSpliter{
+  case class Splits(offsetA : Int, offsetB : Int, widthA : Int, widthB : Int, signedA : Boolean, signedB : Boolean, id : Int){
+    val offsetC = offsetA+offsetB
+    val widthC = widthA + widthB
+    val endC = offsetC+widthC
+  }
+
+  def splits(inWidthA : Int, inWidthB : Int, splitWidthA : Int, splitWidthB : Int, signedA : Boolean, signedB : Boolean) = {
+    val outWidth = inWidthA + inWidthB
+    val splitsUnordered = for (offsetA <- 0 until inWidthA by splitWidthA;
+                               offsetB <- 0 until inWidthB by splitWidthB;
+                               widthA = (inWidthA - offsetA) min splitWidthA;
+                               widthB = (inWidthB - offsetB) min splitWidthB) yield {
+      Splits(offsetA, offsetB, widthA, widthB, offsetA + widthA == inWidthA, offsetB + widthB == inWidthB, -1)
+    }
+    val splits = splitsUnordered.sortWith(_.endC < _.endC).zipWithIndex.map(e => e._1.copy(id = e._2))
+    splits
+  }
+
+}

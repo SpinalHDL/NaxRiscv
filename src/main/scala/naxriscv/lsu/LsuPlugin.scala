@@ -76,6 +76,7 @@ class LsuPlugin(lqSize: Int,
                 sqSize : Int,
                 hazardPedictionEntries : Int,
                 hazardPredictionTagWidth : Int,
+//                storeToLoadBypass : Boolean,
                 loadTranslationParameter : Any,
                 storeTranslationParameter : Any,
                 loadFeedAt : Int = 1, //Stage at which the d$ cmd is sent

@@ -21,7 +21,10 @@ object BranchPlugin extends AreaObject {
   val BRANCH_CTRL = new Stageable(BranchCtrlEnum())
 }
 
-class BranchPlugin(euId : String, staticLatency : Boolean = true, linkAt : Int = 0, branchAt : Int = 1) extends ExecutionUnitElementSimple(euId, staticLatency)  {
+class BranchPlugin(euId : String,
+                   staticLatency : Boolean = true,
+                   linkAt : Int = 0,
+                   branchAt : Int = 1) extends ExecutionUnitElementSimple(euId, staticLatency)  {
   import BranchPlugin._
 
 

@@ -91,6 +91,7 @@ object Config{
       sqSize = 16,
       hazardPedictionEntries = 512,
       hazardPredictionTagWidth = 16,
+//      storeToLoadBypass = true,
       loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
       storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
     )
@@ -118,15 +119,16 @@ object Config{
     plugins += new SrcPlugin("EU0")
     plugins += new IntAluPlugin("EU0")
     plugins += new ShiftPlugin("EU0")
-    plugins += new BranchPlugin("EU0")
-    plugins += new LoadPlugin("EU0")
-    plugins += new StorePlugin("EU0")
+//    plugins += new BranchPlugin("EU0")
+//    plugins += new LoadPlugin("EU0")
+//    plugins += new StorePlugin("EU0")
 
     plugins += new ExecutionUnitBase("EU1")
     plugins += new SrcPlugin("EU1")
-    plugins += new IntAluPlugin("EU1")
-    plugins += new ShiftPlugin("EU1")
-    plugins += new BranchPlugin("EU1")
+    plugins += new MulPlugin("EU1")
+//    plugins += new IntAluPlugin("EU1")
+//    plugins += new ShiftPlugin("EU1")
+    plugins += new BranchPlugin("EU1", staticLatency = false)
     plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
 
