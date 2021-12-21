@@ -15,10 +15,10 @@ import scala.collection.mutable.ArrayBuffer
 import naxriscv.Global._
 
 class ExecutionUnitBase(euId : String,
-                        contextStage : Int = 0,
-                        rfReadStage : Int = 0,
-                        decodeStage : Int = 0,
-                        executeStage : Int = 1) extends Plugin with ExecuteUnitService with LockedImpl{
+                        contextAt : Int = 0,
+                        rfReadAt : Int = 0,
+                        decodeAt : Int = 0,
+                        executeAt : Int = 1) extends Plugin with ExecuteUnitService with LockedImpl{
   withPrefix(euId)
 
   override def uniqueIds = List(euId)
@@ -42,7 +42,6 @@ class ExecutionUnitBase(euId : String,
     rfStageables.getOrElseUpdate(r, Stageable(Bits(r.rf.width bits)).setName(s"${r.rf.getName()}_${r.access.getName()}"))
   }
   def getExecute(id : Int) : Stage = idToexecuteStages.getOrElseUpdate(id, new Stage().setCompositeName(pipeline, s"execute_$id"))
-
   def addRobStageable(s : Stageable[_ <: Data]) = robStageable += s
 
   case class WriteBackKey(rf : RegfileSpec, access : RfAccess, stage : Stage)
@@ -121,7 +120,7 @@ class ExecutionUnitBase(euId : String,
 
   val pipeline = create late new Pipeline{
     // Define stages
-    val fetch = List.fill(executeStage + 1)(newStage())
+    val fetch = List.fill(executeAt + 1)(newStage())
     for((m,s) <- (fetch.dropRight(1), fetch.drop(1)).zipped){
       connect(m, s)(M2S())
     }
@@ -187,7 +186,7 @@ class ExecutionUnitBase(euId : String,
     }
 
     val context = new Area{
-      val stage = fetch(contextStage)
+      val stage = fetch(contextAt)
       import stage._
 
       def read[T <: Data](key : Stageable[T]) = rob.readAsyncSingle(key, ROB.ID, sf, so)
@@ -216,7 +215,7 @@ class ExecutionUnitBase(euId : String,
     }
 
     val decoding = new Area{
-      val stage = fetch(decodeStage)
+      val stage = fetch(decodeAt)
       import stage._
 
       val coverAll = microOps.map(e => Masked(e.key))
@@ -226,7 +225,7 @@ class ExecutionUnitBase(euId : String,
     }
 
     val readRf = new Area{
-      val stage = fetch(rfReadStage)
+      val stage = fetch(rfReadAt)
       import stage._
 
       for((rf, port) <- rfReadPorts){

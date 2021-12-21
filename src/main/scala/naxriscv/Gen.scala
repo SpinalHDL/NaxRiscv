@@ -89,6 +89,8 @@ object Config{
     plugins += new LsuPlugin(
       lqSize = 16,
       sqSize = 16,
+      hazardPedictionEntries = 512,
+      hazardPredictionTagWidth = 16,
       loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
       storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
     )
@@ -117,14 +119,14 @@ object Config{
     plugins += new IntAluPlugin("EU0")
     plugins += new ShiftPlugin("EU0")
     plugins += new BranchPlugin("EU0")
-//    plugins += new LoadPlugin("EU0")
-//    plugins += new StorePlugin("EU0")
+    plugins += new LoadPlugin("EU0")
+    plugins += new StorePlugin("EU0")
 
     plugins += new ExecutionUnitBase("EU1")
     plugins += new SrcPlugin("EU1")
-//    plugins += new IntAluPlugin("EU1")
-//    plugins += new ShiftPlugin("EU1")
-//    plugins += new BranchPlugin("EU1")
+    plugins += new IntAluPlugin("EU1")
+    plugins += new ShiftPlugin("EU1")
+    plugins += new BranchPlugin("EU1")
     plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
 
@@ -189,7 +191,7 @@ make clean compile  test_clean output/nax/dhrystone/PASS ARGS="--stats_print_all
 //TODO Optimisations
 /*
 - store to load hazard prediction
-- less pessimistic store to load detection (only trigger if the load got the data from the cache, instead of just having its address)
+- less pessimistic store to load detection (only trigger if the load got the data from the cache, instead of just having its address), else there is also the case where both load/store on a line miss will trigger lqCheck
 - RAS implement healing
 - gshare should update the fetch branchHistory himself, instead of the decode stage update workaround
 - optimize aligner for non-rvc config

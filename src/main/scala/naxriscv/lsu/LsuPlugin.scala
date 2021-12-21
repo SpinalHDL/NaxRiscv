@@ -2,7 +2,7 @@ package naxriscv.lsu
 
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK}
 import naxriscv.backend.RobPlugin
-import naxriscv.{Frontend, Global, ROB}
+import naxriscv.{Fetch, Frontend, Global, ROB}
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces._
 import naxriscv.riscv.CSR
@@ -28,6 +28,9 @@ case class LsuLoadPort(lqSize : Int, wordWidth : Int, physicalRdWidth : Int, pcW
   val physicalRd = UInt(physicalRdWidth bits)
   val writeRd = Bool()
   val pc = UInt(pcWidth bits)
+
+  val earlySample = Bool()
+  val earlyPc = UInt(pcWidth bits) //One cycle early pc, to fetch prediction
 }
 
 case class LsuStorePort(sqSize : Int, wordWidth : Int) extends Bundle {
@@ -71,6 +74,8 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
 
 class LsuPlugin(lqSize: Int,
                 sqSize : Int,
+                hazardPedictionEntries : Int,
+                hazardPredictionTagWidth : Int,
                 loadTranslationParameter : Any,
                 storeTranslationParameter : Any,
                 loadFeedAt : Int = 1, //Stage at which the d$ cmd is sent
@@ -207,6 +212,7 @@ class LsuPlugin(lqSize: Int,
           val cacheRefillAny = Reg(Bool())
           val sq     = Reg(Bool())
           val sqId   = Reg(SQ_ID)
+          val sqPredicted = Reg(Bool())
           val commit = Reg(Bool())
 
           val cacheRefillSet = cacheRefill.getZero
@@ -234,6 +240,15 @@ class LsuPlugin(lqSize: Int,
         val io = Mem.fill(lqSize)(Bool())
         val writeRd = Mem.fill(lqSize)(Bool())
       }
+
+      case class PredictionEntry() extends Bundle {
+        val tag = Bits(hazardPredictionTagWidth bits)
+      }
+
+      def hash(pc : UInt) : Bits = pc(Fetch.SLICE_RANGE_LOW + log2Up(hazardPedictionEntries), hazardPredictionTagWidth bits).asBits
+      def index(pc : UInt) : UInt = pc(Fetch.SLICE_RANGE_LOW, log2Up(hazardPedictionEntries) bits)
+
+      val prediction = Mem.fill(hazardPedictionEntries)(PredictionEntry())
 
       val ptr = new Area{
         val alloc, free = Reg(UInt(log2Up(lqSize) + 1 bits)) init (0)
@@ -296,6 +311,7 @@ class LsuPlugin(lqSize: Int,
         commit := commitNext
         val priority = Reg(Bits(sqSize-1 bits)) init(0) //TODO check it work properly
         def isFull(ptr : UInt) = (ptr ^ free) === sqSize
+        def isFree(ptr : UInt) = (free - ptr) < sqSize
 
         val onFree = Flow(UInt(log2Up(sqSize) bits))
         val onFreeLast = onFree.stage()
@@ -304,7 +320,12 @@ class LsuPlugin(lqSize: Int,
 
     val load = new Area{
       import lq._
-      for(spec <- loadPorts){
+
+      for(reg <- regs) when(sq.ptr.onFree.valid && sq.ptr.onFree.payload === reg.waitOn.sqId){
+        reg.waitOn.sq := False
+      }
+
+      val push = for(spec <- loadPorts) yield new Area{
         import spec._
         mem.addressPre.write(
           enable = port.valid,
@@ -332,6 +353,20 @@ class LsuPlugin(lqSize: Int,
           data = port.writeRd
         )
 
+        val prediction = new Area{
+          val read = lq.prediction.readSyncPort
+          read.cmd.valid := port.earlySample
+          read.cmd.payload := lq.index(port.earlyPc)
+
+          val hash = lq.hash(port.pc)
+          val hit = read.rsp.tag === hash
+          val sqAlloc = mem.sqAlloc.readAsync(port.lqId)
+          val sqId = (sqAlloc - 1).resize(log2Up(sqSize))
+          val freeAlready  = sq.ptr.isFree(sqAlloc)
+          val freeDetected = sq.ptr.onFree.valid && sq.ptr.onFree.payload === sqId.resized
+          val waitSq = hit && !freeDetected && !freeAlready
+        }
+
         when(port.valid) {
           for (entry <- regs) when(port.lqId === entry.id) {
             entry.waitOn.address := False
@@ -339,12 +374,11 @@ class LsuPlugin(lqSize: Int,
             entry.address.size := port.size
             entry.address.unsigned := port.unsigned
             entry.address.mask := AddressToMask(port.address, port.size, wordBytes)
+            entry.waitOn.sq   := prediction.waitSq
+            entry.waitOn.sqId := prediction.sqId
+            entry.waitOn.sqPredicted := prediction.waitSq
           }
         }
-      }
-
-      for(reg <- regs) when(sq.ptr.onFree.valid && sq.ptr.onFree.payload === reg.waitOn.sqId){
-        reg.waitOn.sq := False
       }
 
       val allocate = new Area{
@@ -389,7 +423,6 @@ class LsuPlugin(lqSize: Int,
               reg.waitOn.cacheRefill := 0
               reg.waitOn.cacheRefillAny := False
               reg.waitOn.commit := False
-              reg.waitOn.sq := False
             }
           }
         }
@@ -758,7 +791,8 @@ class LsuPlugin(lqSize: Int,
           val entries = for(lqReg <- lq.regs) yield new Area {
             val pageHit = lqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
             val wordHit = (lqReg.address.mask & DATA_MASK) =/= 0
-            LQCHECK_HITS(lqReg.id) := lqReg.valid && !lqReg.waitOn.address && pageHit && wordHit && (youngerMask(lqReg.id) || allLqIsYounger)
+            val sqWaited = lqReg.waitOn.sq && lqReg.waitOn.sqId === SQ_SEL || lqReg.waitOn.sqPredicted
+            LQCHECK_HITS(lqReg.id) := lqReg.valid && !lqReg.waitOn.address && !sqWaited && pageHit && wordHit && (youngerMask(lqReg.id) || allLqIsYounger)
           }
 
           LQCHECK_NO_YOUNGER := youngerMaskEmpty
@@ -787,6 +821,11 @@ class LsuPlugin(lqSize: Int,
 
           setup.storeCompletion.valid := False
           setup.storeCompletion.id := ROB.ID
+
+          val lqPredictionPort = lq.prediction.writePort
+          lqPredictionPort.valid    := isFireing && YOUNGER_LOAD_RESCHEDULE
+          lqPredictionPort.address  := lq.index(YOUNGER_LOAD_PC)
+          lqPredictionPort.data.tag := lq.hash(YOUNGER_LOAD_PC)
 
           when(YOUNGER_LOAD_RESCHEDULE){
             setup.storeTrap.valid    := isFireing

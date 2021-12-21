@@ -62,4 +62,10 @@ class LoadPlugin(euId : String) extends Plugin{
 
     eu.release()
   }
+
+  val earlyPc = create late new Area{
+    val eu = getService[ExecutionUnitBase](euId)
+    setup.port.earlySample := logic.stage.isReady
+    setup.port.earlyPc := eu.pipeline.fetch(eu.pipeline.fetch.size-2)(PC)
+  }
 }
