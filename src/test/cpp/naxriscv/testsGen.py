@@ -103,7 +103,7 @@ naxSoftware = [
 tests = []
 
 with open('tests.mk', 'w') as f:
-    for name in riscv_tests + riscvTestMemory + riscvTestMul:
+    for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv:
         outputDir = "output/riscv_tests/" + name
         rule = outputDir +"/PASS"
         tests.append(rule)
