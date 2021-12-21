@@ -54,7 +54,7 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
       val rob = Flow(WakeRob())
       val rf = Flow(WakeRegFile(decode.PHYS_RD, needBypass = false))
 
-      rob.valid := fire
+      rob.valid := fire && wbStage(decode.WRITE_RD)
       rob.robId := wbStage(ROB.ID)
 
       rf.valid := fire && wbStage(decode.WRITE_RD)
