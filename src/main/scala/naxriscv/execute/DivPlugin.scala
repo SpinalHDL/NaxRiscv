@@ -17,8 +17,7 @@ object DivPlugin extends AreaObject {
 class DivPlugin(euId : String,
                 writebackAt : Int = 0,
                 splitWidthA : Int = 16,
-                splitWidthB : Int = 16,
-                staticLatency : Boolean = true) extends ExecutionUnitElementSimple(euId, staticLatency) {
+                splitWidthB : Int = 16) extends ExecutionUnitElementSimple(euId, staticLatency = false) {
   import DivPlugin._
 
   override def writeBackAt = writebackAt

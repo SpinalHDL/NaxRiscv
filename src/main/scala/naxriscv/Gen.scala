@@ -1,6 +1,6 @@
 package naxriscv
 
-import naxriscv.backend.{CommitPlugin, RegFilePlugin, RobPlugin}
+import naxriscv.backend.{CommitDebugFilterPlugin, CommitPlugin, RegFilePlugin, RobPlugin}
 import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
 import naxriscv.frontend._
@@ -9,7 +9,7 @@ import naxriscv.misc.{StaticAddressTranslationParameter, StaticAddressTranslatio
 import naxriscv.execute._
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
-import naxriscv.prediction.{BranchContextPlugin, BtbPlugin, GSharePlugin, HistoryPlugin, DecoderPredictionPlugin}
+import naxriscv.prediction.{BranchContextPlugin, BtbPlugin, DecoderPredictionPlugin, GSharePlugin, HistoryPlugin}
 import naxriscv.utilities._
 import spinal.lib.eda.bench.Rtl
 
@@ -74,14 +74,14 @@ object Config{
     plugins += new HistoryPlugin()
     plugins += new DecoderPredictionPlugin()
     plugins += new BtbPlugin(
-      entries = 8192,
+      entries = 8192*8,
 //      entries = 512,
       jumpAt = 1
     )
     plugins += new GSharePlugin(
-      entries = 8192,
+      entries = 8192*8,
 //      entries = 1024,
-      historyWidth = 16,
+      historyWidth = 20,
       insertAt = 2
     )
 
@@ -89,11 +89,12 @@ object Config{
     plugins += new LsuPlugin(
       lqSize = 16,
       sqSize = 16,
-      hazardPedictionEntries = 512,
+      hazardPedictionEntries = 512*8,
       hazardPredictionTagWidth = 16,
 //      storeToLoadBypass = true,
       loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
-      storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
+      storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1),
+      loadFeedAt = 1 //TODO
     )
     plugins += new DataCachePlugin(
       memDataWidth = Global.XLEN,
@@ -113,6 +114,7 @@ object Config{
       physicalDepth = 64,
       bankCount = 1
     )
+    plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
 
     //EXECUTION UNITES
     plugins += new ExecutionUnitBase("EU0")
@@ -125,7 +127,8 @@ object Config{
 
     plugins += new ExecutionUnitBase("EU1")
     plugins += new SrcPlugin("EU1")
-    plugins += new MulPlugin("EU1")
+    plugins += new MulPlugin("EU1", staticLatency = false)
+    plugins += new DivPlugin("EU1")
 //    plugins += new IntAluPlugin("EU1")
 //    plugins += new ShiftPlugin("EU1")
     plugins += new BranchPlugin("EU1", staticLatency = false)
@@ -134,12 +137,20 @@ object Config{
 
 
 //    plugins += new ExecutionUnitBase("EU2")
+//    plugins += new MulPlugin("EU2", staticLatency = false)
+//    plugins += new DivPlugin("EU2", staticLatency = false)
 //    plugins += new SrcPlugin("EU2")
 //    plugins += new IntAluPlugin("EU2")
 //    plugins += new ShiftPlugin("EU2")
 //    plugins += new BranchPlugin("EU2")
 //    plugins += new LoadPlugin("EU2")
 //    plugins += new StorePlugin("EU2")
+
+//    plugins += new ExecutionUnitBase("EU3")
+//    plugins += new SrcPlugin("EU3")
+//    plugins += new IntAluPlugin("EU3")
+//    plugins += new ShiftPlugin("EU3")
+//    plugins += new BranchPlugin("EU3")
 
     plugins
   }
