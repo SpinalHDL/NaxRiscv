@@ -94,7 +94,7 @@ object Config{
 //      storeToLoadBypass = true,
       loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
       storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1),
-      loadFeedAt = 1 //TODO
+      loadFeedAt = 0 //TODO
     )
     plugins += new DataCachePlugin(
       memDataWidth = Global.XLEN,
@@ -103,7 +103,7 @@ object Config{
       refillCount = 2,
       writebackCount = 2,
       reducedBankWidth = false,
-      loadRspAt = 3 //TODO optimise timings to reduce to 2 again
+      loadRspAt = 2 //TODO optimise timings to reduce to 2 again
     )
 
     //MISC
