@@ -15,12 +15,13 @@ object DivPlugin extends AreaObject {
 }
 
 class DivPlugin(euId : String,
-                writebackAt : Int = 0,
+                writebackAt : Int,
+                cmdAt : Int = 0,
                 splitWidthA : Int = 16,
                 splitWidthB : Int = 16) extends ExecutionUnitElementSimple(euId, staticLatency = false) {
   import DivPlugin._
 
-  override def writeBackAt = writebackAt
+  override def euWritebackAt = writebackAt
 
   override val setup = create early new Setup{
     add(Rvi.DIV , List(), eu.DecodeList(REM -> False, SIGNED -> True))
@@ -35,38 +36,45 @@ class DivPlugin(euId : String,
     val sumSplitAt = splits.size/2
 
     val keys = new AreaRoot{
-
+      val DIV_REVERT_RESULT = Stageable(Bool())
     }
     import keys._
 
-    val feed = new Area {
-      val stage = eu.getExecute(0)
+    val div = DivRadix4(width = XLEN.get + 2)
+    def twoComplement(that: Bits, enable: Bool): UInt = (Mux(enable, ~that, that).asUInt + enable.asUInt)
+
+    val feed = new ExecuteArea(cmdAt) {
       import stage._
 
       val rs1 = eu(IntRegFile, RS1)
       val rs2 = eu(IntRegFile, RS2)
 
-      def twoComplement(that : Bits, enable: Bool): UInt = (Mux(enable, ~that, that).asUInt + enable.asUInt)
       val revertA = SIGNED && rs1.msb
       val revertB = SIGNED && rs2.msb
       val divA = twoComplement(rs1, revertA)
       val divB = twoComplement(rs2, revertB)
-      val revertResult = (revertA ^ (revertB && !REM)) && !(rs2 === 0 && SIGNED && !REM)
-      val div = DivRadix4(width = XLEN.get+2)
+      DIV_REVERT_RESULT := (revertA ^ (revertB && !REM)) && !(rs2 === 0 && SIGNED && !REM)
 
-      val cmdSent = RegInit(False) setWhen(div.io.cmd.fire) clearWhen(isReady || isFlushed)
+      val cmdSent = RegInit(False) setWhen (div.io.cmd.fire) clearWhen (isReady || isFlushed)
       div.io.cmd.valid := isValid && SEL && !cmdSent
       div.io.cmd.a := divA.resized
       div.io.cmd.b := divB.resized
+      div.io.flush := isFlushed // Quite some assumption here
 
-      div.io.flush := isFlushed
+      if(cmdAt != writebackAt){
+        haltIt(isValid && SEL && !cmdSent)
+      }
+    }
+
+    val rsp = new ExecuteArea(writebackAt){
+      import stage._
+
       div.io.rsp.ready := isReady
       haltIt(isValid && SEL && !div.io.rsp.valid)
 
       val selected = REM ? div.io.rsp.remain otherwise div.io.rsp.result
-      val result = twoComplement(B(selected), revertResult)
+      val result = twoComplement(B(selected), DIV_REVERT_RESULT)
       wb.payload := B(result).resized
-
     }
   }
 }

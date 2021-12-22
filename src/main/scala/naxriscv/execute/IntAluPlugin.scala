@@ -23,7 +23,7 @@ object IntAluPlugin extends AreaObject {
 class IntAluPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int = 0) extends ExecutionUnitElementSimple(euId, staticLatency)  {
   import IntAluPlugin._
 
-  override def writeBackAt = aluStage
+  override def euWritebackAt = aluStage
 
   override val setup = create early new Setup{
     import SrcKeys._
@@ -51,9 +51,7 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int
   }
 
   override val logic = create late new Logic{
-    val process = new Area {
-      val stage = eu.getExecute(aluStage)
-
+    val process = new ExecuteArea(aluStage) {
       import stage._
       val ss = SrcStageables
 

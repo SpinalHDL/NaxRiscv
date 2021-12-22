@@ -125,13 +125,13 @@ object Config{
 //    plugins += new LoadPlugin("EU0")
 //    plugins += new StorePlugin("EU0")
 
-    plugins += new ExecutionUnitBase("EU1")
+    plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1)
     plugins += new SrcPlugin("EU1")
     plugins += new MulPlugin("EU1", staticLatency = false)
-    plugins += new DivPlugin("EU1")
+    plugins += new DivPlugin("EU1", writebackAt = 2)
 //    plugins += new IntAluPlugin("EU1")
 //    plugins += new ShiftPlugin("EU1")
-    plugins += new BranchPlugin("EU1", staticLatency = false)
+    plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
 
@@ -252,6 +252,10 @@ checkLq => 6.8slack 550 LUT (16lq/16sq)
 
 /*
 obj_dir/VNaxRiscv --name dhrystone --output_dir output/nax/dhrystone --load_elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/dhrystone.elf --start_symbol _start --pass_symbol pass --fail_symbol fail --stats_print --stats_toggle_symbol sim_time
+obj_dir/VNaxRiscv --name coremark --output_dir output/nax/coremark --load_elf /media/data/open/riscv/coremark/build/coremark_rv32im.elf --start_symbol _start --pass_symbol pass  --stats_print_all --stats_toggle_symbol sim_time --trace
+obj_dir/VNaxRiscv --name play --load_elf ../../../../ext/NaxSoftware/baremetal/play/build/play.elf --start_symbol _start --pass_symbol pass --fail_symbol fail --trace --trace_ref --stats_print_all
+
+
 
 SUCCESS dhrystone
 STATS :

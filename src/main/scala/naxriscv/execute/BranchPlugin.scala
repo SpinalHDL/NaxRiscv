@@ -23,13 +23,13 @@ object BranchPlugin extends AreaObject {
 
 class BranchPlugin(euId : String,
                    staticLatency : Boolean = true,
-                   linkAt : Int = 0,
+                   writebackAt : Int = 0,
                    branchAt : Int = 1) extends ExecutionUnitElementSimple(euId, staticLatency)  {
   import BranchPlugin._
 
 
-  override def writeBackAt = linkAt
-  override def completionAt = branchAt
+  override def euWritebackAt = writebackAt
+  override def euCompletionAt = branchAt
 
   override val setup = create early new Setup{
     getService[RobService].retain()
@@ -59,11 +59,10 @@ class BranchPlugin(euId : String,
     val bck = setup.withBranchContext generate branchContext.keys.get
     import bck._
 
-    val process = new Area {
-      val stage = eu.getExecute(0)
+    val process = new ExecuteArea(0) {
+      import stage._
       val ss = SrcStageables
 
-      import stage._
 
       EQ := ss.SRC1 === ss.SRC2
 
@@ -95,13 +94,17 @@ class BranchPlugin(euId : String,
       val slices = Fetch.INSTRUCTION_SLICE_COUNT+^1
       (PC, "FALSE") := PC + (slices << sliceShift)
       (PC, "TARGET") := COND ? stage(PC, "TRUE") | stage(PC, "FALSE")
-      wb.payload := B(stage(PC, "FALSE"))
 
       if(setup.withBranchContext) stage(BRANCH_EARLY) := branchContext.readEarly(BRANCH_ID)
     }
 
-    val branch = new Area{
-      val stage = eu.getExecute(branchAt)
+    val writeback = new ExecuteArea(writebackAt){
+      import stage._
+
+      wb.payload := B(stage(PC, "FALSE"))
+    }
+
+    val branch = new ExecuteArea(branchAt){
       import stage._
 
       val misspredicted = if(setup.withBranchContext)

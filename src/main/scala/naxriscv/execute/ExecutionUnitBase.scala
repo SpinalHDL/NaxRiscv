@@ -15,6 +15,7 @@ import scala.collection.mutable.ArrayBuffer
 import naxriscv.Global._
 
 class ExecutionUnitBase(euId : String,
+                        writebackCountMax : Int = Int.MaxValue,
                         contextAt : Int = 0,
                         rfReadAt : Int = 0,
                         decodeAt : Int = 0,
@@ -236,6 +237,7 @@ class ExecutionUnitBase(euId : String,
       }
     }
 
+    assert(writeBacksSpec.size <= writebackCountMax, s"$euId writeback count exceeded (${writeBacksSpec.size}) the limit set by the user (writebackCoutnMax=$writebackCountMax). At ${writeBacksSpec.map(_._1.stage).mkString(" ")}")
     val writeBack = for((key, spec) <- writeBacksSpec) yield new Area{
       val rfService = getService[RegfileService](key.rf)
       val write = rfService.newWrite(withReady, spec.latency)
