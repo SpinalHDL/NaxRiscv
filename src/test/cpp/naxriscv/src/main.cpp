@@ -481,6 +481,7 @@ public:
     u64 storeToLoadHazard = 0;
 
     map<RvData, u64> misspredictionHist;
+    map<RvData, u64> pcHist;
 
     string report(string tab, bool hist){
         stringstream ss;
@@ -495,7 +496,7 @@ public:
         if(hist){
             ss << tab << "missprediction from :" << endl;
             for (auto const& [key, val] : misspredictionHist){
-                ss << tab << tab << hex << key <<" " << dec << val << endl;
+                ss << tab << tab << hex << key <<" " << dec <<  std::setw(5) << val << " / " << pcHist[key] << endl;
             }
         }
         return ss.str();
@@ -552,7 +553,11 @@ public:
         if(statsCaptureEnable){
             stats.cycles += 1;
             for(int i = 0;i < COMMIT_COUNT;i++){
-                stats.commits += (nax->commit_mask >> i) & 1;
+                if((nax->commit_mask >> i) & 1){
+                    RvData pc = robCtx[nax->commit_robId + i].pc;
+                    stats.commits += 1;
+                    stats.pcHist[pc] += 1;
+                }
             }
             if(nax->reschedule_valid){
                 RvData pc = robCtx[nax->reschedule_payload_robId].pc;
@@ -562,6 +567,9 @@ public:
                 case REASON_BRANCH: {
                     stats.missprediction += 1;
                     stats.misspredictionHist[pc] += 1;
+//                    if(pc == 0x80000e5c){
+//                        cout << "80000e5c at " << main_time << endl;
+//                    }
                 } break;
                 case REASON_STORE_TO_LOAD_HAZARD: stats.storeToLoadHazard += 1; break;
                 }
@@ -924,7 +932,10 @@ int main(int argc, char** argv, char** env){
                             }
                         }
 
-                        if(pc == statsToggleAt) whitebox.statsCaptureEnable = !whitebox.statsCaptureEnable;
+                        if(pc == statsToggleAt) {
+                            whitebox.statsCaptureEnable = !whitebox.statsCaptureEnable;
+                            cout << "Stats capture " << whitebox.statsCaptureEnable << " at " << main_time << endl;
+                        }
                         if(pc == statsStartAt) whitebox.statsCaptureEnable = true;
                         if(pc == statsStopAt) whitebox.statsCaptureEnable = false;
                         whitebox.robCtx[robId].clear();
