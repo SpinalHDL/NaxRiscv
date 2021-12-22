@@ -16,6 +16,7 @@ case class DivRsp(width : Int) extends Bundle{
 case class DivRadix4(val width : Int) extends Component {
   assert(width % 2 == 0)
   val io = new Bundle{
+    val flush = in Bool()
     val cmd = slave Stream(DivCmd(width))
     val rsp = master Stream(DivRsp(width))
   }
@@ -27,7 +28,7 @@ case class DivRadix4(val width : Int) extends Component {
 
   val shifter = Reg(UInt(width bits))
   val numerator = Reg(UInt(width bits))
-  val result = Reg(UInt(width + 1 bits))
+  val result = Reg(UInt(width bits))
 
   val div1, div3 = Reg(UInt(width+2 bits))
   val div2 = div1 |<< 1
@@ -69,5 +70,10 @@ case class DivRadix4(val width : Int) extends Component {
     div1      := io.cmd.b.resized
     div3      := io.cmd.b +^ (io.cmd.b << 1)
     busy      := io.cmd.valid
+  }
+
+  when(io.flush){
+    done := False
+    busy := False
   }
 }

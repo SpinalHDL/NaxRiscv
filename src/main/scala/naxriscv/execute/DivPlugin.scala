@@ -60,6 +60,7 @@ class DivPlugin(euId : String,
       div.io.cmd.a := divA.resized
       div.io.cmd.b := divB.resized
 
+      div.io.flush := isFlushed
       div.io.rsp.ready := isReady
       haltIt(isValid && SEL && !div.io.rsp.valid)
 
