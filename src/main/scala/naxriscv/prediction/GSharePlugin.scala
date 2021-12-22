@@ -13,7 +13,6 @@ import spinal.lib.pipeline.Stageable
 class GSharePlugin(entries : Int,
                    historyWidth : Int,
                    insertAt : Int = 2) extends Plugin with FetchConditionalPrediction with HistoryUser{
-  val words = entries / SLICE_COUNT
 
   val readAt = insertAt - 1
   override def useHistoryAt = readAt
@@ -33,7 +32,10 @@ class GSharePlugin(entries : Int,
     val predictor = getService[DecoderPredictionPlugin]
     val BRANCH_HISTORY = getService[HistoryPlugin].keys.BRANCH_HISTORY
 
-//    val keys = new AreaRoot {
+    val words = entries / SLICE_COUNT
+
+
+    //    val keys = new AreaRoot {
 //      val GSHARE_STRONG = Stageable(Bits(SLICE_COUNT bits))
 //    }
 
