@@ -12,7 +12,7 @@ g++ --shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/l
 # Install ELFIO
 
 ```
-git clone git clone https://github.com/serge1/ELFIO.git
+git clone https://github.com/serge1/ELFIO.git
 cd ELFIO
 sudo cp -R elfio /usr/include
 ```
@@ -27,21 +27,21 @@ sbt "runMain naxriscv.Gen"
 # Compile the simulator
 
 ```shell
-cd $NAXRISCV/src/cpp/test/naxriscv
+cd $NAXRISCV/src/test/cpp/naxriscv
 make compile TRACE=yes
 ```
 
 # Run the simulation
 
 ```shell
-cd $NAXRISCV/src/cpp/test/naxriscv
+cd $NAXRISCV/src/test/cpp/naxriscv
 ./obj_dir/VNaxRiscv --timeout 1000 --load_elf ../../../../ext/NaxSoftware/baremetal/play/build/play.elf
 ```
 
 # Run a riscv-test
 
 ```shell
-cd $NAXRISCV/src/cpp/test/naxriscv
+cd $NAXRISCV/src/test/cpp/naxriscv
 ./obj_dir/VNaxRiscv \
 --load_elf ../../../../ext/NaxSoftware/riscv-tests/rv32ui-p-addi \
 --start_symbol test_2 \
@@ -53,7 +53,7 @@ cd $NAXRISCV/src/cpp/test/naxriscv
 # Run all tests
 
 ```shell
-cd $NAXRISCV/src/cpp/test/naxriscv
+cd $NAXRISCV/src/test/cpp/naxriscv
 ./testsGen.py
 make compile test_clean test_all test_report
 ```
