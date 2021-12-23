@@ -251,9 +251,10 @@ case class CommitEntry() extends Bundle {
 
 object ScheduleReason{
   val hardType = Stageable(UInt(8 bits))
-  val TRAP = 1
-  val BRANCH = 2
-  val STORE_TO_LOAD_HAZARD = 3
+  val TRAP = 0x01
+  val BRANCH = 0x10
+  val JUMP = 0x11
+  val STORE_TO_LOAD_HAZARD = 0x20
 }
 
 case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int) extends Bundle {

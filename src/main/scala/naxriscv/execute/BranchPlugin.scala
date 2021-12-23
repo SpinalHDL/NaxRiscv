@@ -119,7 +119,7 @@ class BranchPlugin(euId : String,
       setup.reschedule.cause := 0
       setup.reschedule.tval := 0
       setup.reschedule.pcTarget := target
-      setup.reschedule.reason  := ScheduleReason.BRANCH
+      setup.reschedule.reason  := ((BRANCH_CTRL === BranchCtrlEnum.B) ? U(ScheduleReason.BRANCH) otherwise U(ScheduleReason.JUMP)).resized
 
       setup.reschedule.trap := target(0, sliceShift bits) =/= 0
       setup.reschedule.skipCommit := setup.reschedule.trap

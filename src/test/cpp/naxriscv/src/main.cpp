@@ -477,10 +477,12 @@ public:
     u64 commits = 0;
     u64 reschedules = 0;
     u64 trap = 0;
-    u64 missprediction = 0;
+    u64 branchMiss = 0;
+    u64 jumpMiss = 0;
     u64 storeToLoadHazard = 0;
 
-    map<RvData, u64> misspredictionHist;
+    map<RvData, u64> branchMissHist;
+    map<RvData, u64> jumpMissHist;
     map<RvData, u64> pcHist;
 
     string report(string tab, bool hist){
@@ -491,11 +493,16 @@ public:
         ss << tab << "commits           " << commits <<  endl;
         ss << tab << "reschedules       " << reschedules <<  endl;
         ss << tab << "trap              " << trap <<  endl;
-        ss << tab << "missprediction    " << missprediction <<  endl;
+        ss << tab << "branch miss       " << branchMiss <<  endl;
+        ss << tab << "jump miss         " << jumpMiss <<  endl;
         ss << tab << "storeToLoadHazard " << storeToLoadHazard <<  endl;
         if(hist){
-            ss << tab << "missprediction from :" << endl;
-            for (auto const& [key, val] : misspredictionHist){
+            ss << tab << "branch miss from :" << endl;
+            for (auto const& [key, val] : branchMissHist){
+                ss << tab << tab << hex << key <<" " << dec <<  std::setw(5) << val << " / " << pcHist[key] << endl;
+            }
+            ss << tab << "jump miss from :" << endl;
+            for (auto const& [key, val] : jumpMissHist){
                 ss << tab << tab << hex << key <<" " << dec <<  std::setw(5) << val << " / " << pcHist[key] << endl;
             }
         }
@@ -503,10 +510,11 @@ public:
     }
 };
 
+#define REASON_TRAP 0x01
+#define REASON_BRANCH 0x10
+#define REASON_JUMP 0x11
+#define REASON_STORE_TO_LOAD_HAZARD 0x20
 
-#define REASON_TRAP  1
-#define REASON_BRANCH  2
-#define REASON_STORE_TO_LOAD_HAZARD  3
 
 class NaxWhitebox : public SimElement{
 public:
@@ -565,11 +573,12 @@ public:
                 switch(nax->rescheduleReason){
                 case REASON_TRAP: stats.trap += 1; break;
                 case REASON_BRANCH: {
-                    stats.missprediction += 1;
-                    stats.misspredictionHist[pc] += 1;
-//                    if(pc == 0x80000e5c){
-//                        cout << "80000e5c at " << main_time << endl;
-//                    }
+                    stats.branchMiss += 1;
+                    stats.branchMissHist[pc] += 1;
+                } break;
+                case REASON_JUMP: {
+                    stats.jumpMiss += 1;
+                    stats.jumpMissHist[pc] += 1;
                 } break;
                 case REASON_STORE_TO_LOAD_HAZARD: stats.storeToLoadHazard += 1; break;
                 }
