@@ -89,6 +89,8 @@ object Config{
     plugins += new LsuPlugin(
       lqSize = 16,
       sqSize = 16,
+      loadToCacheBypass = true,
+      lqToCachePipelined = true,
       hazardPedictionEntries = 512*8,
       hazardPredictionTagWidth = 16,
 //      storeToLoadBypass = true,
@@ -203,6 +205,7 @@ make clean compile  test_clean output/nax/dhrystone/PASS ARGS="--stats_print_all
 
 //TODO Optimisations
 /*
+- Check that sw -> lw do not trigger a checkLq reschedule
 - store to load hazard prediction
 - less pessimistic store to load detection (only trigger if the load got the data from the cache, instead of just having its address), else there is also the case where both load/store on a line miss will trigger lqCheck
 - RAS implement healing

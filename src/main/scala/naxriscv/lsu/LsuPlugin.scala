@@ -74,6 +74,8 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
 
 class LsuPlugin(lqSize: Int,
                 sqSize : Int,
+                loadToCacheBypass : Boolean,
+                lqToCachePipelined : Boolean,
                 hazardPedictionEntries : Int,
                 hazardPredictionTagWidth : Int,
 //                storeToLoadBypass : Boolean,
@@ -368,8 +370,10 @@ class LsuPlugin(lqSize: Int,
           val waitSq = hit && !freeDetected && !freeAlready
         }
 
+
+        val oh = UIntToOh(port.lqId)
         when(port.valid) {
-          for (entry <- regs) when(port.lqId === entry.id) {
+          for (entry <- regs) when(oh(entry.id)) {
             entry.waitOn.address := False
             entry.address.pageOffset := port.address(pageOffsetRange)
             entry.address.size := port.size
@@ -446,28 +450,59 @@ class LsuPlugin(lqSize: Int,
           val stage = stages(0)
           import stage._
 
-          val hits = B(regs.map(reg => reg.ready))
-          val hit = hits.orR
+          val arbitration = new Area{
+            val hits = B(regs.map(reg => reg.ready))
+            val hit = hits.orR
 
-          val selOh = OHMasking.roundRobinMasked(hits, ptr.priority)
-          val sel = OHToUInt(selOh)
+            val selOh = OHMasking.roundRobinMasked(hits, ptr.priority)
+            val early = Flow(LQ_SEL_OH)
+            early.valid := hit
+            early.payload := selOh
 
-          for(reg <- regs) when(selOh(reg.id)){
-            reg.waitOn.cacheRsp := True
+            for(reg <- regs) when(early.fire && selOh(reg.id)){
+              reg.waitOn.cacheRsp := True
+            }
+
+            val output = if(lqToCachePipelined) early.m2sPipe(flush = stages.head.isFlushed) else early.combStage()
+            val outputSel = OHToUInt(output.payload)
           }
 
-          isValid := hit
-          LQ_SEL := sel
-          LQ_SEL_OH := selOh
-          decoder.PHYS_RD := mem.physRd.readAsync(sel)
-          ROB.ID := mem.robId.readAsync(sel)
-          WRITE_RD := mem.writeRd.readAsync(sel)
-          ADDRESS_PRE_TRANSLATION := mem.addressPre.readAsync(LQ_SEL)
-          SIZE     := regs.map(_.address.size).read(sel)
-          UNSIGNED := regs.map(_.address.unsigned).read(sel)
+          isValid := arbitration.output.valid
+          LQ_SEL_OH := arbitration.output.payload
+          LQ_SEL := arbitration.outputSel
+          ADDRESS_PRE_TRANSLATION := mem.addressPre.readAsync(arbitration.outputSel)
+          SIZE := regs.map(_.address.size).read(arbitration.outputSel)
+
+          if(loadToCacheBypass){
+            assert(loadPorts.size == 1, "Not suported yet")
+            val port = loadPorts.head.port
+            val portPush = push.head
+            isValid setWhen(port.valid && !portPush.prediction.waitSq)
+            when(!arbitration.output.valid){
+              LQ_SEL                  := port.lqId
+              LQ_SEL_OH               := portPush.oh
+              ADDRESS_PRE_TRANSLATION := port.address
+              SIZE                    := port.size
+              when(port.valid){
+                for(reg <- regs) when(isValid && portPush.oh(reg.id)){
+                  reg.waitOn.cacheRsp := True
+                }
+              }
+            }
+//            when(port.valid && !portPush.prediction.waitSq){
+//              isValid                 := True
+//              LQ_SEL                  := port.lqId
+//              LQ_SEL_OH               := UIntToOh(port.lqId)
+//              ADDRESS_PRE_TRANSLATION := port.address
+//              SIZE                    := port.size
+//            }
+          }
+
+
+
           DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
-          SQCHECK_END_ID :=  mem.sqAlloc.readAsync(sel)
-          PC := mem.pc(sel)
+          SQCHECK_END_ID := mem.sqAlloc.readAsync(LQ_SEL)
+
         }
 
         val feedCache = new Area{
@@ -478,6 +513,17 @@ class LsuPlugin(lqSize: Int,
           cmd.valid := stage.isFireing
           cmd.virtual := ADDRESS_PRE_TRANSLATION
           cmd.size := SIZE
+        }
+
+        val feedContext = new Area {
+          val stage = stages(1)
+          import stage._
+
+          PC := mem.pc(LQ_SEL)
+          ROB.ID := mem.robId.readAsync(LQ_SEL)
+          WRITE_RD := mem.writeRd.readAsync(LQ_SEL)
+          UNSIGNED := regs.map(_.address.unsigned).read(LQ_SEL)
+          decoder.PHYS_RD := mem.physRd.readAsync(LQ_SEL)
         }
 
         val feedTranslation = new Area{
