@@ -79,9 +79,9 @@ object Config{
       jumpAt = 1
     )
     plugins += new GSharePlugin(
-      entries = 8192*8,
+      entries = 1 << 16,
 //      entries = 1024,
-      historyWidth = 20,
+      historyWidth = 16,
       insertAt = 2
     )
 

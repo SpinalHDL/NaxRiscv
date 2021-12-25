@@ -74,8 +74,8 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
 
 class LsuPlugin(lqSize: Int,
                 sqSize : Int,
-                loadToCacheBypass : Boolean,
-                lqToCachePipelined : Boolean,
+                loadToCacheBypass : Boolean,  //Reduce the load latency by one cycle. When the LoadPlugin calculate the address it directly start the query the cache
+                lqToCachePipelined : Boolean, //Add one additional stage between LQ arbitration and the cache query
                 hazardPedictionEntries : Int,
                 hazardPredictionTagWidth : Int,
 //                storeToLoadBypass : Boolean,
