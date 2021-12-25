@@ -497,14 +497,22 @@ public:
         ss << tab << "jump miss         " << jumpMiss <<  endl;
         ss << tab << "storeToLoadHazard " << storeToLoadHazard <<  endl;
         if(hist){
+            u64 branchCount = 0;
             ss << tab << "branch miss from :" << endl;
             for (auto const& [key, val] : branchMissHist){
                 ss << tab << tab << hex << key <<" " << dec <<  std::setw(5) << val << " / " << pcHist[key] << endl;
+                branchCount += pcHist[key];
             }
+            ss << tab << "branch miss rate : " << (float)branchMiss/branchCount << endl;
+
+            u64 jumpCount = 0;
             ss << tab << "jump miss from :" << endl;
             for (auto const& [key, val] : jumpMissHist){
                 ss << tab << tab << hex << key <<" " << dec <<  std::setw(5) << val << " / " << pcHist[key] << endl;
+                jumpCount += pcHist[key];
             }
+            ss << tab << "jump miss rate : " << (float)jumpMiss/jumpCount << endl;
+
         }
         return ss.str();
     }
