@@ -18,12 +18,14 @@ case class HistoryPush(width : Int) extends Bundle{
   val taken = Bits(width bits)
 }
 
-class HistoryPlugin extends Plugin{
+class HistoryPlugin(historyFetchBypass : Boolean = false) extends Plugin{
   case class HistoryPushSpec(priority : Int, width : Int, port : HistoryPush, state : Bits)
   val historyPushSpecs = mutable.ArrayBuffer[HistoryPushSpec]()
   def createPushPort(priority : Int, width : Int): HistoryPush = {
     historyPushSpecs.addRet(HistoryPushSpec(priority, width, HistoryPush(width), Reg(keys.BRANCH_HISTORY()) init(0))).port
   }
+
+  def getState(priority : Int) = historyPushSpecs.find(_.priority == priority).get.state
 
   val keys = create early new AreaRoot{
     val BRANCH_HISTORY_WIDTH = (0 +: getServicesOf[HistoryUser].map(_.historyWidthUsed)).max
@@ -70,11 +72,13 @@ class HistoryPlugin extends Plugin{
 
     val onFetch = new Area{
       val value = Reg(keys.BRANCH_HISTORY) init (0)
+      val valueNext = CombInit(value)
+      value := valueNext
     }
 
     val update = new Area{
       assert(fetchInsertAt >= 1, "Would require some bypass of the stage(0) value, maybe later it could be implemented")
-      fetch.getStage(fetchInsertAt)(keys.BRANCH_HISTORY) := onFetch.value
+      fetch.getStage(fetchInsertAt)(keys.BRANCH_HISTORY) := (if(historyFetchBypass) onFetch.valueNext else onFetch.value)
 
       val fetchJumps = getService[PcPlugin].getFetchJumps()
       val grouped = fetchJumps.groupBy(_._1)
@@ -82,7 +86,7 @@ class HistoryPlugin extends Plugin{
       val group = for(group <- grouped) yield new Area{ //TODO manage case where the group is < than branchHistoryFetchAt
         val valid = group._2.map(_._2).orR
         when(valid){
-          onFetch.value := fetch.getStage(group._1).resulting(keys.BRANCH_HISTORY)
+          onFetch.valueNext := fetch.getStage(group._1).resulting(keys.BRANCH_HISTORY)
         }
       }
 
@@ -96,13 +100,13 @@ class HistoryPlugin extends Plugin{
         }
         spec.state := stateNext
         when(spec.port.mask =/= 0){
-          onFetch.value := stateNext
+          onFetch.valueNext := stateNext
           historyPushSpecs.filter(_.priority < spec.priority).foreach(_.state := stateNext)
         }
       }
 
       when(commit.reschedulingPort().valid){
-        onFetch.value := onCommit.valueNext
+        onFetch.valueNext := onCommit.valueNext
         historyPushSpecs.foreach(_.state := onCommit.valueNext)
       }
     }

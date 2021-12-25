@@ -19,21 +19,21 @@ object Config{
   def properties() = {
     NaxDataBase.create()
 
-    Fetch.RVC.set(true)
-    Fetch.FETCH_DATA_WIDTH.set(64)
-    Fetch.INSTRUCTION_WIDTH.set(32)
-    Frontend.DECODE_COUNT.set(2)
-    Global.COMMIT_COUNT.set(2)
-    ROB.SIZE.set(64)
-    Global.XLEN.set(32)
-
 //    Fetch.RVC.set(true)
-//    Fetch.FETCH_DATA_WIDTH.set(32)
+//    Fetch.FETCH_DATA_WIDTH.set(64)
 //    Fetch.INSTRUCTION_WIDTH.set(32)
-//    Frontend.DECODE_COUNT.set(1)
-//    Global.COMMIT_COUNT.set(1)
+//    Frontend.DECODE_COUNT.set(2)
+//    Global.COMMIT_COUNT.set(2)
 //    ROB.SIZE.set(64)
 //    Global.XLEN.set(32)
+
+    Fetch.RVC.set(true)
+    Fetch.FETCH_DATA_WIDTH.set(32)
+    Fetch.INSTRUCTION_WIDTH.set(32)
+    Frontend.DECODE_COUNT.set(1)
+    Global.COMMIT_COUNT.set(1)
+    ROB.SIZE.set(64)
+    Global.XLEN.set(32)
   }
 
   def plugins(): Seq[Plugin] ={
@@ -72,17 +72,20 @@ object Config{
       branchCount = 16
     )
     plugins += new HistoryPlugin()
-    plugins += new DecoderPredictionPlugin()
+    plugins += new DecoderPredictionPlugin(
+      applyAt = _.pipeline.decoded
+    )
     plugins += new BtbPlugin(
       entries = 8192*8,
 //      entries = 512,
       jumpAt = 1
     )
     plugins += new GSharePlugin(
-      entries = 1 << 16,
+      entries = 1 << 24,
 //      entries = 1024,
-      historyWidth = 16,
-      insertAt = 2
+      historyWidth = 24,
+      insertAt = 2,
+      readAsync = true
     )
 
     //LOAD / STORE

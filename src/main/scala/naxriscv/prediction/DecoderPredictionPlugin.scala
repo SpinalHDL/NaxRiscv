@@ -37,10 +37,6 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
     fetch.retain()
     rob.retain()
     branchContext.retain()
-
-    aligner.addWordContext(
-      CONDITIONAL_TAKE_IT
-    )
   }
 
   val logic = create late new Area{
@@ -168,7 +164,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
 
           PC_NEXT := CAN_IMPROVE ?  U(PC_PREDICTION) otherwise ALIGNED_BRANCH_PC_NEXT
           MISSMATCH := !ALIGNED_BRANCH_VALID && BRANCHED_PREDICTION || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
-          NEED_CORRECTION := DECODED_MASK && CAN_IMPROVE && MISSMATCH
+          NEED_CORRECTION := DECODED_MASK && CAN_IMPROVE && MISSMATCH //(MISSMATCH || IS_BRANCH && CONDITIONAL_PREDICTION)
 
           branchContext.keys.BRANCH_SEL := IS_ANY
           branchContext.keys.BRANCH_EARLY.pcNext := PC_NEXT

@@ -2,7 +2,7 @@ package naxriscv.prediction
 
 import naxriscv.Fetch._
 import naxriscv.Global._
-import naxriscv.fetch.{FetchConditionalPrediction, FetchPlugin, FetchWordPrediction}
+import naxriscv.fetch.{AlignerPlugin, FetchConditionalPrediction, FetchPlugin, FetchWordPrediction}
 import naxriscv.interfaces.JumpService
 import naxriscv.prediction.Prediction._
 import naxriscv.utilities.Plugin
@@ -12,9 +12,10 @@ import spinal.lib.pipeline.Stageable
 
 class GSharePlugin(entries : Int,
                    historyWidth : Int,
-                   insertAt : Int = 2) extends Plugin with FetchConditionalPrediction with HistoryUser{
+                   insertAt : Int = 2,
+                   readAsync : Boolean = false) extends Plugin with FetchConditionalPrediction with HistoryUser{
 
-  val readAt = insertAt - 1
+  val readAt = insertAt + (if(readAsync) 0 else -1)
   override def useHistoryAt = readAt
   override def historyWidthUsed = historyWidth
 
@@ -24,6 +25,10 @@ class GSharePlugin(entries : Int,
 
     fetch.retain()
     branchContext.retain()
+
+    getService[AlignerPlugin].addWordContext(
+      CONDITIONAL_TAKE_IT
+    )
   }
 
   val logic = create late new Area{
@@ -56,7 +61,11 @@ class GSharePlugin(entries : Int,
     val readRsp = new Area{
       val stage = fetch.getStage(insertAt)
 
-      stage(CONDITIONAL_TAKE_IT) := mem.takeIt.readSync(readCmd.address, readCmd.stage.isReady)
+      readAsync match {
+        case false => stage(CONDITIONAL_TAKE_IT) := mem.takeIt.readSync(readCmd.address, readCmd.stage.isReady)
+        case true  => stage(CONDITIONAL_TAKE_IT) := mem.takeIt.readAsync(readCmd.address)
+      }
+
 //      stage(keys.GSHARE_STRONG) := mem.strong.readSync(readCmd.address, readCmd.stage.isReady)
     }
 
