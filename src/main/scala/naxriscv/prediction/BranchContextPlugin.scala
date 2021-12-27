@@ -39,7 +39,7 @@ class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl 
   val dispatchWriteModel = mutable.LinkedHashSet[Stageable[_ <: Data]]()
   val learnReadModel = mutable.LinkedHashMap[Stageable[_ <: Data], Data]()
   def dispatchWrite(key : Stageable[_ <: Data]*) = dispatchWriteModel ++= key
-  def learnRead[T <: Data](key : Stageable[T])  = learnReadModel.getOrElseUpdate(key, key()).asInstanceOf[T]
+  def learnRead[T <: Data](key : Stageable[T])  = learnReadModel.getOrElseUpdate(key, key().setName("BranchContextPlugin_learn_" + key.getName())).asInstanceOf[T]
   def learnValid = setup.learnValid
 
   val keys = create early new AreaRoot{
