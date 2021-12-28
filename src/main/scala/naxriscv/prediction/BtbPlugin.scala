@@ -35,6 +35,7 @@ class BtbPlugin(entries : Int,
       val hash = UInt(hashWidth bits)
       val slice  = UInt(log2Up(SLICE_COUNT) bits)
       val pcNext = PC()
+      val isBranch = Bool()
     }
 
     val mem = Mem.fill(entries)(BtbEntry()) //TODO bypass read durring write ?
@@ -49,6 +50,7 @@ class BtbPlugin(entries : Int,
       port.data.hash := hash
       port.data.slice := (ctx.pcOnLastSlice >> SLICE_RANGE_LOW).resized
       port.data.pcNext := ctx.pcNext
+      port.data.isBranch := branchContext.learnRead(IS_BRANCH)
     }
 
     val read = new Area{

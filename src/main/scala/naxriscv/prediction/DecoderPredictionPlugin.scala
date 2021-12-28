@@ -15,15 +15,13 @@ import spinal.lib._
 import spinal.lib.logic.{DecodingSpec, Masked}
 import spinal.lib.pipeline.{Stage, Stageable, StageableOffset}
 
+
+
 class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                pcAddAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                pcPredictionAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                applyAt : FrontendPlugin => Stage = _.pipeline.allocated,
                                flushOnBranch : Boolean = false) extends Plugin{
-  val keys = create early new AreaRoot{
-    val BRANCH_CONDITIONAL = Stageable(Bool())
-  }
-
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     val fetch = getService[FetchPlugin]
@@ -57,7 +55,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
       val MISSMATCH = Stageable(Bool())
       val IS_JAL    = Stageable(Bool())
       val IS_JALR   = Stageable(Bool())
-      val IS_BRANCH = Stageable(Bool())
+      def IS_BRANCH = Prediction.IS_BRANCH
       val IS_ANY    = Stageable(Bool())
       val RAS_PUSH  = Stageable(Bool())
       val RAS_POP   = Stageable(Bool())
@@ -170,7 +168,6 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
 
           branchContext.keys.BRANCH_SEL := IS_ANY
           branchContext.keys.BRANCH_EARLY.pcNext := PC_NEXT
-          keys.BRANCH_CONDITIONAL := IS_BRANCH
 
           when(DISPATCH_MASK && RAS_PUSH) { //WARNING use resulting DISPATCH_MASK ! (if one day things are moved around)
             when(!rasPushUsed){
@@ -219,10 +216,10 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
     val onDispatch = new Area{
       val stage = frontend.pipeline.dispatch
       import stage._
-      rob.write(keys.BRANCH_CONDITIONAL, DISPATCH_COUNT, stage(0 until DISPATCH_COUNT)(keys.BRANCH_CONDITIONAL),  ROB.ID, isFireing)
+      rob.write(IS_BRANCH, DISPATCH_COUNT, stage(0 until DISPATCH_COUNT)(IS_BRANCH),  ROB.ID, isFireing)
 
       branchContext.dispatchWrite(
-        keys.BRANCH_CONDITIONAL,
+        IS_BRANCH,
         CONDITIONAL_TAKE_IT
       )
     }

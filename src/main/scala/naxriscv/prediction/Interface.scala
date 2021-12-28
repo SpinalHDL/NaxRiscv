@@ -18,6 +18,8 @@ object Prediction extends AreaObject{
 
   //Set by fetch prediction to propose conditional branch prediction, could be used by another fetch level prediction, or later on in decode to correct things
   val CONDITIONAL_TAKE_IT = Stageable(Bits(SLICE_COUNT bits))
+
+  val IS_BRANCH = Stageable(Bool())
 }
 
 

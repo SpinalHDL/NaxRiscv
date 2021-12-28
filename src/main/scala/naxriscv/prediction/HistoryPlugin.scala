@@ -5,7 +5,7 @@ import naxriscv.backend.CommitPlugin
 import naxriscv.fetch.{AlignerPlugin, FetchConditionalPrediction, FetchPlugin, PcPlugin}
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.RobService
-import naxriscv.prediction.Prediction.CONDITIONAL_TAKE_IT
+import naxriscv.prediction.Prediction.{CONDITIONAL_TAKE_IT, IS_BRANCH}
 import naxriscv.utilities._
 import spinal.core._
 import spinal.lib._
@@ -59,7 +59,7 @@ class HistoryPlugin(historyFetchBypass : Boolean = false) extends Plugin{
       val value = Reg(keys.BRANCH_HISTORY) init (0)
 
       val event = commit.onCommit()
-      val isConditionalBranch = rob.readAsync(predictor.keys.BRANCH_CONDITIONAL, Global.COMMIT_COUNT, event.robId)
+      val isConditionalBranch = rob.readAsync(IS_BRANCH, Global.COMMIT_COUNT, event.robId)
       val isTaken = rob.readAsync(branchContext.keys.BRANCH_TAKEN, Global.COMMIT_COUNT, event.robId)
       var valueNext = CombInit(value)
       for (slotId <- 0 until Global.COMMIT_COUNT) {

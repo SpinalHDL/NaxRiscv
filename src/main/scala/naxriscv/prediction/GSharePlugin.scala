@@ -100,7 +100,7 @@ class GSharePlugin(entries : Int,
       }
 
       val counterPort = mem.counter.writePort
-      counterPort.valid := branchContext.learnValid && branchContext.learnRead(predictor.keys.BRANCH_CONDITIONAL) && !overflow
+      counterPort.valid := branchContext.learnValid && branchContext.learnRead(IS_BRANCH) && !overflow
       counterPort.address := hash
       counterPort.data := updated
     }
