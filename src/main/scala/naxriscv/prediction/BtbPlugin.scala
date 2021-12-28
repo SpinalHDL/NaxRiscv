@@ -37,7 +37,7 @@ class BtbPlugin(entries : Int,
     case class BtbEntry() extends Bundle {
       val hash = UInt(hashWidth bits)
       val slice  = UInt(log2Up(SLICE_COUNT) bits)
-      val pcNext = PC()
+      val pcTarget = PC()
       val isBranch = Bool()
     }
 
@@ -53,7 +53,7 @@ class BtbPlugin(entries : Int,
       port.address := (ctx.pcOnLastSlice >> wordBytesWidth).resized
       port.data.hash := hash
       port.data.slice := (ctx.pcOnLastSlice >> SLICE_RANGE_LOW).resized
-      port.data.pcNext := ctx.pcNext
+      port.data.pcTarget := ctx.pcTarget
       port.data.isBranch := branchContext.learnRead(IS_BRANCH)
     }
 
@@ -84,11 +84,11 @@ class BtbPlugin(entries : Int,
       flushNext(doIt)
 
       setup.btbJump.valid := doIt
-      setup.btbJump.pc := ENTRY.pcNext
+      setup.btbJump.pc := ENTRY.pcTarget
 
       WORD_BRANCH_VALID := needIt
       WORD_BRANCH_SLICE := ENTRY.slice
-      WORD_BRANCH_PC_NEXT := ENTRY.pcNext
+      WORD_BRANCH_PC_NEXT := ENTRY.pcTarget
     }
 
     fetch.release()

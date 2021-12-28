@@ -129,7 +129,7 @@ class BranchPlugin(euId : String,
         finalBranch.valid := isValid && SEL
         finalBranch.address := BRANCH_ID
         finalBranch.data.pcOnLastSlice := PC + (Fetch.INSTRUCTION_SLICE_COUNT << sliceShift)
-        finalBranch.data.pcNext := target
+        finalBranch.data.pcTarget := stage(PC, "TRUE")
         finalBranch.data.taken := COND
 
         rob.write(branchContext.keys.BRANCH_TAKEN, 1, List(stage(COND)), ROB.ID, isFireing)
