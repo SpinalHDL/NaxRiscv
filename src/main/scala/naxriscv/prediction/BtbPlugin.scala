@@ -2,16 +2,18 @@ package naxriscv.prediction
 
 import naxriscv.Fetch._
 import naxriscv.Global._
-import naxriscv.fetch.{AlignerPlugin, FetchPlugin, FetchWordPrediction}
+import naxriscv.fetch.{AlignerPlugin, FetchConditionalPrediction, FetchPlugin, FetchWordPrediction}
 import naxriscv.interfaces.JumpService
 import naxriscv.prediction.Prediction._
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
+import spinal.lib.pipeline.Stageable
 
 class BtbPlugin(entries : Int,
                 hashWidth : Int = 16,
-                jumpAt : Int = 1) extends Plugin with FetchWordPrediction{
+                readAt : Int = 0,
+                jumpAt : Int = 2) extends Plugin with FetchWordPrediction{
 
   val setup = create early new Area{
     val fetch = getService[FetchPlugin]
@@ -27,6 +29,7 @@ class BtbPlugin(entries : Int,
     val fetch = getService[FetchPlugin]
     val branchContext = getService[BranchContextPlugin]
 
+
     //TODO learn conditional bias
     val wordBytesWidth = log2Up(FETCH_DATA_WIDTH/8)
 
@@ -38,6 +41,7 @@ class BtbPlugin(entries : Int,
       val isBranch = Bool()
     }
 
+    val ENTRY = Stageable(BtbEntry())
     val mem = Mem.fill(entries)(BtbEntry()) //TODO bypass read durring write ?
 
     val onLearn = new Area{
@@ -53,23 +57,38 @@ class BtbPlugin(entries : Int,
       port.data.isBranch := branchContext.learnRead(IS_BRANCH)
     }
 
-    val read = new Area{
-      val stage = fetch.getStage(jumpAt-1)
+    val readCmd = new Area{
+      val stage = fetch.getStage(readAt)
       import stage._
       val entryAddress = (FETCH_PC >> wordBytesWidth).resize(mem.addressWidth)
+    }
+    val readRsp = new Area{
+      val stage = fetch.getStage(readAt+1)
+      import stage._
+      stage(ENTRY) := mem.readSync(readCmd.entryAddress, readCmd.stage.isReady)
     }
     val applyIt = new Area{
       val stage = fetch.getStage(jumpAt)
       import stage._
-      val entry = mem.readSync(read.entryAddress, read.stage.isReady)
-      val hit = isValid && entry.hash === getHash(FETCH_PC)// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE) //TODO ?
-      flushNext(hit)
-      setup.btbJump.valid := hit
-      setup.btbJump.pc := entry.pcNext
 
-      WORD_BRANCH_VALID := hit
-      WORD_BRANCH_SLICE := entry.slice
-      WORD_BRANCH_PC_NEXT := entry.pcNext
+      val prediction = getServiceOption[FetchConditionalPrediction] match {
+        case Some(s) => s.getPredictionAt(jumpAt)(ENTRY.slice)
+        case None => True
+      }
+
+      val hit = isValid && ENTRY.hash === getHash(FETCH_PC)// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE) //TODO ?
+      val needIt = hit && !(ENTRY.isBranch && !prediction)
+      val correctionSent = RegInit(False) setWhen(needIt) clearWhen(isReady || isFlushed)
+      val doIt = needIt && !correctionSent
+
+      flushNext(doIt)
+
+      setup.btbJump.valid := doIt
+      setup.btbJump.pc := ENTRY.pcNext
+
+      WORD_BRANCH_VALID := needIt
+      WORD_BRANCH_SLICE := ENTRY.slice
+      WORD_BRANCH_PC_NEXT := ENTRY.pcNext
     }
 
     fetch.release()

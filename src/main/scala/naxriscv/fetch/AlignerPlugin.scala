@@ -22,6 +22,7 @@ import scala.collection.mutable
 trait FetchWordPrediction extends Service
 trait FetchConditionalPrediction extends Service{
   def useHistoryAt : Int
+  def getPredictionAt(stageId : Int) : Seq[Bool]
 }
 
 class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements{
@@ -67,9 +68,10 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       val maskStage = fetch.getStage(inputAt-1)
       import maskStage._
       MASK_FRONT := B((0 until SLICE_COUNT).map(i => B((1 << SLICE_COUNT) - (1 << i), SLICE_COUNT bits)).read(FETCH_PC(sliceRange)))
-      MASK_BACK  := B((0 until SLICE_COUNT).map(i => B((2 << i)-1, SLICE_COUNT bits)).read(WORD_BRANCH_SLICE))
-      when(!WORD_BRANCH_VALID){ MASK_BACK.setAll() }
     }
+
+    MASK_BACK  := B((0 until SLICE_COUNT).map(i => B((2 << i)-1, SLICE_COUNT bits)).read(WORD_BRANCH_SLICE))
+    when(!WORD_BRANCH_VALID){ MASK_BACK.setAll() }
 
     val buffer = new Area {
       val data = Reg(WORD)

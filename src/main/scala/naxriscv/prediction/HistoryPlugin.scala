@@ -18,7 +18,7 @@ case class HistoryPush(width : Int) extends Bundle{
   val taken = Bits(width bits)
 }
 
-class HistoryPlugin(historyFetchBypass : Boolean = false) extends Plugin{
+class HistoryPlugin(historyFetchBypass : Boolean = true) extends Plugin{
   case class HistoryPushSpec(priority : Int, width : Int, port : HistoryPush, state : Bits)
   val historyPushSpecs = mutable.ArrayBuffer[HistoryPushSpec]()
   def createPushPort(priority : Int, width : Int): HistoryPush = {
@@ -77,7 +77,7 @@ class HistoryPlugin(historyFetchBypass : Boolean = false) extends Plugin{
     }
 
     val update = new Area{
-      assert(fetchInsertAt >= 1, "Would require some bypass of the stage(0) value, maybe later it could be implemented")
+//      assert(fetchInsertAt >= 1, "Would require some bypass of the stage(0) value, maybe later it could be implemented")
       fetch.getStage(fetchInsertAt)(keys.BRANCH_HISTORY) := (if(historyFetchBypass) onFetch.valueNext else onFetch.value)
 
       val fetchJumps = getService[PcPlugin].getFetchJumps()

@@ -16,7 +16,7 @@ import spinal.lib.logic.{DecodingSpec, Masked}
 import spinal.lib.pipeline.{Stage, Stageable, StageableOffset}
 
 
-
+//flushOnBranch can be used to ensure correctness of the branch history used by predictors (usefull for debug) at the cost of flushes
 class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                pcAddAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                pcPredictionAt: FrontendPlugin => Stage = _.pipeline.decoded,

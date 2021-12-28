@@ -48,6 +48,7 @@ trait Plugin extends Area with Service{
   def getService[T <: Service : ClassTag] : T = framework.getService[T]
   def getService[T <: Service : ClassTag](id : Any) : T = framework.getService[T](id)
   def getServicesOf[T <: Service : ClassTag] : Seq[T] = framework.getServicesOf[T]
+  def getServiceOption[T <: Service : ClassTag] : Option[T] = if(isServiceAvailable[T]) Some(framework.getService[T]) else None
 }
 
 class FrameworkConfig(){
