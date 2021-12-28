@@ -56,10 +56,10 @@ object Connection{
 
 
       if (flush != null && !flushPreserveInput) s.valid clearWhen(flush)
-      if(flushNext != null) s.valid clearWhen(flushNext && s.ready)
+      if(flushNext != null && !flushPreserveInput) s.valid clearWhen(flushNext && s.ready)
       if(flushNextHit != null) flushNextHit := True
 
-      assert(!(flushNext != null && flushPreserveInput))
+    //  assert(!(flushNext != null && flushPreserveInput))
 
       if(m.ready != null) {
         m.ready := s.ready
