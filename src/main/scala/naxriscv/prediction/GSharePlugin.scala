@@ -12,8 +12,9 @@ import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Stageable
 
-class GSharePlugin(entries : Int,
-                   historyWidth : Int,
+class GSharePlugin(historyWidth : Int,
+                   entries : Int = 0,
+                   memBytes : BigInt = null,
                    readAt : Int = 1,
                    counterWidth : Int = 2,
                    readAsync : Boolean = false) extends Plugin with FetchConditionalPrediction with HistoryUser{
@@ -52,7 +53,11 @@ class GSharePlugin(entries : Int,
     val frontend = getService[FrontendPlugin]
     val BRANCH_HISTORY = getService[HistoryPlugin].keys.BRANCH_HISTORY
 
-    val words = entries / SLICE_COUNT
+    var words = entries/SLICE_COUNT
+    if(memBytes != null) words = (1 <<(log2Up(memBytes.toInt*8/counterWidth+1)-1)) / SLICE_COUNT
+    assert(words != 0)
+    assert(isPow2(words))
+
     val keys = setup.keys
 
     def gshareHash(address : UInt, history : Bits) = address(SLICE_RANGE.high + 1, log2Up(words) bits).reversed ^ U(history).resized

@@ -79,15 +79,15 @@ object Config{
       flushOnBranch = false //TODO remove me (DEBUG)
     )
     plugins += new BtbPlugin(
-      entries = 8192*8,
-//      entries = 512,
+//      entries = 8192*8,
+      entries = 512,
       readAt = 0,
       jumpAt = 2
     )
     plugins += new GSharePlugin(
-      entries = 1 << 24,
-//      entries = 1024,
-      historyWidth = 24,  //24 => 31979 / 32601
+//      entries = 1 << 24,
+      memBytes = 4 KiB,
+      historyWidth = 24,  //24 => 31979 / 32601 / 35356
       readAt = 0,
       readAsync = false
     )
@@ -212,8 +212,10 @@ make clean compile  test_clean output/nax/dhrystone/PASS ARGS="--stats_print_all
 
 //TODO Optimisations
 /*
+- DataCache pipeline load refill hits to cut path
+- BTB should patch history
 - Check that sw -> lw do not trigger a checkLq reschedule
-- store to load hazard prediction
+- store to load hazard prediction (unlearning bad entry over time, ...)
 - less pessimistic store to load detection (only trigger if the load got the data from the cache, instead of just having its address), else there is also the case where both load/store on a line miss will trigger lqCheck
 - RAS implement healing
 - gshare should update the fetch branchHistory himself, instead of the decode stage update workaround
