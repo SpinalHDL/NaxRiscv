@@ -1,6 +1,6 @@
 package naxriscv.prediction
 
-import naxriscv.Global
+import naxriscv.{Global, ROB}
 import naxriscv.backend.CommitPlugin
 import naxriscv.fetch.{AlignerPlugin, FetchConditionalPrediction, FetchPlugin, PcPlugin}
 import naxriscv.frontend.FrontendPlugin
@@ -110,6 +110,12 @@ class HistoryPlugin(historyFetchBypass : Boolean = false) extends Plugin{
         historyPushSpecs.foreach(_.state := onCommit.valueNext)
       }
     }
+
+    Verilator.public(onCommit.value)
+    Verilator.public(frontend.pipeline.allocated.isFireing)
+    Verilator.public(frontend.pipeline.allocated(ROB.ID))
+    Verilator.public(frontend.pipeline.allocated(keys.BRANCH_HISTORY, 0))
+
     frontend.release()
     fetch.release()
     rob.release()

@@ -18,7 +18,8 @@ import spinal.lib.pipeline.{Stage, Stageable, StageableOffset}
 class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                pcAddAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                pcPredictionAt: FrontendPlugin => Stage = _.pipeline.decoded,
-                               applyAt : FrontendPlugin => Stage = _.pipeline.allocated) extends Plugin{
+                               applyAt : FrontendPlugin => Stage = _.pipeline.allocated,
+                               flushOnBranch : Boolean = false) extends Plugin{
   val keys = create early new AreaRoot{
     val BRANCH_CONDITIONAL = Stageable(Bool())
   }
@@ -164,7 +165,8 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
 
           PC_NEXT := CAN_IMPROVE ?  U(PC_PREDICTION) otherwise ALIGNED_BRANCH_PC_NEXT
           MISSMATCH := !ALIGNED_BRANCH_VALID && BRANCHED_PREDICTION || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
-          NEED_CORRECTION := DECODED_MASK && CAN_IMPROVE && MISSMATCH //(MISSMATCH || IS_BRANCH && CONDITIONAL_PREDICTION)
+          NEED_CORRECTION := DECODED_MASK && CAN_IMPROVE && MISSMATCH
+          if(flushOnBranch) MISSMATCH setWhen(IS_BRANCH)
 
           branchContext.keys.BRANCH_SEL := IS_ANY
           branchContext.keys.BRANCH_EARLY.pcNext := PC_NEXT

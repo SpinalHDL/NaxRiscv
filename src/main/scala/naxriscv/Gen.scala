@@ -73,7 +73,8 @@ object Config{
     )
     plugins += new HistoryPlugin()
     plugins += new DecoderPredictionPlugin(
-      applyAt = _.pipeline.decoded
+      applyAt = _.pipeline.decoded,
+      flushOnBranch = true //TODO remove me (DEBUG)
     )
     plugins += new BtbPlugin(
       entries = 8192*8,
@@ -83,7 +84,7 @@ object Config{
     plugins += new GSharePlugin(
       entries = 1 << 24,
 //      entries = 1024,
-      historyWidth = 24,
+      historyWidth = 24,  //24 => 39954
       insertAt = 2,
       readAsync = true
     )

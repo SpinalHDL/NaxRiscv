@@ -465,6 +465,7 @@ public:
     IData pc;
     bool integerWriteValid;
     RvData integerWriteData;
+    IData branchHistory;
 
     void clear(){
         integerWriteValid = false;
@@ -566,13 +567,28 @@ public:
                 robCtx[robId].integerWriteData = *integer_write_data[i];
             }
         }
+//        if(nax->FrontendPlugin_allocated_isFireing){
+//            auto robId = nax->FrontendPlugin_allocated_ROB_ID;
+//            robCtx[robId].branchHistory = nax->FrontendPlugin_allocated_BRANCH_HISTORY_0;
+//        }
+//        for(int i = 0;i < COMMIT_COUNT;i++){
+//            if((nax->commit_mask >> i) & 1){
+//                auto robId = nax->commit_robId + i;
+//                if(nax->HistoryPlugin_logic_onCommit_value != robCtx[robId].branchHistory) {
+//                    printf("!! %ld %x %x\n", main_time, nax->HistoryPlugin_logic_onCommit_value, robCtx[robId].branchHistory);
+//                    failure();
+//                }
+//            }
+//        }
         if(statsCaptureEnable){
             stats.cycles += 1;
             for(int i = 0;i < COMMIT_COUNT;i++){
                 if((nax->commit_mask >> i) & 1){
-                    RvData pc = robCtx[nax->commit_robId + i].pc;
+                    auto robId = nax->commit_robId + i;
+                    RvData pc = robCtx[robId].pc;
                     stats.commits += 1;
                     stats.pcHist[pc] += 1;
+//                    if(pc == 0x80001ed0) printf("PC commit at %ld\n", main_time);
                 }
             }
             if(nax->reschedule_valid){
