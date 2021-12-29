@@ -90,6 +90,13 @@ class Stage extends Nameable {
   def removeIt(): Unit = ???
   def isValid: Bool = internals.input.valid
   def isFireing: Bool = signalCache(this -> "isFireing")(isValid && isReady).setCompositeName(this, "isFireing")
+  def isFirstCycle: Bool = {
+    val wait = RegInit(False) setWhen(isValid) clearWhen(isReady || isFlushed)
+    val ret = isValid && !wait
+    signalCache(this -> "isFirstCycle")(ret).setCompositeName(this, "isFirstCycle")
+  }
+
+
   def isStuck: Bool = isValid && !isReady
   def isRemoved : Bool = {
     if(internals.arbitration.isRemoved == null) internals.arbitration.isRemoved = Misc.outsideCondScope(Bool())
