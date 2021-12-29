@@ -192,6 +192,13 @@ case class ExecutionUnitPush(physRdType : Stageable[UInt], withReady : Boolean, 
     ret.payload := this
     ret
   }
+
+  def toFlow = {
+    val ret = Flow(ExecutionUnitPush(physRdType, false, false))
+    ret.valid := valid && (if(withReady) ready else True)
+    ret.payload := this
+    ret
+  }
 }
 
 trait LockedService {

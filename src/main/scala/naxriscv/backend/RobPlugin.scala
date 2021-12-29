@@ -134,8 +134,11 @@ class RobPlugin() extends Plugin with RobService{
       }
     }
 
-
+    val whitebox = new Area{
+      val completionsPorts = Verilator.public(Vec(completions.map(_.bus.combStage())))
+    }
     getService[DocPlugin].property("ROB_SIZE", ROB.SIZE.get)
+    getService[DocPlugin].property("ROB_COMPLETIONS_PORTS", whitebox.completionsPorts.size)
     frontend.release()
   }
 

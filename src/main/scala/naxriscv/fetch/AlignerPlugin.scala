@@ -30,8 +30,12 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
 
   override def stagesCountMin = inputAt + 1
 
-  val addedWordContext = mutable.LinkedHashSet[Stageable[_ <: Data]]()
-  def addWordContext(key : Stageable[_ <: Data]*): Unit = addedWordContext ++= key
+  val lastWordContextSpec = mutable.LinkedHashSet[Stageable[_ <: Data]]()
+  def addLastWordContext(key : Stageable[_ <: Data]*): Unit = lastWordContextSpec ++= key
+
+
+  val firstWordContextSpec = mutable.LinkedHashSet[Stageable[_ <: Data]]()
+  def addFirstWordContext(key : Stageable[_ <: Data]*): Unit = firstWordContextSpec ++= key
 
   val setup = create early new Area{
     val fetch = getService[FetchPlugin]
@@ -80,7 +84,8 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       val branchValid = Reg(WORD_BRANCH_VALID())
       val branchSlice = Reg(WORD_BRANCH_SLICE())
       val branchPcNext = Reg(WORD_BRANCH_PC_NEXT())
-      val wordContexts = addedWordContext.map(Reg(_))
+      val wordContexts = lastWordContextSpec.map(Reg(_))
+      val firstWordContexts = firstWordContextSpec.map(Reg(_))
     }
 
     val slices = new Area {
@@ -157,16 +162,23 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       when(lastWord) {
         output(ALIGNED_BRANCH_VALID, i)   := WORD_BRANCH_VALID && !predictionSanity.failure && inputPredictionLast
         output(ALIGNED_BRANCH_PC_NEXT, i) := WORD_BRANCH_PC_NEXT
-        for(key <- addedWordContext) output(key, i).assignFrom(input(key))
+        for(key <- lastWordContextSpec) output(key, i).assignFrom(input(key))
       } otherwise {
         output(ALIGNED_BRANCH_VALID, i)   := buffer.branchValid && bufferPredictionLast
         output(ALIGNED_BRANCH_PC_NEXT, i) := buffer.branchPcNext
-        for((value, key) <- (buffer.wordContexts, addedWordContext).zipped) output(key, i).assignFrom(value)
+        for((value, key) <- (buffer.wordContexts, lastWordContextSpec).zipped) output(key, i).assignFrom(value)
       }
 
       val sliceOffset = OHToUInt(maskOh << i)
-      val pcWord = Vec(buffer.pc, input(FETCH_PC)).read(U(sliceOffset.msb))
+      val firstWord = sliceOffset.msb
+      val pcWord = Vec(buffer.pc, input(FETCH_PC)).read(U(firstWord))
       output(PC, i) := (pcWord >> sliceRange.high+1) @@ U(sliceOffset.dropHigh(1)) @@ U(0, sliceRangeLow bits)
+
+      when(firstWord){
+        for(key <- firstWordContextSpec) output(key, i).assignFrom(input(key))
+      } otherwise {
+        for((value, key) <- (buffer.firstWordContexts, firstWordContextSpec).zipped) output(key, i).assignFrom(value)
+      }
     }
 
     val fireOutput = CombInit(output.isFireing)
@@ -185,7 +197,8 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       buffer.branchValid  := WORD_BRANCH_VALID && !predictionSanity.failure
       buffer.branchSlice  := WORD_BRANCH_SLICE
       buffer.branchPcNext := WORD_BRANCH_PC_NEXT
-      for((reg, key) <- (buffer.wordContexts, addedWordContext).zipped) reg := key
+      for((reg, key) <- (buffer.wordContexts, lastWordContextSpec).zipped) reg := key
+      for((reg, key) <- (buffer.firstWordContexts, firstWordContextSpec).zipped) reg := key
     }
 
     val correctionSent = RegInit(False) setWhen(setup.sequenceJump.valid) clearWhen(input.isReady || input.isFlushed)

@@ -20,6 +20,7 @@
 #include <map>
 #include <filesystem>
 #include <chrono>
+#include "disasm.h"
 
 using namespace std;
 
@@ -466,9 +467,40 @@ public:
     bool integerWriteValid;
     RvData integerWriteData;
     IData branchHistory;
+    int opId;
 
     void clear(){
         integerWriteValid = false;
+    }
+};
+
+
+class FetchCtx{
+public:
+    u64 fetchAt;
+    u64 decodeAt;
+
+    void clear(){
+
+    }
+};
+
+
+class OpCtx{
+public:
+    int fetchId;
+
+    u64 pc;
+    u64 instruction;
+    u64 renameAt;
+    u64 dispatchAt;
+    u64 issueAt;
+    u64 completeAt;
+    u64 commitAt;
+    u64 counter;
+
+    void clear(){
+
     }
 };
 
@@ -501,7 +533,7 @@ public:
             u64 branchCount = 0;
             ss << tab << "branch miss from :" << endl;
             for (auto const& [key, val] : branchMissHist){
-                ss << tab << tab << hex << key <<" " << dec <<  std::setw(5) << val << " / " << pcHist[key] << endl;
+                ss << tab << tab << hex << key <<" " << dec <<  setw(5) << val << " / " << pcHist[key] << endl;
                 branchCount += pcHist[key];
             }
             ss << tab << "branch miss rate : " << (float)branchMiss/branchCount << endl;
@@ -530,10 +562,26 @@ public:
 
     VNaxRiscv_NaxRiscv* nax;
     RobCtx robCtx[ROB_SIZE];
+    FetchCtx fetchCtx[4096];
+    OpCtx opCtx[4096];
     IData *robToPc[DISPATCH_COUNT];
     CData *integer_write_valid[INTEGER_WRITE_COUNT];
     CData *integer_write_robId[INTEGER_WRITE_COUNT];
+    CData *rob_completions_valid[ROB_COMPLETIONS_PORTS];
+    CData *rob_completions_payload[ROB_COMPLETIONS_PORTS];
+    CData *issue_valid[ISSUE_PORTS];
+    CData *issue_robId[ISSUE_PORTS];
+    SData *decoded_fetch_id[DISPATCH_COUNT];
+    SData *allocated_fetch_id[DISPATCH_COUNT];
+    IData *decoded_instruction[DISPATCH_COUNT];
+    IData *decoded_pc[DISPATCH_COUNT];
     IData *integer_write_data[INTEGER_WRITE_COUNT];
+    ofstream gem5;
+    disassembler_t disasm;
+    bool gem5Enable = false;
+
+    u64 opCounter = 0;
+    int periode = 2;
 
     bool statsCaptureEnable = true;
     NaxStats stats;
@@ -542,10 +590,35 @@ public:
     NaxWhitebox(VNaxRiscv_NaxRiscv* nax): robToPc{MAP_INIT(&nax->robToPc_pc_,  DISPATCH_COUNT,)},
             integer_write_valid{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _valid)},
             integer_write_robId{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _robId)},
-            integer_write_data{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _data)} {
+            integer_write_data{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _data)},
+            rob_completions_valid{MAP_INIT(&nax->RobPlugin_logic_whitebox_completionsPorts_,  ROB_COMPLETIONS_PORTS, _valid)},
+            rob_completions_payload{MAP_INIT(&nax->RobPlugin_logic_whitebox_completionsPorts_,  ROB_COMPLETIONS_PORTS, _payload_id)},
+            issue_valid{MAP_INIT(&nax->DispatchPlugin_logic_whitebox_issuePorts_,  ISSUE_PORTS, _valid)},
+            issue_robId{MAP_INIT(&nax->DispatchPlugin_logic_whitebox_issuePorts_,  ISSUE_PORTS, _payload_robId)},
+            decoded_fetch_id{MAP_INIT(&nax->FrontendPlugin_decoded_FETCH_ID_,  DISPATCH_COUNT,)},
+            decoded_instruction{MAP_INIT(&nax->FrontendPlugin_decoded_Frontend_INSTRUCTION_DECOMPRESSED_,  DISPATCH_COUNT,)},
+            decoded_pc{MAP_INIT(&nax->FrontendPlugin_decoded_PC_,  DISPATCH_COUNT,)},
+            disasm(XLEN){
         this->nax = nax;
     }
 
+
+    void traceGem5(bool enable){
+        gem5Enable = enable;
+    }
+
+    void trace(int opId){
+        auto &op = opCtx[opId];
+        auto &fetch = fetchCtx[op.fetchId];
+        string assembly = disasm.disassemble(op.instruction);
+        gem5 << "O3PipeView:fetch:" << fetch.fetchAt << ":0x" << hex <<  setw(8) << std::setfill('0') << op.pc << dec << ":0:" << op.counter << ":" << assembly << endl;
+        gem5 << "O3PipeView:decode:"<< fetch.decodeAt << endl;
+        gem5 << "O3PipeView:rename:"<< op.renameAt << endl;
+        gem5 << "O3PipeView:dispatch:"<< op.dispatchAt << endl;
+        gem5 << "O3PipeView:issue:"<< op.issueAt << endl;
+        gem5 << "O3PipeView:complete:"<< op.completeAt << endl;
+        gem5 << "O3PipeView:retire:" << op.commitAt << ":store:" << 0 << endl;
+    }
 
     virtual void onReset(){
         for(int i = 0;i < ROB_SIZE;i++){
@@ -559,12 +632,70 @@ public:
                 robCtx[nax->robToPc_robId + i].pc = *robToPc[i];
             }
         }
+
         for(int i = 0;i < INTEGER_WRITE_COUNT;i++){
             if(*integer_write_valid[i]){
                 auto robId = *integer_write_robId[i];
 //                printf("RF write rob=%d %d at %ld\n", robId, *integer_write_data[i], main_time);
                 robCtx[robId].integerWriteValid = true;
                 robCtx[robId].integerWriteData = *integer_write_data[i];
+            }
+        }
+
+
+        if(nax->FetchPlugin_stages_1_isFirstCycle){
+            auto fetchId = nax->FetchPlugin_stages_1_FETCH_ID;
+            fetchCtx[fetchId].fetchAt = main_time-periode*2;
+        }
+
+
+        if(nax->fetchLastFire){
+            auto fetchId = nax->fetchLastId;
+            fetchCtx[fetchId].decodeAt = main_time;
+        }
+
+        for(int i = 0;i < DISPATCH_COUNT;i++){
+            if(nax->FrontendPlugin_decoded_isFireing){
+                auto fetchId = *decoded_fetch_id[i];
+                auto opId = nax->FrontendPlugin_decoded_OP_ID + i;
+                opCtx[opId].fetchId = fetchId;
+                opCtx[opId].renameAt = main_time;
+                opCtx[opId].instruction = *decoded_instruction[i];
+                opCtx[opId].pc = *decoded_pc[i];
+            }
+            if(nax->FrontendPlugin_allocated_isFireing){
+                auto robId = nax->FrontendPlugin_allocated_ROB_ID + i;
+                auto opId = nax->FrontendPlugin_allocated_OP_ID + i;
+                robCtx[robId].opId = opId;
+            }
+        }
+
+        if(nax->FrontendPlugin_dispatch_isFireing){
+            for(int i = 0;i < DISPATCH_COUNT;i++){
+                auto robId = nax->FrontendPlugin_dispatch_ROB_ID + i;
+                opCtx[robCtx[robId].opId].dispatchAt = main_time;
+            }
+        }
+
+        for(int i = 0;i < ISSUE_PORTS;i++){
+            if(*issue_valid[i]){
+                opCtx[robCtx[*issue_robId[i]].opId].issueAt = main_time;
+            }
+        }
+
+        for(int i = 0;i < ROB_COMPLETIONS_PORTS;i++){
+            if(*rob_completions_valid[i]){
+                opCtx[robCtx[*rob_completions_payload[i]].opId].completeAt = main_time;
+            }
+        }
+
+        for(int i = 0;i < COMMIT_COUNT;i++){
+            if((nax->commit_mask >> i) & 1){
+                auto robId = nax->commit_robId + i;
+                auto opId = robCtx[robId].opId;
+                opCtx[opId].commitAt = main_time;
+                opCtx[opId].counter = opCounter++;
+                if(gem5Enable) trace(opId);
             }
         }
 //        if(nax->FrontendPlugin_allocated_isFireing){
@@ -686,6 +817,7 @@ enum ARG
     ARG_STATS_START_SYMBOL,
     ARG_STATS_STOP_SYMBOL,
     ARG_STATS_TOGGLE_SYMBOL,
+    ARG_TRACE_GEM5,
 };
 
 
@@ -708,6 +840,7 @@ static const struct option long_options[] =
     { "stats_start_symbol", required_argument, 0, ARG_STATS_START_SYMBOL },
     { "stats_stop_symbol", required_argument, 0, ARG_STATS_STOP_SYMBOL },
     { "stats_toggle_symbol", required_argument, 0, ARG_STATS_TOGGLE_SYMBOL },
+    { "trace_gem5", no_argument, 0, ARG_TRACE_GEM5 },
     0
 };
 
@@ -727,6 +860,7 @@ int main(int argc, char** argv, char** env){
     double progressPeriod = 0.0;
     bool statsPrint = false;
     bool statsPrintHist = false;
+    bool traceGem5 = false;
 
     while (1) {
         int index = -1;
@@ -753,6 +887,7 @@ int main(int argc, char** argv, char** env){
             case ARG_PROGRESS: progressPeriod = stod(optarg); break;
             case ARG_STATS_PRINT: statsPrint = true; break;
             case ARG_STATS_PRINT_ALL: statsPrint = true; statsPrintHist = true; break;
+            case ARG_TRACE_GEM5: traceGem5 = true; break;
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_START_SYMBOL:
@@ -784,6 +919,8 @@ int main(int argc, char** argv, char** env){
     VNaxRiscv* top = new VNaxRiscv;  // Or use a const unique_ptr, or the VL_UNIQUE_PTR wrapper
 
     NaxWhitebox whitebox(top->NaxRiscv);
+    whitebox.traceGem5(traceGem5);
+    if(traceGem5) whitebox.gem5 = ofstream(outputDir + "/gem5_o3.out",std::ofstream::binary);
 
     Soc *soc;
     soc = new Soc();

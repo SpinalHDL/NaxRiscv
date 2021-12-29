@@ -76,7 +76,8 @@ class BtbPlugin(entries : Int,
         case None => True
       }
 
-      val hit = isValid && ENTRY.hash === getHash(FETCH_PC)// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE) //TODO ?
+      val postPcPrediction = FETCH_PC(SLICE_RANGE) > ENTRY.slice
+      val hit = isValid && ENTRY.hash === getHash(FETCH_PC) && !postPcPrediction// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE) //TODO ?
       val needIt = hit && !(ENTRY.isBranch && !prediction)
       val correctionSent = RegInit(False) setWhen(needIt) clearWhen(isReady || isFlushed)
       val doIt = needIt && !correctionSent

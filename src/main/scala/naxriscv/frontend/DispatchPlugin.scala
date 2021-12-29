@@ -4,7 +4,7 @@ import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, MICRO_OP}
 import naxriscv.backend.RobPlugin
 import naxriscv.{Frontend, ROB}
 import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, LockedImpl, MicroOp, RobWait, WakeRegFile, WakeRegFileService, WakeRobService, WakeWithBypassService}
-import naxriscv.utilities.{Plugin, Service}
+import naxriscv.utilities.{DocPlugin, Plugin, Service}
 import spinal.core._
 import spinal.core.fiber.Lock
 import spinal.lib
@@ -250,6 +250,16 @@ class DispatchPlugin(slotCount : Int = 0,
       }
       queue.io.events := (dynamic.masks ++ statics.map(_.mask)).reduceBalancedTree(_ | _) //Todo squezing first the dynamic one with some KEEP attribut may help synthesis timings for statics
     }
+
+    val whitebox = new Area{
+      val issuePorts = Verilator.public(Vec(pop.map(_.euPort.toFlow)))
+      Verilator.public(stage.isFireing)
+      Verilator.public(stage(ROB.ID))
+    }
+
+    val doc = getService[DocPlugin]
+    doc.property("ISSUE_PORTS", whitebox.issuePorts.size)
+
     frontend.release()
     rob.release()
   }

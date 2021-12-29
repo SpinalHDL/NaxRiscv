@@ -38,7 +38,7 @@ class GSharePlugin(historyWidth : Int,
       val GSHARE_COUNTER = Stageable(Vec.fill(SLICE_COUNT)(UInt(counterWidth bits)))
     }
 
-    aligner.addWordContext(
+    aligner.addLastWordContext(
       keys.GSHARE_COUNTER
     )
     branchContext.dispatchWrite(

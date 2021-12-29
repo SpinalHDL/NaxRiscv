@@ -4,3 +4,4 @@ spike.log2
 tests.mk
 PASS
 FAIL
+*.out

@@ -41,7 +41,7 @@ class HistoryPlugin(historyFetchBypass : Boolean = true) extends Plugin{
     fetch.retain()
     rob.retain()
 
-    getService[AlignerPlugin].addWordContext(keys.BRANCH_HISTORY)
+    getService[AlignerPlugin].addLastWordContext(keys.BRANCH_HISTORY)
     getService[BranchContextPlugin].dispatchWrite(keys.BRANCH_HISTORY)
   }
 

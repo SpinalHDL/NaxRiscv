@@ -1,6 +1,7 @@
 package naxriscv.frontend
 
-import naxriscv.Global
+import naxriscv.{Frontend, Global}
+import naxriscv.fetch.FetchPlugin.FETCH_ID
 import naxriscv.interfaces.{AddressTranslationService, CommitService, LockedImpl}
 import spinal.core._
 import spinal.core.fiber._
@@ -42,6 +43,13 @@ class FrontendPlugin() extends Plugin with LockedImpl{
     import spinal.lib.pipeline.Connection._
     connect(decoded, allocated)(M2S())
     connect(allocated, dispatch)(M2S())
+
+    for(slotId <- 0 until Frontend.DECODE_COUNT) {
+      Verilator.public(decoded(FETCH_ID, slotId))
+      Verilator.public(allocated(FETCH_ID, slotId))
+      Verilator.public(decoded.isFireing)
+      Verilator.public(allocated.isFireing)
+    }
   }
   pipeline.setCompositeName(this)
 

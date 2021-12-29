@@ -10,7 +10,7 @@ import spinal.lib.pipeline.Connection.{DIRECT, M2S}
 import spinal.lib.pipeline._
 import spinal.core._
 import spinal.lib._
-import naxriscv.utilities.Plugin
+import naxriscv.utilities.{DocPlugin, Plugin}
 import spinal.lib.logic.{DecodingSpec, Masked, Symplify}
 import spinal.lib.pipeline.Stageable
 
@@ -19,10 +19,14 @@ import scala.collection.mutable.{ArrayBuffer, LinkedHashMap, LinkedHashSet}
 
 
 
-
+object DecoderPlugin extends AreaRoot{
+  val OP_ID = Stageable(UInt(12 bits))
+}
 
 
 class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
+  import DecoderPlugin.OP_ID
+
   val euToMicroOps = LinkedHashMap[ExecuteUnitService, ArrayBuffer[MicroOp]]()
   val microOps = LinkedHashSet[MicroOp]()
   val singleDecodings = LinkedHashSet[SingleDecoding]()
@@ -88,6 +92,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
 
     val frontend = getService[FrontendPlugin]
     val rob = getService[RobService]
+    val doc = getService[DocPlugin]
 
     val executionUnits = getServicesOf[ExecuteUnitService]
     val euGroups = ArrayBuffer[EuGroup]()
@@ -208,6 +213,23 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       }
 
       writeLine(DISPATCH_MASK)
+    }
+
+    val whitebox = new Area{
+      Verilator.public(stage.isFireing)
+
+      Verilator.public(OP_ID.setAsReg().init(0))
+      OP_ID := OP_ID + (U(isFireing) << log2Up(DECODE_COUNT))
+      assert(isPow2(DECODE_COUNT.get))
+
+      Verilator.public(frontend.pipeline.allocated(OP_ID))
+      for(slotId <- 0 until DECODE_COUNT) {
+        Verilator.public(stage(INSTRUCTION_DECOMPRESSED, slotId))
+        Verilator.public(stage(PC, slotId))
+      }
+
+      doc.property("DECODE_COUNT", DECODE_COUNT.get)
+      doc.property("XLEN", XLEN.get)
     }
 
     rob.release()
