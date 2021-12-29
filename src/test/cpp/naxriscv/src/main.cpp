@@ -62,13 +62,13 @@ void breakMe(){
     int a = 0;
 }
 
-#define assertEq(message, x,ref) if((RvData)x != (RvData)ref) {\
+#define assertEq(message, x,ref) if((RvData)(x) != (RvData)ref) {\
 	printf("\n*** %s DUT=%x REF=%x ***\n\n",message,(RvData)x,(RvData)ref);\
 	breakMe();\
 	failure();\
 }
 
-#define assertTrue(message, x) if(!x) {\
+#define assertTrue(message, x) if(!(x)) {\
     printf("\n*** %s ***\n\n",message);\
     breakMe();\
     failure();\
@@ -479,16 +479,13 @@ class FetchCtx{
 public:
     u64 fetchAt;
     u64 decodeAt;
-
-    void clear(){
-
-    }
 };
 
 
 class OpCtx{
 public:
     int fetchId;
+    int robId;
 
     u64 pc;
     u64 instruction;
@@ -497,11 +494,10 @@ public:
     u64 issueAt;
     u64 completeAt;
     u64 commitAt;
+    u64 storeAt;
     u64 counter;
-
-    void clear(){
-
-    }
+    bool sqAllocated;
+    int sqId;
 };
 
 class NaxStats{
@@ -564,6 +560,7 @@ public:
     RobCtx robCtx[ROB_SIZE];
     FetchCtx fetchCtx[4096];
     OpCtx opCtx[4096];
+    int sqToOp[256];
     IData *robToPc[DISPATCH_COUNT];
     CData *integer_write_valid[INTEGER_WRITE_COUNT];
     CData *integer_write_robId[INTEGER_WRITE_COUNT];
@@ -571,6 +568,8 @@ public:
     CData *rob_completions_payload[ROB_COMPLETIONS_PORTS];
     CData *issue_valid[ISSUE_PORTS];
     CData *issue_robId[ISSUE_PORTS];
+    CData *sq_alloc_valid[DISPATCH_COUNT];
+    CData *sq_alloc_id[DISPATCH_COUNT];
     SData *decoded_fetch_id[DISPATCH_COUNT];
     SData *allocated_fetch_id[DISPATCH_COUNT];
     IData *decoded_instruction[DISPATCH_COUNT];
@@ -586,7 +585,6 @@ public:
     bool statsCaptureEnable = true;
     NaxStats stats;
 
-
     NaxWhitebox(VNaxRiscv_NaxRiscv* nax): robToPc{MAP_INIT(&nax->robToPc_pc_,  DISPATCH_COUNT,)},
             integer_write_valid{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _valid)},
             integer_write_robId{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _robId)},
@@ -595,6 +593,8 @@ public:
             rob_completions_payload{MAP_INIT(&nax->RobPlugin_logic_whitebox_completionsPorts_,  ROB_COMPLETIONS_PORTS, _payload_id)},
             issue_valid{MAP_INIT(&nax->DispatchPlugin_logic_whitebox_issuePorts_,  ISSUE_PORTS, _valid)},
             issue_robId{MAP_INIT(&nax->DispatchPlugin_logic_whitebox_issuePorts_,  ISSUE_PORTS, _payload_robId)},
+            sq_alloc_valid{MAP_INIT(&nax->sqAlloc_,  ISSUE_PORTS, _valid)},
+            sq_alloc_id{MAP_INIT(&nax->sqAlloc_,  ISSUE_PORTS, _id)},
             decoded_fetch_id{MAP_INIT(&nax->FrontendPlugin_decoded_FETCH_ID_,  DISPATCH_COUNT,)},
             decoded_instruction{MAP_INIT(&nax->FrontendPlugin_decoded_Frontend_INSTRUCTION_DECOMPRESSED_,  DISPATCH_COUNT,)},
             decoded_pc{MAP_INIT(&nax->FrontendPlugin_decoded_PC_,  DISPATCH_COUNT,)},
@@ -617,7 +617,15 @@ public:
         gem5 << "O3PipeView:dispatch:"<< op.dispatchAt << endl;
         gem5 << "O3PipeView:issue:"<< op.issueAt << endl;
         gem5 << "O3PipeView:complete:"<< op.completeAt << endl;
-        gem5 << "O3PipeView:retire:" << op.commitAt << ":store:" << 0 << endl;
+        gem5 << "O3PipeView:retire:" << op.commitAt << ":store:" << (op.sqAllocated ? op.storeAt : 0) << endl;
+        assertTrue("a", fetch.fetchAt  <= fetch.decodeAt);
+        assertTrue("b", fetch.decodeAt <= op.renameAt);
+        assertTrue("c", op.renameAt    <= op.dispatchAt);
+        assertTrue("d", op.dispatchAt    <= op.issueAt);
+        assertTrue("e", op.issueAt    <= op.completeAt);
+        if(op.sqAllocated){
+            assertTrue("f", op.completeAt    <= op.commitAt);
+        }
     }
 
     virtual void onReset(){
@@ -667,15 +675,24 @@ public:
                 auto robId = nax->FrontendPlugin_allocated_ROB_ID + i;
                 auto opId = nax->FrontendPlugin_allocated_OP_ID + i;
                 robCtx[robId].opId = opId;
+                opCtx[opId].robId = robId;
             }
         }
 
-        if(nax->FrontendPlugin_dispatch_isFireing){
-            for(int i = 0;i < DISPATCH_COUNT;i++){
+        for(int i = 0;i < DISPATCH_COUNT;i++){
+            if(nax->FrontendPlugin_dispatch_isFireing){
                 auto robId = nax->FrontendPlugin_dispatch_ROB_ID + i;
-                opCtx[robCtx[robId].opId].dispatchAt = main_time;
+                auto opId = robCtx[robId].opId;
+                auto sqId = *sq_alloc_id[i];
+                opCtx[opId].dispatchAt = main_time;
+                opCtx[opId].sqAllocated = *sq_alloc_valid[i];
+                opCtx[opId].sqId = sqId;
+                if(*sq_alloc_valid[i]){
+                    sqToOp[sqId] = opId;
+                }
             }
         }
+
 
         for(int i = 0;i < ISSUE_PORTS;i++){
             if(*issue_valid[i]){
@@ -695,9 +712,16 @@ public:
                 auto opId = robCtx[robId].opId;
                 opCtx[opId].commitAt = main_time;
                 opCtx[opId].counter = opCounter++;
-                if(gem5Enable) trace(opId);
+                if(gem5Enable && !opCtx[opId].sqAllocated) trace(opId);
             }
         }
+        if(nax->sqFree_valid){
+            auto opId = sqToOp[nax->sqFree_payload];
+            assertTrue("???", opCtx[opId].sqAllocated);
+            opCtx[opId].storeAt = main_time;
+            if(gem5Enable) trace(opId);
+        }
+
 //        if(nax->FrontendPlugin_allocated_isFireing){
 //            auto robId = nax->FrontendPlugin_allocated_ROB_ID;
 //            robCtx[robId].branchHistory = nax->FrontendPlugin_allocated_BRANCH_HISTORY_0;
@@ -920,7 +944,7 @@ int main(int argc, char** argv, char** env){
 
     NaxWhitebox whitebox(top->NaxRiscv);
     whitebox.traceGem5(traceGem5);
-    if(traceGem5) whitebox.gem5 = ofstream(outputDir + "/gem5_o3.out",std::ofstream::binary);
+    if(traceGem5) whitebox.gem5 = ofstream(outputDir + "/trace.gem5o3",std::ofstream::binary);
 
     Soc *soc;
     soc = new Soc();

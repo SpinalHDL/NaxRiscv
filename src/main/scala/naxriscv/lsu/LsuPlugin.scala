@@ -1,6 +1,6 @@
 package naxriscv.lsu
 
-import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK}
+import naxriscv.Frontend.{DECODE_COUNT, DISPATCH_COUNT, DISPATCH_MASK}
 import naxriscv.backend.RobPlugin
 import naxriscv.{Fetch, Frontend, Global, ROB}
 import naxriscv.frontend.FrontendPlugin
@@ -1117,6 +1117,19 @@ class LsuPlugin(lqSize: Int,
       }
       sq.ptr.alloc := sq.ptr.commitNext
       peripheral.enabled := False
+    }
+
+
+    val whitebox = new AreaRoot{
+      val stage = frontend.pipeline.dispatch
+      Verilator.public(stage(ROB.ID))
+
+      val sqAlloc = for(slotId <- 0 until DECODE_COUNT) yield new Area{
+        val valid = Verilator.public(stage.isFireing && stage(DISPATCH_MASK, slotId) && stage(SQ_ALLOC, slotId))
+        val id = Verilator.public(CombInit(stage(SQ_ID, slotId)))
+      }
+
+      val sqFree = Verilator.public(sq.ptr.onFree.combStage())
     }
 
     rob.release()
