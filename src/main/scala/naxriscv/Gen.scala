@@ -87,7 +87,7 @@ object Config{
     plugins += new GSharePlugin(
 //      entries = 1 << 24,
       memBytes = 4 KiB,
-      historyWidth = 24,  //24 => 31979 / 32601 / 35356
+      historyWidth = 24,  //24 => 31979 / 32601 / 35356 / 1w => 49389 2w => 53474
       readAt = 0,
       readAsync = false
     )

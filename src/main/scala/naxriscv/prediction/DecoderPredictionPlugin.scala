@@ -29,8 +29,9 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
     val rob = getService[RobService]
     val aligner = getService[AlignerPlugin]
     val branchContext = getService[BranchContextPlugin]
-    val decodeJump = jump.createJumpInterface(JumpService.Priorities.DECODE_PREDICTION)
-    val historyPush = getService[HistoryPlugin].createPushPort(0, DISPATCH_COUNT)
+    val priority = JumpService.Priorities.DECODE_PREDICTION
+    val decodeJump = jump.createJumpInterface(priority)
+    val historyPush = getService[HistoryPlugin].createPushPort(priority, DISPATCH_COUNT)
 
     frontend.retain()
     fetch.retain()
@@ -52,6 +53,8 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
       val PC_TARGET = Stageable(SInt(PC_WIDTH bits))
       val PC_PREDICTION = Stageable(SInt(PC_WIDTH bits))
       val PC_NEXT = Stageable(UInt(PC_WIDTH bits))
+      val MISSMATCH_PC = Stageable(Bool())
+      val MISSMATCH_HISTORY = Stageable(Bool())
       val MISSMATCH = Stageable(Bool())
       val IS_JAL    = Stageable(Bool())
       val IS_JALR   = Stageable(Bool())
@@ -64,6 +67,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
       val NEED_CORRECTION = Stageable(Bool())
       val OFFSET = Stageable(SInt(32 bits))
       val CONDITIONAL_PREDICTION = Stageable(Bool())
+      val LAST_SLICE = Stageable(UInt(log2Up(SLICE_COUNT) bits))
     }
     import k._
 
@@ -133,8 +137,8 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
           RAS_PUSH  := (IS_JAL || IS_JALR) && rdLink
           RAS_POP   := IS_JALR && (!rdLink && rs1Link || rdLink && rs1Link && !rdEquRs1)
 
-          val lastSlice = PC(SLICE_RANGE) + INSTRUCTION_SLICE_COUNT
-          CONDITIONAL_PREDICTION :=  CONDITIONAL_TAKE_IT(lastSlice)
+          LAST_SLICE := PC(SLICE_RANGE) + INSTRUCTION_SLICE_COUNT
+          CONDITIONAL_PREDICTION := decodeStage(CONDITIONAL_TAKE_IT, slotId)(LAST_SLICE)
         }
 
         val pcAdd = new Area{
@@ -162,7 +166,12 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
           import applyStage._
 
           PC_NEXT := CAN_IMPROVE ?  U(PC_PREDICTION) otherwise ALIGNED_BRANCH_PC_NEXT
-          MISSMATCH := !ALIGNED_BRANCH_VALID && BRANCHED_PREDICTION || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
+          MISSMATCH_PC := !ALIGNED_BRANCH_VALID && BRANCHED_PREDICTION || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
+          val historyPushed = BRANCH_HISTORY_PUSH_VALID && BRANCH_HISTORY_PUSH_SLICE === LAST_SLICE
+          MISSMATCH_HISTORY := False //historyPushed =/= IS_BRANCH || IS_BRANCH && BRANCH_HISTORY_PUSH_VALUE =/= CONDITIONAL_PREDICTION
+          //MISSMATCH_HISTORY Will improve the branch hit rate, but will also reduce the fetch bandwidth in cases it wasn't realy necessary
+
+          MISSMATCH := MISSMATCH_PC || MISSMATCH_HISTORY
           NEED_CORRECTION := DECODED_MASK && CAN_IMPROVE && MISSMATCH
           if(flushOnBranch) MISSMATCH setWhen(IS_BRANCH)
 
@@ -188,14 +197,19 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
         val stage = applyStage
         import applyStage._
 
-        ras.ptr.pushIt    clearWhen(!isFireing)
-        ras.ptr.popIt     clearWhen(!isFireing)
-
         val slotIds = (0 until DECODE_COUNT)
         val hit = slotIds.map(stage(NEED_CORRECTION, _)).orR
         val selOh = OHMasking.first(slotIds.map(stage(NEED_CORRECTION, _)))
-        setup.decodeJump.valid := isFireing && hit
+        val applySideEffects = isFireing
+
+        setup.decodeJump.valid := applySideEffects && hit
         setup.decodeJump.pc := U(MuxOH(selOh, (0 until DECODE_COUNT).map(stage(PC_PREDICTION, _))))
+
+        setup.historyPush.flush := setup.decodeJump.valid
+
+        ras.ptr.pushIt    clearWhen(!applySideEffects)
+        ras.ptr.popIt     clearWhen(!applySideEffects)
+
 
         flushIt(setup.decodeJump.valid, root = false)
 
@@ -207,7 +221,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
         for (slotId <- 0 until Frontend.DECODE_COUNT) {
           val slot = slots(slotId)
           implicit val _ = StageableOffset(slotId)
-          setup.historyPush.mask(slotId) := isFireing && IS_BRANCH && Frontend.DECODED_MASK && !stage(0 until slotId)(NEED_CORRECTION).orR
+          setup.historyPush.mask(slotId) := applySideEffects && IS_BRANCH && Frontend.DECODED_MASK && !stage(0 until slotId)(NEED_CORRECTION).orR
           setup.historyPush.taken(slotId) := BRANCHED_PREDICTION
         }
       }

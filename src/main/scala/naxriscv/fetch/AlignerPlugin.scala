@@ -130,7 +130,7 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
 
       val backMaskError = errors(SLICE_COUNT, SLICE_COUNT bits).orR // The prediction is cutting on of the non RVC instruction (doesn't check last slice)
       val partialFetchError = WORD_BRANCH_SLICE.andR && skip  // The prediction is cutting the last slice non rvc instruction
-      val postPredictionPc = FETCH_PC(sliceRange) > WORD_BRANCH_SLICE // The prediction was for an instruction before the input start PC
+      val postPredictionPc = FETCH_PC(sliceRange) > WORD_BRANCH_SLICE //TODO remove me The prediction was for an instruction before the input start PC, but already checked by BTB
       val failure = isInputValid && WORD_BRANCH_VALID && (backMaskError || partialFetchError || postPredictionPc) //TODO check that it only set in the right cases (as it can silently produce false positive)
 
       when(backMaskError || postPredictionPc){

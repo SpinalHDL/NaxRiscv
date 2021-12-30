@@ -19,7 +19,16 @@ class BtbPlugin(entries : Int,
     val fetch = getService[FetchPlugin]
     val jump = getService[JumpService]
     val branchContext = getService[BranchContextPlugin]
-    val btbJump = jump.createJumpInterface(JumpService.Priorities.FETCH_WORD(jumpAt, true))
+    val priority = JumpService.Priorities.FETCH_WORD(jumpAt, true)
+    val btbJump = jump.createJumpInterface(priority)
+    val historyPush = getService[HistoryPlugin].createPushPort(priority, 1)
+    val aligned = getService[AlignerPlugin]
+
+    aligned.addLastWordContext(
+      BRANCH_HISTORY_PUSH_VALID,
+      BRANCH_HISTORY_PUSH_SLICE,
+      BRANCH_HISTORY_PUSH_VALUE
+    )
 
     fetch.retain()
     branchContext.retain()
@@ -28,6 +37,7 @@ class BtbPlugin(entries : Int,
   val logic = create late new Area{
     val fetch = getService[FetchPlugin]
     val branchContext = getService[BranchContextPlugin]
+    val history = getService[HistoryPlugin]
 
 
     //TODO learn conditional bias
@@ -77,9 +87,9 @@ class BtbPlugin(entries : Int,
       }
 
       val postPcPrediction = FETCH_PC(SLICE_RANGE) > ENTRY.slice
-      val hit = isValid && ENTRY.hash === getHash(FETCH_PC) && !postPcPrediction// && FETCH_PC(SLICE_RANGE) =/= entry.pcNext(SLICE_RANGE) //TODO ?
+      val hit = isValid && ENTRY.hash === getHash(FETCH_PC) && !postPcPrediction
       val needIt = hit && !(ENTRY.isBranch && !prediction)
-      val correctionSent = RegInit(False) setWhen(needIt) clearWhen(isReady || isFlushed)
+      val correctionSent = RegInit(False) setWhen(isValid) clearWhen(isReady || isFlushed)
       val doIt = needIt && !correctionSent
 
       flushNext(doIt)
@@ -90,6 +100,14 @@ class BtbPlugin(entries : Int,
       WORD_BRANCH_VALID := needIt
       WORD_BRANCH_SLICE := ENTRY.slice
       WORD_BRANCH_PC_NEXT := ENTRY.pcTarget
+
+      setup.historyPush.flush    := hit && ENTRY.isBranch && !correctionSent
+      setup.historyPush.mask(0)  := setup.historyPush.flush
+      setup.historyPush.taken(0) := prediction
+
+      BRANCH_HISTORY_PUSH_VALID := setup.historyPush.flush
+      BRANCH_HISTORY_PUSH_SLICE := ENTRY.slice
+      BRANCH_HISTORY_PUSH_VALUE := prediction
     }
 
     fetch.release()

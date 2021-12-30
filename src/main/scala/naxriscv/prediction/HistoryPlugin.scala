@@ -14,8 +14,13 @@ import spinal.lib.pipeline.Stageable
 import scala.collection.mutable
 
 case class HistoryPush(width : Int) extends Bundle{
+  val flush = Bool()
   val mask = Bits(width bits)
   val taken = Bits(width bits)
+}
+
+case class HistoryJump(width : Int) extends Bundle{
+  val history = Bits(width bits)
 }
 
 class HistoryPlugin(historyFetchBypass : Boolean = true) extends Plugin{
@@ -25,10 +30,17 @@ class HistoryPlugin(historyFetchBypass : Boolean = true) extends Plugin{
     historyPushSpecs.addRet(HistoryPushSpec(priority, width, HistoryPush(width), Reg(keys.BRANCH_HISTORY()) init(0))).port
   }
 
+//  case class HistoryJumpSpec(priority : Int, port : Flow[HistoryJump])
+//  val historyJumpSpecs = mutable.ArrayBuffer[HistoryJumpSpec]()
+//  def createJumpPort(priority : Int): Flow[HistoryJump] = {
+//    historyJumpSpecs.addRet(HistoryJumpSpec(priority, Flow(HistoryJump(historyWidth)))).port
+//  }
+  
   def getState(priority : Int) = historyPushSpecs.find(_.priority == priority).get.state
 
+  def historyWidth = (0 +: getServicesOf[HistoryUser].map(_.historyWidthUsed)).max
   val keys = create early new AreaRoot{
-    val BRANCH_HISTORY_WIDTH = (0 +: getServicesOf[HistoryUser].map(_.historyWidthUsed)).max
+    val BRANCH_HISTORY_WIDTH = historyWidth
     val BRANCH_HISTORY = Stageable(Bits(BRANCH_HISTORY_WIDTH bits))
   }
 
@@ -80,16 +92,6 @@ class HistoryPlugin(historyFetchBypass : Boolean = true) extends Plugin{
 //      assert(fetchInsertAt >= 1, "Would require some bypass of the stage(0) value, maybe later it could be implemented")
       fetch.getStage(fetchInsertAt)(keys.BRANCH_HISTORY) := (if(historyFetchBypass) onFetch.valueNext else onFetch.value)
 
-      val fetchJumps = getService[PcPlugin].getFetchJumps()
-      val grouped = fetchJumps.groupBy(_._1)
-      val ordered = grouped.toSeq.sortBy(_._1).map(_._2)
-      val group = for(group <- grouped) yield new Area{ //TODO manage case where the group is < than branchHistoryFetchAt
-        val valid = group._2.map(_._2).orR
-        when(valid){
-          onFetch.valueNext := fetch.getStage(group._1).resulting(keys.BRANCH_HISTORY)
-        }
-      }
-
       val pushes = for(spec <- historyPushSpecs.sortBy(_.priority)) yield new Area{
         assert(historyPushSpecs.count(_.priority == spec.priority) == 1)
         var stateNext = CombInit(spec.state)
@@ -99,7 +101,7 @@ class HistoryPlugin(historyFetchBypass : Boolean = true) extends Plugin{
           }
         }
         spec.state := stateNext
-        when(spec.port.mask =/= 0){
+        when(spec.port.flush){
           onFetch.valueNext := stateNext
           historyPushSpecs.filter(_.priority < spec.priority).foreach(_.state := stateNext)
         }
