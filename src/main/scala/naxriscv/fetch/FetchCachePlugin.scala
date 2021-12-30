@@ -7,6 +7,7 @@ import spinal.lib._
 import spinal.lib.pipeline.Stageable
 import naxriscv.Frontend._
 import naxriscv.Fetch._
+import naxriscv.prediction.HistoryPlugin
 
 case class FetchL1Cmd(p : FetchCachePlugin, physicalWidth : Int) extends Bundle{
   val address = UInt(physicalWidth bits)
@@ -48,8 +49,10 @@ class FetchCachePlugin(val cacheSize : Int,
     val pipeline = getService[FetchPlugin]
     pipeline.lock.retain()
 
-    val pcPlugin = getService[PcPlugin]
-    val redoJump = pcPlugin.createJumpInterface(JumpService.Priorities.FETCH_WORD(controlAt, false))
+    val withHistory = isServiceAvailable[HistoryPlugin]
+    val priority = JumpService.Priorities.FETCH_WORD(controlAt, false)
+    val redoJump = getService[PcPlugin].createJumpInterface(priority)
+    val historyJump = withHistory generate getService[HistoryPlugin].createJumpPort(priority)
 
     mem.flatten.filter(_.isOutput).foreach(_.assignDontCare())
 
@@ -249,6 +252,11 @@ class FetchCachePlugin(val cacheSize : Int,
           } otherwise { //Success
 
           }
+        }
+
+        if(setup.withHistory){
+          setup.historyJump.valid := setup.redoJump.valid
+          setup.historyJump.history := getService[HistoryPlugin].keys.BRANCH_HISTORY
         }
       }
 

@@ -44,7 +44,7 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
     fetch.retain()
     frontend.retain()
 
-    val sequenceJump = jump.createFetchJumpInterface(JumpService.Priorities.ALIGNER, inputAt)
+    val sequenceJump = jump.createFetchJumpInterface(JumpService.Priorities.ALIGNER, inputAt) //We don't patch the history here, as it is a very sporadic case
 
     if(!isServiceAvailable[FetchWordPrediction]){
       val stage = fetch.getStage(inputAt-1)

@@ -24,17 +24,22 @@ case class HistoryJump(width : Int) extends Bundle{
 }
 
 class HistoryPlugin(historyFetchBypass : Boolean = true) extends Plugin{
-  case class HistoryPushSpec(priority : Int, width : Int, port : HistoryPush, state : Bits)
+  class HistorySpec(val priority : Int){
+    def update(history : Bits) = {}
+  }
+  case class HistoryPushSpec(override val priority : Int, width : Int, port : HistoryPush, state : Bits) extends HistorySpec(priority){
+    override def update(history: Bits) = state := history
+  }
   val historyPushSpecs = mutable.ArrayBuffer[HistoryPushSpec]()
   def createPushPort(priority : Int, width : Int): HistoryPush = {
     historyPushSpecs.addRet(HistoryPushSpec(priority, width, HistoryPush(width), Reg(keys.BRANCH_HISTORY()) init(0))).port
   }
 
-//  case class HistoryJumpSpec(priority : Int, port : Flow[HistoryJump])
-//  val historyJumpSpecs = mutable.ArrayBuffer[HistoryJumpSpec]()
-//  def createJumpPort(priority : Int): Flow[HistoryJump] = {
-//    historyJumpSpecs.addRet(HistoryJumpSpec(priority, Flow(HistoryJump(historyWidth)))).port
-//  }
+  case class HistoryJumpSpec(override val priority : Int, port : Flow[HistoryJump]) extends HistorySpec(priority)
+  val historyJumpSpecs = mutable.ArrayBuffer[HistoryJumpSpec]()
+  def createJumpPort(priority : Int): Flow[HistoryJump] = {
+    historyJumpSpecs.addRet(HistoryJumpSpec(priority, Flow(HistoryJump(historyWidth)))).port
+  }
   
   def getState(priority : Int) = historyPushSpecs.find(_.priority == priority).get.state
 
@@ -92,20 +97,30 @@ class HistoryPlugin(historyFetchBypass : Boolean = true) extends Plugin{
 //      assert(fetchInsertAt >= 1, "Would require some bypass of the stage(0) value, maybe later it could be implemented")
       fetch.getStage(fetchInsertAt)(keys.BRANCH_HISTORY) := (if(historyFetchBypass) onFetch.valueNext else onFetch.value)
 
-      val pushes = for(spec <- historyPushSpecs.sortBy(_.priority)) yield new Area{
-        assert(historyPushSpecs.count(_.priority == spec.priority) == 1)
-        var stateNext = CombInit(spec.state)
-        for(slotId <- 0 until spec.width){
-          when(spec.port.mask(slotId)) {
-            stateNext \= (stateNext ## spec.port.taken(slotId)).resize(keys.BRANCH_HISTORY_WIDTH)
+      val ports = (historyPushSpecs ++ historyJumpSpecs).sortBy(_.priority)
+      assert(ports.map(_.priority).distinct.size == ports.size)
+      val pushes = for(spec <- ports) yield spec match {
+        case spec : HistoryPushSpec => new Area{
+          var stateNext = CombInit(spec.state)
+          for(slotId <- 0 until spec.width){
+            when(spec.port.mask(slotId)) {
+              stateNext \= (stateNext ## spec.port.taken(slotId)).resize(keys.BRANCH_HISTORY_WIDTH)
+            }
+          }
+          spec.state := stateNext
+          when(spec.port.flush){
+            onFetch.valueNext := stateNext
+            historyPushSpecs.filter(_.priority < spec.priority).foreach(_.update(stateNext))
           }
         }
-        spec.state := stateNext
-        when(spec.port.flush){
-          onFetch.valueNext := stateNext
-          historyPushSpecs.filter(_.priority < spec.priority).foreach(_.state := stateNext)
+        case spec : HistoryJumpSpec => new Area{
+          when(spec.port.valid){
+            onFetch.valueNext := spec.port.history
+            historyPushSpecs.filter(_.priority < spec.priority).foreach(_.update(spec.port.history))
+          }
         }
       }
+
 
       when(commit.reschedulingPort().valid){
         onFetch.valueNext := onCommit.valueNext
