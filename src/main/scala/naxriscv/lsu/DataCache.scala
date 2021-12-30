@@ -141,6 +141,7 @@ class DataCache(val cacheSize: Int,
                 val cpuDataWidth: Int,
                 val preTranslationWidth: Int,
                 val postTranslationWidth: Int,
+                val loadRefillCheckEarly : Boolean = true,
                 val lineSize: Int = 64,
                 val loadReadAt: Int = 0,
                 val loadHitsAt: Int = 1,
@@ -217,6 +218,8 @@ class DataCache(val cacheSize: Int,
 //  val TAGS_CORRUPTED = Stageable(Bool())
   val WAYS_HAZARD = Stageable(Bits(wayCount bits))
   val BANK_BUSY = Stageable(Bits(bankCount bits))
+  val REFILL_HITS_EARLY = Stageable(Bits(refillCount bits))
+  val REFILL_HITS = Stageable(Bits(refillCount bits))
 
 
   case class Tag() extends Bundle{
@@ -603,7 +606,7 @@ class DataCache(val cacheSize: Int,
     val bankMuxesStage = pipeline.stages(loadBankMuxesAt)
     val bankMuxStage   = pipeline.stages(loadBankMuxAt)
     val controlStage   = pipeline.stages(loadControlAt)
-    val rspStage = pipeline.stages(loadRspAt)
+    val rspStage       = pipeline.stages(loadRspAt)
 
 
     waysHazard((loadReadAt+1 to loadReadAt+1).map(pipeline.stages(_)), ADDRESS_PRE_TRANSLATION)
@@ -670,15 +673,33 @@ class DataCache(val cacheSize: Int,
       (loadReadAt + 1 to loadControlAt).map(pipeline.stages(_)).foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION))
     }
 
+
+    val refillCheckEarly = loadRefillCheckEarly generate new Area{
+      val stage = pipeline.stages(loadControlAt-1)
+      import stage._
+
+      REFILL_HITS_EARLY := B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
+      val refillPushHit = refill.push.valid && refill.push.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)
+      when(refillPushHit){
+        whenMasked(REFILL_HITS_EARLY.asBools, refill.free)(_ := True)
+      }
+
+      controlStage(REFILL_HITS) := controlStage(REFILL_HITS_EARLY) & refill.slots.map(_.valid).asBits()
+    }
+
+    val refillCheckLate = !loadRefillCheckEarly generate new Area{
+      import controlStage._
+      REFILL_HITS := B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
+    }
+
     val ctrl = new Area {
       import controlStage._
 
       val reservation = tagsOrStatusWriteArbitration.create(1)
       val refillWay = CombInit(wayRandom.value)
       val refillWayNeedWriteback = WAYS_TAGS(refillWay).loaded && STATUS(refillWay).dirty
-      val refillHits = B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange))) //TODO a bit heavy, could pipeline ?
-      val refillHit = refillHits.orR
-      val refillLoaded = (B(refill.slots.map(_.loaded)) & refillHits).orR
+      val refillHit = REFILL_HITS.orR
+      val refillLoaded = (B(refill.slots.map(_.loaded)) & REFILL_HITS).orR
       val refillLineBusy = isLineBusy(ADDRESS_PRE_TRANSLATION, refillWay)
       val bankBusy = (BANK_BUSY & WAYS_HITS) =/= 0
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
@@ -718,7 +739,7 @@ class DataCache(val cacheSize: Int,
       }
 
       REFILL_SLOT_FULL := MISS && !refillHit && (refill.full || refillLineBusy)
-      REFILL_SLOT := refillHits.andMask(!refillLoaded) | refill.free.andMask(askRefill)
+      REFILL_SLOT := REFILL_HITS.andMask(!refillLoaded) | refill.free.andMask(askRefill)
     }
 
     val inject = new Area {
