@@ -31,3 +31,11 @@ object Prediction extends AreaObject{
 trait HistoryUser extends Service{
   def historyWidthUsed : Int
 }
+
+trait FetchWordPrediction extends Service
+trait FetchConditionalPrediction extends Service{
+  def useHistoryAt : Int
+  def getPredictionAt(stageId : Int) : Seq[Bool]
+}
+
+trait DecoderPrediction extends Service

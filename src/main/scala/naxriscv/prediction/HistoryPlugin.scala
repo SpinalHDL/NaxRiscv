@@ -1,8 +1,8 @@
 package naxriscv.prediction
 
-import naxriscv.{Global, ROB}
+import naxriscv.{Frontend, Global, ROB}
 import naxriscv.backend.CommitPlugin
-import naxriscv.fetch.{AlignerPlugin, FetchConditionalPrediction, FetchPlugin, PcPlugin}
+import naxriscv.fetch.{AlignerPlugin, FetchPlugin, PcPlugin}
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.RobService
 import naxriscv.prediction.Prediction.{CONDITIONAL_TAKE_IT, IS_BRANCH}
@@ -74,17 +74,20 @@ class HistoryPlugin(historyFetchBypass : Boolean = true) extends Plugin{
     val fetchInsertAt = if(fetchUsages.nonEmpty) fetchUsages.map(_.useHistoryAt).min else fetch.pipeline.stages.size-1
     val onCommit = new Area {
       val value = Reg(keys.BRANCH_HISTORY) init (0)
+      val whitebox = Verilator.public(Vec.fill(Global.COMMIT_COUNT)(keys.BRANCH_HISTORY()))
 
       val event = commit.onCommit()
       val isConditionalBranch = rob.readAsync(IS_BRANCH, Global.COMMIT_COUNT, event.robId)
       val isTaken = rob.readAsync(branchContext.keys.BRANCH_TAKEN, Global.COMMIT_COUNT, event.robId)
       var valueNext = CombInit(value)
       for (slotId <- 0 until Global.COMMIT_COUNT) {
+        whitebox(slotId) := valueNext
         when(event.mask(slotId) && isConditionalBranch(slotId)) {
           valueNext \= (valueNext ## isTaken(slotId)).resize(keys.BRANCH_HISTORY_WIDTH)
         }
       }
       value := valueNext.resized
+
     }
 
     val onFetch = new Area{
@@ -101,6 +104,7 @@ class HistoryPlugin(historyFetchBypass : Boolean = true) extends Plugin{
       assert(ports.map(_.priority).distinct.size == ports.size)
       val pushes = for(spec <- ports) yield spec match {
         case spec : HistoryPushSpec => new Area{
+          val state = spec.state
           var stateNext = CombInit(spec.state)
           for(slotId <- 0 until spec.width){
             when(spec.port.mask(slotId)) {
@@ -124,14 +128,12 @@ class HistoryPlugin(historyFetchBypass : Boolean = true) extends Plugin{
 
       when(commit.reschedulingPort().valid){
         onFetch.valueNext := onCommit.valueNext
-        historyPushSpecs.foreach(_.state := onCommit.valueNext)
+        historyPushSpecs.foreach(_.update(onCommit.valueNext))
       }
     }
 
     Verilator.public(onCommit.value)
-    Verilator.public(frontend.pipeline.allocated.isFireing)
-    Verilator.public(frontend.pipeline.allocated(ROB.ID))
-    Verilator.public(frontend.pipeline.allocated(keys.BRANCH_HISTORY, 0))
+    frontend.pipeline.allocated(0 until Frontend.DECODE_COUNT)(keys.BRANCH_HISTORY).foreach(Verilator.public(_))
 
     frontend.release()
     fetch.release()

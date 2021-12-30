@@ -2,7 +2,7 @@ package naxriscv.prediction
 
 import naxriscv.Fetch._
 import naxriscv.Global._
-import naxriscv.fetch.{AlignerPlugin, FetchConditionalPrediction, FetchPlugin, FetchWordPrediction}
+import naxriscv.fetch.{AlignerPlugin, FetchPlugin}
 import naxriscv.interfaces.JumpService
 import naxriscv.prediction.Prediction._
 import naxriscv.utilities.Plugin

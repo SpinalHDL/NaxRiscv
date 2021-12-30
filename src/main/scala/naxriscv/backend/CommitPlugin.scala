@@ -191,6 +191,9 @@ class CommitPlugin extends Plugin with CommitService{
       val commit = patch(cmt.event)
       val reschedule = patch(cmt.reschedulePort)
       val rescheduleReason = patch(rsd.reason)
+
+      Verilator.public(ptr.stage.isFireing)
+      Verilator.public(ptr.stage(ROB.ID))
     }
 
     getService[DocPlugin].property("COMMIT_COUNT", COMMIT_COUNT.get)

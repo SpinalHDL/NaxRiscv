@@ -12,6 +12,7 @@ import naxriscv.Frontend._
 import naxriscv.Fetch._
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.{AddressTranslationService, JumpService, LockedImpl}
+import naxriscv.prediction.FetchWordPrediction
 import naxriscv.utilities.{Plugin, Service}
 import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline.Stageable
@@ -19,11 +20,7 @@ import naxriscv.prediction.Prediction._
 
 import scala.collection.mutable
 
-trait FetchWordPrediction extends Service
-trait FetchConditionalPrediction extends Service{
-  def useHistoryAt : Int
-  def getPredictionAt(stageId : Int) : Seq[Bool]
-}
+
 
 class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements{
 

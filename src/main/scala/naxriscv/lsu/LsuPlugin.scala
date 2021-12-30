@@ -863,7 +863,7 @@ class LsuPlugin(lqSize: Int,
         }
 
         val completion = new Area{
-          val stage = stages.last
+          val stage = stages(3)
           import stage._
 
           setup.storeCompletion.valid := False

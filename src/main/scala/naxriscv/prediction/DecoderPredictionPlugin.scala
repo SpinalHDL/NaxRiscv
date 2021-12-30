@@ -4,7 +4,7 @@ import naxriscv.Fetch._
 import naxriscv.Frontend._
 import naxriscv.Global._
 import naxriscv.prediction.Prediction._
-import naxriscv.fetch.{AlignerPlugin, FetchConditionalPrediction, FetchPlugin, PcPlugin}
+import naxriscv.fetch.{AlignerPlugin, FetchPlugin, PcPlugin}
 import naxriscv.frontend.{DecoderPlugin, FrontendPlugin}
 import naxriscv.interfaces.{CommitService, JumpService, RobService}
 import naxriscv.riscv.{IMM, Rvi}
@@ -21,7 +21,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
                                pcAddAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                pcPredictionAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                applyAt : FrontendPlugin => Stage = _.pipeline.allocated,
-                               flushOnBranch : Boolean = false) extends Plugin{
+                               flushOnBranch : Boolean = false) extends Plugin with DecoderPrediction{
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     val fetch = getService[FetchPlugin]
@@ -167,7 +167,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
 
           PC_NEXT := CAN_IMPROVE ?  U(PC_PREDICTION) otherwise ALIGNED_BRANCH_PC_NEXT
           MISSMATCH_PC := !ALIGNED_BRANCH_VALID && BRANCHED_PREDICTION || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
-          val historyPushed = BRANCH_HISTORY_PUSH_VALID && BRANCH_HISTORY_PUSH_SLICE === LAST_SLICE
+          //val historyPushed = BRANCH_HISTORY_PUSH_VALID && BRANCH_HISTORY_PUSH_SLICE === LAST_SLICE
           MISSMATCH_HISTORY := False //historyPushed =/= IS_BRANCH || IS_BRANCH && BRANCH_HISTORY_PUSH_VALUE =/= CONDITIONAL_PREDICTION
           //MISSMATCH_HISTORY Will improve the branch hit rate, but will also reduce the fetch bandwidth in cases it wasn't realy necessary
 

@@ -5,6 +5,7 @@ import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.Fetch._
 import naxriscv.interfaces.{AddressTranslationService, DecoderService, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, Resource, RfRead, RfResource, RobService, SingleDecoding}
+import naxriscv.prediction.DecoderPrediction
 import naxriscv.riscv.Const
 import spinal.lib.pipeline.Connection.{DIRECT, M2S}
 import spinal.lib.pipeline._
@@ -173,6 +174,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
         s := encodings.resourceToSpec(r).build(INSTRUCTION_DECOMPRESSED, encodings.all)
       }
       DECODED_MASK := MASK_ALIGNED
+      if(!isServiceAvailable[DecoderPrediction]) DISPATCH_MASK := DECODED_MASK
 
       MICRO_OP := INSTRUCTION_DECOMPRESSED
       terminal(INSTRUCTION_DECOMPRESSED, i)
