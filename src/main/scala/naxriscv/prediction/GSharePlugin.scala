@@ -15,7 +15,7 @@ import spinal.lib.pipeline.Stageable
 class GSharePlugin(historyWidth : Int,
                    entries : Int = 0,
                    memBytes : BigInt = null,
-                   readAt : Int = 1,
+                   readAt : Int = 0,
                    counterWidth : Int = 2,
                    readAsync : Boolean = false) extends Plugin with FetchConditionalPrediction with HistoryUser{
 

@@ -13,6 +13,7 @@ import spinal.lib.pipeline.Stageable
 class BtbPlugin(entries : Int,
                 hashWidth : Int = 16,
                 readAt : Int = 0,
+                hitAt : Int = 1,
                 jumpAt : Int = 2) extends Plugin with FetchWordPrediction{
 
   val setup = create early new Area{
@@ -52,6 +53,7 @@ class BtbPlugin(entries : Int,
     }
 
     val ENTRY = Stageable(BtbEntry())
+    val HIT = Stageable(Bool())
     val mem = Mem.fill(entries)(BtbEntry()) //TODO bypass read durring write ?
 
     val onLearn = new Area{
@@ -77,6 +79,15 @@ class BtbPlugin(entries : Int,
       import stage._
       stage(ENTRY) := mem.readSync(readCmd.entryAddress, readCmd.stage.isReady)
     }
+
+    val hitCalc = new Area{
+      val stage = fetch.getStage(hitAt)
+      import stage._
+
+      val postPcPrediction = FETCH_PC(SLICE_RANGE) > ENTRY.slice
+      HIT := ENTRY.hash === getHash(FETCH_PC) && !postPcPrediction
+    }
+
     val applyIt = new Area{
       val stage = fetch.getStage(jumpAt)
       import stage._
@@ -86,9 +97,7 @@ class BtbPlugin(entries : Int,
         case None => True
       }
 
-      val postPcPrediction = FETCH_PC(SLICE_RANGE) > ENTRY.slice
-      val hit = isValid && ENTRY.hash === getHash(FETCH_PC) && !postPcPrediction
-      val needIt = hit && !(ENTRY.isBranch && !prediction)
+      val needIt = isValid && HIT && !(ENTRY.isBranch && !prediction)
       val correctionSent = RegInit(False) setWhen(isValid) clearWhen(isReady || isFlushed)
       val doIt = needIt && !correctionSent
 
@@ -101,7 +110,7 @@ class BtbPlugin(entries : Int,
       WORD_BRANCH_SLICE := ENTRY.slice
       WORD_BRANCH_PC_NEXT := ENTRY.pcTarget
 
-      setup.historyPush.flush    := hit && ENTRY.isBranch && !correctionSent
+      setup.historyPush.flush    := isValid && HIT && ENTRY.isBranch && !correctionSent
       setup.historyPush.mask(0)  := setup.historyPush.flush
       setup.historyPush.taken(0) := prediction
 

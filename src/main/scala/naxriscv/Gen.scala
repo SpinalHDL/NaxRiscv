@@ -82,6 +82,7 @@ object Config{
 //      entries = 8192*8,
       entries = 512,
       readAt = 0,
+      hitAt = 1,
       jumpAt = 2
     )
     plugins += new GSharePlugin(
