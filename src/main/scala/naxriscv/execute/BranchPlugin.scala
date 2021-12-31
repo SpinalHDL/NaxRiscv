@@ -107,10 +107,10 @@ class BranchPlugin(euId : String,
     val branch = new ExecuteArea(branchAt){
       import stage._
 
-      val misspredicted = if(setup.withBranchContext)
-        BRANCH_EARLY.pcNext =/= stage(PC, "TARGET")
-      else
-        CombInit(stage(COND))
+      //TODO pipeline badEarly
+      val badEarlyTarget = if(setup.withBranchContext) BRANCH_EARLY.pc    =/= stage(PC, "TRUE") else False
+      val badEarlyTaken  = if(setup.withBranchContext) BRANCH_EARLY.taken =/= COND              else CombInit(stage(COND))
+      val misspredicted = badEarlyTaken || COND && badEarlyTarget
 
       def target = if(setup.withBranchContext)  stage(PC, "TARGET") else stage(PC, "TRUE")
 

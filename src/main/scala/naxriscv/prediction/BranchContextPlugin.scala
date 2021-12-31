@@ -14,7 +14,8 @@ import scala.collection.mutable
 
 
 case class BranchEarlyContext(pcWidth : Int) extends Bundle{
-  val pcNext = UInt(pcWidth bits)
+  val taken = Bool()
+  val pc = UInt(pcWidth bits)
 }
 
 

@@ -19,21 +19,21 @@ object Config{
   def properties() = {
     NaxDataBase.create()
 
-    Fetch.RVC.set(true)
-    Fetch.FETCH_DATA_WIDTH.set(64)
-    Fetch.INSTRUCTION_WIDTH.set(32)
-    Frontend.DECODE_COUNT.set(2)
-    Global.COMMIT_COUNT.set(2)
-    ROB.SIZE.set(64)
-    Global.XLEN.set(32)
-
 //    Fetch.RVC.set(true)
-//    Fetch.FETCH_DATA_WIDTH.set(32)
+//    Fetch.FETCH_DATA_WIDTH.set(64)
 //    Fetch.INSTRUCTION_WIDTH.set(32)
-//    Frontend.DECODE_COUNT.set(1)
-//    Global.COMMIT_COUNT.set(1)
-//    ROB.SIZE.set(64)
+//    Frontend.DECODE_COUNT.set(2)
+//    Global.COMMIT_COUNT.set(2)
 //    Global.XLEN.set(32)
+//    ROB.SIZE.set(64)
+
+    Fetch.RVC.set(true)
+    Fetch.FETCH_DATA_WIDTH.set(32)
+    Fetch.INSTRUCTION_WIDTH.set(32)
+    Frontend.DECODE_COUNT.set(1)
+    Global.COMMIT_COUNT.set(1)
+    Global.XLEN.set(32)
+    ROB.SIZE.set(64)
   }
 
   def plugins(): Seq[Plugin] ={
@@ -89,8 +89,7 @@ object Config{
 //      entries = 1 << 24,
       memBytes = 4 KiB,
       historyWidth = 24,  //24 => 31979 / 32601 / 35356 / 1w => 49389 2w => 53474
-      readAt = 0,
-      readAsync = false
+      readAt = 0
     )
 
     //LOAD / STORE

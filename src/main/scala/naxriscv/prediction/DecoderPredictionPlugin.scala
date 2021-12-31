@@ -131,6 +131,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
             True -> imm.j_sext
           )
 
+
           val rdLink  = List(1,5).map(decoder.ARCH_RD === _).orR
           val rs1Link = List(1,5).map(decoder.ARCH_RS(0) === _).orR
           val rdEquRs1 = decoder.ARCH_RD === decoder.ARCH_RS(0)
@@ -156,7 +157,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
 
           PC_TARGET := PC_TARGET_PRE_RAS
           when(IS_JALR){ PC_TARGET := S(ras.read) }
-          CAN_IMPROVE := !IS_JALR || RAS_POP
+          CAN_IMPROVE := !IS_JALR// || RAS_POP //TODO
           BRANCHED_PREDICTION := IS_BRANCH && CONDITIONAL_PREDICTION || IS_JAL || IS_JALR
           PC_PREDICTION := BRANCHED_PREDICTION ? stage(PC_TARGET, slotId) otherwise PC_INC
         }
@@ -165,8 +166,9 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
           val stage = applyStage
           import applyStage._
 
+          val badTaken = IS_ANY ? (BRANCHED_PREDICTION =/= ALIGNED_BRANCH_VALID) otherwise ALIGNED_BRANCH_VALID
           PC_NEXT := CAN_IMPROVE ?  U(PC_PREDICTION) otherwise ALIGNED_BRANCH_PC_NEXT
-          MISSMATCH_PC := !ALIGNED_BRANCH_VALID && BRANCHED_PREDICTION || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
+          MISSMATCH_PC := badTaken   // ALIGNED_BRANCH_VALID =/= BRANCHED_PREDICTION // || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
           //val historyPushed = BRANCH_HISTORY_PUSH_VALID && BRANCH_HISTORY_PUSH_SLICE === LAST_SLICE
           MISSMATCH_HISTORY := False //historyPushed =/= IS_BRANCH || IS_BRANCH && BRANCH_HISTORY_PUSH_VALUE =/= CONDITIONAL_PREDICTION
           //MISSMATCH_HISTORY Will improve the branch hit rate, but will also reduce the fetch bandwidth in cases it wasn't realy necessary
@@ -175,8 +177,9 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
           NEED_CORRECTION := DECODED_MASK && CAN_IMPROVE && MISSMATCH
           if(flushOnBranch) MISSMATCH setWhen(IS_BRANCH)
 
-          branchContext.keys.BRANCH_SEL := IS_ANY
-          branchContext.keys.BRANCH_EARLY.pcNext := PC_NEXT
+          branchContext.keys.BRANCH_SEL         := IS_ANY
+          branchContext.keys.BRANCH_EARLY.taken := (CAN_IMPROVE ? stage(BRANCHED_PREDICTION, slotId) otherwise stage(ALIGNED_BRANCH_VALID, slotId))  //CAN_IMPROVE && MISSMATCH && BRANCHED_PREDICTION
+          branchContext.keys.BRANCH_EARLY.pc    := PC_NEXT
 
           when(DISPATCH_MASK && RAS_PUSH) { //WARNING use resulting DISPATCH_MASK ! (if one day things are moved around)
             when(!rasPushUsed){
