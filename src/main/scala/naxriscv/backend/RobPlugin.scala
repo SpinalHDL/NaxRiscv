@@ -6,7 +6,7 @@ import naxriscv.Frontend._
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.{RobCompletion, RobLineMask, RobService}
 import naxriscv.utilities.{DocPlugin, Plugin}
-import spinal.core._
+import spinal.core.{log2Up, _}
 import spinal.core.fiber.Lock
 import spinal.lib._
 import spinal.lib.pipeline.Stageable
@@ -14,7 +14,7 @@ import spinal.lib.pipeline.Stageable
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-class RobPlugin() extends Plugin with RobService{
+class RobPlugin(completionWithReg : Boolean = false) extends Plugin with RobService{
 
 //  override val ROB_DEPENDENCY = Stageable(UInt(robDepth bits))
 //  override def robDepth = depth
@@ -53,24 +53,54 @@ class RobPlugin() extends Plugin with RobService{
 
   val logic = create late new Area{
     lock.await()
+    val frontend = getService[FrontendPlugin]
 
-    val lineCount = ROB.SIZE/ROB.COLS
-    val valids = Reg(Bits(ROB.SIZE bits)) init(0) //TODO this maybe optimized using distributed ram, also this may improve the commit stage path
-    for(p <- robLineMaskPort){
-      p.mask := valids.subdivideIn(ROB.COLS bits).read(p.line(ROB.lineRange))
-    }
-    for(c <- completions){
-      when(c.bus.valid){
-        valids(c.bus.id) := True
+    val completionReg = completionWithReg generate new Area {
+      val valids = Reg(Bits(ROB.SIZE bits)) init (0) //TODO this maybe optimized using distributed ram, also this may improve the commit stage path
+      for (p <- robLineMaskPort) {
+        p.mask := valids.subdivideIn(ROB.COLS bits).read(p.line(ROB.lineRange))
+      }
+      for (c <- completions) {
+        when(c.bus.valid) {
+          valids(c.bus.id) := True
+        }
+      }
+
+      when(frontend.pipeline.allocated.isFireing) {
+        valids.subdivideIn(ROB.COLS bits).write(frontend.pipeline.allocated(ROB.ID) >> log2Up(ROB.COLS), B(0, ROB.COLS bits))
       }
     }
 
-    val frontend = getService[FrontendPlugin]
-    when(frontend.pipeline.allocated.isFireing){
-      valids.subdivideIn(ROB.COLS bits).write(frontend.pipeline.allocated(ROB.ID) >> log2Up(ROB.COLS), B(0, ROB.COLS bits))
+    val completionMem = !completionWithReg generate new Area {
+      assert(ROB.COLS == DISPATCH_COUNT)
+      val target = Mem.fill(ROB.LINES)(Bits(ROB.COLS bits))
+      val hits   = List.fill(completions.size)(Mem.fill(ROB.SIZE)(Bool()))
+
+
+      val targetWrite = target.writePort
+      targetWrite.valid := frontend.pipeline.allocated.isFireing
+      targetWrite.address := (frontend.pipeline.allocated(ROB.ID) >> log2Up(ROB.COLS))
+      val init = for(slotId <- 0 until DISPATCH_COUNT) yield new Area{
+        val robId = (frontend.pipeline.allocated(ROB.ID) >> log2Up(ROB.COLS)) @@ U(slotId, log2Up(ROB.COLS)  bits)
+        targetWrite.data(slotId) := hits.map(_.readAsync(robId)).xorR
+      }
+
+      for ((c, id) <- completions.zipWithIndex) {
+        when(c.bus.valid) {
+          hits(id).write(c.bus.id, !hits(id).readAsync(c.bus.id))
+        }
+      }
+
+
+      val reads = for (p <- robLineMaskPort) yield new Area{
+        val targetRead = target.readAsyncPort
+        targetRead.address := p.line >> log2Up(ROB.COLS)
+        for(slotId <- 0 until ROB.COLS) yield new Area {
+          val robId = (p.line >> log2Up(ROB.COLS)) @@ U(slotId, log2Up(ROB.COLS) bits)
+          p.mask(slotId) := hits.map(_.readAsync(robId)).xorR =/= targetRead.data(slotId)
+        }
+      }
     }
-
-
 
     val storage = new Area{
       val keys = mutable.LinkedHashSet[Stageable[Data]]()

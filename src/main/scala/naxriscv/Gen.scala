@@ -116,7 +116,9 @@ object Config{
     )
 
     //MISC
-    plugins += new RobPlugin()
+    plugins += new RobPlugin(
+      completionWithReg = false
+    )
     plugins += new CommitPlugin()
     plugins += new RegFilePlugin(
       spec = riscv.IntRegFile,
