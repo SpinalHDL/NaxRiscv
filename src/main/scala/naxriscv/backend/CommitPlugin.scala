@@ -12,7 +12,7 @@ import naxriscv.frontend.FrontendPlugin
 import scala.collection.mutable.ArrayBuffer
 import naxriscv.Global._
 
-class CommitPlugin extends Plugin with CommitService{
+class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with CommitService{
   override def onCommit() : CommitEvent = logic.commit.event
 //  override def onCommitLine() =  logic.commit.lineEvent
 
@@ -25,7 +25,7 @@ class CommitPlugin extends Plugin with CommitService{
   val setup = create early new Area{
     val jump = getService[JumpService].createJumpInterface(JumpService.Priorities.COMMIT_RESCHEDULE) //Flush missing
     val rob = getService[RobService]
-    val robLineMask = rob.newRobLineValids()
+    val robLineMask = rob.newRobLineValids(bypass = ptrCommitRetimed)
     rob.retain()
   }
 
@@ -38,8 +38,22 @@ class CommitPlugin extends Plugin with CommitService{
       val empty = alloc === commit
       val canFree = free =/= commit
       val commitRow = commit >> log2Up(ROB.COLS)
+      val commitNext = CombInit(commit)
+      commit := commitNext
 
-      setup.robLineMask.line := commit.resized
+      val robLineMaskRsp = Bits(ROB.COLS bits)
+      ptrCommitRetimed match {
+        case false => {
+          setup.robLineMask.line := commit.resized
+          robLineMaskRsp := setup.robLineMask.mask
+        }
+        case true => {
+          setup.robLineMask.line := commitNext.resized
+          robLineMaskRsp.setAsReg()
+          robLineMaskRsp := setup.robLineMask.mask
+        }
+      }
+
 
       //Manage frontend ROB id allocation
       val frontend = getService[FrontendPlugin]
@@ -130,7 +144,7 @@ class CommitPlugin extends Plugin with CommitService{
         for (colId <- 0 until ROB.COLS) new Area{
           setName(s"CommitPlugin_commit_slot_$colId")
           val enable = mask(colId) && active(colId)
-          val hold = !setup.robLineMask.mask(colId)
+          val hold = !ptr.robLineMaskRsp(colId)
           val rescheduleHitSlot = reschedule.commit.rowHit && reschedule.commit.col === colId
 
           when(enable){
@@ -154,10 +168,10 @@ class CommitPlugin extends Plugin with CommitService{
         }
 
         when(lineCommited){
-          ptr.commit := ptr.commit + ROB.COLS
+          ptr.commitNext := ptr.commit + ROB.COLS
         }
         when(setup.jump.valid){
-          ptr.commit := ptr.allocNext
+          ptr.commitNext := ptr.allocNext
           head := ptr.allocNext.resized
         }
       }

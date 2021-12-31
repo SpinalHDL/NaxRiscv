@@ -23,7 +23,7 @@ class RobPlugin(completionWithReg : Boolean = false) extends Plugin with RobServ
 
   val robLineMaskPort = ArrayBuffer[RobLineMask]()
 
-  override def newRobLineValids() = { val e = RobLineMask(); robLineMaskPort += e; e }
+  override def newRobLineValids(bypass : Boolean) = { val e = RobLineMask(bypass); robLineMaskPort += e; e }
   override def newRobCompletion() = { val c = Completion(Flow(RobCompletion())); completions += c; c.bus }
 
   case class Write(key: Stageable[Data], size : Int, value: Seq[Data], robId: UInt, enable: Bool)
@@ -91,13 +91,22 @@ class RobPlugin(completionWithReg : Boolean = false) extends Plugin with RobServ
         }
       }
 
-
       val reads = for (p <- robLineMaskPort) yield new Area{
         val targetRead = target.readAsyncPort
         targetRead.address := p.line >> log2Up(ROB.COLS)
         for(slotId <- 0 until ROB.COLS) yield new Area {
           val robId = (p.line >> log2Up(ROB.COLS)) @@ U(slotId, log2Up(ROB.COLS) bits)
           p.mask(slotId) := hits.map(_.readAsync(robId)).xorR =/= targetRead.data(slotId)
+          if(p.bypass){
+            for ((c, id) <- completions.zipWithIndex) {
+              when(c.bus.valid && c.bus.id === robId) {
+                p.mask(slotId) := True
+              }
+            }
+          }
+        }
+        if(p.bypass) when(frontend.pipeline.allocated.isFireing && frontend.pipeline.allocated(ROB.ID) === p.line){
+          p.mask.clearAll()
         }
       }
     }

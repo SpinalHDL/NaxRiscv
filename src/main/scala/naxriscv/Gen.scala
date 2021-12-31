@@ -119,7 +119,9 @@ object Config{
     plugins += new RobPlugin(
       completionWithReg = false
     )
-    plugins += new CommitPlugin()
+    plugins += new CommitPlugin(
+      ptrCommitRetimed = true
+    )
     plugins += new RegFilePlugin(
       spec = riscv.IntRegFile,
       physicalDepth = 64,

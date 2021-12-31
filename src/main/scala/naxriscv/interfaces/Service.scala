@@ -67,7 +67,7 @@ trait DecoderService extends Service with LockedService {
 
 trait RobService extends Service{
   def newRobCompletion() : Flow[RobCompletion]
-  def newRobLineValids() : RobLineMask
+  def newRobLineValids(bypass : Boolean) : RobLineMask
 
   def write[T <: Data](key: Stageable[T], size : Int, value : Seq[T], robId : UInt, enable : Bool) : Unit //robid need to be aligned on value size
   def readAsync[T <: Data](key: Stageable[T], size : Int, robId: UInt, skipFactor: Int = 1, skipOffset: Int = 0) : Vec[T]
@@ -81,7 +81,7 @@ trait RobService extends Service{
 }
 
 
-case class RobLineMask() extends Bundle{
+case class RobLineMask(bypass : Boolean) extends Bundle{
   val line = ROB.ID()
   val mask = Bits(ROB.COLS bits)
 }
