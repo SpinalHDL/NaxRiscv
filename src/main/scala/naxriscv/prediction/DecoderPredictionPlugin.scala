@@ -68,6 +68,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
       val OFFSET = Stageable(SInt(32 bits))
       val CONDITIONAL_PREDICTION = Stageable(Bool())
       val LAST_SLICE = Stageable(UInt(log2Up(SLICE_COUNT) bits))
+      val BAD_RET_PC = Stageable(Bool())
     }
     import k._
 
@@ -131,7 +132,6 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
             True -> imm.j_sext
           )
 
-
           val rdLink  = List(1,5).map(decoder.ARCH_RD === _).orR
           val rs1Link = List(1,5).map(decoder.ARCH_RS(0) === _).orR
           val rdEquRs1 = decoder.ARCH_RD === decoder.ARCH_RS(0)
@@ -155,9 +155,10 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
           val stage = pcPredictionStage
 
 
+          BAD_RET_PC := RAS_POP && ras.read =/= ALIGNED_BRANCH_PC_NEXT
           PC_TARGET := PC_TARGET_PRE_RAS
           when(IS_JALR){ PC_TARGET := S(ras.read) }
-          CAN_IMPROVE := !IS_JALR// || RAS_POP //TODO
+          CAN_IMPROVE := !IS_JALR || RAS_POP 
           BRANCHED_PREDICTION := IS_BRANCH && CONDITIONAL_PREDICTION || IS_JAL || IS_JALR
           PC_PREDICTION := BRANCHED_PREDICTION ? stage(PC_TARGET, slotId) otherwise PC_INC
         }
@@ -168,7 +169,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
 
           val badTaken = IS_ANY ? (BRANCHED_PREDICTION =/= ALIGNED_BRANCH_VALID) otherwise ALIGNED_BRANCH_VALID
           PC_NEXT := CAN_IMPROVE ?  U(PC_PREDICTION) otherwise ALIGNED_BRANCH_PC_NEXT
-          MISSMATCH_PC := badTaken   // ALIGNED_BRANCH_VALID =/= BRANCHED_PREDICTION // || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
+          MISSMATCH_PC := badTaken || BAD_RET_PC   // ALIGNED_BRANCH_VALID =/= BRANCHED_PREDICTION // || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
           //val historyPushed = BRANCH_HISTORY_PUSH_VALID && BRANCH_HISTORY_PUSH_SLICE === LAST_SLICE
           MISSMATCH_HISTORY := False //historyPushed =/= IS_BRANCH || IS_BRANCH && BRANCH_HISTORY_PUSH_VALUE =/= CONDITIONAL_PREDICTION
           //MISSMATCH_HISTORY Will improve the branch hit rate, but will also reduce the fetch bandwidth in cases it wasn't realy necessary
