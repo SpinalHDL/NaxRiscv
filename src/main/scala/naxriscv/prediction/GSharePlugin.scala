@@ -81,6 +81,7 @@ class GSharePlugin(historyWidth : Int,
         case true  => mem.readAsync(address)
       }
       stage(keys.GSHARE_COUNTER) := readMem(mem.counter)
+      KeepAttribute(stage(keys.GSHARE_COUNTER))
     }
 
     val onDecompressed = new Area{

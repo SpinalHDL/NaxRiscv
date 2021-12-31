@@ -118,6 +118,7 @@ class FetchCachePlugin(val cacheSize : Int,
         val cmd = Flow(mem.addressType)
         val rsp = mem.readSync(cmd.payload, cmd.valid)
         setup.pipeline.getStage(readAt+1)(BANKS_WORDS)(id) := rsp
+        KeepAttribute(rsp)
       }
     }
     val waysWrite = new Area{
@@ -136,6 +137,7 @@ class FetchCachePlugin(val cacheSize : Int,
         val cmd = Flow(mem.addressType)
         val rsp = mem.readSync(cmd.payload, cmd.valid)
         setup.pipeline.getStage(readAt+1)(WAYS_TAGS)(id) := rsp
+        KeepAttribute(rsp)
       }
     }
 

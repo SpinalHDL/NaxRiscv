@@ -31,7 +31,8 @@ case class BranchLearn(pcWidth : Int, branchCount : Int) extends Bundle{
 }
 
 
-class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl {
+class BranchContextPlugin(val branchCount : Int,
+                          val pessimisticFull : Boolean = true) extends Plugin with LockedImpl {
   assert(isPow2(branchCount))
 
   def readEarly(address : UInt) = logic.mem.earlyBranch.readAsync(address)
@@ -68,6 +69,7 @@ class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl 
     val ptr = new Area{
       val alloc, commited, free = Reg(UInt(log2Up(branchCount) + 1 bits)) init(0)
       def isFull(ptr : UInt) = (ptr ^ free) === branchCount
+      val occupancy = alloc - free
     }
 
     val mem = new Area{
@@ -85,7 +87,7 @@ class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl 
         implicit val _ = StageableOffset(slotId)
         BRANCH_ID := allocNext.resized
         when(isValid && BRANCH_SEL && DISPATCH_MASK){
-          full setWhen(ptr.isFull(allocNext))
+          if(!pessimisticFull) full setWhen(ptr.isFull(allocNext))
           allocNext \= allocNext + 1
           when(isReady){
             mem.earlyBranch.write(
@@ -96,6 +98,8 @@ class BranchContextPlugin(val branchCount : Int) extends Plugin with LockedImpl 
         }
       }
 
+
+      if(pessimisticFull) full.setWhen(ptr.occupancy > branchCount - DISPATCH_COUNT) //Pessimistic but good for timings
       haltIt(full) //This could be optimized easily for timings, but that's maybe already ok
       when(isFireing) {
         ptr.alloc := allocNext

@@ -52,7 +52,6 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
       val PC_TARGET_PRE_RAS = Stageable(SInt(PC_WIDTH bits))
       val PC_TARGET = Stageable(SInt(PC_WIDTH bits))
       val PC_PREDICTION = Stageable(SInt(PC_WIDTH bits))
-      val PC_NEXT = Stageable(UInt(PC_WIDTH bits))
       val MISSMATCH_PC = Stageable(Bool())
       val MISSMATCH_HISTORY = Stageable(Bool())
       val MISSMATCH = Stageable(Bool())
@@ -154,21 +153,20 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
           import pcPredictionStage._
           val stage = pcPredictionStage
 
-
           BAD_RET_PC := RAS_POP && ras.read =/= ALIGNED_BRANCH_PC_NEXT
-          PC_TARGET := PC_TARGET_PRE_RAS
-          when(IS_JALR){ PC_TARGET := S(ras.read) }
-          CAN_IMPROVE := !IS_JALR || RAS_POP 
+          CAN_IMPROVE := !IS_JALR || RAS_POP
           BRANCHED_PREDICTION := IS_BRANCH && CONDITIONAL_PREDICTION || IS_JAL || IS_JALR
-          PC_PREDICTION := BRANCHED_PREDICTION ? stage(PC_TARGET, slotId) otherwise PC_INC
         }
 
         val applyIt = new Area{
           val stage = applyStage
           import applyStage._
 
+          PC_TARGET := PC_TARGET_PRE_RAS
+          when(IS_JALR){ PC_TARGET := S(ras.read) }
+          PC_PREDICTION := BRANCHED_PREDICTION ? stage(PC_TARGET, slotId) otherwise PC_INC
+
           val badTaken = IS_ANY ? (BRANCHED_PREDICTION =/= ALIGNED_BRANCH_VALID) otherwise ALIGNED_BRANCH_VALID
-          PC_NEXT := CAN_IMPROVE ?  U(PC_PREDICTION) otherwise ALIGNED_BRANCH_PC_NEXT
           MISSMATCH_PC := badTaken || BAD_RET_PC   // ALIGNED_BRANCH_VALID =/= BRANCHED_PREDICTION // || ALIGNED_BRANCH_VALID && ALIGNED_BRANCH_PC_NEXT =/= U(PC_PREDICTION)
           //val historyPushed = BRANCH_HISTORY_PUSH_VALID && BRANCH_HISTORY_PUSH_SLICE === LAST_SLICE
           MISSMATCH_HISTORY := False //historyPushed =/= IS_BRANCH || IS_BRANCH && BRANCH_HISTORY_PUSH_VALUE =/= CONDITIONAL_PREDICTION
@@ -179,8 +177,13 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
           if(flushOnBranch) MISSMATCH setWhen(IS_BRANCH)
 
           branchContext.keys.BRANCH_SEL         := IS_ANY
-          branchContext.keys.BRANCH_EARLY.taken := (CAN_IMPROVE ? stage(BRANCHED_PREDICTION, slotId) otherwise stage(ALIGNED_BRANCH_VALID, slotId))  //CAN_IMPROVE && MISSMATCH && BRANCHED_PREDICTION
-          branchContext.keys.BRANCH_EARLY.pc    := PC_NEXT
+          when(CAN_IMPROVE){
+            branchContext.keys.BRANCH_EARLY.taken := BRANCHED_PREDICTION
+            branchContext.keys.BRANCH_EARLY.pc    := U(PC_TARGET)
+          } otherwise {
+            branchContext.keys.BRANCH_EARLY.taken := ALIGNED_BRANCH_VALID
+            branchContext.keys.BRANCH_EARLY.pc    := ALIGNED_BRANCH_PC_NEXT
+          }
 
           when(DISPATCH_MASK && RAS_PUSH) { //WARNING use resulting DISPATCH_MASK ! (if one day things are moved around)
             when(!rasPushUsed){

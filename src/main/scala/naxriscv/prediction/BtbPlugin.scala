@@ -78,6 +78,7 @@ class BtbPlugin(entries : Int,
       val stage = fetch.getStage(readAt+1)
       import stage._
       stage(ENTRY) := mem.readSync(readCmd.entryAddress, readCmd.stage.isReady)
+      KeepAttribute(stage(ENTRY))
     }
 
     val hitCalc = new Area{

@@ -253,6 +253,7 @@ class DataCache(val cacheSize: Int,
       val usedByWriteBack = False
       val cmd = Flow(mem.addressType)
       val rsp = mem.readSync(cmd.payload, cmd.valid)
+      KeepAttribute(rsp)
 
       cmd.setIdle() //TODO revert it !
     }
@@ -279,10 +280,12 @@ class DataCache(val cacheSize: Int,
     val loadRead = new Area{
       val cmd = Flow(mem.addressType)
       val rsp = mem.readSync(cmd.payload, cmd.valid)
+      KeepAttribute(rsp)
     }
     val storeRead = new Area{
       val cmd = Flow(mem.addressType)
       val rsp = mem.readSync(cmd.payload, cmd.valid)
+      KeepAttribute(rsp)
     }
   }
 
@@ -293,10 +296,12 @@ class DataCache(val cacheSize: Int,
     val loadRead = new Area{
       val cmd = Flow(mem.addressType)
       val rsp = mem.readSync(cmd.payload, cmd.valid)
+      KeepAttribute(rsp)
     }
     val storeRead = new Area{
       val cmd = Flow(mem.addressType)
       val rsp = mem.readSync(cmd.payload, cmd.valid)
+      KeepAttribute(rsp)
     }
     val writeLast = write.stage()
 //    def bypass(status : Vec[Status], address : UInt) : Vec[Status] = {

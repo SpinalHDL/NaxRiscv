@@ -123,7 +123,7 @@ class CommitPlugin extends Plugin with CommitService{
       head := (ptr.commit + OHToUInt(OHMasking.first(active & mask))).resized
 
       setup.jump.valid := rescheduleHit
-      setup.jump.pc := reschedule.pcTarget //TODO another target for trap
+      setup.jump.pc    := reschedule.pcTarget //TODO another target for trap
       reschedule.valid clearWhen(rescheduleHit)
 
       when(!ptr.empty) {
