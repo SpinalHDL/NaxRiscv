@@ -355,3 +355,33 @@ trait AddressTranslationService extends Service with LockedImpl {
   def wakes : Bits
   def withTranslation : Boolean
 }
+
+class CsrSpec(val csrFilter : Any){
+  csrFilter match {
+    case _ : Int =>
+    case _ : Range =>
+  }
+}
+case class CsrOnRead (override val csrFilter : Any, onlyOnFire : Boolean, body : () => Unit) extends CsrSpec(csrFilter)
+case class CsrOnWrite(override val csrFilter : Any, onlyOnFire : Boolean, body : () => Unit) extends CsrSpec(csrFilter)
+case class CsrOnReadData (override val csrFilter : Any, bitOffset : Int, value : Data) extends CsrSpec(csrFilter)
+
+trait CsrService extends Service with LockedImpl{
+  val spec = ArrayBuffer[CsrSpec]()
+  def onRead (csrFilter : Any, onlyOnFire : Boolean)(body : => Unit) = spec += CsrOnRead(csrFilter, onlyOnFire, () => body)
+  def onWrite(csrFilter : Any, onlyOnFire : Boolean)(body : => Unit) = spec += CsrOnWrite(csrFilter, onlyOnFire, () => body)
+  def onReadHalt() : Unit
+  def onWriteHalt() : Unit
+  def onWriteBits : Bits
+
+  def read[T <: Data](value : T, csrFilter : Any, bitOffset : Int) : Unit = {
+    spec += CsrOnReadData(csrFilter, bitOffset, value)
+  }
+  def write[T <: Data](value : T, csrId : Int, bitOffset : Int) : Unit = {
+    onWrite(csrId, true){ value.assignFromBits(onWriteBits(bitOffset, widthOf(value) bits)) }
+  }
+  def readWrite[T <: Data](value : T, csrId : Int, bitOffset : Int) : Unit = {
+    read(value, csrId, bitOffset)
+    write(value, csrId, bitOffset)
+  }
+}
