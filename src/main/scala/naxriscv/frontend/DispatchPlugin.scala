@@ -70,7 +70,7 @@ class DispatchPlugin(slotCount : Int = 0,
 
         val trueTerms = perLatency(latency).map(op => Masked(op.key))
         val falseTerms = allTerms -- trueTerms
-        val stage = frontend.pipeline.decoded
+        val stage = frontend.pipeline.dispatch
         for(slotId <- 0 until DISPATCH_COUNT) {
           stage(key, slotId) := Symplify.apply(stage(MICRO_OP, slotId), trueTerms, falseTerms)
         }
