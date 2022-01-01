@@ -97,15 +97,21 @@ class RobPlugin(completionWithReg : Boolean = false) extends Plugin with RobServ
         for(slotId <- 0 until ROB.COLS) yield new Area {
           val robId = (p.line >> log2Up(ROB.COLS)) @@ U(slotId, log2Up(ROB.COLS) bits)
           p.mask(slotId) := hits.map(_.readAsync(robId)).xorR =/= targetRead.data(slotId)
-          if(p.bypass){
-            for ((c, id) <- completions.zipWithIndex) {
-              when(c.bus.valid && c.bus.id === robId) {
-                p.mask(slotId) := True
-              }
+        }
+      }
+    }
+
+    val bypasses = new Area {
+      for (p <- robLineMaskPort if p.bypass) {
+        for (slotId <- 0 until ROB.COLS) yield new Area {
+          val robId = (p.line >> log2Up(ROB.COLS)) @@ U(slotId, log2Up(ROB.COLS) bits)
+          for ((c, id) <- completions.zipWithIndex) {
+            when(c.bus.valid && c.bus.id === robId) {
+              p.mask(slotId) := True
             }
           }
         }
-        if(p.bypass) when(frontend.pipeline.allocated.isFireing && frontend.pipeline.allocated(ROB.ID) === p.line){
+        when(frontend.pipeline.allocated.isFireing && frontend.pipeline.allocated(ROB.ID) === p.line) {
           p.mask.clearAll()
         }
       }
