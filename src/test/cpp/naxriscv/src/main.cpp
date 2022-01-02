@@ -466,11 +466,15 @@ public:
     IData pc;
     bool integerWriteValid;
     RvData integerWriteData;
+    bool csrWriteValid;
+    RvData csrWriteAddress;
+    RvData csrWriteData;
     IData branchHistory;
     int opId;
 
     void clear(){
         integerWriteValid = false;
+        csrWriteValid = false;
     }
 };
 
@@ -720,6 +724,13 @@ public:
             assertTrue("???", opCtx[opId].sqAllocated);
             opCtx[opId].storeAt = main_time;
             if(gem5Enable) trace(opId);
+        }
+        if(nax->csrWrite_valid){
+            auto robId = nax->csrWrite_payload_robId;
+//                printf("RF write rob=%d %d at %ld\n", robId, *integer_write_data[i], main_time);
+            robCtx[robId].csrWriteValid = true;
+            robCtx[robId].csrWriteAddress = nax->csrWrite_payload_address;
+            robCtx[robId].csrWriteData = nax->csrWrite_payload_data;
         }
 
 //        if(nax->FrontendPlugin_allocated_isFireing){
@@ -1109,14 +1120,19 @@ int main(int argc, char** argv, char** env){
 
                             int rd = item.first >> 4;
                             switch (item.first & 0xf) {
-                            case 0: //integer
+                            case 0: { //integer
                                 assertTrue("INTEGER WRITE MISSING", whitebox.robCtx[robId].integerWriteValid);
                                 assertEq("INTEGER WRITE DATA", whitebox.robCtx[robId].integerWriteData, item.second.v[0]);
-                              break;
-                            default:
+                            } break;
+                            case 4:{ //CSR
+                                assertTrue("CSR WRITE MISSING", whitebox.robCtx[robId].csrWriteValid);
+                                assertEq("CSR WRITE ADDRESS", whitebox.robCtx[robId].csrWriteAddress, rd);
+                                assertEq("CSR WRITE DATA", whitebox.robCtx[robId].csrWriteData, item.second.v[0]);
+                            } break;
+                            default: {
                                 printf("???");
                                 failure();
-                                break;
+                            } break;
                             }
                         }
 

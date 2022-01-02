@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.Frontend
+import naxriscv.{Frontend, ROB}
 import naxriscv.interfaces.{CsrOnRead, CsrOnReadData, CsrOnWrite, CsrService, DecoderService, MicroOp, RS1}
 import naxriscv.riscv.{Const, IMM, IntRegFile, Rvi}
 import spinal.core._
@@ -60,7 +60,7 @@ class CsrAccessPlugin(euId : String,
 
     val decoder = getService[DecoderService]
 
-    val feed = new ExecuteArea(writebackAt) { //TODO
+    val miaou = new ExecuteArea(writebackAt) { //TODO
       import stage._
       val imm = IMM(MICRO_OP)
       val immZero = imm.z === 0
@@ -123,10 +123,22 @@ class CsrAccessPlugin(euId : String,
       ALU_INPUT := CSR_VALUE
       ALU_MASK := CSR_MASK ? imm.z.resized | eu(IntRegFile, RS1)
       ALU_MASKED := CSR_CLEAR ? (ALU_INPUT & ~ALU_MASK) otherwise (ALU_INPUT | ALU_MASK)
-      ALU_RESULT := CSR_MASK ? stage(ALU_MASKED) otherwise ALU_INPUT
+      ALU_RESULT := CSR_MASK ? stage(ALU_MASKED) otherwise ALU_MASK
 
       setup.onWriteBits := ALU_RESULT
       wb.payload := ALU_RESULT
+    }
+
+    val whitebox = new AreaRoot{
+      val csrWrite = Verilator.public(Flow(new Bundle {
+        val robId = ROB.ID()
+        val address = UInt(12 bits)
+        val data = Bits(XLEN bits)
+      }))
+      csrWrite.valid := miaou.stage.isFireing
+      csrWrite.robId := miaou.stage(ROB.ID)
+      csrWrite.address := U(miaou.stage(MICRO_OP)(Const.csrRange))
+      csrWrite.data := setup.onWriteBits
     }
   }
 }
