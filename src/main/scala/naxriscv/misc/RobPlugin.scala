@@ -1,13 +1,12 @@
-package naxriscv.backend
+package naxriscv.misc
 
-import naxriscv._
-import naxriscv.Global._
 import naxriscv.Frontend._
+import naxriscv._
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.{RobCompletion, RobLineMask, RobService}
 import naxriscv.utilities.{DocPlugin, Plugin}
-import spinal.core.{log2Up, _}
 import spinal.core.fiber.Lock
+import spinal.core.{log2Up, _}
 import spinal.lib._
 import spinal.lib.pipeline.Stageable
 

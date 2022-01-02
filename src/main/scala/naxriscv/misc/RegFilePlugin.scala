@@ -1,11 +1,11 @@
-package naxriscv.backend
+package naxriscv.misc
 
 import naxriscv.compatibility.MultiPortWritesSymplifier
-import spinal.core._
-import spinal.lib._
-import spinal.core.fiber._
 import naxriscv.interfaces._
 import naxriscv.utilities.{DocPlugin, Plugin}
+import spinal.core._
+import spinal.core.fiber._
+import spinal.lib._
 import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
 
 import scala.collection.mutable.ArrayBuffer

@@ -1,7 +1,6 @@
 package naxriscv.lsu
 
 import naxriscv.Frontend.{DECODE_COUNT, DISPATCH_COUNT, DISPATCH_MASK}
-import naxriscv.backend.RobPlugin
 import naxriscv.{Fetch, Frontend, Global, ROB}
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces._
@@ -14,6 +13,7 @@ import spinal.lib.pipeline.{Pipeline, Stageable, StageableOffset}
 
 import scala.collection.mutable.ArrayBuffer
 import naxriscv.Global._
+import naxriscv.misc.RobPlugin
 
 object LsuUtils{
   def sizeWidth(wordWidth : Int) = log2Up(log2Up(wordWidth/8)+1)

@@ -1,9 +1,9 @@
 package naxriscv.frontend
 
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, MICRO_OP}
-import naxriscv.backend.RobPlugin
 import naxriscv.{Frontend, ROB}
 import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, LockedImpl, MicroOp, RobWait, WakeRegFile, WakeRegFileService, WakeRobService, WakeWithBypassService}
+import naxriscv.misc.RobPlugin
 import naxriscv.utilities.{DocPlugin, Plugin, Service}
 import spinal.core._
 import spinal.core.fiber.Lock

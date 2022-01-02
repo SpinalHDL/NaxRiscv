@@ -1,7 +1,7 @@
-package naxriscv.backend
+package naxriscv.misc
 
-import spinal.core._
 import naxriscv.utilities.Plugin
+import spinal.core._
 import spinal.lib.CountOne
 
 class CommitDebugFilterPlugin(factors : Seq[Int]) extends Plugin{

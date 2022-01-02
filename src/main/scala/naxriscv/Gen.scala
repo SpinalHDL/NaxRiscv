@@ -1,11 +1,10 @@
 package naxriscv
 
-import naxriscv.backend.{CommitDebugFilterPlugin, CommitPlugin, RegFilePlugin, RobPlugin}
 import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
 import naxriscv.frontend._
 import naxriscv.fetch._
-import naxriscv.misc.{StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
+import naxriscv.misc.{CommitDebugFilterPlugin, CommitPlugin, RegFilePlugin, RobPlugin, StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
 import naxriscv.execute._
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
@@ -19,21 +18,21 @@ object Config{
   def properties() = {
     NaxDataBase.create()
 
-    Fetch.RVC.set(true)
-    Fetch.FETCH_DATA_WIDTH.set(64)
-    Fetch.INSTRUCTION_WIDTH.set(32)
-    Frontend.DECODE_COUNT.set(2)
-    Global.COMMIT_COUNT.set(2)
-    Global.XLEN.set(32)
-    ROB.SIZE.set(64)
-
 //    Fetch.RVC.set(true)
-//    Fetch.FETCH_DATA_WIDTH.set(32)
+//    Fetch.FETCH_DATA_WIDTH.set(64)
 //    Fetch.INSTRUCTION_WIDTH.set(32)
-//    Frontend.DECODE_COUNT.set(1)
-//    Global.COMMIT_COUNT.set(1)
+//    Frontend.DECODE_COUNT.set(2)
+//    Global.COMMIT_COUNT.set(2)
 //    Global.XLEN.set(32)
 //    ROB.SIZE.set(64)
+
+    Fetch.RVC.set(true)
+    Fetch.FETCH_DATA_WIDTH.set(32)
+    Fetch.INSTRUCTION_WIDTH.set(32)
+    Frontend.DECODE_COUNT.set(1)
+    Global.COMMIT_COUNT.set(1)
+    Global.XLEN.set(32)
+    ROB.SIZE.set(64)
   }
 
   def plugins(): Seq[Plugin] ={
@@ -140,13 +139,14 @@ object Config{
 
     plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1)
     plugins += new SrcPlugin("EU1")
-    plugins += new MulPlugin("EU1", staticLatency = false)
+    plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new DivPlugin("EU1", writebackAt = 2)
 //    plugins += new IntAluPlugin("EU1")
 //    plugins += new ShiftPlugin("EU1")
     plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
+    plugins += new CsrPlugin("EU1", writebackAt = 2, staticLatency = false)
 
 
 //    plugins += new ExecutionUnitBase("EU2")

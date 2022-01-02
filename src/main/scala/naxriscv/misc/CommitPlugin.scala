@@ -1,16 +1,15 @@
-package naxriscv.backend
+package naxriscv.misc
 
 import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK}
-import naxriscv.{Global, ROB}
-import naxriscv.interfaces.{AddressTranslationService, CommitEvent, CommitFree, CommitService, JumpService, RescheduleEvent, RfAllocationService, RobService, ScheduleCmd, ScheduleReason}
-import naxriscv.utilities.{DocPlugin, Plugin}
-import spinal.core._
-import spinal.lib._
 import naxriscv.Global._
 import naxriscv.frontend.FrontendPlugin
+import naxriscv.interfaces._
+import naxriscv.utilities.{DocPlugin, Plugin}
+import naxriscv.{Global, ROB}
+import spinal.core._
+import spinal.lib._
 
 import scala.collection.mutable.ArrayBuffer
-import naxriscv.Global._
 
 class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with CommitService{
   override def onCommit() : CommitEvent = logic.commit.event
@@ -119,7 +118,6 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
       val lineCommited = (maskComb & active) === 0
 
       val event = CommitEvent()
-      event
       event.mask := 0
       event.robId := ptr.commit.resized
 

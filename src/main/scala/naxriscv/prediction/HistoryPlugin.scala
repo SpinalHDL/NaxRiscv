@@ -1,10 +1,10 @@
 package naxriscv.prediction
 
 import naxriscv.{Frontend, Global, ROB}
-import naxriscv.backend.CommitPlugin
 import naxriscv.fetch.{AlignerPlugin, FetchPlugin, PcPlugin}
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.RobService
+import naxriscv.misc.CommitPlugin
 import naxriscv.prediction.Prediction.{CONDITIONAL_TAKE_IT, IS_BRANCH}
 import naxriscv.utilities._
 import spinal.core._

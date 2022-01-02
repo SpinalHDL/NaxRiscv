@@ -9,6 +9,7 @@ import naxriscv.utilities._
 import spinal.lib.pipeline._
 import naxriscv.Frontend._
 import naxriscv.Global._
+import naxriscv.misc.CommitPlugin
 
 object CsrPlugin extends AreaObject{
   val CSR_IMM  = Stageable(Bool())
@@ -24,7 +25,8 @@ object CsrPlugin extends AreaObject{
 }
 
 class CsrPlugin(euId : String,
-                writebackAt: Int) extends ExecutionUnitElementSimple(euId, staticLatency = false) with CsrService{
+                writebackAt: Int,
+                staticLatency : Boolean) extends ExecutionUnitElementSimple(euId, staticLatency) with CsrService{
   override def euWritebackAt = writebackAt
 
 
@@ -70,7 +72,7 @@ class CsrPlugin(euId : String,
         val groupedLogic = for ((csrFilter, elements) <- grouped) yield new Area{
           val onReads  = elements.collect{ case e : CsrOnRead  => e }
           val onWrites = elements.collect{ case e : CsrOnWrite => e }
-          val onReadData = elements.collect{ case e : CsrOnReadData => e }
+          val onReadsData = elements.collect{ case e : CsrOnReadData => e }
           val onReadsFire  = onReads.filter(_.onlyOnFire)
           val onWritesFire = onWrites.filter(_.onlyOnFire)
 
@@ -79,15 +81,15 @@ class CsrPlugin(euId : String,
           if(onReadsFire.nonEmpty)  when(isFireing && CSR_READ  && sels(csrFilter)){ onReadsFire.foreach(_.body()) }
           if(onWritesFire.nonEmpty) when(isFireing && CSR_WRITE && sels(csrFilter)){ onWritesFire.foreach(_.body()) }
 
-          val readData = onReadData.nonEmpty generate new Area {
+          val read = onReadsData.nonEmpty generate new Area {
             val value = B(0, XLEN bits)
-            onReadData.foreach ( e => value.assignFromBits(e.value.asBits, e.bitOffset, widthOf(e.value) bits) )
+            onReadsData.foreach (e => value.assignFromBits(e.value.asBits, e.bitOffset, widthOf(e.value) bits) )
             val masked = value.andMask(sels(csrFilter))
           }
         }
 
-        if(groupedLogic.exists(_.onReadData.nonEmpty)){
-          CSR_VALUE := groupedLogic.filter(_.onReadData.nonEmpty).map(_.readData.value).toList.reduceBalancedTree(_ | _)
+        if(groupedLogic.exists(_.onReadsData.nonEmpty)){
+          CSR_VALUE := groupedLogic.filter(_.onReadsData.nonEmpty).map(_.read.value).toList.reduceBalancedTree(_ | _)
         } else {
           CSR_VALUE := 0
         }
@@ -97,7 +99,7 @@ class CsrPlugin(euId : String,
       ALU_MASK := CSR_MASK ? imm.z.resized | eu(IntRegFile, RS1)
       ALU_MASKED := CSR_CLEAR ? (ALU_INPUT & ~ALU_MASK) otherwise (ALU_INPUT | ALU_MASK)
       ALU_RESULT := CSR_MASK ? stage(ALU_MASKED) otherwise ALU_INPUT
-      
+
       wb.payload := ALU_RESULT
     }
   }
