@@ -11,7 +11,7 @@ import naxriscv.Frontend._
 import naxriscv.Global._
 import naxriscv.misc.CommitPlugin
 
-object CsrPlugin extends AreaObject{
+object CsrAccessPlugin extends AreaObject{
   val CSR_IMM  = Stageable(Bool())
   val CSR_MASK = Stageable(Bool())
   val CSR_CLEAR = Stageable(Bool())
@@ -24,21 +24,27 @@ object CsrPlugin extends AreaObject{
   val ALU_RESULT = Stageable(Bits(XLEN bits))
 }
 
-class CsrPlugin(euId : String,
-                writebackAt: Int,
-                staticLatency : Boolean) extends ExecutionUnitElementSimple(euId, staticLatency) with CsrService{
+class CsrAccessPlugin(euId : String,
+                      writebackAt: Int,
+                      staticLatency : Boolean) extends ExecutionUnitElementSimple(euId, staticLatency) with CsrService{
   override def euWritebackAt = writebackAt
 
 
-  override def onReadHalt() = setup.onReadHalt
-  override def onWriteHalt() = setup.onWriteHalt
+  override def onReadHalt()   = setup.onReadHalt   := True
+  override def onWriteHalt()  = setup.onWriteHalt  := True
+  override def onReadAbord()  = setup.onReadAbord  := True
+  override def onWriteAbord() = setup.onWriteAbord := True
   override def onWriteBits = setup.onWriteBits
 
-  import CsrPlugin._
+
+  import CsrAccessPlugin._
+
 
   val setup = create early new Setup{
     val onReadHalt  = False
     val onWriteHalt = False
+    val onReadAbord  = False
+    val onWriteAbord = False
     val onWriteBits = Bits(XLEN bits)
 
     add(Rvi.CSRRW , Nil, eu.DecodeList(CSR_IMM -> False, CSR_MASK -> False))
@@ -62,34 +68,53 @@ class CsrPlugin(euId : String,
       CSR_WRITE := !(CSR_MASK && srcZero)
       CSR_READ := !(!CSR_MASK && !decoder.WRITE_RD)
 
+      def filterToName(filter : Any) = filter match{
+        case f : Int => f.toString
+      }
+
       val specLogic = new Area {
         val grouped = spec.groupByLinked(_.csrFilter)
-        val sels = grouped.map(_._1 -> Stageable(Bool()))
+        val sels = grouped.map(g => g._1 -> Stageable(Bool()).setName("CSR_" + filterToName(g._1)))
         sels.foreach{
           case (filter : Int, stageable) => stageable := MICRO_OP(Const.csrRange) === filter
         }
 
+        val onReadsDo = isValid && CSR_READ
+        val onWritesDo = isValid && CSR_WRITE
+        val onReadsFireDo = isFireing && CSR_READ && !setup.onReadAbord
+        val onWritesFireDo = isFireing && CSR_WRITE && !setup.onWriteAbord
+
+        haltIt(onReadsDo && setup.onReadHalt)
+        haltIt(onWritesDo && setup.onWriteHalt)
+
         val groupedLogic = for ((csrFilter, elements) <- grouped) yield new Area{
+          setPartialName(filterToName(csrFilter))
+
           val onReads  = elements.collect{ case e : CsrOnRead  => e }
           val onWrites = elements.collect{ case e : CsrOnWrite => e }
           val onReadsData = elements.collect{ case e : CsrOnReadData => e }
+          val onReadsAlways  = onReads.filter(!_.onlyOnFire)
+          val onWritesAlways = onWrites.filter(!_.onlyOnFire)
           val onReadsFire  = onReads.filter(_.onlyOnFire)
           val onWritesFire = onWrites.filter(_.onlyOnFire)
 
-          if(onReads.nonEmpty)      when(isValid   && CSR_READ  && sels(csrFilter)){ onReads.foreach(_.body()) }
-          if(onWrites.nonEmpty)     when(isValid   && CSR_WRITE && sels(csrFilter)){ onWrites.foreach(_.body()) }
-          if(onReadsFire.nonEmpty)  when(isFireing && CSR_READ  && sels(csrFilter)){ onReadsFire.foreach(_.body()) }
-          if(onWritesFire.nonEmpty) when(isFireing && CSR_WRITE && sels(csrFilter)){ onWritesFire.foreach(_.body()) }
+          if(onReadsAlways.nonEmpty)  when(onReadsDo      && sels(csrFilter)){ onReadsAlways.foreach(_.body()) }
+          if(onWritesAlways.nonEmpty) when(onWritesDo     && sels(csrFilter)){ onWritesAlways.foreach(_.body()) }
+          if(onReadsFire.nonEmpty)   when(onReadsFireDo  && sels(csrFilter)){ onReadsFire.foreach(_.body()) }
+          if(onWritesFire.nonEmpty)  when(onWritesFireDo && sels(csrFilter)){ onWritesFire.foreach(_.body()) }
 
           val read = onReadsData.nonEmpty generate new Area {
-            val value = B(0, XLEN bits)
+            val bitCount = onReadsData.map(e => widthOf(e.value)).sum
+            assert(bitCount <= XLEN.get)
+
+            val value = if(bitCount != XLEN.get) B(0, XLEN bits) else Bits(XLEN bits)
             onReadsData.foreach (e => value.assignFromBits(e.value.asBits, e.bitOffset, widthOf(e.value) bits) )
             val masked = value.andMask(sels(csrFilter))
           }
         }
 
         if(groupedLogic.exists(_.onReadsData.nonEmpty)){
-          CSR_VALUE := groupedLogic.filter(_.onReadsData.nonEmpty).map(_.read.value).toList.reduceBalancedTree(_ | _)
+          CSR_VALUE := groupedLogic.filter(_.onReadsData.nonEmpty).map(_.read.masked).toList.reduceBalancedTree(_ | _)
         } else {
           CSR_VALUE := 0
         }
@@ -100,6 +125,7 @@ class CsrPlugin(euId : String,
       ALU_MASKED := CSR_CLEAR ? (ALU_INPUT & ~ALU_MASK) otherwise (ALU_INPUT | ALU_MASK)
       ALU_RESULT := CSR_MASK ? stage(ALU_MASKED) otherwise ALU_INPUT
 
+      setup.onWriteBits := ALU_RESULT
       wb.payload := ALU_RESULT
     }
   }

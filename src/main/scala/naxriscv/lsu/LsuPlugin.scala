@@ -664,13 +664,13 @@ class LsuPlugin(lqSize: Int,
               }
             } elsewhen(missAligned) {
               setup.loadTrap.valid := True
-              setup.loadTrap.cause := CSR.MCAUSE.LOAD_MISALIGNED
+              setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_MISALIGNED
             } elsewhen(pageFault) {
               setup.loadTrap.valid := True
-              setup.loadTrap.cause := CSR.MCAUSE.LOAD_PAGE_FAULT
+              setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_PAGE_FAULT
             } elsewhen (accessFault) {
               setup.loadTrap.valid := True
-              setup.loadTrap.cause := CSR.MCAUSE.LOAD_ACCESS_FAULT
+              setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT
             } otherwise {
               when(tpk.IO || !peripheralOverride) {
                 onRegs(_.waitOn.commit := True)
@@ -914,10 +914,10 @@ class LsuPlugin(lqSize: Int,
               }
             } elsewhen(missAligned) {
               setup.storeTrap.valid      := True
-              setup.storeTrap.cause      := CSR.MCAUSE.STORE_MISALIGNED
+              setup.storeTrap.cause      := CSR.MCAUSE_ENUM.STORE_MISALIGNED
             } elsewhen(pageFault) {
               setup.storeTrap.valid      := True
-              setup.storeTrap.cause      := CSR.MCAUSE.STORE_PAGE_FAULT
+              setup.storeTrap.cause      := CSR.MCAUSE_ENUM.STORE_PAGE_FAULT
             } otherwise {
               onRegs(_.waitOn.writeback := True)
               when(tpk.IO) {
