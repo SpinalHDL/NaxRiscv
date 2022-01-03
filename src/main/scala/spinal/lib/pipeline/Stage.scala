@@ -27,6 +27,7 @@ class Stage extends Nameable {
     val arbitration = new {
       var isRemoved : Bool = null
       var isFlushed : Bool = null
+      var isForked : Bool = null
       var isFlushingNext : Bool = null
       var isFlushingRoot : Bool = null
       var isHalted : Bool = null
@@ -37,6 +38,7 @@ class Stage extends Nameable {
     val request = new {
       val halts = ArrayBuffer[Bool]()
       val throws = ArrayBuffer[Bool]()
+      val forks = ArrayBuffer[Bool]()
       val flush = ArrayBuffer[Bool]()
       val flushRoot = ArrayBuffer[Bool]()
       val flushNext = ArrayBuffer[Bool]()
@@ -76,10 +78,12 @@ class Stage extends Nameable {
   //  implicit def stageablePiped2[T <: Data](stageable: Stageable[T]) = new DataPimper(Stage.this(stageable))
   def haltIt()(implicit loc: Location) : Unit = haltIt(ConditionalContext.isTrue)
   def throwIt()(implicit loc: Location) : Unit = throwIt(ConditionalContext.isTrue)
+  def forkIt()(implicit loc: Location) : Unit = forkIt(ConditionalContext.isTrue)
   def flushIt() : Unit = flushIt(ConditionalContext.isTrue)
   def flushNext() : Unit = flushNext(ConditionalContext.isTrue)
   def haltIt(cond : Bool)(implicit loc: Location) : Unit = internals.request.halts += nameFromLocation(CombInit(cond), "haltRequest")
   def throwIt(cond : Bool)(implicit loc: Location) : Unit = internals.request.throws += nameFromLocation(CombInit(cond), "throwRequest")
+  def forkIt(cond : Bool)(implicit loc: Location) : Unit = internals.request.forks += nameFromLocation(CombInit(cond), "forkRequest")
 
   //Not being root will not clear the output valid of the stage, which can be quite usefull
   def flushIt(cond : Bool, root : Boolean = true) : Unit = {
@@ -97,6 +101,7 @@ class Stage extends Nameable {
   }
 
 
+
   def isStuck: Bool = isValid && !isReady
   def isRemoved : Bool = {
     if(internals.arbitration.isRemoved == null) internals.arbitration.isRemoved = Misc.outsideCondScope(Bool())
@@ -105,6 +110,10 @@ class Stage extends Nameable {
   def isFlushed : Bool = {
     if(internals.arbitration.isFlushed == null) internals.arbitration.isFlushed = Misc.outsideCondScope(Bool())
     internals.arbitration.isFlushed
+  }
+  def isForked : Bool = {
+    if(internals.arbitration.isForked == null) internals.arbitration.isForked = Misc.outsideCondScope(Bool())
+    internals.arbitration.isForked
   }
   def isFlushingNext : Bool = {
     if(internals.arbitration.isFlushingNext == null) internals.arbitration.isFlushingNext = Misc.outsideCondScope(Bool())

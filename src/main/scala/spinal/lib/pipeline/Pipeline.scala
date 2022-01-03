@@ -193,6 +193,10 @@ class Pipeline extends Area{
       if(arbitration.isFlushingRoot != null) arbitration.isFlushingRoot.setCompositeName(s, "isFlushingRoot", true)
       if(arbitration.isHalted != null) arbitration.isHalted.setCompositeName(s, "isHalted", true)
       if(arbitration.isHaltedByOthers != null) arbitration.isHaltedByOthers.setCompositeName(s, "isHaltedByOthers", true)
+      if(arbitration.isRemoved != null) arbitration.isRemoved.setCompositeName(s, "isRemoved", true)
+      if(arbitration.isForked != null) arbitration.isForked.setCompositeName(s, "isForked", true)
+
+      if(arbitration.isForked != null) arbitration.isForked := output.valid && output.ready
     }
 
     //Internal connections
@@ -218,6 +222,12 @@ class Pipeline extends Area{
         when(doHalt){
           s.input.ready := False
           s.output.valid := False
+        }
+      }
+      if(s.request.forks.nonEmpty){
+        val doFork = s.request.forks.orR
+        when(doFork){
+          s.input.ready := False //Maybe to reconsiderate
         }
       }
 
