@@ -1,7 +1,7 @@
 package naxriscv.frontend
 
-import naxriscv.Frontend.{DISPATCH_COUNT, DISPATCH_MASK, MICRO_OP}
-import naxriscv.{Frontend, ROB}
+import naxriscv.Frontend._
+import naxriscv.{DecodeList, Frontend, ROB}
 import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, LockedImpl, MicroOp, RobWait, WakeRegFile, WakeRegFileService, WakeRobService, WakeWithBypassService}
 import naxriscv.misc.RobPlugin
 import naxriscv.utilities.{DocPlugin, Plugin, Service}
@@ -16,7 +16,11 @@ import spinal.lib.pipeline.{Pipeline, Stageable}
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-
+object DispatchPlugin extends AreaObject{
+  val FENCE_YOUNGER = Stageable(Bool())
+  val FENCE_OLDER = Stageable(Bool())
+  val SPARSE_ROB_LINE = Stageable(Bool())
+}
 
 class DispatchPlugin(slotCount : Int = 0,
                      uintAt : Int = 0,
@@ -25,31 +29,76 @@ class DispatchPlugin(slotCount : Int = 0,
                      physRdAt : Int = 1,
                      euAt : Int = 1,
                      readContextLayer0Factor : Int = LutInputs.get/2) extends Plugin with IssueService with LockedImpl with WakeRegFileService with InitCycles{
+  import DispatchPlugin._
   val robWaits = ArrayBuffer[RobWait]()
   override def newRobDependency() = robWaits.addRet(RobWait())
   override def wakeRegFile = logic.pop.flatMap(_.wake.map(_.bypassed))
-
   override def initCycles = if(logic.globalStaticLatencies.latencies.isEmpty) 0 else logic.globalStaticLatencies.latencies.max + 4 //For sanity in some test configs withs absurd static latencies
 
+  val fenceYoungerSpec, fenceOlderSpec = mutable.LinkedHashSet[MicroOp]()
+  override def fenceOlder(microOp: MicroOp) = getService[DecoderService].addMicroOpDecoding(microOp, DecodeList(FENCE_OLDER -> True, SPARSE_ROB_LINE -> True))
+  override def fenceYounger(microOp: MicroOp) = getService[DecoderService].addMicroOpDecoding(microOp, DecodeList(FENCE_YOUNGER -> True, SPARSE_ROB_LINE -> True))
+
   val setup = create early new Area{
+    val decoder = getService[DecoderService]
     getService[FrontendPlugin].retain()
     getService[RobPlugin].retain()
+    decoder.retain()
+    decoder.addMicroOpDecodingDefault(FENCE_OLDER, False)
+    decoder.addMicroOpDecodingDefault(FENCE_YOUNGER, False)
+    decoder.addMicroOpDecodingDefault(SPARSE_ROB_LINE, False)
   }
 
   val logic = create late new Area{
     val frontend = getService[FrontendPlugin]
     val commit = getService[CommitService]
     val rob = getService[RobPlugin]
-    lock.await()
-
     val decoder = getService[DecoderService]
+
+    lock.await()
+    decoder.release()
+
+    val sparseRob = (DISPATCH_COUNT > 1) generate new Area{
+      val stage = frontend.pipeline.serialized
+      import stage._
+
+      val todo = Reg(Bits(DECODE_COUNT bits)) init((1 << DECODE_COUNT)-1)
+      val mask = B(stage(0 until Frontend.DECODE_COUNT)(MASK_ALIGNED))
+      val remains = mask & todo
+      val sparse = mask & remains & B(stage(0 until Frontend.DECODE_COUNT)(SPARSE_ROB_LINE))
+      val sparseHit = sparse.orR
+      val sparseFirst = OHMasking.first(sparse)
+      val filter = Bits(DECODE_COUNT bits)
+      for(slotId <- 0 until DECODE_COUNT){
+        when(sparse(slotId)){
+          filter(slotId) := remains(0 until slotId) === 0
+        } otherwise {
+          filter(slotId) := sparse(0 until slotId) === 0
+        }
+      }
+      val masked = remains & filter
+      val forkLast = filter.andR
+
+      for(slotId <- 0 until DISPATCH_COUNT) stage.overloaded(DISPATCH_MASK, slotId) := stage(DISPATCH_MASK, slotId) && masked(slotId)
+
+      forkIt(!forkLast)
+      when(isForked){
+        todo := todo & ~filter
+      }
+      when(isReady || isFlushed){
+        todo.setAll()
+      }
+    }
+
+
+
     val groups = decoder.euGroups
 
-    val stage = frontend.pipeline.dispatch
-    import stage._
+
 
     val eus =  groups.flatMap(_.eus)
     val eusSel = groups.map(g => g.eus.map(_ -> g.sel)).flatten
+
 
     val rescheduling = commit.reschedulingPort
 
@@ -102,6 +151,7 @@ class DispatchPlugin(slotCount : Int = 0,
     val queueStaticWakeTransposed = Vec.tabulate(globalStaticLatencies.latencies.size)(i => queue.io.contexts.map(_.staticWake(i)).asBits())
     val queueStaticWakeTransposedHistory = History(queueStaticWakeTransposed, 0 to staticHitAt)
 
+
     val ptr = new Area{
       val next = Reg(ROB.ID)  init(ROB.SIZE-slotCount + Frontend.DISPATCH_COUNT)
       val current = Reg(ROB.ID)  init(ROB.SIZE-slotCount)
@@ -118,9 +168,21 @@ class DispatchPlugin(slotCount : Int = 0,
     }
 
     val push = new Area{
+      val stage = frontend.pipeline.dispatch
+      import stage._
+
       def g2l(robId : UInt) = (robId - ptr.next).resize(log2Up(slotCount))
       queue.io.push.valid := isFireing
       stage.haltIt(!queue.io.push.ready) //Assume ready at 0 when not full
+
+      val fenceOlder   = isValid && (0 until DISPATCH_COUNT).map(slotId => stage(DISPATCH_MASK, slotId) && stage(FENCE_OLDER, slotId)).orR
+      val fenceYounger = isValid && (0 until DISPATCH_COUNT).map(slotId => stage(DISPATCH_MASK, slotId) && stage(FENCE_YOUNGER, slotId)).orR
+      val fenceYoungerLast = RegNextWhen(fenceYounger, isFireing) init(False)
+
+      val commitNotWaitingOnUs = ((commit.currentCommitRobId ^ ROB.ID) >> log2Up(DISPATCH_COUNT)).orR
+      stage.haltIt(fenceOlder && commitNotWaitingOnUs)
+      stage.haltIt(fenceYoungerLast && commitNotWaitingOnUs)
+
       val slots = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield new Area{
         val slot = queue.io.push.slots(slotId)
         val self   = ((decoder.WRITE_RD, slotId) && (DISPATCH_MASK, slotId)) ? B(BigInt(1) << slotCount-Frontend.DISPATCH_COUNT+slotId, slotCount bits) | B(0)
@@ -253,8 +315,9 @@ class DispatchPlugin(slotCount : Int = 0,
 
     val whitebox = new Area{
       val issuePorts = Verilator.public(Vec(pop.map(_.euPort.toFlow)))
-      Verilator.public(stage.isFireing)
-      Verilator.public(stage(ROB.ID))
+      Verilator.public(push.stage.isFireing)
+      Verilator.public(push.stage(ROB.ID))
+      push.stage(0 until DISPATCH_COUNT)(DISPATCH_MASK).foreach(Verilator.public(_))
     }
 
     val doc = getService[DocPlugin]

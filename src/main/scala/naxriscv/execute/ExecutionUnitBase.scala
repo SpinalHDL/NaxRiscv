@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.{Fetch, Frontend, Global, ROB}
+import naxriscv.{DecodeList, Fetch, Frontend, Global, ROB}
 import naxriscv.interfaces.{MicroOp, _}
 import naxriscv.lsu.LsuPlugin
 import naxriscv.utilities.Plugin
@@ -104,8 +104,6 @@ class ExecutionUnitBase(euId : String,
     getDecodingSpec(key).setDefault(Masked(value))
   }
 
-  def DecodeList(e : (Stageable[_ <: BaseType],Any)*) = List(e :_*)
-  type DecodeListType = Seq[(Stageable[_ <: BaseType],Any)]
   def addDecoding(microOp: MicroOp, values : Seq[(Stageable[_ <: BaseType],Any)]) : Unit = {
     val op = Masked(microOp.key)
     for((key, value) <- values) {

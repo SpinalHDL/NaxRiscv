@@ -2,7 +2,6 @@ package naxriscv.utilities
 
 import naxriscv.Global
 import naxriscv.interfaces.{RegfileSpec, RfAllocationService}
-import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
 import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}

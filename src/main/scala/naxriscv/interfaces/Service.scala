@@ -47,6 +47,8 @@ trait DecoderService extends Service with LockedService {
   def addResourceDecoding(resource : Resource, stageable : Stageable[Bool])
   def covers() : Seq[Masked] //List of all instruction implemented
   def euGroups : Seq[EuGroup]
+  def addMicroOpDecoding(microOp: MicroOp, decoding: DecodeListType)
+  def addMicroOpDecodingDefault(key : Stageable[_ <: BaseType], value : BaseType) : Unit
 
   def READ_RS(id : Int)  : Stageable[Bool]
   def ARCH_RS(id : Int)  : Stageable[UInt]
@@ -176,6 +178,7 @@ trait CommitService  extends Service{
   def reschedulingPort() : Flow[RescheduleEvent]
   def freePort() : Flow[CommitFree]
   def nextCommitRobId : UInt
+  def currentCommitRobId : UInt
 }
 
 //TODO reduce area usage if physRdType isn't needed by some execution units
@@ -288,6 +291,8 @@ case class RobWait() extends Area with OverridedEqualsHashCode {
 
 trait IssueService extends Service with LockedService {
   def newRobDependency() : RobWait
+  def fenceOlder(microOp: MicroOp) : Unit
+  def fenceYounger(microOp: MicroOp) : Unit
 }
 
 case class WakeRob() extends Bundle {

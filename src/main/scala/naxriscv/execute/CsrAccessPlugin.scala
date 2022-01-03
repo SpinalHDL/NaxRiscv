@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.{Frontend, ROB}
+import naxriscv.{DecodeList, Frontend, ROB}
 import naxriscv.interfaces.{CommitService, CsrOnRead, CsrOnReadData, CsrOnWrite, CsrService, DecoderService, MicroOp, RS1, ScheduleReason}
 import naxriscv.riscv.{CSR, Const, IMM, IntRegFile, Rvi}
 import spinal.core._
@@ -9,6 +9,7 @@ import naxriscv.utilities._
 import spinal.lib.pipeline._
 import naxriscv.Frontend._
 import naxriscv.Global._
+import naxriscv.frontend.DispatchPlugin
 import naxriscv.misc.CommitPlugin
 
 object CsrAccessPlugin extends AreaObject{
@@ -39,7 +40,9 @@ class CsrAccessPlugin(euId : String,
 
   import CsrAccessPlugin._
   val setup = create early new Setup{
+    val dispatch = getService[DispatchPlugin]
     assert(getServicesOf[CsrService].size == 1)
+
 
     val onReadHalt  = False
     val onWriteHalt = False
@@ -47,13 +50,18 @@ class CsrAccessPlugin(euId : String,
     val onWriteTrap = False
     val onWriteBits = Bits(XLEN bits)
 
-    add(Rvi.CSRRW , Nil, eu.DecodeList(CSR_IMM -> False, CSR_MASK -> False))
-    add(Rvi.CSRRS , Nil, eu.DecodeList(CSR_IMM -> False, CSR_MASK -> True , CSR_CLEAR -> False))
-    add(Rvi.CSRRC , Nil, eu.DecodeList(CSR_IMM -> False, CSR_MASK -> True , CSR_CLEAR -> True))
-    add(Rvi.CSRRWI, Nil, eu.DecodeList(CSR_IMM -> True , CSR_MASK -> False))
-    add(Rvi.CSRRSI, Nil, eu.DecodeList(CSR_IMM -> True , CSR_MASK -> True , CSR_CLEAR -> False))
-    add(Rvi.CSRRCI, Nil, eu.DecodeList(CSR_IMM -> True , CSR_MASK -> True , CSR_CLEAR -> True))
-    
+    add(Rvi.CSRRW , Nil, DecodeList(CSR_IMM -> False, CSR_MASK -> False))
+    add(Rvi.CSRRS , Nil, DecodeList(CSR_IMM -> False, CSR_MASK -> True , CSR_CLEAR -> False))
+    add(Rvi.CSRRC , Nil, DecodeList(CSR_IMM -> False, CSR_MASK -> True , CSR_CLEAR -> True))
+    add(Rvi.CSRRWI, Nil, DecodeList(CSR_IMM -> True , CSR_MASK -> False))
+    add(Rvi.CSRRSI, Nil, DecodeList(CSR_IMM -> True , CSR_MASK -> True , CSR_CLEAR -> False))
+    add(Rvi.CSRRCI, Nil, DecodeList(CSR_IMM -> True , CSR_MASK -> True , CSR_CLEAR -> True))
+
+    for(op <- List(Rvi.CSRRW, Rvi.CSRRS, Rvi.CSRRC, Rvi.CSRRWI, Rvi.CSRRSI, Rvi.CSRRCI)){
+      dispatch.fenceYounger(op)
+      dispatch.fenceOlder(op)
+    }
+
     val commit = getService[CommitService]
     val trap = commit.newSchedulePort(canTrap = true, canJump = false)
   }
@@ -132,7 +140,7 @@ class CsrAccessPlugin(euId : String,
       ALU_RESULT := CSR_MASK ? stage(ALU_MASKED) otherwise ALU_MASK
 
       setup.onWriteBits := ALU_RESULT
-      wb.payload := ALU_RESULT
+      wb.payload := CSR_VALUE
 
       setup.trap.valid      := isValid && (CSR_READ_TRAP || CSR_WRITE_TRAP)
       setup.trap.robId      := ROB.ID

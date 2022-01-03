@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.{Frontend, ROB}
+import naxriscv.{DecodeListType, Frontend, ROB}
 import naxriscv.interfaces.{MicroOp, RS2}
 import naxriscv.lsu.LsuPlugin
 import naxriscv.riscv.{Const, IntRegFile, Rvi}
@@ -23,7 +23,7 @@ class StorePlugin(euId : String) extends Plugin{
     eu.addRobStageable(lsu.keys.LSU_ID)
     eu.setDecodingDefault(SEL, False)
 
-    def add(microOp: MicroOp, srcKeys: List[SrcKeys], decoding: eu.DecodeListType) = {
+    def add(microOp: MicroOp, srcKeys: List[SrcKeys], decoding: DecodeListType) = {
       eu.addMicroOp(microOp)
       eu.addDecoding(microOp, decoding :+ (SEL -> True))
       if (srcKeys.nonEmpty) {

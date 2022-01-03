@@ -1037,8 +1037,8 @@ class LsuPlugin(lqSize: Int,
     }
 
     val peripheral = new Area{
-      val lqOnTop = lq.mem.robId.readAsync(lq.ptr.freeReal) === commit.nextCommitRobId
-      val sqOnTop = sq.mem.robId.readAsync(sq.ptr.commitReal) === commit.nextCommitRobId
+      val lqOnTop = lq.mem.robId.readAsync(lq.ptr.freeReal) === commit.currentCommitRobId
+      val sqOnTop = sq.mem.robId.readAsync(sq.ptr.commitReal) === commit.currentCommitRobId
       val storeWriteBackUsable = sq.ptr.writeBack === sq.ptr.commit
       val storeHit = sqOnTop && storeWriteBackUsable && sq.regs.map(reg => reg.valid && reg.waitOn.writeback).read(sq.ptr.commitReal) && sq.mem.io.readAsync(sq.ptr.commitReal)
       val loadHit = lqOnTop && lq.regs.map(reg => reg.valid && reg.waitOn.commit).read(lq.ptr.freeReal) && lq.mem.io.readAsync(lq.ptr.freeReal)
@@ -1050,7 +1050,7 @@ class LsuPlugin(lqSize: Int,
       val isLoad = RegNextWhen(!storeHit, hit)
       val cmdSent = RegInit(False) setWhen(peripheralBus.cmd.fire) clearWhen(fire)
 
-      val robId = RegNext(commit.nextCommitRobId)
+      val robId = RegNext(commit.currentCommitRobId)
       val physRd = RegNext(lq.mem.physRd.readAsync(lq.ptr.freeReal))
       val loadAddress = RegNext(lq.mem.addressPost.readAsync(lq.ptr.freeReal))
       val loadSize = RegNext(lq.regs.map(_.address.size).read(lq.ptr.freeReal))

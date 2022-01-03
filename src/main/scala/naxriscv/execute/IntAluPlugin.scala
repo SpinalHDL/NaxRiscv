@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.{Frontend, Global}
+import naxriscv.{DecodeList, Frontend, Global}
 import naxriscv.interfaces._
 import naxriscv.riscv._
 import naxriscv.utilities.Plugin
@@ -31,23 +31,23 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int
     val ace = AluCtrlEnum
     val abce = AluBitwiseCtrlEnum
 
-    add(Rvi.ADD , List(Op.ADD   , SRC1.RF, SRC2.RF), eu.DecodeList(ALU_CTRL -> ace.ADD_SUB ))
-    add(Rvi.SUB , List(Op.SUB   , SRC1.RF, SRC2.RF), eu.DecodeList(ALU_CTRL -> ace.ADD_SUB ))
-    add(Rvi.SLT , List(Op.LESS  , SRC1.RF, SRC2.RF), eu.DecodeList(ALU_CTRL -> ace.SLT_SLTU))
-    add(Rvi.SLTU, List(Op.LESS_U, SRC1.RF, SRC2.RF), eu.DecodeList(ALU_CTRL -> ace.SLT_SLTU))
-    add(Rvi.XOR , List(           SRC1.RF, SRC2.RF), eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.XOR ))
-    add(Rvi.OR  , List(           SRC1.RF, SRC2.RF), eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.OR  ))
-    add(Rvi.AND , List(           SRC1.RF, SRC2.RF), eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.AND ))
+    add(Rvi.ADD , List(Op.ADD   , SRC1.RF, SRC2.RF), DecodeList(ALU_CTRL -> ace.ADD_SUB ))
+    add(Rvi.SUB , List(Op.SUB   , SRC1.RF, SRC2.RF), DecodeList(ALU_CTRL -> ace.ADD_SUB ))
+    add(Rvi.SLT , List(Op.LESS  , SRC1.RF, SRC2.RF), DecodeList(ALU_CTRL -> ace.SLT_SLTU))
+    add(Rvi.SLTU, List(Op.LESS_U, SRC1.RF, SRC2.RF), DecodeList(ALU_CTRL -> ace.SLT_SLTU))
+    add(Rvi.XOR , List(           SRC1.RF, SRC2.RF), DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.XOR ))
+    add(Rvi.OR  , List(           SRC1.RF, SRC2.RF), DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.OR  ))
+    add(Rvi.AND , List(           SRC1.RF, SRC2.RF), DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.AND ))
 
-    add(Rvi.ADDI , List(Op.ADD   , SRC1.RF, SRC2.I), eu.DecodeList(ALU_CTRL -> ace.ADD_SUB ))
-    add(Rvi.SLTI , List(Op.LESS  , SRC1.RF, SRC2.I), eu.DecodeList(ALU_CTRL -> ace.SLT_SLTU))
-    add(Rvi.SLTIU, List(Op.LESS_U, SRC1.RF, SRC2.I), eu.DecodeList(ALU_CTRL -> ace.SLT_SLTU))
-    add(Rvi.XORI , List(           SRC1.RF, SRC2.I), eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.XOR ))
-    add(Rvi.ORI  , List(           SRC1.RF, SRC2.I), eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.OR  ))
-    add(Rvi.ANDI , List(           SRC1.RF, SRC2.I), eu.DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.AND ))
+    add(Rvi.ADDI , List(Op.ADD   , SRC1.RF, SRC2.I), DecodeList(ALU_CTRL -> ace.ADD_SUB ))
+    add(Rvi.SLTI , List(Op.LESS  , SRC1.RF, SRC2.I), DecodeList(ALU_CTRL -> ace.SLT_SLTU))
+    add(Rvi.SLTIU, List(Op.LESS_U, SRC1.RF, SRC2.I), DecodeList(ALU_CTRL -> ace.SLT_SLTU))
+    add(Rvi.XORI , List(           SRC1.RF, SRC2.I), DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.XOR ))
+    add(Rvi.ORI  , List(           SRC1.RF, SRC2.I), DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.OR  ))
+    add(Rvi.ANDI , List(           SRC1.RF, SRC2.I), DecodeList(ALU_CTRL -> ace.BITWISE , ALU_BITWISE_CTRL -> abce.AND ))
 
-    add(Rvi.LUI,   List(Op.SRC1  , SRC1.U)         , eu.DecodeList(ALU_CTRL -> ace.ADD_SUB))
-    add(Rvi.AUIPC, List(Op.ADD   , SRC1.U, SRC2.PC), eu.DecodeList(ALU_CTRL -> ace.ADD_SUB))
+    add(Rvi.LUI,   List(Op.SRC1  , SRC1.U)         , DecodeList(ALU_CTRL -> ace.ADD_SUB))
+    add(Rvi.AUIPC, List(Op.ADD   , SRC1.U, SRC2.PC), DecodeList(ALU_CTRL -> ace.ADD_SUB))
   }
 
   override val logic = create late new Logic{

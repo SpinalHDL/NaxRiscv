@@ -46,6 +46,23 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
   override def addResourceDecoding(resource: Resource, stageable: Stageable[Bool]) = resourceToStageable(resource) = stageable
   override def covers() = logic.encodings.all.toList
 
+
+  val decodingSpecs = mutable.LinkedHashMap[Stageable[_ <: BaseType], DecodingSpec[_ <: BaseType]]()
+  def getDecodingSpec(key : Stageable[_ <: BaseType]) = decodingSpecs.getOrElseUpdate(key, new DecodingSpec(key))
+  def setDecodingDefault(key : Stageable[_ <: BaseType], value : BaseType) : Unit = {
+    getDecodingSpec(key).setDefault(Masked(value))
+  }
+  override def addMicroOpDecoding(microOp: MicroOp, decoding: DecodeListType) = {
+    val op = Masked(microOp.key)
+    for((key, value) <- decoding) {
+      getDecodingSpec(key).addNeeds(op, Masked(value))
+    }
+  }
+
+  override def addMicroOpDecodingDefault(key: Stageable[_ <: BaseType], value: BaseType) = {
+    getDecodingSpec(key).setDefault(Masked(value))
+  }
+
   def rsToId(id : RfRead) = id match {
     case RS1 => 0
     case RS2 => 1
@@ -70,6 +87,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
     val frontend = getService[FrontendPlugin]
     frontend.retain()
     frontend.pipeline.connect(frontend.pipeline.decompressed, frontend.pipeline.decoded)(DIRECT())
+    frontend.pipeline.connect(frontend.pipeline.decoded, frontend.pipeline.serialized)(DIRECT())
 
     getService[RobService].retain()
 
@@ -182,6 +200,18 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       setup.keys.ARCH_RD := U(INSTRUCTION_DECOMPRESSED(Const.rdRange))
       for(i <- 0 until rsCount) {
         setup.keys.ARCH_RS(i) := U(INSTRUCTION_DECOMPRESSED(Const.rsRange(i)))
+      }
+    }
+
+    val microOpDecoding = new Area{
+      val stage = frontend.pipeline.serialized
+      import stage._
+      for(slotId <- 0 until DISPATCH_COUNT) {
+        implicit val _ = StageableOffset(slotId)
+        val coverAll = microOps.map(e => Masked(e.key))
+        for ((key, spec) <- decodingSpecs) {
+          key.assignFromBits(spec.build(Frontend.MICRO_OP, coverAll).asBits)
+        }
       }
     }
 

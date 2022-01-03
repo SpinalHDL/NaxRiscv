@@ -1,5 +1,6 @@
 package naxriscv.execute
 
+import naxriscv.DecodeList
 import naxriscv.Global._
 import naxriscv.interfaces._
 import naxriscv.riscv._
@@ -24,10 +25,10 @@ class DivPlugin(euId : String,
   override def euWritebackAt = writebackAt
 
   override val setup = create early new Setup{
-    add(Rvi.DIV , List(), eu.DecodeList(REM -> False, SIGNED -> True))
-    add(Rvi.DIVU, List(), eu.DecodeList(REM -> False, SIGNED -> False))
-    add(Rvi.REM , List(), eu.DecodeList(REM -> True , SIGNED -> True))
-    add(Rvi.REMU, List(), eu.DecodeList(REM -> True , SIGNED -> False))
+    add(Rvi.DIV , List(), DecodeList(REM -> False, SIGNED -> True))
+    add(Rvi.DIVU, List(), DecodeList(REM -> False, SIGNED -> False))
+    add(Rvi.REM , List(), DecodeList(REM -> True , SIGNED -> True))
+    add(Rvi.REMU, List(), DecodeList(REM -> True , SIGNED -> False))
   }
 
   override val logic = create late new Logic{

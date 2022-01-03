@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.{Frontend, Global}
+import naxriscv.{DecodeList, Frontend, Global}
 import naxriscv.Global._
 import naxriscv.interfaces._
 import naxriscv.riscv._
@@ -35,10 +35,10 @@ class MulPlugin(euId : String,
     import SrcKeys._
 
 
-    add(Rvi.MUL   , List(), eu.DecodeList(HIGH -> False, RS1_SIGNED -> True,  RS2_SIGNED -> True))
-    add(Rvi.MULH  , List(), eu.DecodeList(HIGH -> True,  RS1_SIGNED -> True,  RS2_SIGNED -> True))
-    add(Rvi.MULHSU, List(), eu.DecodeList(HIGH -> True,  RS1_SIGNED -> True,  RS2_SIGNED -> False))
-    add(Rvi.MULHU , List(), eu.DecodeList(HIGH -> True,  RS1_SIGNED -> False, RS2_SIGNED -> False))
+    add(Rvi.MUL   , List(), DecodeList(HIGH -> False, RS1_SIGNED -> True,  RS2_SIGNED -> True))
+    add(Rvi.MULH  , List(), DecodeList(HIGH -> True,  RS1_SIGNED -> True,  RS2_SIGNED -> True))
+    add(Rvi.MULHSU, List(), DecodeList(HIGH -> True,  RS1_SIGNED -> True,  RS2_SIGNED -> False))
+    add(Rvi.MULHU , List(), DecodeList(HIGH -> True,  RS1_SIGNED -> False, RS2_SIGNED -> False))
   }
 
   override val logic = create late new Logic{

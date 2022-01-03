@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.{Frontend, Global}
+import naxriscv.{DecodeList, Frontend, Global}
 import naxriscv.interfaces._
 import naxriscv.riscv._
 import naxriscv.utilities.Plugin
@@ -23,12 +23,12 @@ class ShiftPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int 
   override val setup = create early new Setup{
     import SrcKeys._
 
-    add(Rvi.SLL , List(SRC1.RF, SRC2.RF), eu.DecodeList(LEFT -> True,  SIGNED -> False))
-    add(Rvi.SRL , List(SRC1.RF, SRC2.RF), eu.DecodeList(LEFT -> False, SIGNED -> False))
-    add(Rvi.SRA , List(SRC1.RF, SRC2.RF), eu.DecodeList(LEFT -> False, SIGNED -> True))
-    add(Rvi.SLLI, List(SRC1.RF, SRC2.I ), eu.DecodeList(LEFT -> True , SIGNED -> False))
-    add(Rvi.SRLI, List(SRC1.RF, SRC2.I ), eu.DecodeList(LEFT -> False, SIGNED -> False))
-    add(Rvi.SRAI, List(SRC1.RF, SRC2.I ), eu.DecodeList(LEFT -> False, SIGNED -> True))
+    add(Rvi.SLL , List(SRC1.RF, SRC2.RF), DecodeList(LEFT -> True,  SIGNED -> False))
+    add(Rvi.SRL , List(SRC1.RF, SRC2.RF), DecodeList(LEFT -> False, SIGNED -> False))
+    add(Rvi.SRA , List(SRC1.RF, SRC2.RF), DecodeList(LEFT -> False, SIGNED -> True))
+    add(Rvi.SLLI, List(SRC1.RF, SRC2.I ), DecodeList(LEFT -> True , SIGNED -> False))
+    add(Rvi.SRLI, List(SRC1.RF, SRC2.I ), DecodeList(LEFT -> False, SIGNED -> False))
+    add(Rvi.SRAI, List(SRC1.RF, SRC2.I ), DecodeList(LEFT -> False, SIGNED -> True))
   }
 
   override val logic = create late new Logic{

@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.{Frontend, Global, ROB}
+import naxriscv.{DecodeListType, Frontend, Global, ROB}
 import naxriscv.interfaces._
 import naxriscv.riscv._
 import naxriscv.utilities.Plugin
@@ -25,7 +25,7 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
     val eu = getService[ExecutionUnitBase](euId)
     eu.retain()
 
-    def add(microOp: MicroOp, srcKeys: List[SrcKeys], decoding: eu.DecodeListType) = {
+    def add(microOp: MicroOp, srcKeys: List[SrcKeys], decoding: DecodeListType) = {
       eu.addMicroOp(microOp)
       eu.setStaticCompletion(microOp, euCompletionAt)
       if (staticLatency && microOp.resources.exists{
