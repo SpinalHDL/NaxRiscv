@@ -578,6 +578,7 @@ public:
     SData *allocated_fetch_id[DISPATCH_COUNT];
     IData *decoded_instruction[DISPATCH_COUNT];
     IData *decoded_pc[DISPATCH_COUNT];
+    CData *dispatch_mask[DISPATCH_COUNT];
     IData *integer_write_data[INTEGER_WRITE_COUNT];
     ofstream gem5;
     disassembler_t disasm;
@@ -602,6 +603,7 @@ public:
             decoded_fetch_id{MAP_INIT(&nax->FrontendPlugin_decoded_FETCH_ID_,  DISPATCH_COUNT,)},
             decoded_instruction{MAP_INIT(&nax->FrontendPlugin_decoded_Frontend_INSTRUCTION_DECOMPRESSED_,  DISPATCH_COUNT,)},
             decoded_pc{MAP_INIT(&nax->FrontendPlugin_decoded_PC_,  DISPATCH_COUNT,)},
+            dispatch_mask{MAP_INIT(&nax->FrontendPlugin_dispatch_Frontend_DISPATCH_MASK_,  DISPATCH_COUNT,)},
             disasm(XLEN){
         this->nax = nax;
     }
@@ -683,16 +685,18 @@ public:
             }
         }
 
-        for(int i = 0;i < DISPATCH_COUNT;i++){
-            if(nax->FrontendPlugin_dispatch_isFireing){
-                auto robId = nax->FrontendPlugin_dispatch_ROB_ID + i;
-                auto opId = robCtx[robId].opId;
-                auto sqId = *sq_alloc_id[i];
-                opCtx[opId].dispatchAt = main_time;
-                opCtx[opId].sqAllocated = *sq_alloc_valid[i];
-                opCtx[opId].sqId = sqId;
-                if(*sq_alloc_valid[i]){
-                    sqToOp[sqId] = opId;
+        if (nax->FrontendPlugin_dispatch_isFireing) {
+            for (int i = 0; i < DISPATCH_COUNT; i++) {
+                if (*dispatch_mask[i]) {
+                    auto robId = nax->FrontendPlugin_dispatch_ROB_ID + i;
+                    auto opId = robCtx[robId].opId;
+                    auto sqId = *sq_alloc_id[i];
+                    opCtx[opId].dispatchAt = main_time;
+                    opCtx[opId].sqAllocated = *sq_alloc_valid[i];
+                    opCtx[opId].sqId = sqId;
+                    if (*sq_alloc_valid[i]) {
+                        sqToOp[sqId] = opId;
+                    }
                 }
             }
         }
@@ -721,7 +725,7 @@ public:
         }
         if(nax->sqFree_valid){
             auto opId = sqToOp[nax->sqFree_payload];
-            assertTrue("???", opCtx[opId].sqAllocated);
+            assertTrue("??? at sqFree", opCtx[opId].sqAllocated);
             opCtx[opId].storeAt = main_time;
             if(gem5Enable) trace(opId);
         }
@@ -1130,7 +1134,7 @@ int main(int argc, char** argv, char** env){
                                 assertEq("CSR WRITE DATA", whitebox.robCtx[robId].csrWriteData, item.second.v[0]);
                             } break;
                             default: {
-                                printf("???");
+                                printf("??? unknown spike trace");
                                 failure();
                             } break;
                             }
