@@ -373,8 +373,8 @@ trait CsrService extends Service with LockedImpl{
   def onReadHalt() : Unit
   def onWriteHalt() : Unit
   def onWriteBits : Bits
-  def onReadAbord() : Unit
-  def onWriteAbord() : Unit
+  def onReadTrap() : Unit
+  def onWriteTrap() : Unit
 
   def read[T <: Data](value : T, csrFilter : Any, bitOffset : Int = 0) : Unit = {
     spec += CsrOnReadData(csrFilter, bitOffset, value)

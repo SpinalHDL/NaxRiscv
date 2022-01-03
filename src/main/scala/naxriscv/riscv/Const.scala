@@ -43,6 +43,12 @@ object CSR {
     val LOAD_PAGE_FAULT = 13
     val LOAD_MISALIGNED = 4
     val LOAD_ACCESS_FAULT = 5
+
+    val ILLEGAL_INSTRUCTION = 2
+    val BREAKPOINT = 3
+    val ECALL_USER = 8
+    val ECALL_SUPERVISOR = 9
+    val ECALL_MACHINE = 11
   }
 
   def MVENDORID = 0xF11 // MRO Vendor ID.

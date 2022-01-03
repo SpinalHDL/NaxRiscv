@@ -1,8 +1,8 @@
 package naxriscv.execute
 
 import naxriscv.{Frontend, ROB}
-import naxriscv.interfaces.{CsrOnRead, CsrOnReadData, CsrOnWrite, CsrService, DecoderService, MicroOp, RS1}
-import naxriscv.riscv.{Const, IMM, IntRegFile, Rvi}
+import naxriscv.interfaces.{CommitService, CsrOnRead, CsrOnReadData, CsrOnWrite, CsrService, DecoderService, MicroOp, RS1, ScheduleReason}
+import naxriscv.riscv.{CSR, Const, IMM, IntRegFile, Rvi}
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities._
@@ -17,6 +17,8 @@ object CsrAccessPlugin extends AreaObject{
   val CSR_CLEAR = Stageable(Bool())
   val CSR_WRITE = Stageable(Bool())
   val CSR_READ = Stageable(Bool())
+  val CSR_READ_TRAP = Stageable(Bool())
+  val CSR_WRITE_TRAP = Stageable(Bool())
   val CSR_VALUE = Stageable(Bits(XLEN bits))
   val ALU_INPUT = Stageable(Bits(XLEN bits))
   val ALU_MASK = Stageable(Bits(XLEN bits))
@@ -29,22 +31,20 @@ class CsrAccessPlugin(euId : String,
                       staticLatency : Boolean) extends ExecutionUnitElementSimple(euId, staticLatency) with CsrService{
   override def euWritebackAt = writebackAt
 
-
   override def onReadHalt()   = setup.onReadHalt   := True
   override def onWriteHalt()  = setup.onWriteHalt  := True
-  override def onReadAbord()  = setup.onReadAbord  := True
-  override def onWriteAbord() = setup.onWriteAbord := True
+  override def onReadTrap()  = setup.onReadTrap  := True
+  override def onWriteTrap() = setup.onWriteTrap := True
   override def onWriteBits = setup.onWriteBits
 
-
   import CsrAccessPlugin._
-
-
   val setup = create early new Setup{
+    assert(getServicesOf[CsrService].size == 1)
+
     val onReadHalt  = False
     val onWriteHalt = False
-    val onReadAbord  = False
-    val onWriteAbord = False
+    val onReadTrap  = False
+    val onWriteTrap = False
     val onWriteBits = Bits(XLEN bits)
 
     add(Rvi.CSRRW , Nil, eu.DecodeList(CSR_IMM -> False, CSR_MASK -> False))
@@ -53,6 +53,9 @@ class CsrAccessPlugin(euId : String,
     add(Rvi.CSRRWI, Nil, eu.DecodeList(CSR_IMM -> True , CSR_MASK -> False))
     add(Rvi.CSRRSI, Nil, eu.DecodeList(CSR_IMM -> True , CSR_MASK -> True , CSR_CLEAR -> False))
     add(Rvi.CSRRCI, Nil, eu.DecodeList(CSR_IMM -> True , CSR_MASK -> True , CSR_CLEAR -> True))
+    
+    val commit = getService[CommitService]
+    val trap = commit.newSchedulePort(canTrap = true, canJump = false)
   }
 
   val logic = create late new Logic{
@@ -79,10 +82,13 @@ class CsrAccessPlugin(euId : String,
           case (filter : Int, stageable) => stageable := MICRO_OP(Const.csrRange) === filter
         }
 
+        CSR_WRITE_TRAP := setup.onWriteTrap
+        CSR_READ_TRAP := setup.onReadTrap
+
         val onReadsDo = isValid && CSR_READ
         val onWritesDo = isValid && CSR_WRITE
-        val onReadsFireDo = isFireing && CSR_READ && !setup.onReadAbord
-        val onWritesFireDo = isFireing && CSR_WRITE && !setup.onWriteAbord
+        val onReadsFireDo = isFireing && CSR_READ && !CSR_READ_TRAP
+        val onWritesFireDo = isFireing && CSR_WRITE && !CSR_WRITE_TRAP && !CSR_READ_TRAP
 
         haltIt(onReadsDo && setup.onReadHalt)
         haltIt(onWritesDo && setup.onWriteHalt)
@@ -127,6 +133,13 @@ class CsrAccessPlugin(euId : String,
 
       setup.onWriteBits := ALU_RESULT
       wb.payload := ALU_RESULT
+
+      setup.trap.valid      := isValid && (CSR_READ_TRAP || CSR_WRITE_TRAP)
+      setup.trap.robId      := ROB.ID
+      setup.trap.cause      := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
+      setup.trap.tval       := MICRO_OP
+      setup.trap.skipCommit := True
+      setup.trap.reason     := ScheduleReason.TRAP
     }
 
     val whitebox = new AreaRoot{
