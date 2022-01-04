@@ -4,7 +4,7 @@ import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifie
 import spinal.core._
 import naxriscv.frontend._
 import naxriscv.fetch._
-import naxriscv.misc.{CommitDebugFilterPlugin, CommitPlugin, PrivilegedPlugin, RegFilePlugin, RobPlugin, StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
+import naxriscv.misc.{CommitDebugFilterPlugin, CommitPlugin, PrivilegedPlugin, RegFilePlugin, RobPlugin, CsrRamPlugin, StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
 import naxriscv.execute._
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
@@ -127,6 +127,7 @@ object Config{
       bankCount = 1
     )
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
+    plugins += new CsrRamPlugin()
     plugins += new PrivilegedPlugin()
 
     //EXECUTION UNITES
@@ -147,7 +148,13 @@ object Config{
     plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
-    plugins += new CsrAccessPlugin("EU1", writebackAt = 2, staticLatency = false)
+    plugins += new CsrAccessPlugin("EU1")(
+      decodeAt = 0,
+      readAt = 1,
+      writeAt = 2,
+      writebackAt = 2,
+      staticLatency = false
+    )
 
 
 //    plugins += new ExecutionUnitBase("EU2")

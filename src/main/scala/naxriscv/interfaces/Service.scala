@@ -362,15 +362,18 @@ trait AddressTranslationService extends Service with LockedImpl {
 }
 
 class CsrSpec(val csrFilter : Any){
-  csrFilter match {
-    case _ : Int =>
-    case _ : Range =>
-  }
+//  csrFilter match {
+//    case _ : Int =>
+//    case _ : Range =>
+//  }
 }
 case class CsrOnRead (override val csrFilter : Any, onlyOnFire : Boolean, body : () => Unit) extends CsrSpec(csrFilter)
 case class CsrOnWrite(override val csrFilter : Any, onlyOnFire : Boolean, body : () => Unit) extends CsrSpec(csrFilter)
 case class CsrOnReadData (override val csrFilter : Any, bitOffset : Int, value : Data) extends CsrSpec(csrFilter)
 
+case class CsrRamSpec(override val csrFilter : Any, alloc : CsrRamAllocation) extends CsrSpec(csrFilter)
+
+case class CsrRamFilter(mapping : List[Int]) extends Nameable
 trait CsrService extends Service with LockedImpl{
   val spec = ArrayBuffer[CsrSpec]()
   def onRead (csrFilter : Any, onlyOnFire : Boolean)(body : => Unit) = spec += CsrOnRead(csrFilter, onlyOnFire, () => body)
@@ -380,6 +383,8 @@ trait CsrService extends Service with LockedImpl{
   def onWriteBits : Bits
   def onReadTrap() : Unit
   def onWriteTrap() : Unit
+
+  def readWrite(alloc : CsrRamAllocation, filters : Any) = spec += CsrRamSpec(filters, alloc)
 
   def read[T <: Data](value : T, csrFilter : Any, bitOffset : Int = 0) : Unit = {
     spec += CsrOnReadData(csrFilter, bitOffset, value)
@@ -391,4 +396,36 @@ trait CsrService extends Service with LockedImpl{
     read(value, csrId, bitOffset)
     write(value, csrId, bitOffset)
   }
+}
+
+class CsrRamAllocation(val entries : Int){
+  var at = -1
+  var addressWidth = -1
+  def getAddress(offset : UInt) : UInt = {
+    U(at, addressWidth bits) | offset
+  }
+
+  val entriesLog2 = 1 << log2Up(entries)
+}
+case class CsrRamRead(addressWidth : Int, dataWidth : Int) extends Bundle{
+  val valid, ready = Bool()
+  val address = UInt(addressWidth bits)
+  val data = Bits(dataWidth bits) //One cycle after fired
+
+  def fire = valid && ready
+}
+
+case class CsrRamWrite(addressWidth : Int, dataWidth : Int) extends Bundle{
+  val valid, ready = Bool()
+  val address = UInt(addressWidth bits)
+  val data = Bits(dataWidth bits)
+
+  def fire = valid && ready
+}
+
+//usefull for, for instance, mscratch scratch mtvec stvec mepc sepc mtval stval satp pmp stuff
+trait CsrRamService extends Service with LockedImpl {
+  def ramAllocate(entries : Int) : CsrRamAllocation
+  def ramReadPort() : Handle[CsrRamRead]
+  def ramWritePort() : Handle[CsrRamWrite]
 }

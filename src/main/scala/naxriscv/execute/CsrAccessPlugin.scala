@@ -1,7 +1,7 @@
 package naxriscv.execute
 
 import naxriscv.{DecodeList, Frontend, ROB}
-import naxriscv.interfaces.{CommitService, CsrOnRead, CsrOnReadData, CsrOnWrite, CsrService, DecoderService, MicroOp, RS1, ScheduleReason}
+import naxriscv.interfaces._
 import naxriscv.riscv.{CSR, Const, IMM, IntRegFile, Rvi}
 import spinal.core._
 import spinal.lib._
@@ -25,11 +25,14 @@ object CsrAccessPlugin extends AreaObject{
   val ALU_MASK = Stageable(Bits(XLEN bits))
   val ALU_MASKED = Stageable(Bits(XLEN bits))
   val ALU_RESULT = Stageable(Bits(XLEN bits))
+  val RAM_SEL    = Stageable(Bool())
 }
 
-class CsrAccessPlugin(euId : String,
-                      writebackAt: Int,
-                      staticLatency : Boolean) extends ExecutionUnitElementSimple(euId, staticLatency) with CsrService{
+class CsrAccessPlugin(euId: String)(decodeAt: Int,
+                                    readAt: Int,
+                                    writeAt: Int,
+                                    writebackAt: Int,
+                                    staticLatency: Boolean) extends ExecutionUnitElementSimple(euId, staticLatency) with CsrService{
   override def euWritebackAt = writebackAt
 
   override def onReadHalt()   = setup.onReadHalt   := True
@@ -39,8 +42,14 @@ class CsrAccessPlugin(euId : String,
   override def onWriteBits = setup.onWriteBits
 
   import CsrAccessPlugin._
+
+
   val setup = create early new Setup{
     val dispatch = getService[DispatchPlugin]
+    getServiceOption[CsrRamService] match {
+      case Some(x) => x.retain()
+      case None =>
+    }
     assert(getServicesOf[CsrService].size == 1)
 
 
@@ -67,72 +76,112 @@ class CsrAccessPlugin(euId : String,
   }
 
   val logic = create late new Logic{
+    val ram = getServiceOption[CsrRamService] match {
+      case Some(x) => x
+      case None => null
+    }
+    val decoder = getService[DecoderService]
     lock.await()
 
-    val decoder = getService[DecoderService]
+    val useRamRead = spec.exists(_.isInstanceOf[CsrRamSpec])
+    val useRamWrite = spec.exists(_.isInstanceOf[CsrRamSpec])
+    val useRam = useRamRead || useRamWrite
 
-    val miaou = new ExecuteArea(writebackAt) { //TODO
+    val ramReadPort = useRamRead generate ram.ramReadPort()
+    val ramWritePort = useRamWrite generate ram.ramWritePort()
+    if(ram != null) ram.release()
+
+    def filterToName(filter : Any) = filter match{
+      case f : Int => f.toString
+      case f : Nameable => f.getName()
+    }
+    val grouped = spec.groupByLinked(_.csrFilter)
+    val sels = grouped.map(g => g._1 -> Stageable(Bool()).setName("CSR_" + filterToName(g._1)))
+
+    val RAM_ADDRESS = Stageable(UInt(ramReadPort.addressWidth bits))
+    val decodeLogic = new ExecuteArea(decodeAt) {
       import stage._
+      sels.foreach{
+        case (filter : Int, stageable) => stageable := MICRO_OP(Const.csrRange) === filter
+        case (filter : CsrRamFilter, stageable) => stageable := filter.mapping.map(MICRO_OP(Const.csrRange) === _).orR
+      }
+      RAM_SEL := spec.filter(_.isInstanceOf[CsrRamSpec]).map(e => stage(sels(e.csrFilter))).orR
+
       val imm = IMM(MICRO_OP)
       val immZero = imm.z === 0
       val srcZero = CSR_IMM ? immZero otherwise MICRO_OP(Const.rs1Range) === 0
       CSR_WRITE := !(CSR_MASK && srcZero)
       CSR_READ := !(!CSR_MASK && !decoder.WRITE_RD)
 
-      def filterToName(filter : Any) = filter match{
-        case f : Int => f.toString
-      }
-
-      val specLogic = new Area {
-        val grouped = spec.groupByLinked(_.csrFilter)
-        val sels = grouped.map(g => g._1 -> Stageable(Bool()).setName("CSR_" + filterToName(g._1)))
-        sels.foreach{
-          case (filter : Int, stageable) => stageable := MICRO_OP(Const.csrRange) === filter
-        }
-
-        CSR_WRITE_TRAP := setup.onWriteTrap
-        CSR_READ_TRAP := setup.onReadTrap
-
-        val onReadsDo = isValid && CSR_READ
-        val onWritesDo = isValid && CSR_WRITE
-        val onReadsFireDo = isFireing && CSR_READ && !CSR_READ_TRAP
-        val onWritesFireDo = isFireing && CSR_WRITE && !CSR_WRITE_TRAP && !CSR_READ_TRAP
-
-        haltIt(onReadsDo && setup.onReadHalt)
-        haltIt(onWritesDo && setup.onWriteHalt)
-
-        val groupedLogic = for ((csrFilter, elements) <- grouped) yield new Area{
-          setPartialName(filterToName(csrFilter))
-
-          val onReads  = elements.collect{ case e : CsrOnRead  => e }
-          val onWrites = elements.collect{ case e : CsrOnWrite => e }
-          val onReadsData = elements.collect{ case e : CsrOnReadData => e }
-          val onReadsAlways  = onReads.filter(!_.onlyOnFire)
-          val onWritesAlways = onWrites.filter(!_.onlyOnFire)
-          val onReadsFire  = onReads.filter(_.onlyOnFire)
-          val onWritesFire = onWrites.filter(_.onlyOnFire)
-
-          if(onReadsAlways.nonEmpty)  when(onReadsDo      && sels(csrFilter)){ onReadsAlways.foreach(_.body()) }
-          if(onWritesAlways.nonEmpty) when(onWritesDo     && sels(csrFilter)){ onWritesAlways.foreach(_.body()) }
-          if(onReadsFire.nonEmpty)   when(onReadsFireDo  && sels(csrFilter)){ onReadsFire.foreach(_.body()) }
-          if(onWritesFire.nonEmpty)  when(onWritesFireDo && sels(csrFilter)){ onWritesFire.foreach(_.body()) }
-
-          val read = onReadsData.nonEmpty generate new Area {
-            val bitCount = onReadsData.map(e => widthOf(e.value)).sum
-            assert(bitCount <= XLEN.get)
-
-            val value = if(bitCount != XLEN.get) B(0, XLEN bits) else Bits(XLEN bits)
-            onReadsData.foreach (e => value.assignFromBits(e.value.asBits, e.bitOffset, widthOf(e.value) bits) )
-            val masked = value.andMask(sels(csrFilter))
+      val ram = useRam generate new Area{
+        RAM_ADDRESS.assignDontCare()
+        switch(MICRO_OP(Const.csrRange)) {
+          for (e <- spec.collect{ case x : CsrRamSpec=> x}) e.csrFilter match {
+            case filter: CsrRamFilter => for((csrId, offset) <- filter.mapping.zipWithIndex){
+              is(csrId){
+                RAM_ADDRESS := e.alloc.at + offset
+              }
+            }
+            case csrId : Int => {
+              is(csrId){
+                RAM_ADDRESS := e.alloc.at
+              }
+            }
           }
         }
+      }
+    }
 
-        if(groupedLogic.exists(_.onReadsData.nonEmpty)){
-          CSR_VALUE := groupedLogic.filter(_.onReadsData.nonEmpty).map(_.read.masked).toList.reduceBalancedTree(_ | _)
-        } else {
-          CSR_VALUE := 0
+    val readLogic = new ExecuteArea(readAt) {
+      import stage._
+
+      CSR_READ_TRAP := setup.onReadTrap
+      val onReadsDo = isValid && CSR_READ
+      val onReadsFireDo = isFireing  && CSR_READ  && !CSR_READ_TRAP
+
+      haltIt(setup.onReadHalt)
+
+      val groupedLogic = for ((csrFilter, elements) <- grouped) yield new Area{
+        setPartialName(filterToName(csrFilter))
+
+        val onReads  = elements.collect{ case e : CsrOnRead  => e }
+        val onReadsData = elements.collect{ case e : CsrOnReadData => e }
+        val onReadsAlways  = onReads.filter(!_.onlyOnFire)
+        val onReadsFire  = onReads.filter(_.onlyOnFire)
+
+        if(onReadsAlways.nonEmpty)  when(onReadsDo      && sels(csrFilter)){ onReadsAlways.foreach(_.body()) }
+        if(onReadsFire.nonEmpty)   when(onReadsFireDo  && sels(csrFilter)){ onReadsFire.foreach(_.body()) }
+
+        val read = onReadsData.nonEmpty generate new Area {
+          val bitCount = onReadsData.map(e => widthOf(e.value)).sum
+          assert(bitCount <= XLEN.get)
+
+          val value = if(bitCount != XLEN.get) B(0, XLEN bits) else Bits(XLEN bits)
+          onReadsData.foreach (e => value.assignFromBits(e.value.asBits, e.bitOffset, widthOf(e.value) bits) )
+          val masked = value.andMask(sels(csrFilter))
         }
       }
+
+      if(groupedLogic.exists(_.onReadsData.nonEmpty)){
+        CSR_VALUE := groupedLogic.filter(_.onReadsData.nonEmpty).map(_.read.masked).toList.reduceBalancedTree(_ | _)
+      } else {
+        CSR_VALUE := 0
+      }
+
+      val ramRead = useRamRead generate new Area {
+        val fired = RegInit(False) setWhen(ramReadPort.fire) clearWhen(isReady || isFlushed)
+        ramReadPort.valid := onReadsDo && RAM_SEL && !fired
+        ramReadPort.address := RAM_ADDRESS
+        when(RAM_SEL) {
+          CSR_VALUE := ramReadPort.data
+        }
+        haltIt(ramReadPort.valid)
+      }
+    }
+
+    val writeLogic = new ExecuteArea(writeAt) {
+      import stage._
+      val imm = IMM(MICRO_OP)
 
       ALU_INPUT := CSR_VALUE
       ALU_MASK := CSR_MASK ? imm.z.resized | eu(IntRegFile, RS1)
@@ -140,6 +189,36 @@ class CsrAccessPlugin(euId : String,
       ALU_RESULT := CSR_MASK ? stage(ALU_MASKED) otherwise ALU_MASK
 
       setup.onWriteBits := ALU_RESULT
+
+      CSR_WRITE_TRAP := setup.onWriteTrap
+
+      val onWritesDo = isValid && CSR_WRITE && !CSR_READ_TRAP
+      val onWritesFireDo = isFireing && CSR_WRITE && !CSR_WRITE_TRAP && !CSR_READ_TRAP
+
+      haltIt(setup.onWriteHalt)
+
+      val groupedLogic = for ((csrFilter, elements) <- grouped) yield new Area{
+        setPartialName(filterToName(csrFilter))
+
+        val onWrites = elements.collect{ case e : CsrOnWrite => e }
+        val onWritesAlways = onWrites.filter(!_.onlyOnFire)
+        val onWritesFire = onWrites.filter(_.onlyOnFire)
+
+        if(onWritesAlways.nonEmpty) when(onWritesDo     && sels(csrFilter)){ onWritesAlways.foreach(_.body()) }
+        if(onWritesFire.nonEmpty)  when(onWritesFireDo && sels(csrFilter)){ onWritesFire.foreach(_.body()) }
+      }
+
+      val ramWrite = useRamRead generate new Area {
+        val fired = RegInit(False) setWhen(ramWritePort.fire) clearWhen(isReady || isFlushed)
+        ramWritePort.valid := onWritesDo && RAM_SEL && !fired && !CSR_WRITE_TRAP
+        ramWritePort.address := RAM_ADDRESS
+        ramWritePort.data := setup.onWriteBits
+        haltIt(ramWritePort.valid)
+      }
+    }
+
+    val writebackLogic = new ExecuteArea(writebackAt) {
+      import stage._
       wb.payload := CSR_VALUE
 
       setup.trap.valid      := isValid && (CSR_READ_TRAP || CSR_WRITE_TRAP)
@@ -156,9 +235,9 @@ class CsrAccessPlugin(euId : String,
         val address = UInt(12 bits)
         val data = Bits(XLEN bits)
       }))
-      csrWrite.valid := miaou.stage.isFireing
-      csrWrite.robId := miaou.stage(ROB.ID)
-      csrWrite.address := U(miaou.stage(MICRO_OP)(Const.csrRange))
+      csrWrite.valid := writeLogic.stage.isFireing
+      csrWrite.robId := writeLogic.stage(ROB.ID)
+      csrWrite.address := U(writeLogic.stage(MICRO_OP)(Const.csrRange))
       csrWrite.data := setup.onWriteBits
     }
   }
