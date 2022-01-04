@@ -42,12 +42,14 @@ case class AllocatorMultiPortMem[T <: Data](dataType : HardType[T],
   val popMaskCount = CountOne(io.pop.mask)
 
   val ptr = new Area{
-    val push, pop = Reg(UInt(log2Up(depth) + 1 bits)) init(0)
-    push := push + CountOne(io.push.map(_.valid))
+    val push, pop, occupancy = Reg(UInt(log2Up(depth) + 1 bits)) init(0)
+    val pushCount = CountOne(io.push.map(_.valid))
+    push := push + pushCount
     when(io.pop.fire) {
       pop := pop + popMaskCount
     }
-    val occupancy = push-pop
+
+    occupancy := occupancy + pushCount - popMaskCount.andMask(io.pop.fire)
   }
 
   val pushArbitration = new Area{
