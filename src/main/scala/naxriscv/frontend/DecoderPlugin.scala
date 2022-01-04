@@ -87,7 +87,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
     val frontend = getService[FrontendPlugin]
     frontend.retain()
     frontend.pipeline.connect(frontend.pipeline.decompressed, frontend.pipeline.decoded)(DIRECT())
-    frontend.pipeline.connect(frontend.pipeline.decoded, frontend.pipeline.serialized)(DIRECT())
+    frontend.pipeline.connect(frontend.pipeline.decoded, frontend.pipeline.serialized)(M2S())
 
     getService[RobService].retain()
 

@@ -20,7 +20,7 @@ import spinal.lib.pipeline.{Stage, Stageable, StageableOffset}
 class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                pcAddAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                pcPredictionAt: FrontendPlugin => Stage = _.pipeline.decoded,
-                               applyAt : FrontendPlugin => Stage = _.pipeline.decoded,
+                               applyAt : FrontendPlugin => Stage = _.pipeline.serialized,
                                flushOnBranch : Boolean = false) extends Plugin with DecoderPrediction{
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]

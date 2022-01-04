@@ -42,7 +42,7 @@ class FrontendPlugin() extends Plugin with LockedImpl{
     val dispatch = newStage()
 
     import spinal.lib.pipeline.Connection._
-    connect(serialized, allocated)(M2S())
+    connect(serialized, allocated)(DIRECT())
     connect(allocated, dispatch)(M2S())
 
     for(slotId <- 0 until Frontend.DECODE_COUNT) {
