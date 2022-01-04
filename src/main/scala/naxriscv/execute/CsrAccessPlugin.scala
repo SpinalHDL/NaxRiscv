@@ -40,9 +40,9 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
   override def onReadTrap()  = setup.onReadTrap  := True
   override def onWriteTrap() = setup.onWriteTrap := True
   override def onWriteBits = setup.onWriteBits
+  override def getCsrRam() = getService[CsrRamService]
 
   import CsrAccessPlugin._
-
 
   val setup = create early new Setup{
     val dispatch = getService[DispatchPlugin]
@@ -136,8 +136,8 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       import stage._
 
       CSR_READ_TRAP := setup.onReadTrap
-      val onReadsDo = isValid && CSR_READ
-      val onReadsFireDo = isFireing  && CSR_READ  && !CSR_READ_TRAP
+      val onReadsDo = isValid && SEL && CSR_READ
+      val onReadsFireDo = isFireing && SEL && CSR_READ  && !CSR_READ_TRAP
 
       haltIt(setup.onReadHalt)
 
@@ -192,8 +192,8 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
 
       CSR_WRITE_TRAP := setup.onWriteTrap
 
-      val onWritesDo = isValid && CSR_WRITE && !CSR_READ_TRAP
-      val onWritesFireDo = isFireing && CSR_WRITE && !CSR_WRITE_TRAP && !CSR_READ_TRAP
+      val onWritesDo = isValid && SEL && CSR_WRITE && !CSR_READ_TRAP
+      val onWritesFireDo = isFireing && SEL && CSR_WRITE && !CSR_WRITE_TRAP && !CSR_READ_TRAP
 
       haltIt(setup.onWriteHalt)
 

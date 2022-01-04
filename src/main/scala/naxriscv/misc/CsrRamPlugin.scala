@@ -14,7 +14,7 @@ class CsrRamPlugin extends Plugin with CsrRamService{
   val reads = ArrayBuffer[Handle[CsrRamRead]]()
   val writes = ArrayBuffer[Handle[CsrRamWrite]]()
 
-  override def ramAllocate(entries: Int) = allocations.addRet(new CsrRamAllocation(entries))
+  override def ramAllocate(entries: Int = 1) = allocations.addRet(new CsrRamAllocation(entries))
   override def ramReadPort() = reads.addRet(Handle())
   override def ramWritePort() = writes.addRet(Handle())
 
@@ -37,7 +37,7 @@ class CsrRamPlugin extends Plugin with CsrRamService{
 
   val logic = create late new Area{
     setup.await()
-    
+
     val addressWidth = setup.addressWidth
     val mem = Mem.fill(1 << addressWidth)(Bits(Global.XLEN bits))
 

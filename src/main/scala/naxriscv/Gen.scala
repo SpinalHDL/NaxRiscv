@@ -4,7 +4,7 @@ import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifie
 import spinal.core._
 import naxriscv.frontend._
 import naxriscv.fetch._
-import naxriscv.misc.{CommitDebugFilterPlugin, CommitPlugin, PrivilegedPlugin, RegFilePlugin, RobPlugin, CsrRamPlugin, StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
+import naxriscv.misc.{CommitDebugFilterPlugin, CommitPlugin, CsrRamPlugin, PrivilegedConfig, PrivilegedPlugin, RegFilePlugin, RobPlugin, StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
 import naxriscv.execute._
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
@@ -128,7 +128,7 @@ object Config{
     )
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
     plugins += new CsrRamPlugin()
-    plugins += new PrivilegedPlugin()
+    plugins += new PrivilegedPlugin(PrivilegedConfig.full)
 
     //EXECUTION UNITES
     plugins += new ExecutionUnitBase("EU0")

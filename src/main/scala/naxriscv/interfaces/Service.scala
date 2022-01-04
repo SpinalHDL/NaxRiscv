@@ -262,13 +262,14 @@ case class CommitEntry() extends Bundle {
 object ScheduleReason{
   val hardType = Stageable(UInt(8 bits))
   val TRAP = 0x01
+  val ENV = 0x02
   val BRANCH = 0x10
   val JUMP = 0x11
   val STORE_TO_LOAD_HAZARD = 0x20
 }
 
-case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int) extends Bundle {
-  val robId      = ROB.ID()
+case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int, withRobID : Boolean = true) extends Bundle {
+  val robId      = withRobID generate ROB.ID()
   val trap       = (canTrap && canJump) generate Bool()
   val pcTarget   = canJump generate UInt(pcWidth bits)
   val cause      = canTrap generate UInt(Global.TRAP_CAUSE_WIDTH bits)
@@ -383,8 +384,14 @@ trait CsrService extends Service with LockedImpl{
   def onWriteBits : Bits
   def onReadTrap() : Unit
   def onWriteTrap() : Unit
+  def getCsrRam() : CsrRamService
 
   def readWrite(alloc : CsrRamAllocation, filters : Any) = spec += CsrRamSpec(filters, alloc)
+  def readWriteRam(filters : Int) = {
+    val alloc = getCsrRam.ramAllocate(1)
+    spec += CsrRamSpec(filters, alloc)
+    alloc
+  }
 
   def read[T <: Data](value : T, csrFilter : Any, bitOffset : Int = 0) : Unit = {
     spec += CsrOnReadData(csrFilter, bitOffset, value)
@@ -428,4 +435,12 @@ trait CsrRamService extends Service with LockedImpl {
   def ramAllocate(entries : Int) : CsrRamAllocation
   def ramReadPort() : Handle[CsrRamRead]
   def ramWritePort() : Handle[CsrRamWrite]
+}
+
+trait PrivilegedService extends Service{
+  def hasMachinePriv : Bool
+  def hasSupervisorPriv : Bool
+
+  def implementSupervisor : Boolean
+  def implementUserTrap : Boolean
 }

@@ -64,7 +64,7 @@ object CSR {
   def MSCRATCH  = 0x340 // MRW Scratch register for machine trap handlers.
   def MEPC      = 0x341 // MRW Machine exception program counter.
   def MCAUSE    = 0x342 // MRW Machine trap cause.
-  def MBADADDR  = 0x343 // MRW Machine bad address.
+  def MTVAL     = 0x343 // MRW Machine bad address.
   def MIP       = 0x344 // MRW Machine interrupt pending.
   def MBASE     = 0x380 // MRW Base register.
   def MBOUND    = 0x381 // MRW Bound register.
@@ -84,7 +84,7 @@ object CSR {
   val SSCRATCH    = 0x140
   val SEPC        = 0x141
   val SCAUSE      = 0x142
-  val SBADADDR    = 0x143
+  val STVAL       = 0x143
   val SIP         = 0x144
   val SATP        = 0x180
 
@@ -94,6 +94,19 @@ object CSR {
   def UTIMEH   = 0xC81
   def UINSTRET  = 0xC02 // UR Machine instructions-retired counter.
   def UINSTRETH = 0xC82 // UR Upper 32 bits of minstret, RV32I only.
+
+  val USTATUS = 0x0
+  val UIE = 0x4
+  val UTVEC = 0x5
+  val VSTART = 0x8
+  val VXSAT = 0x9
+  val VXRM = 0xa
+  val VCSR = 0xf
+  val USCRATCH = 0x40
+  val UEPC = 0x41
+  val UCAUSE = 0x42
+  val UTVAL = 0x43
+  val UIP = 0x44
 
   val FFLAGS = 0x1
   val FRM = 0x2
