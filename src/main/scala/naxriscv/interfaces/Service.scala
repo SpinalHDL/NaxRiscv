@@ -21,6 +21,7 @@ object JumpService{
     val ALIGNER           = 90
     val DECODE_PREDICTION = 100
     val COMMIT_RESCHEDULE = 200
+    val COMMIT_TRAP = 201
   }
 }
 
@@ -154,8 +155,11 @@ trait RegfileService extends Service{
 
 
 case class RescheduleEvent() extends Bundle{
-  val robId = ROB.ID()
-  val robIdNext = ROB.ID()
+  val robId      = ROB.ID()
+  val robIdNext  = ROB.ID()
+  val trap       = Bool()
+  val cause      = UInt(Global.TRAP_CAUSE_WIDTH bits)
+  val tval       = Bits(Global.XLEN bits)
 }
 
 
@@ -403,6 +407,11 @@ trait CsrService extends Service with LockedImpl{
     read(value, csrId, bitOffset)
     write(value, csrId, bitOffset)
   }
+
+  def readWrite(csrAddress : Int, thats : (Int, Data)*) : Unit = for(that <- thats) readWrite(that._2, csrAddress, that._1)
+  def write(csrAddress : Int, thats : (Int, Data)*) : Unit = for(that <- thats) write(that._2, csrAddress, that._1)
+  def read(csrAddress : Int, thats : (Int, Data)*) : Unit = for(that <- thats) read(that._2, csrAddress, that._1)
+
 }
 
 class CsrRamAllocation(val entries : Int){
@@ -411,6 +420,7 @@ class CsrRamAllocation(val entries : Int){
   def getAddress(offset : UInt) : UInt = {
     U(at, addressWidth bits) | offset
   }
+  def getAddress() = U(at, addressWidth bits)
 
   val entriesLog2 = 1 << log2Up(entries)
 }

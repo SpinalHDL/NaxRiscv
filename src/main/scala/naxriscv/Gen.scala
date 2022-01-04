@@ -155,6 +155,7 @@ object Config{
       writebackAt = 2,
       staticLatency = false
     )
+    plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
 
 
 //    plugins += new ExecutionUnitBase("EU2")

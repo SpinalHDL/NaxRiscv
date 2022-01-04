@@ -116,7 +116,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       val ram = useRam generate new Area{
         RAM_ADDRESS.assignDontCare()
         switch(MICRO_OP(Const.csrRange)) {
-          for (e <- spec.collect{ case x : CsrRamSpec=> x}) e.csrFilter match {
+          for (e <- spec.collect{ case x : CsrRamSpec => x}) e.csrFilter match {
             case filter: CsrRamFilter => for((csrId, offset) <- filter.mapping.zipWithIndex){
               is(csrId){
                 RAM_ADDRESS := e.alloc.at + offset
@@ -175,7 +175,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
         when(RAM_SEL) {
           CSR_VALUE := ramReadPort.data
         }
-        haltIt(ramReadPort.valid)
+        haltIt(ramReadPort.valid && !ramReadPort.ready)
       }
     }
 
@@ -213,7 +213,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
         ramWritePort.valid := onWritesDo && RAM_SEL && !fired && !CSR_WRITE_TRAP
         ramWritePort.address := RAM_ADDRESS
         ramWritePort.data := setup.onWriteBits
-        haltIt(ramWritePort.valid)
+        haltIt(ramWritePort.valid && !ramWritePort.ready)
       }
     }
 

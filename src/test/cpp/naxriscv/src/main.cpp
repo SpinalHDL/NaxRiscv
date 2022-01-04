@@ -1115,7 +1115,17 @@ int main(int argc, char** argv, char** env){
                         robIdChecked = robId;
                         commits += 1;
 //                        printf("Commit %d %x\n", robId, whitebox.robCtx[robId].pc);
-                        proc.step(1);
+                        auto lastInstret = state->minstret.get()->read();
+                        int credit = 10;
+                        do{
+                            proc.step(1);
+                            if(credit == 0){
+                                printf("Spike execution isn't progressing ??\n");
+                                failure();
+                            }
+                            credit--;
+                        } while(lastInstret == state->minstret.get()->read());
+//                        cout << state->minstret.get()->read() << endl;
                         RvData pc = state->last_inst_pc;
                         assertEq("MISSMATCH PC", whitebox.robCtx[robId].pc,  pc);
                         for (auto item : state->log_reg_write) {

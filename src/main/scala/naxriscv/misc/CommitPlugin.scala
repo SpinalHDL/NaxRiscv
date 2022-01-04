@@ -128,9 +128,13 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
       lineEvent.robId := ptr.commit.resized
 
       val reschedulePort = Flow(RescheduleEvent())
-      reschedulePort.valid := rescheduleHit
-      reschedulePort.robId := reschedule.robId
+      reschedulePort.valid     := rescheduleHit
+      reschedulePort.robId     := reschedule.robId
       reschedulePort.robIdNext := ptr.allocNext.resized
+      reschedulePort.trap      := reschedule.trap
+      reschedulePort.cause     := reschedule.cause
+      reschedulePort.tval      := reschedule.tval
+
 
       val head = UInt(ROB.ID_WIDTH bits)
       val headNext = CombInit(head)

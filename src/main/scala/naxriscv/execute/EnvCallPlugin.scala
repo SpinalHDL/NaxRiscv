@@ -19,6 +19,7 @@ object EnvCallPlugin extends AreaObject{
 
 class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
   import EnvCallPlugin._
+
   val setup = create early new Area {
     val commit = getService[CommitService]
     val priv = getService[PrivilegedPlugin]
@@ -30,6 +31,7 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
     def add(microOp: MicroOp, decoding: DecodeListType) = {
       eu.addMicroOp(microOp)
       eu.addDecoding(microOp, decoding)
+      eu.setStaticCompletion(microOp, rescheduleAt)
     }
 
     List(ECALL, EBREAK, XRET, WFI).foreach(eu.setDecodingDefault(_, False))
@@ -57,9 +59,9 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
 
     setup.reschedule.valid      := isValid && (EBREAK || ECALL || XRET)
     setup.reschedule.robId      := ROB.ID
-    setup.reschedule.trap       := EBREAK || ECALL || xretTrap
+//    setup.reschedule.trap       := EBREAK || ECALL || xretTrap
     setup.reschedule.tval       := 0
-    setup.reschedule.skipCommit := False
+    setup.reschedule.skipCommit := EBREAK || ECALL || xretTrap
     setup.reschedule.reason     := ScheduleReason.ENV
     setup.reschedule.cause.assignDontCare()
 
@@ -77,6 +79,7 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
       setup.reschedule.reason     := ScheduleReason.TRAP
       setup.reschedule.skipCommit := True
     }
+
     eu.release()
   }
 }
