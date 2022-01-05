@@ -1139,9 +1139,18 @@ int main(int argc, char** argv, char** env){
                                 assertEq("INTEGER WRITE DATA", whitebox.robCtx[robId].integerWriteData, item.second.v[0]);
                             } break;
                             case 4:{ //CSR
-                                assertTrue("CSR WRITE MISSING", whitebox.robCtx[robId].csrWriteValid);
-                                assertEq("CSR WRITE ADDRESS", whitebox.robCtx[robId].csrWriteAddress, rd);
-                                assertEq("CSR WRITE DATA", whitebox.robCtx[robId].csrWriteData, item.second.v[0]);
+                                u64 inst = state->last_inst.bits();
+                                switch(inst){
+                                case 0x30200073: //MRET
+                                case 0x10200073: //SRET
+                                case 0x00200073: //URET
+                                    break;
+                                default:
+                                    assertTrue("CSR WRITE MISSING", whitebox.robCtx[robId].csrWriteValid);
+                                    assertEq("CSR WRITE ADDRESS", whitebox.robCtx[robId].csrWriteAddress, rd);
+                                    assertEq("CSR WRITE DATA", whitebox.robCtx[robId].csrWriteData, item.second.v[0]);
+                                    break;
+                                }
                             } break;
                             default: {
                                 printf("??? unknown spike trace");

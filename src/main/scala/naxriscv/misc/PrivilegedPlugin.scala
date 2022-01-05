@@ -2,7 +2,7 @@ package naxriscv.misc
 
 import naxriscv.Global
 import naxriscv.Global._
-import naxriscv.execute.CsrAccessPlugin
+import naxriscv.execute.{CsrAccessPlugin, EnvCallPlugin}
 import naxriscv.fetch.{FetchPlugin, PcPlugin}
 import naxriscv.interfaces.JumpService.Priorities
 import naxriscv.interfaces.{CommitService, CsrRamFilter, PrivilegedService}
@@ -99,7 +99,8 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
 
     val targetMachine = True
 
-    val tvec = Reg(Bits(Global.XLEN bits))
+    val readed = Reg(Bits(Global.XLEN bits))
+//    val tvec = Reg(Bits(Global.XLEN bits))
 //    val epc = Reg(Bits(Global.XLEN bits))
 
     reschedule.ready := False
@@ -109,23 +110,36 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     setup.ramRead.valid := False
     setup.ramRead.address.assignDontCare()
     setup.jump.valid := False
-    setup.jump.pc    := U(tvec)
+    setup.jump.pc.assignDontCare()
     val fsm = new StateMachine{
-      val IDLE, SETUP, EPC_WRITE, TVAL_WRITE, EPC_READ, TVEC_READ  = new State()
+      val IDLE, SETUP, EPC_WRITE, TVAL_WRITE, EPC_READ, TVEC_READ, XRET  = new State()
       setEntry(IDLE)
 
       IDLE.whenIsActive{
+        reschedule.ready := True
         when(rescheduleUnbuffered.valid && rescheduleUnbuffered.trap){
           goto(SETUP)
         }
       }
       SETUP.whenIsActive{
-        goto(TVEC_READ)
+        when(reschedule.cause === EnvCallPlugin.CAUSE_XRET) {
+          goto(EPC_READ)
+        } otherwise{
+          goto(TVEC_READ)
+        }
+      }
+      EPC_READ.whenIsActive{
+        setup.ramRead.valid   := True
+        setup.ramRead.address := machine.epc.getAddress()
+        readed := setup.ramRead.data
+        when(setup.ramRead.ready){
+          goto(XRET)
+        }
       }
       TVEC_READ.whenIsActive{
         setup.ramRead.valid   := True
         setup.ramRead.address := machine.tvec.getAddress()
-        tvec := setup.ramRead.data
+        readed := setup.ramRead.data
         when(setup.ramRead.ready){
           goto(TVAL_WRITE)
         }
@@ -142,12 +156,18 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         setup.ramWrite.valid   := True
         setup.ramWrite.address := machine.epc.getAddress()
         setup.ramWrite.data    := B(trapPcReg)
+        setup.jump.pc := U(readed) //TODO mask
         when(setup.ramWrite.ready){
           setup.jump.valid := True
           machine.cause.interrupt := False
-          machine.cause.code      := reschedule.cause
+          machine.cause.code      := reschedule.cause //TODO
           goto(IDLE)
         }
+      }
+      XRET.whenIsActive{
+        setup.jump.valid := True
+        setup.jump.pc    := U(readed)
+        goto(IDLE)
       }
       fetch.getStage(0).haltIt(rescheduleUnbuffered.valid && rescheduleUnbuffered.trap || !isActive(IDLE))
     }
@@ -157,3 +177,4 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     rob.release()
   }
 }
+//TODO access privilege checks

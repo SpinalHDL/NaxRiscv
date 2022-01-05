@@ -15,6 +15,8 @@ object EnvCallPlugin extends AreaObject{
   val EBREAK = Stageable(Bool())
   val XRET = Stageable(Bool())
   val WFI = Stageable(Bool())
+
+  val CAUSE_XRET = CSR.MCAUSE_ENUM.ECALL_USER
 }
 
 class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
@@ -59,14 +61,13 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
 
     setup.reschedule.valid      := isValid && (EBREAK || ECALL || XRET)
     setup.reschedule.robId      := ROB.ID
-//    setup.reschedule.trap       := EBREAK || ECALL || xretTrap
     setup.reschedule.tval       := 0
     setup.reschedule.skipCommit := EBREAK || ECALL || xretTrap
     setup.reschedule.reason     := ScheduleReason.ENV
     setup.reschedule.cause.assignDontCare()
 
     when(XRET){
-      setup.reschedule.cause      := CSR.MCAUSE_ENUM.ECALL_USER //the reschedule cause isn't the final value which will end up into XCAUSE csr
+      setup.reschedule.cause      := CAUSE_XRET //the reschedule cause isn't the final value which will end up into XCAUSE csr
     }
     when(EBREAK){
       setup.reschedule.cause      := CSR.MCAUSE_ENUM.BREAKPOINT
