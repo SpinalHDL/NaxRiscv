@@ -137,6 +137,7 @@ To give an overview of how much the design is splited between plugins, here is t
 ```
 
 Each of those plugins may :
+
 - Implement services used by other plugins (ex : provide jump interfaces, provide rescheduling interface, provide a pipeline skeleton)
 - Use other plugins functionalities
 - Create hardware
@@ -259,6 +260,92 @@ class PcPlugin() extends Plugin with ...{
 
     firstStage(PcPlugin.FETCH_PC) := ???   //Assign the FETCH_PC value in firstStage of the pipeline. Other plugins may access it down stream. 
     fetch.release()
+  }
+}
+```
+
+# Execution units
+
+You can spawn a execution unit by creating a new ExecutionUnitBase with a unique execution unit identifier : 
+
+```scala 
+    plugins += new ExecutionUnitBase("EU0")
+```
+
+Then you can populate that execution unit by adding new ExecutionUnitElementSimple with the same identifier : 
+
+
+```scala
+    plugins += new SrcPlugin("EU0")
+    plugins += new IntAluPlugin("EU0")
+    plugins += new ShiftPlugin("EU0")
+```
+
+Here is the example of a execution unit handeling : 
+
+- mul/div
+- jump/branches
+- load/store
+- CSR accesses
+- ebreak/ecall/mret/wfi
+
+```scala
+    plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1)
+    plugins += new SrcPlugin("EU1")
+    plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
+    plugins += new DivPlugin("EU1", writebackAt = 2)
+    plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
+    plugins += new LoadPlugin("EU1")
+    plugins += new StorePlugin("EU1")
+    plugins += new CsrAccessPlugin("EU1")(
+      decodeAt = 0,
+      readAt = 1,
+      writeAt = 2,
+      writebackAt = 2,
+      staticLatency = false
+    )
+    plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
+```
+
+### ShiftPlugin
+
+Here is the ShiftPlugin as a example of ExecutionUnitElementSimple plugin: 
+
+```scala
+object ShiftPlugin extends AreaObject {
+  val SIGNED = Stageable(Bool())
+  val LEFT = Stageable(Bool())
+}
+
+class ShiftPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int = 0) extends ExecutionUnitElementSimple(euId, staticLatency) {
+  import ShiftPlugin._
+
+  override def euWritebackAt = aluStage
+
+  override val setup = create early new Setup{
+    import SrcKeys._
+
+    add(Rvi.SLL , List(SRC1.RF, SRC2.RF), DecodeList(LEFT -> True,  SIGNED -> False))
+    add(Rvi.SRL , List(SRC1.RF, SRC2.RF), DecodeList(LEFT -> False, SIGNED -> False))
+    add(Rvi.SRA , List(SRC1.RF, SRC2.RF), DecodeList(LEFT -> False, SIGNED -> True))
+    add(Rvi.SLLI, List(SRC1.RF, SRC2.I ), DecodeList(LEFT -> True , SIGNED -> False))
+    add(Rvi.SRLI, List(SRC1.RF, SRC2.I ), DecodeList(LEFT -> False, SIGNED -> False))
+    add(Rvi.SRAI, List(SRC1.RF, SRC2.I ), DecodeList(LEFT -> False, SIGNED -> True))
+  }
+
+  override val logic = create late new Logic{
+    val process = new ExecuteArea(aluStage) {
+      import stage._
+      val ss = SrcStageables
+
+      assert(Global.XLEN.get == 32)
+      val amplitude  = ss.SRC2(4 downto 0).asUInt
+      val reversed   = Mux[SInt](LEFT, ss.SRC1.reversed, ss.SRC1)
+      val shifted = (S((SIGNED & ss.SRC1.msb) ## reversed) >> amplitude).resize(Global.XLEN bits)
+      val patched = LEFT ? shifted.reversed | shifted
+
+      wb.payload := B(patched)
+    }
   }
 }
 ```
