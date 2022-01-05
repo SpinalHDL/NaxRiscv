@@ -16,27 +16,20 @@ import Frontend._
 
 
 class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) extends Plugin with JumpService{
-  case class JumpInfo(interface :  Flow[JumpCmd], priority : Int, fetchStage : Int)
-  val jumpInfos = ArrayBuffer[JumpInfo]()
-  override def createJumpInterface(priority : Int): Flow[JumpCmd] = createFetchJumpInterface(priority, Int.MaxValue)
-  override def createFetchJumpInterface(priority: Int, stageId: Int) = {
-    val interface = Flow(JumpCmd(PC_WIDTH))
-    jumpInfos += JumpInfo(interface, priority, stageId)
-    interface
+  case class JumpSpec(interface :  Flow[JumpCmd], priority : Int)
+  val jumpsSpec = ArrayBuffer[JumpSpec]()
+  override def createJumpInterface(priority : Int): Flow[JumpCmd] = {
+    jumpsSpec.addRet(JumpSpec(Flow(JumpCmd(PC_WIDTH)), priority)).interface
   }
 
-  override def getFetchJumps() = {
-    logic.get
-    jumpInfos.filter(_.fetchStage != Int.MaxValue).map(e => e.fetchStage -> e.interface.valid)
-  }
 
   val setup = create early new Area{
-    val pipeline = getService[FetchPlugin]
-    pipeline.lock.retain()
+    val fetch = getService[FetchPlugin]
+    fetch.lock.retain()
   }
 
   val logic = create late new Area{
-    val stage = setup.pipeline.getStage(0)
+    val stage = setup.fetch.getStage(0)
     val fetch = getService[FetchPlugin]
     val pipeline = fetch.getPipeline()
     import stage._
@@ -45,12 +38,12 @@ class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) exten
     val sliceRange = (sliceRangeLow + log2Up(SLICE_COUNT) - 1 downto sliceRangeLow)
 
     val jump = new Area {
-      val sortedByStage = jumpInfos.sortWith(_.priority > _.priority)
+      val sortedByStage = jumpsSpec.sortWith(_.priority > _.priority)
       val valids = sortedByStage.map(_.interface.valid)
       val cmds = sortedByStage.map(_.interface.payload)
 
       val pcLoad = Flow(JumpCmd(pcWidth = widthOf(PC)))
-      pcLoad.valid := jumpInfos.map(_.interface.valid).orR
+      pcLoad.valid := jumpsSpec.map(_.interface.valid).orR
       if(valids.nonEmpty) {
         pcLoad.payload := MuxOH(OHMasking.first(valids.asBits), cmds)
       } else {
@@ -112,6 +105,6 @@ class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) exten
       stage(FETCH_PC_INC)(sliceRange.high downto 0) := 0
     }
 
-    setup.pipeline.lock.release()
+    setup.fetch.lock.release()
   }
 }
