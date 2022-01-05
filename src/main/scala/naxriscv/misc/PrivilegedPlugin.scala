@@ -68,7 +68,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       val scratch = csr.readWriteRam(CSR.MSCRATCH)
       val cause = new Area{
         val interrupt = RegInit(False)
-        val code = Reg(UInt(4 bits)) init(0)
+        val code = Reg(UInt(commit.rescheduleCauseWidth bits)) init(0)
 
         csr.readWrite(CSR.MCAUSE, XLEN-1 -> interrupt, 0 -> code)
       }
@@ -100,8 +100,6 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     val targetMachine = True
 
     val readed = Reg(Bits(Global.XLEN bits))
-//    val tvec = Reg(Bits(Global.XLEN bits))
-//    val epc = Reg(Bits(Global.XLEN bits))
 
     reschedule.ready := False
     setup.ramWrite.valid := False

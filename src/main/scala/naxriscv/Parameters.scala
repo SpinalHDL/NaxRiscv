@@ -38,7 +38,7 @@ object Global extends AreaRoot {
   val COMMIT_COUNT = NaxParameter[Int]
 
 
-  val TRAP_CAUSE_WIDTH = 4 //TODO
+//  val TRAP_CAUSE_WIDTH = NaxParameter[Handle[Int]]
   val XLEN = NaxParameter[Int]
 
   val PC_WIDTH = NaxParameter[Int]

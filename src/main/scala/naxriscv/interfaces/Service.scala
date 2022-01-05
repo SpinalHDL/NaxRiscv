@@ -154,11 +154,11 @@ trait RegfileService extends Service{
 }
 
 
-case class RescheduleEvent() extends Bundle{
+case class RescheduleEvent(causeWidth : Int) extends Bundle{
   val robId      = ROB.ID()
   val robIdNext  = ROB.ID()
   val trap       = Bool()
-  val cause      = UInt(Global.TRAP_CAUSE_WIDTH bits)
+  val cause      = UInt(causeWidth bits)
   val tval       = Bits(Global.XLEN bits)
 }
 
@@ -178,11 +178,12 @@ case class CommitEvent() extends Bundle{
 trait CommitService  extends Service{
   def onCommit() : CommitEvent
 //  def onCommitLine() : Flow[CommitEvent]
-  def newSchedulePort(canTrap : Boolean, canJump : Boolean) : Flow[ScheduleCmd]
+  def newSchedulePort(canTrap : Boolean, canJump : Boolean, causeWidth : Int = 4) : Flow[ScheduleCmd]
   def reschedulingPort() : Flow[RescheduleEvent]
   def freePort() : Flow[CommitFree]
   def nextCommitRobId : UInt
   def currentCommitRobId : UInt
+  def rescheduleCauseWidth : Int
 }
 
 //TODO reduce area usage if physRdType isn't needed by some execution units
@@ -272,11 +273,11 @@ object ScheduleReason{
   val STORE_TO_LOAD_HAZARD = 0x20
 }
 
-case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int, withRobID : Boolean = true) extends Bundle {
+case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int, causeWidth : Int, withRobID : Boolean = true) extends Bundle {
   val robId      = withRobID generate ROB.ID()
   val trap       = (canTrap && canJump) generate Bool()
   val pcTarget   = canJump generate UInt(pcWidth bits)
-  val cause      = canTrap generate UInt(Global.TRAP_CAUSE_WIDTH bits)
+  val cause      = canTrap generate UInt(causeWidth bits)
   val tval       = canTrap generate Bits(Global.XLEN bits)
   val skipCommit = Bool() //Want to skip commit for exceptions, but not for [jump, ebreak, redo]
   val reason     = ScheduleReason.hardType()

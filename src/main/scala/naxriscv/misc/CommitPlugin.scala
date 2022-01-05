@@ -7,6 +7,7 @@ import naxriscv.interfaces._
 import naxriscv.utilities.{DocPlugin, Plugin}
 import naxriscv.{Global, ROB}
 import spinal.core._
+import spinal.core.fiber._
 import spinal.lib._
 
 import scala.collection.mutable.ArrayBuffer
@@ -16,11 +17,25 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
 //  override def onCommitLine() =  logic.commit.lineEvent
 
   val completions = ArrayBuffer[Flow[ScheduleCmd]]()
-  override def newSchedulePort(canTrap : Boolean, canJump : Boolean) = completions.addRet(Flow(ScheduleCmd(canTrap = canTrap, canJump = canJump, pcWidth = PC_WIDTH)))
+
+  override def newSchedulePort(canTrap: Boolean, canJump: Boolean, causeWidth: Int = 4) = completions.addRet(
+    Flow(ScheduleCmd(
+      canTrap = canTrap,
+      canJump = canJump,
+      causeWidth = causeWidth,
+      pcWidth = PC_WIDTH
+    )
+  ))
   override def reschedulingPort() = logic.commit.reschedulePort
   override def freePort() = logic.free.port
   override def nextCommitRobId = logic.commit.headNext
   override def currentCommitRobId = logic.commit.head
+
+//  TRAP_CAUSE_WIDTH.set(Handle())
+  override def rescheduleCauseWidth = {
+    setup.get
+    (completions.map(_.causeWidth) :+ 4).max
+  }
 
   val setup = create early new Area{
     val jump = getService[JumpService].createJumpInterface(JumpService.Priorities.COMMIT_RESCHEDULE) //Flush missing
@@ -31,6 +46,7 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
 
   val logic = create late new Area {
     val rob = getService[RobService]
+//    TRAP_CAUSE_WIDTH.load((completions.map(_.causeWidth) :+ 4).max)
 
     val ptr = new Area {
       val alloc, commit, free = Reg(UInt(ROB.ID_WIDTH + 1 bits)) init (0)
@@ -71,7 +87,7 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
       val skipCommit = Reg(Bool())
       val robId    = Reg(UInt(ROB.ID_WIDTH bits))
       val pcTarget = Reg(PC)
-      val cause    = Reg(UInt(Global.TRAP_CAUSE_WIDTH bits))
+      val cause    = Reg(UInt(rescheduleCauseWidth bits))
       val tval     = Reg(Bits(Global.XLEN bits))
       val reason   = Reg(ScheduleReason.hardType)
       val commit = new Area{
@@ -101,7 +117,7 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
           robId      := MuxOH.or(hits, completions.map(_.robId))
           trap       := MuxOH.or(hits, completions.map(_.isTrap))
           pcTarget   := MuxOH.or(canJump.map(hits(_)), canJump.map(completions(_).pcTarget))
-          cause      := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).cause))
+          cause      := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).cause.resize(rescheduleCauseWidth bits)))
           reason     := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).reason))
           tval       := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).tval))
           skipCommit := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).skipCommit))
@@ -127,7 +143,7 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
       lineEvent.mask := active ^ maskComb
       lineEvent.robId := ptr.commit.resized
 
-      val reschedulePort = Flow(RescheduleEvent())
+      val reschedulePort = Flow(RescheduleEvent(rescheduleCauseWidth))
       reschedulePort.valid     := rescheduleHit
       reschedulePort.robId     := reschedule.robId
       reschedulePort.robIdNext := ptr.allocNext.resized
