@@ -30,8 +30,9 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
   override def freePort() = logic.free.port
   override def nextCommitRobId = logic.commit.headNext
   override def currentCommitRobId = logic.commit.head
+  override def isRobEmpty = setup.isRobEmpty
 
-//  TRAP_CAUSE_WIDTH.set(Handle())
+  //  TRAP_CAUSE_WIDTH.set(Handle())
   override def rescheduleCauseWidth = {
     setup.get
     (completions.map(_.causeWidth) :+ 4).max
@@ -41,6 +42,7 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
     val jump = getService[JumpService].createJumpInterface(JumpService.Priorities.COMMIT_RESCHEDULE) //Flush missing
     val rob = getService[RobService]
     val robLineMask = rob.newRobLineValids(bypass = ptrCommitRetimed)
+    val isRobEmpty = Bool()
     rob.retain()
   }
 
@@ -79,6 +81,8 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
 
       val allocNext = alloc + (stage.isFireing ? U(ROB.COLS) | U(0))
       alloc := allocNext
+
+      setup.isRobEmpty := empty
     }
 
     val reschedule = new Area {

@@ -1,16 +1,18 @@
 package naxriscv.misc
 
-import naxriscv.Global
+import naxriscv.{Frontend, Global}
 import naxriscv.Global._
 import naxriscv.execute.{CsrAccessPlugin, EnvCallPlugin}
 import naxriscv.fetch.{FetchPlugin, PcPlugin}
+import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.JumpService.Priorities
-import naxriscv.interfaces.{CommitService, CsrRamFilter, PrivilegedService}
+import naxriscv.interfaces.{CommitService, CsrRamFilter, DecoderService, PrivilegedService}
 import naxriscv.riscv.CSR
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.Plugin
 import spinal.lib.fsm._
+import spinal.lib.pipeline.StageableOffset
 
 object PrivilegedConfig{
   def full = PrivilegedConfig(
@@ -39,13 +41,16 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     val csr = getService[CsrAccessPlugin]
     val ram = getService[CsrRamPlugin]
     val fetch = getService[FetchPlugin]
+    val frontend = getService[FrontendPlugin]
     val rob = getService[RobPlugin]
     csr.retain()
     ram.retain()
     fetch.retain()
     rob.retain()
+    frontend.retain()
 
     val jump = getService[PcPlugin].createJumpInterface(Priorities.COMMIT_TRAP)
+//    val interrupt = getService[CommitService].newSchedulePort(canTrap = true, canJump = false)
     val ramRead  = ram.ramReadPort()
     val ramWrite = ram.ramWritePort()
 
@@ -58,6 +63,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     val ram = setup.ram
     val fetch = setup.fetch
     val rob = setup.rob
+    val frontend = setup.frontend
     val commit = getService[CommitService]
 
 
@@ -91,10 +97,28 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     ram.release()
 
 
-    val rescheduleUnbuffered = commit.reschedulingPort().toStream
+    val rescheduleUnbuffered = Stream(new Bundle{
+      val cause      = UInt(commit.rescheduleCauseWidth bits)
+      val epc        = PC()
+      val tval       = Bits(Global.XLEN bits)
+    })
     val reschedule = rescheduleUnbuffered.stage()
-    val trapPc = rob.readAsyncSingle(Global.PC, reschedule.robId)
-    val trapPcReg = RegNext(trapPc)
+
+    val cr = commit.reschedulingPort()
+    rescheduleUnbuffered.valid := cr.valid && cr.trap
+    rescheduleUnbuffered.cause := cr.cause
+    rescheduleUnbuffered.epc   := rob.readAsyncSingle(Global.PC, cr.robId)
+    rescheduleUnbuffered.tval  := cr.tval
+
+    val de = getService[DecoderService].getException()
+    when(de.valid) {
+      rescheduleUnbuffered.valid := True
+      rescheduleUnbuffered.cause := de.cause
+      rescheduleUnbuffered.epc   := de.epc
+      rescheduleUnbuffered.tval  := de.tval
+    }
+
+    assert(!rescheduleUnbuffered.isStall)
 
 
     val targetMachine = True
@@ -109,13 +133,19 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     setup.ramRead.address.assignDontCare()
     setup.jump.valid := False
     setup.jump.pc.assignDontCare()
+
+    val pendingInterrupt = False
+
     val fsm = new StateMachine{
-      val IDLE, SETUP, EPC_WRITE, TVAL_WRITE, EPC_READ, TVEC_READ, XRET  = new State()
+      val IDLE, SETUP, EPC_WRITE, TVAL_WRITE, EPC_READ, TVEC_READ, XRET = new State()
       setEntry(IDLE)
+
+      val cause = Reg(UInt(commit.rescheduleCauseWidth bits))
+      val interrupt = Reg(Bool())
 
       IDLE.whenIsActive{
         reschedule.ready := True
-        when(rescheduleUnbuffered.valid && rescheduleUnbuffered.trap){
+        when(rescheduleUnbuffered.valid){
           goto(SETUP)
         }
       }
@@ -153,7 +183,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       EPC_WRITE.whenIsActive{
         setup.ramWrite.valid   := True
         setup.ramWrite.address := machine.epc.getAddress()
-        setup.ramWrite.data    := B(trapPcReg)
+        setup.ramWrite.data    := B(reschedule.epc)
         setup.jump.pc := U(readed) //TODO mask
         when(setup.ramWrite.ready){
           setup.jump.valid := True
@@ -167,10 +197,11 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         setup.jump.pc    := U(readed)
         goto(IDLE)
       }
-      fetch.getStage(0).haltIt(rescheduleUnbuffered.valid && rescheduleUnbuffered.trap || !isActive(IDLE))
+      fetch.getStage(0).haltIt(rescheduleUnbuffered.valid || !isActive(IDLE))
     }
 
 
+    frontend.release()
     fetch.release()
     rob.release()
   }

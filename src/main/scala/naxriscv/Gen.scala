@@ -196,6 +196,8 @@ object Gen extends App{
   val doc = report.toplevel.framework.getService[DocPlugin]
   doc.genC()
 
+
+  spinalConfig.addStandardMemBlackboxing(blackboxByteEnables)
   spinalConfig.generateVerilog(wrapper(new Component {
     setDefinitionName("NaxRiscvSynt")
     Config.properties()
@@ -225,6 +227,7 @@ make clean compile  test_clean output/nax/dhrystone/PASS ARGS="--stats_print_all
 
 //TODO Optimisations
 /*
+- Decoder ILLEGAL datapath can be optimized to use INSTRUCTION_ALIGNED instead, with some additional hit from the decompressor for RVC stuff
 - DataCache pipeline load refill hits to cut path
 - BTB should patch history
 - Check that sw -> lw do not trigger a checkLq reschedule
@@ -244,6 +247,7 @@ make clean compile  test_clean output/nax/dhrystone/PASS ARGS="--stats_print_all
 
 //TODO fix bellow list
 /*
+- Should i$ d$ check permitions before triggering a refill ?
 - lsu peripheral do not handle rsp.error yet
 - lsu load to load with same address ordering in a far future
 - Manage the verilator seeds

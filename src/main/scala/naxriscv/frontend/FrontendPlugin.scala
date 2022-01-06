@@ -4,6 +4,7 @@ import naxriscv.{Frontend, Global}
 import naxriscv.fetch.FetchPlugin.FETCH_ID
 import naxriscv.interfaces.{AddressTranslationService, CommitService, LockedImpl}
 import spinal.core._
+import spinal.lib._
 import spinal.core.fiber._
 import spinal.lib.pipeline.Connection._
 import spinal.lib.pipeline._
@@ -51,6 +52,8 @@ class FrontendPlugin() extends Plugin with LockedImpl{
       Verilator.public(decoded.isFireing)
       Verilator.public(allocated.isFireing)
     }
+    val isBusy = Bool()
+    val isBusyAfterDecode = Bool()
   }
   pipeline.setCompositeName(this)
 
@@ -58,9 +61,13 @@ class FrontendPlugin() extends Plugin with LockedImpl{
     pipeline.dispatch.flushIt(getService[CommitService].reschedulingPort().valid)
 
     lock.await()
+    pipeline.isBusy := (pipeline.stagesSet - pipeline.aligned).map(_.isValid).toList.orR
+    pipeline.isBusyAfterDecode := List(pipeline.serialized, pipeline.allocated, pipeline.dispatch).map(_.isValid).toList.orR
     pipeline.build()
   }
 
   def getPipeline() = pipeline.get
   def getFollowing(m : Stage, latency : Int) : Stage = pipeline.getFollowing(m, latency)
+  def isBusy() = pipeline.isBusy
+  def isBusyAfterDecode() = pipeline.isBusyAfterDecode
 }

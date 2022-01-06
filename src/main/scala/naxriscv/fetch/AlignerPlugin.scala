@@ -212,7 +212,7 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
 //      fireInput := True
 //    }
 
-    output.valid := extractors.map(_.valid).orR
+    output.valid := extractors.head.valid
     input.haltIt(!fireInput)
     input.flushIt(output.isFlushed, root = false)
     when(output.isFlushed){

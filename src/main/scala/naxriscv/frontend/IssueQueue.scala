@@ -68,7 +68,6 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
     }
   }
 
-  io.push.ready := lines.head.ways.map(s => !s.triggers.msb && s.sel === 0).andR
 
   val compaction = new Area {
     val moveIt = io.push.fire
@@ -126,4 +125,14 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
   when(clear){
     lines.foreach(_.ways.foreach(_.sel := 0))
   }
+
+  //Pessimistic ready
+  val line0Ready = lines(0).ways.map(s => !s.triggers.msb && s.sel === 0).andR
+  val line1Ready = lines(1).ways.map(s => !s.triggers.msb && s.sel === 0).andR
+  val readyReg = RegInit(False)
+  readyReg := compaction.moveIt ? line1Ready | line0Ready
+  io.push.ready := readyReg
+
+//  io.push.ready := lines.head.ways.map(s => !s.triggers.msb && s.sel === 0).andR
+
 }

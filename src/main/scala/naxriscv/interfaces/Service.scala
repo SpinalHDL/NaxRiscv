@@ -41,6 +41,12 @@ case class EuGroup(eus : Seq[ExecuteUnitService],
                    sel: Stageable[Bool],
                    microOps : Seq[MicroOp])
 
+case class DecoderException() extends Bundle{
+  val cause = UInt(4 bits)
+  val epc   = UInt(PC_WIDTH bits)
+  val tval  = Bits(XLEN bits)
+}
+
 trait DecoderService extends Service with LockedService {
   def addEuOp(fu: ExecuteUnitService, microOp : MicroOp) : Unit
   def addResourceDecoding(resource : Resource, stageable : Stageable[Bool])
@@ -64,6 +70,7 @@ trait DecoderService extends Service with LockedService {
 
   def rsCount  : Int
   def rsPhysicalDepthMax : Int
+  def getException() : Flow[DecoderException]
 }
 
 trait RobService extends Service{
@@ -182,6 +189,7 @@ trait CommitService  extends Service{
   def nextCommitRobId : UInt
   def currentCommitRobId : UInt
   def rescheduleCauseWidth : Int
+  def isRobEmpty : Bool
 }
 
 //TODO reduce area usage if physRdType isn't needed by some execution units
@@ -445,6 +453,8 @@ trait CsrRamService extends Service with LockedImpl {
   def ramReadPort() : Handle[CsrRamRead]
   def ramWritePort() : Handle[CsrRamWrite]
 }
+
+
 
 trait PrivilegedService extends Service{
   def hasMachinePriv : Bool

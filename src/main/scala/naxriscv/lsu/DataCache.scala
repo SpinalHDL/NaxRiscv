@@ -743,7 +743,7 @@ class DataCache(val cacheSize: Int,
         writeback.push.way := refillWay
       }
 
-      REFILL_SLOT_FULL := MISS && !refillHit && (refill.full || refillLineBusy)
+      REFILL_SLOT_FULL := MISS && !refillHit && refill.full
       REFILL_SLOT := REFILL_HITS.andMask(!refillLoaded) | refill.free.andMask(askRefill)
     }
 
@@ -851,7 +851,7 @@ class DataCache(val cacheSize: Int,
       val askRefill = MISS && canRefill && !refillHit
       val startRefill = isValid && GENERATION_OK && askRefill
 
-      REFILL_SLOT_FULL := MISS && !refillHit && (refill.full || refillLineBusy)
+      REFILL_SLOT_FULL := MISS && !refillHit && refill.full
       REFILL_SLOT := refillHits.andMask(!refillLoaded) | refill.free.andMask(askRefill)
 
       val writeCache = isValid && GENERATION_OK && !REDO

@@ -22,6 +22,7 @@ class DecompressorPlugin() extends Plugin{
     import stage._
     for(i <- 0 until DECODE_COUNT) {
       stage(INSTRUCTION_DECOMPRESSED, i) := stage(INSTRUCTION_ALIGNED, i)
+      //TODO don't forget to mask INSTRUCTION_DECOMPRESSED upper bits if RVC
     }
     setup.frontend.release()
   }

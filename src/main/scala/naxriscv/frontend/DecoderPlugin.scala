@@ -4,15 +4,15 @@ import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.Fetch._
-import naxriscv.interfaces.{AddressTranslationService, DecoderService, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, Resource, RfRead, RfResource, RobService, SingleDecoding}
+import naxriscv.interfaces.{AddressTranslationService, CommitService, DecoderException, DecoderService, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, Resource, RfRead, RfResource, RobService, SingleDecoding}
 import naxriscv.prediction.DecoderPrediction
-import naxriscv.riscv.Const
+import naxriscv.riscv.{CSR, Const}
 import spinal.lib.pipeline.Connection.{DIRECT, M2S}
 import spinal.lib.pipeline._
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.{DocPlugin, Plugin}
-import spinal.lib.logic.{DecodingSpec, Masked, Symplify}
+import spinal.lib.logic.{DecodingSpec, Masked, Symplify, SymplifyBit}
 import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable
@@ -82,6 +82,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
   override def PHYS_RD_FREE : Stageable[UInt] = setup.keys.PHYS_RD_FREE
   override def rsCount = 2
   override def rsPhysicalDepthMax = setup.keys.physicalMax
+  override def getException() = setup.exceptionPort
 
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
@@ -91,6 +92,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
 
     getService[RobService].retain()
 
+    val exceptionPort = Flow(DecoderException())
     val keys = new Area {
       setName("")
       val plugins = getServicesOf[RegfileService]
@@ -101,7 +103,9 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       val PHYS_RD = Stageable(UInt(log2Up(physicalMax) bits))
       val PHYS_RD_FREE = Stageable(UInt(log2Up(physicalMax) bits))
       val READ_RS = List.fill(rsCount)(Stageable(Bool()))
-      val WRITE_RD = Stageable(Bool)
+      val WRITE_RD = Stageable(Bool())
+      val LEGAL = Stageable(Bool())
+      val EXCEPTION = Stageable(Bool())
     }
   }
 
@@ -112,6 +116,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
     val frontend = getService[FrontendPlugin]
     val rob = getService[RobService]
     val doc = getService[DocPlugin]
+    val commit = getService[CommitService]
 
     val executionUnits = getServicesOf[ExecuteUnitService]
     val euGroups = ArrayBuffer[EuGroup]()
@@ -182,6 +187,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
     for (i <- 0 until Frontend.DECODE_COUNT) {
       implicit val offset = StageableOffset(i)
       val rdZero = INSTRUCTION_DECOMPRESSED(Const.rdRange) === 0
+      setup.keys.LEGAL := Symplify.logicOf(INSTRUCTION_DECOMPRESSED, SymplifyBit.getPrimeImplicantsByTrueAndDontCare(encodings.all.toSeq, Nil, INSTRUCTION_WIDTH))
       setup.keys.READ_RS(0) := encodings.readRs1.build(INSTRUCTION_DECOMPRESSED, encodings.all)
       setup.keys.READ_RS(1) := encodings.readRs2.build(INSTRUCTION_DECOMPRESSED, encodings.all)
       setup.keys.WRITE_RD   := encodings.writeRd.build(INSTRUCTION_DECOMPRESSED, encodings.all) && !rdZero
@@ -191,7 +197,8 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       for((r, s) <- resourceToStageable){
         s := encodings.resourceToSpec(r).build(INSTRUCTION_DECOMPRESSED, encodings.all)
       }
-      DECODED_MASK := MASK_ALIGNED
+      setup.keys.EXCEPTION := MASK_ALIGNED && !setup.keys.LEGAL
+      DECODED_MASK := MASK_ALIGNED && !stage(0 to i)(setup.keys.EXCEPTION).orR
       if(!isServiceAvailable[DecoderPrediction]) DISPATCH_MASK := DECODED_MASK
 
       MICRO_OP := INSTRUCTION_DECOMPRESSED
@@ -201,6 +208,26 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       for(i <- 0 until rsCount) {
         setup.keys.ARCH_RS(i) := U(INSTRUCTION_DECOMPRESSED(Const.rsRange(i)))
       }
+    }
+
+    val exception = new Area{
+      val set = isFireing && getAll(setup.keys.EXCEPTION).orR
+      val clear = CombInit(isFlushed)
+      val trigged = RegInit(False) setWhen(set) clearWhen(clear)
+      def getAll[T <: Data](that : Stageable[T]) = Vec(stage(0 until  DECODE_COUNT)(that))
+      val oh = OHMasking.first(getAll(setup.keys.EXCEPTION))
+      val ohReg   = RegNextWhen(oh, !trigged)
+      val epcReg   = RegNextWhen(getAll(PC), !trigged)
+      val instReg = RegNextWhen(getAll(INSTRUCTION_ALIGNED), !trigged)
+//
+      val doIt = trigged && !frontend.isBusyAfterDecode() && commit.isRobEmpty
+      flushIt(doIt)
+      haltIt(trigged)
+
+      setup.exceptionPort.valid := doIt
+      setup.exceptionPort.cause := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
+      setup.exceptionPort.epc   := OHMux.or(ohReg, epcReg)
+      setup.exceptionPort.tval  := OHMux.or(ohReg, instReg)
     }
 
     val microOpDecoding = new Area{
