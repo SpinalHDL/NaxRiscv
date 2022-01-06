@@ -41,7 +41,7 @@ case class EuGroup(eus : Seq[ExecuteUnitService],
                    sel: Stageable[Bool],
                    microOps : Seq[MicroOp])
 
-case class DecoderException() extends Bundle{
+case class DecoderTrap() extends Bundle{
   val cause = UInt(4 bits)
   val epc   = UInt(PC_WIDTH bits)
   val tval  = Bits(XLEN bits)
@@ -70,7 +70,12 @@ trait DecoderService extends Service with LockedService {
 
   def rsCount  : Int
   def rsPhysicalDepthMax : Int
-  def getException() : Flow[DecoderException]
+  def getTrap() : Flow[DecoderTrap]
+
+  //The trap interface allow the privilegied plugin to ask the decoder to produce trap
+  def trapHalt() : Unit
+  def trapRaise() : Unit
+  def trapReady() : Bool
 }
 
 trait RobService extends Service{

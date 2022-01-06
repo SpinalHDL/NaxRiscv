@@ -78,10 +78,19 @@ void breakMe(){
 #define BASE 0x10000000
 #define PUTC BASE
 #define CLINT_TIME BASE + 0x1BFF8
+#define MACHINE_EXTERNAL_INTERRUPT_CTRL (BASE+0x10)
 
 class Soc{
 public:
     Memory memory;
+    VNaxRiscv* nax;
+
+    Soc(VNaxRiscv* nax){
+        this->nax = nax;
+        nax->PrivilegedPlugin_io_int_machine_external = 0;
+        nax->PrivilegedPlugin_io_int_machine_timer = 0;
+        nax->PrivilegedPlugin_io_int_machine_software = 0;
+    }
     virtual int memoryRead(uint32_t address,uint32_t length, uint8_t *data){
         memory.read(address, length, data);
         return 0;
@@ -95,6 +104,7 @@ public:
     virtual int peripheralWrite(u64 address, uint32_t length, uint8_t *data){
         switch(address){
         case PUTC: printf("%c", *data); break;
+        case MACHINE_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_machine_external = *data & 1;  break;
         default: return 1; break;
         }
         return 0;
@@ -962,7 +972,7 @@ int main(int argc, char** argv, char** env){
     if(traceGem5) whitebox.gem5 = ofstream(outputDir + "/trace.gem5o3",std::ofstream::binary);
 
     Soc *soc;
-    soc = new Soc();
+    soc = new Soc(top);
 	vector<SimElement*> simElements;
     simElements.push_back(new FetchCached(top, soc, true));
     simElements.push_back(new DataCached(top, soc, true));
@@ -1108,6 +1118,7 @@ int main(int argc, char** argv, char** env){
 
                 }
                 cycleSinceLastCommit += 1;
+
                 for(int i = 0;i < COMMIT_COUNT;i++){
                     if(CHECK_BIT(internal->commit_mask, i)){
                         cycleSinceLastCommit = 0;
@@ -1174,6 +1185,17 @@ int main(int argc, char** argv, char** env){
                         whitebox.robCtx[robId].clear();
                     }
                 }
+
+                if(top->NaxRiscv->trap_fire){
+                    bool interrupt = top->NaxRiscv->trap_interrupt;
+                    int code = top->NaxRiscv->trap_code;
+                    int mask = 1 << code;
+                    cout << "DUT TRAP " << interrupt << " " << code << endl;
+                    state->mip->write_with_mask(mask, mask);
+                    proc.step(1);
+                    state->mip->write_with_mask(mask, 0);
+                }
+
                 top->eval();
                 for(SimElement* simElement : simElements) simElement->postCycle();
             }
