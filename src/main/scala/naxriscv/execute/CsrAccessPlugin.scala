@@ -229,17 +229,24 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       setup.trap.reason     := ScheduleReason.TRAP
     }
 
-    val whitebox = new AreaRoot{
+    val whitebox = new AreaRoot {
       import writeLogic.stage._
-      val csrWrite = Verilator.public(Flow(new Bundle {
+
+      val csrAccess = Verilator.public(Flow(new Bundle {
         val robId = ROB.ID()
         val address = UInt(12 bits)
-        val data = Bits(XLEN bits)
+        val write = Bits(XLEN bits)
+        val read = Bits(XLEN bits)
+        val writeDone = Bool()
+        val readDone = Bool()
       }))
-      csrWrite.valid := isFireing && SEL && CSR_WRITE && !CSR_WRITE_TRAP && !CSR_READ_TRAP
-      csrWrite.robId := ROB.ID
-      csrWrite.address := U(MICRO_OP)(Const.csrRange)
-      csrWrite.data := setup.onWriteBits
+      csrAccess.valid := isFireing && SEL && !CSR_WRITE_TRAP && !CSR_READ_TRAP
+      csrAccess.robId := ROB.ID
+      csrAccess.address := U(MICRO_OP)(Const.csrRange)
+      csrAccess.write := setup.onWriteBits
+      csrAccess.read := CSR_VALUE
+      csrAccess.writeDone := CSR_WRITE
+      csrAccess.readDone := CSR_READ
     }
   }
 }

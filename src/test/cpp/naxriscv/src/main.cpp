@@ -75,10 +75,30 @@ void breakMe(){
 }
 
 
+
+#define CAUSE_MACHINE_SOFTWARE 3
+#define CAUSE_MACHINE_TIMER 7
+#define CAUSE_MACHINE_EXTERNAL 11
+#define CAUSE_SUPERVISOR_EXTERNAL 9
+
+
+#define MIE_MTIE (1 << CAUSE_MACHINE_TIMER)
+#define MIE_MEIE (1 << CAUSE_MACHINE_EXTERNAL)
+#define MIE_MSIE (1 << CAUSE_MACHINE_SOFTWARE)
+#define MIE_SEIE (1 << CAUSE_SUPERVISOR_EXTERNAL)
+
+
+#define MIP 0x344
+#define SIP 0x144
+#define UIP  0x44
+
+
 #define BASE 0x10000000
 #define PUTC BASE
 #define CLINT_TIME BASE + 0x1BFF8
 #define MACHINE_EXTERNAL_INTERRUPT_CTRL (BASE+0x10)
+
+
 
 class Soc{
 public:
@@ -476,15 +496,22 @@ public:
     IData pc;
     bool integerWriteValid;
     RvData integerWriteData;
-    bool csrWriteValid;
-    RvData csrWriteAddress;
+
+    bool csrValid;
+    bool csrWriteDone;
+    bool csrReadDone;
+    RvData csrAddress;
     RvData csrWriteData;
+    RvData csrReadData;
+
     IData branchHistory;
     int opId;
 
     void clear(){
         integerWriteValid = false;
-        csrWriteValid = false;
+        csrValid = false;
+        csrWriteDone = false;
+        csrReadDone = false;
     }
 };
 
@@ -739,12 +766,15 @@ public:
             opCtx[opId].storeAt = main_time;
             if(gem5Enable) trace(opId);
         }
-        if(nax->csrWrite_valid){
-            auto robId = nax->csrWrite_payload_robId;
+        if(nax->csrAccess_valid){
+            auto robId = nax->csrAccess_payload_robId;
 //                printf("RF write rob=%d %d at %ld\n", robId, *integer_write_data[i], main_time);
-            robCtx[robId].csrWriteValid = true;
-            robCtx[robId].csrWriteAddress = nax->csrWrite_payload_address;
-            robCtx[robId].csrWriteData = nax->csrWrite_payload_data;
+            robCtx[robId].csrValid = true;
+            robCtx[robId].csrAddress = nax->csrAccess_payload_address;
+            robCtx[robId].csrWriteDone = nax->csrAccess_payload_writeDone;
+            robCtx[robId].csrReadDone = nax->csrAccess_payload_readDone;
+            robCtx[robId].csrWriteData = nax->csrAccess_payload_write;
+            robCtx[robId].csrReadData = nax->csrAccess_payload_read;
         }
 
 //        if(nax->FrontendPlugin_allocated_isFireing){
@@ -1123,9 +1153,22 @@ int main(int argc, char** argv, char** env){
                     if(CHECK_BIT(internal->commit_mask, i)){
                         cycleSinceLastCommit = 0;
                         int robId = internal->commit_robId + i;
+                        auto &robCtx = whitebox.robCtx[robId];
                         robIdChecked = robId;
                         commits += 1;
 //                        printf("Commit %d %x\n", robId, whitebox.robCtx[robId].pc);
+
+                        //Sync some CSR
+                        if(robCtx.csrReadDone){
+                            switch(robCtx.csrAddress){
+                            case MIP:
+                            case SIP:
+                            case UIP:
+                                state->mip->write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, robCtx.csrReadData);
+                                break;
+                            }
+                        }
+
                         auto lastInstret = state->minstret.get()->read();
                         int credit = 10;
                         do{
@@ -1157,8 +1200,8 @@ int main(int argc, char** argv, char** env){
                                 case 0x00200073: //URET
                                     break;
                                 default:
-                                    assertTrue("CSR WRITE MISSING", whitebox.robCtx[robId].csrWriteValid);
-                                    assertEq("CSR WRITE ADDRESS", whitebox.robCtx[robId].csrWriteAddress, rd);
+                                    assertTrue("CSR WRITE MISSING", whitebox.robCtx[robId].csrWriteDone);
+                                    assertEq("CSR WRITE ADDRESS", whitebox.robCtx[robId].csrAddress, rd);
                                     assertEq("CSR WRITE DATA", whitebox.robCtx[robId].csrWriteData, item.second.v[0]);
                                     break;
                                 }
