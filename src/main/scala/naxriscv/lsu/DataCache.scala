@@ -291,6 +291,7 @@ class DataCache(val cacheSize: Int,
 
 
   val status = new Area{
+    //Hazard between load/store is solved by the fact that only one can write trigger a refill/change the status at a given time
     val mem = Mem.fill(linePerWay)(Vec.fill(wayCount)(Status()))
     val write = mem.writePort.setIdle()
     val loadRead = new Area{
@@ -304,15 +305,12 @@ class DataCache(val cacheSize: Int,
       KeepAttribute(rsp)
     }
     val writeLast = write.stage()
-//    def bypass(status : Vec[Status], address : UInt) : Vec[Status] = {
-//      val ret = CombInit(status)
-//      when(write.valid && write.address === address(lineRange)){
-//        ret := write.data
-//      }
-//      ret
-//    }
-    def bypass(stage: Stage, address : Stageable[UInt]): Unit ={
+
+    def bypass(stage: Stage, address : Stageable[UInt], withLast : Boolean): Unit ={
       stage.overloaded(STATUS) := stage(STATUS)
+      if(withLast) when(writeLast.valid && writeLast.address === stage(address)(lineRange)){
+        stage.overloaded(STATUS)  := writeLast.data
+      }
       when(write.valid && write.address === stage(address)(lineRange)){
         stage.overloaded(STATUS)  := write.data
       }
@@ -675,7 +673,9 @@ class DataCache(val cacheSize: Int,
       status.loadRead.cmd.valid := !readStage.isStuck
       status.loadRead.cmd.payload := readStage(ADDRESS_PRE_TRANSLATION)(lineRange)
       pipeline.stages(loadReadAt + 1)(STATUS) := status.loadRead.rsp
-      (loadReadAt + 1 to loadControlAt).map(pipeline.stages(_)).foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION))
+
+      val statusBypassOn = (loadReadAt + 1 to loadControlAt).map(pipeline.stages(_))
+      statusBypassOn.foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION, stage == statusBypassOn.head))
     }
 
 
@@ -827,7 +827,10 @@ class DataCache(val cacheSize: Int,
       status.storeRead.cmd.valid := !readStage.isStuck
       status.storeRead.cmd.payload := readStage(ADDRESS_POST_TRANSLATION)(lineRange)
       pipeline.stages(storeReadAt + 1)(STATUS) := status.storeRead.rsp
-      (storeReadAt + 1 to storeControlAt).map(pipeline.stages(_)).foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION))
+
+
+      val statusBypassOn = (storeReadAt + 1 to storeControlAt).map(pipeline.stages(_))
+      statusBypassOn.foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION,  stage == statusBypassOn.head))
     }
 
     val ctrl = new Area {
