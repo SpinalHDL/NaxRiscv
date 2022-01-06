@@ -215,19 +215,19 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       val clear = CombInit(isFlushed)
       val trigged = RegInit(False) setWhen(set) clearWhen(clear)
       def getAll[T <: Data](that : Stageable[T]) = Vec(stage(0 until  DECODE_COUNT)(that))
-      val oh = OHMasking.first(getAll(setup.keys.EXCEPTION))
-      val ohReg   = RegNextWhen(oh, !trigged)
+      val exceptionReg = RegNextWhen(getAll(setup.keys.EXCEPTION), !trigged)
       val epcReg   = RegNextWhen(getAll(PC), !trigged)
       val instReg = RegNextWhen(getAll(INSTRUCTION_ALIGNED), !trigged)
-//
+      val oh = OHMasking.first(exceptionReg)
+
       val doIt = trigged && !frontend.isBusyAfterDecode() && commit.isRobEmpty
       flushIt(doIt)
       haltIt(trigged)
 
       setup.exceptionPort.valid := doIt
       setup.exceptionPort.cause := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
-      setup.exceptionPort.epc   := OHMux.or(ohReg, epcReg)
-      setup.exceptionPort.tval  := OHMux.or(ohReg, instReg)
+      setup.exceptionPort.epc   := OHMux.or(oh, epcReg)
+      setup.exceptionPort.tval  := OHMux.or(oh, instReg)
     }
 
     val microOpDecoding = new Area{
