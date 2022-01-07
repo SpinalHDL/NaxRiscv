@@ -11,6 +11,7 @@ import naxriscv.Frontend._
 import naxriscv.Global._
 import naxriscv.frontend.DispatchPlugin
 import naxriscv.misc.CommitPlugin
+import spinal.lib.logic.Symplify
 
 object CsrAccessPlugin extends AreaObject{
   val CSR_IMM  = Stageable(Bool())
@@ -26,6 +27,7 @@ object CsrAccessPlugin extends AreaObject{
   val ALU_MASKED = Stageable(Bits(XLEN bits))
   val ALU_RESULT = Stageable(Bits(XLEN bits))
   val RAM_SEL    = Stageable(Bool())
+  val CSR_IMPLEMENTED = Stageable(Bool())
 }
 
 class CsrAccessPlugin(euId: String)(decodeAt: Int,
@@ -98,6 +100,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
     val grouped = spec.groupByLinked(_.csrFilter)
     val sels = grouped.map(g => g._1 -> Stageable(Bool()).setName("CSR_" + filterToName(g._1)))
 
+
     val RAM_ADDRESS = Stageable(UInt(ramReadPort.addressWidth bits))
     val decodeLogic = new ExecuteArea(decodeAt) {
       import stage._
@@ -112,6 +115,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       val srcZero = CSR_IMM ? immZero otherwise MICRO_OP(Const.rs1Range) === 0
       CSR_WRITE := !(CSR_MASK && srcZero)
       CSR_READ := !(!CSR_MASK && !decoder.WRITE_RD)
+      CSR_IMPLEMENTED := sels.values.map(stage(_)).toSeq.orR
 
       val ram = useRam generate new Area{
         RAM_ADDRESS.assignDontCare()
@@ -137,9 +141,12 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
 
       CSR_READ_TRAP := setup.onReadTrap
       val onReadsDo = isValid && SEL && CSR_READ
-      val onReadsFireDo = isFireing && SEL && CSR_READ  && !CSR_READ_TRAP
+      val onReadsFireDo = isFireing && SEL && CSR_READ && !CSR_READ_TRAP
 
       haltIt(setup.onReadHalt)
+      when(isValid && SEL && !CSR_IMPLEMENTED){
+        onReadTrap()
+      }
 
       val groupedLogic = for ((csrFilter, elements) <- grouped) yield new Area{
         setPartialName(filterToName(csrFilter))

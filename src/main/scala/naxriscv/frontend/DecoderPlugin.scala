@@ -193,7 +193,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
     for (i <- 0 until Frontend.DECODE_COUNT) {
       implicit val offset = StageableOffset(i)
       val rdZero = INSTRUCTION_DECOMPRESSED(Const.rdRange) === 0
-      setup.keys.LEGAL := Symplify.logicOf(INSTRUCTION_DECOMPRESSED, SymplifyBit.getPrimeImplicantsByTrueAndDontCare(encodings.all.toSeq, Nil, INSTRUCTION_WIDTH))
+      setup.keys.LEGAL := Symplify(INSTRUCTION_DECOMPRESSED, encodings.all)
       setup.keys.READ_RS(0) := encodings.readRs1.build(INSTRUCTION_DECOMPRESSED, encodings.all)
       setup.keys.READ_RS(1) := encodings.readRs2.build(INSTRUCTION_DECOMPRESSED, encodings.all)
       setup.keys.WRITE_RD   := encodings.writeRd.build(INSTRUCTION_DECOMPRESSED, encodings.all) && !rdZero
