@@ -1192,6 +1192,7 @@ int main(int argc, char** argv, char** env){
                             }
                             credit--;
                         } while(lastInstret == state->minstret.get()->read());
+
 //                        cout << state->minstret.get()->read() << endl;
                         RvData pc = state->last_inst_pc;
                         assertEq("MISSMATCH PC", whitebox.robCtx[robId].pc,  pc);

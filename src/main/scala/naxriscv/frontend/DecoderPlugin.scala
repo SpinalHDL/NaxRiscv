@@ -203,7 +203,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       for((r, s) <- resourceToStageable){
         s := encodings.resourceToSpec(r).build(INSTRUCTION_DECOMPRESSED, encodings.all)
       }
-      setup.keys.TRAP := MASK_ALIGNED && (!setup.keys.LEGAL || setup.trapRaise) 
+      setup.keys.TRAP := MASK_ALIGNED && (!setup.keys.LEGAL || FETCH_FAULT || setup.trapRaise)
       DECODED_MASK := MASK_ALIGNED && !stage(0 to i)(setup.keys.TRAP).orR
       if(!isServiceAvailable[DecoderPrediction]) DISPATCH_MASK := DECODED_MASK
 
@@ -222,9 +222,17 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       val trigged = RegInit(False) setWhen(set) clearWhen(clear)
       def getAll[T <: Data](that : Stageable[T]) = Vec(stage(0 until  DECODE_COUNT)(that))
       val exceptionReg = RegNextWhen(getAll(setup.keys.TRAP), !trigged)
+      val fetchFaultReg = RegNextWhen(getAll(FETCH_FAULT), !trigged)
+      val fetchFaultPageReg = RegNextWhen(getAll(FETCH_FAULT_PAGE), !trigged)
+      val fetchFaultSliceReg = RegNextWhen(getAll(FETCH_FAULT_SLICE), !trigged)
       val epcReg   = RegNextWhen(getAll(PC), !trigged)
       val instReg = RegNextWhen(getAll(INSTRUCTION_ALIGNED), !trigged)
       val oh = OHMasking.first(exceptionReg)
+
+      val fetchFault      = OHMux.or(oh, fetchFaultReg)
+      val fetchFaultPage  = OHMux.or(oh, fetchFaultPageReg)
+      val fetchFaultSlice = OHMux.or(oh, fetchFaultSliceReg)
+      val pc              = OHMux.or(oh, epcReg)
 
       val pipelineEmpty = !frontend.isBusyAfterDecode() && commit.isRobEmpty
       val doIt = trigged && pipelineEmpty
@@ -235,9 +243,18 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
 
       setup.trapReady := isValid && pipelineEmpty
       setup.exceptionPort.valid := doIt
-      setup.exceptionPort.cause := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
-      setup.exceptionPort.epc   := OHMux.or(oh, epcReg)
-      setup.exceptionPort.tval  := OHMux.or(oh, instReg)
+      setup.exceptionPort.epc   := pc
+      when(fetchFault){
+        when(fetchFaultPage){
+          setup.exceptionPort.cause := CSR.MCAUSE_ENUM.INSTRUCTION_PAGE_FAULT
+        } otherwise {
+          setup.exceptionPort.cause := CSR.MCAUSE_ENUM.INSTRUCTION_ACCESS_FAULT
+        }
+        setup.exceptionPort.tval  := B(pc + (fetchFaultSlice << SLICE_RANGE_LOW))
+      } otherwise {
+        setup.exceptionPort.cause := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
+        setup.exceptionPort.tval  := OHMux.or(oh, instReg)
+      }
     }
 
     val microOpDecoding = new Area{

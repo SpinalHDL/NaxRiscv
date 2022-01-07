@@ -49,6 +49,9 @@ object CSR {
     val ECALL_USER = 8
     val ECALL_SUPERVISOR = 9
     val ECALL_MACHINE = 11
+
+    val INSTRUCTION_ACCESS_FAULT = 1
+    val INSTRUCTION_PAGE_FAULT = 12
   }
 
   def MVENDORID = 0xF11 // MRO Vendor ID.
