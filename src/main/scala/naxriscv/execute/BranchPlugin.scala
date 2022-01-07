@@ -6,7 +6,7 @@ import naxriscv.interfaces._
 import naxriscv.riscv._
 import naxriscv.utilities.Plugin
 import spinal.core._
-import spinal.lib.Flow
+import spinal.lib.{Flow, KeepAttribute}
 import spinal.lib.pipeline.Stageable
 import naxriscv.Global._
 import naxriscv.prediction.{BranchContextPlugin, DecoderPredictionPlugin}
@@ -62,8 +62,7 @@ class BranchPlugin(euId : String,
     val process = new ExecuteArea(0) {
       import stage._
       val ss = SrcStageables
-
-
+      
       EQ := ss.SRC1 === ss.SRC2
 
       COND := BRANCH_CTRL.mux(
@@ -91,12 +90,16 @@ class BranchPlugin(euId : String,
       )
 
       (PC, "TRUE") := U(target_a + target_b)
-      (PC, "TRUE")(0) clearWhen(BRANCH_CTRL === BranchCtrlEnum.JALR)
-
+      (PC, "TRUE")(0) := False
 
       val slices = Fetch.INSTRUCTION_SLICE_COUNT+^1
       (PC, "FALSE") := PC + (slices << sliceShift)
       (PC, "TARGET") := COND ? stage(PC, "TRUE") | stage(PC, "FALSE")
+
+      // Without those keepattribute, Vivado will transform the logic in a way which will serialize the 32 bits of the COND comparator,
+      // with the 32 bits of the TRUE/FALSE adders, ending up in a quite long combinatorial path (21 lut XD)
+      KeepAttribute(stage(PC, "TRUE"))
+      KeepAttribute(stage(PC, "FALSE"))
 
       if(setup.withBranchContext) stage(BRANCH_EARLY) := branchContext.readEarly(BRANCH_ID)
     }
@@ -104,7 +107,7 @@ class BranchPlugin(euId : String,
     val writeback = new ExecuteArea(writebackAt){
       import stage._
 
-      wb.payload := B(stage(PC, "FALSE"))
+      wb.payload := B(stage(PC, "FALSE")) //JAL/JALR
     }
 
     val branch = new ExecuteArea(branchAt){
