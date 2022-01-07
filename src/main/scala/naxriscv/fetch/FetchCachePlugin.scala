@@ -162,7 +162,7 @@ class FetchCachePlugin(val cacheSize : Int,
       val fire = False
       val valid = RegInit(False) clearWhen (fire)
       val address = KeepAttribute(Reg(UInt(preTranslationWidth bits)))
-      val hadError = RegInit(False) clearWhen (fire)
+      val hadError = RegInit(False)
 
       val cmdSent = RegInit(False) setWhen (mem.cmd.fire) clearWhen (fire)
       mem.cmd.valid := valid && !cmdSent
@@ -204,6 +204,7 @@ class FetchCachePlugin(val cacheSize : Int,
         }
       }
 
+      hadError clearWhen (fire)
       setup.pipeline.getStage(0).haltIt(valid)
     }
 
