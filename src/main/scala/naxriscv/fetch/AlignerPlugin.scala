@@ -78,6 +78,8 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       val data = Reg(WORD)
       val mask = Reg(MASK_FRONT) init (0)
       val pc   = Reg(PC())
+      val fault = Reg(Bool())
+      val fault_page = Reg(Bool())
       val branchValid = Reg(WORD_BRANCH_VALID())
       val branchSlice = Reg(WORD_BRANCH_SLICE())
       val branchPcNext = Reg(WORD_BRANCH_PC_NEXT())
@@ -138,9 +140,9 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
 
     val extractors = for (i <- 0 until DECODE_COUNT) yield new Area {
       val maskOh = OHMasking.firstV2(slices.mask.drop(i))
-      val usage = MuxOH.or(maskOh, decoders.drop(i).map(_.usage))
+      val usage  = MuxOH.or(maskOh, decoders.drop(i).map(_.usage))
       val usable = MuxOH.or(maskOh, decoders.drop(i).map(_.usable))
-      val rvc = MuxOH.or(maskOh, decoders.drop(i).map(_.rvc))
+      val rvc    = MuxOH.or(maskOh, decoders.drop(i).map(_.rvc))
       val slice0 = MuxOH.or(maskOh, slices.data.drop(i))
       val slice1 = MuxOH.or(maskOh.dropHigh(1), slices.data.drop(i + 1))
       val instruction = slice1 ## slice0
@@ -152,7 +154,7 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       output(INSTRUCTION_SLICE_COUNT, i) := (if(RVC) U(!rvc) else U(0))
 
       val sliceLast = output(PC, i)(sliceRange) + U(!rvc)
-      val bufferPredictionLast = buffer.branchSlice     === sliceLast
+      val bufferPredictionLast = buffer.branchSlice === sliceLast
       val inputPredictionLast  = WORD_BRANCH_SLICE === sliceLast
       val lastWord = maskOh.drop(SLICE_COUNT-i).orR || rvc && maskOh(SLICE_COUNT-i-1)
       when(lastWord) {
@@ -175,6 +177,20 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       } otherwise {
         for((value, key) <- (buffer.firstWordContexts, firstWordContextSpec).zipped) output(key, i).assignFrom(value)
       }
+
+      output(FETCH_FAULT, i) := False
+      output(FETCH_FAULT_PAGE, i).assignDontCare()
+      output(FETCH_FAULT_SLICE, i).assignDontCare()
+      when((firstWord || lastWord) && input(WORD_FAULT)){
+        output(FETCH_FAULT, i) := True
+        output(FETCH_FAULT_PAGE, i) := input(WORD_FAULT_PAGE)
+        output(FETCH_FAULT_SLICE, i) := 1
+      }
+      when((!firstWord || !lastWord) && buffer.fault){
+        output(FETCH_FAULT, i) := True
+        output(FETCH_FAULT_PAGE, i) := buffer.fault_page
+        output(FETCH_FAULT_SLICE, i) := 0
+      }
     }
 
     val fireOutput = CombInit(output.isFireing)
@@ -190,6 +206,8 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       buffer.mask := (fireOutput ? slices.mask(SLICE_COUNT, SLICE_COUNT bits) otherwise MASK_FRONT) & postMask
       buffer.data := WORD
       buffer.pc   := FETCH_PC
+      buffer.fault  := WORD_FAULT
+      buffer.fault_page  := WORD_FAULT_PAGE
       buffer.branchValid  := WORD_BRANCH_VALID && !predictionSanity.failure
       buffer.branchSlice  := WORD_BRANCH_SLICE
       buffer.branchPcNext := WORD_BRANCH_PC_NEXT
@@ -201,16 +219,6 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
     fetch.getStage(inputAt-1).flushIt(predictionSanity.failure && !correctionSent)
     setup.sequenceJump.valid := predictionSanity.failure && !correctionSent
     setup.sequenceJump.pc    := input(FETCH_PC_INC)
-
-
-
-//    val fireOutput = CombInit(output.isFireing)
-//    val fireInput = False
-//    when(buffer.mask === 0 || fireOutput && slices.mask(0, SLICE_COUNT bits) === 0) {
-//      buffer.mask := slices.mask(SLICE_COUNT, SLICE_COUNT bits)
-//      buffer.data := WORD
-//      fireInput := True
-//    }
 
     output.valid := extractors.head.valid
     input.haltIt(!fireInput)

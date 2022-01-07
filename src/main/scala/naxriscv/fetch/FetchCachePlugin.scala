@@ -241,7 +241,10 @@ class FetchCachePlugin(val cacheSize : Int,
         import controlStage._
 
         setup.redoJump.valid := False
-        setup.redoJump.pc := FETCH_PC
+        setup.redoJump.pc    := FETCH_PC
+
+        WORD_FAULT := (B(WAYS_HITS) & B(WAYS_TAGS.map(_.error))).orR
+        WORD_FAULT_PAGE := False //TODO
 
         when(isValid) {
           when(!WAYS_HIT) {
@@ -251,8 +254,6 @@ class FetchCachePlugin(val cacheSize : Int,
             setup.redoJump.valid := True
             flushIt()
             setup.pipeline.getStage(0).haltIt() //"optional"
-          } otherwise { //Success
-
           }
         }
 

@@ -154,6 +154,7 @@ class LsuPlugin(lqSize: Int,
     val storeCompletion = rob.newRobCompletion()
     val loadTrap = commit.newSchedulePort(canTrap = true, canJump = false)
     val storeTrap = commit.newSchedulePort(canTrap = true, canJump = true)
+    val peripheralTrap = commit.newSchedulePort(canTrap = true, canJump = false)
 
     decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
     decoder.addResourceDecoding(naxriscv.interfaces.SQ, SQ_ALLOC)
@@ -1059,20 +1060,28 @@ class LsuPlugin(lqSize: Int,
       val storeSize = RegNextWhen(store.writeback.feed.size, hit)
       val storeData = RegNextWhen(setup.cacheStore.cmd.data, hit)
       val storeMask = RegNextWhen(setup.cacheStore.cmd.mask, hit)
+      val address = isStore ? storeAddress otherwise loadAddress
 
       peripheralBus.cmd.valid := enabled && !cmdSent
       peripheralBus.cmd.write   := isStore
-      peripheralBus.cmd.address := isStore ? storeAddress otherwise loadAddress
+      peripheralBus.cmd.address := address
       peripheralBus.cmd.size    := isStore ? storeSize otherwise loadSize
       peripheralBus.cmd.data    := storeData
       peripheralBus.cmd.mask    := storeMask
 
+      setup.peripheralTrap.valid      := False
+      setup.peripheralTrap.robId      := robId
+      setup.peripheralTrap.cause      := (isStore ? U(CSR.MCAUSE_ENUM.STORE_ACCESS_FAULT) otherwise U(CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT)).resized
+      setup.peripheralTrap.tval       := B(address)
+      setup.peripheralTrap.skipCommit := True
+      setup.peripheralTrap.reason     := ScheduleReason.TRAP
 
       when(peripheralBus.rsp.fire) {
-        //TODO handle trap, maybe can use a dedicated port which always win (lighter arbitration) as it is the next to commit
+        load.pipeline.cacheRsp.peripheralOverride := True
         setup.loadCompletion.valid := True
         setup.loadCompletion.id := robId
-        load.pipeline.cacheRsp.peripheralOverride := True
+
+        setup.peripheralTrap.valid := peripheralBus.rsp.error
 
         setup.rfWrite.valid               setWhen(isLoad && loadWriteRd)
         setup.rfWrite.address             := physRd

@@ -3,6 +3,7 @@ package naxriscv.utilities
 import spinal.core._
 import spinal.lib._
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 object Misc {
@@ -37,8 +38,9 @@ class Reservation{
     e
   }
 
+//  val allowMultiplesAt = mutable.LinkedHashSet[Int]()
   Component.current.afterElaboration{
-    assert(model.map(_.priority).distinct.size == model.size)
+//    assert(model.map(_.priority).distinct.size == model.size)
     for(e <- model){
       e.win := !model.filter(_.priority < e.priority).map(_.take).orR
     }

@@ -317,6 +317,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         setup.ramWrite.valid   := True
         setup.ramWrite.address := machine.tval.getAddress()
         setup.ramWrite.data    := reschedule.tval
+        when(decoderTrap.raised){ setup.ramWrite.data    := 0 }
         when(setup.ramWrite.ready){
           goto(EPC_WRITE)
         }

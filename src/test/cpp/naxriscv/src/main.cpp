@@ -112,11 +112,13 @@ public:
         nax->PrivilegedPlugin_io_int_machine_software = 0;
     }
     virtual int memoryRead(uint32_t address,uint32_t length, uint8_t *data){
+        if(address < 0x10000000) return 1;
         memory.read(address, length, data);
         return 0;
     }
 
     virtual int memoryWrite(uint32_t address,uint32_t length, uint8_t *data){
+        if(address < 0x10000000) return 1;
         memory.write(address, length, data);
         return 0;
     }
@@ -369,6 +371,7 @@ public:
     u64 len;
     u8 data[8];
     bool write;
+    bool error;
 };
 
 class LsuPeripheral: public SimElement{
@@ -422,9 +425,9 @@ public:
             assertTrue("bad io length\n", offset + bytes <= LSU_PERIPHERAL_WIDTH/8);
 
             if(write){
-                nax->DataCachePlugin_mem_read_rsp_payload_error = soc->peripheralWrite(address, bytes, ptr);
+                nax->LsuPlugin_peripheralBus_rsp_payload_error = soc->peripheralWrite(address, bytes, ptr);
             } else {
-                nax->DataCachePlugin_mem_read_rsp_payload_error = soc->peripheralRead(address, bytes, ptr);
+                nax->LsuPlugin_peripheralBus_rsp_payload_error = soc->peripheralRead(address, bytes, ptr);
                 memcpy(((u8*) &nax->LsuPlugin_peripheralBus_rsp_payload_data) + offset, ptr, bytes);
             }
 
@@ -432,6 +435,7 @@ public:
             access.addr = address;
             access.len = bytes;
             access.write = write;
+            access.error = nax->LsuPlugin_peripheralBus_rsp_payload_error;
             memcpy(((u8*) &access.data), ptr, bytes);
             mmioDut->push(access);
             valid = false;
@@ -454,12 +458,13 @@ public:
 
     // should return NULL for MMIO addresses
     virtual char* addr_to_mem(reg_t addr)  {
-        if((addr & 0xF0000000) == 0x10000000) return NULL;
+        if((addr & 0xE0000000) == 0x00000000) return NULL;
         return (char*)memory.get(addr);
     }
     // used for MMIO addresses
     virtual bool mmio_load(reg_t addr, size_t len, uint8_t* bytes)  {
 //        printf("mmio_load %lx %ld\n", addr, len);
+        if(addr < 0x10000000) return false;
         assertTrue("missing mmio\n", !mmioDut.empty());
         auto dut = mmioDut.front();
         assertEq("mmio write\n", dut.write, false);
@@ -467,10 +472,11 @@ public:
         assertEq("mmio len\n", dut.len, len);
         memcpy(bytes, dut.data, len);
         mmioDut.pop();
-        return true;
+        return !dut.error;
     }
     virtual bool mmio_store(reg_t addr, size_t len, const uint8_t* bytes)  {
 //        printf("mmio_store %lx %ld\n", addr, len);
+        if(addr < 0x10000000) return false;
         assertTrue("missing mmio\n", !mmioDut.empty());
         auto dut = mmioDut.front();
         assertEq("mmio write\n", dut.write, true);
@@ -478,7 +484,7 @@ public:
         assertEq("mmio len\n", dut.len, len);
         assertTrue("mmio data\n", !memcmp(dut.data, bytes, len));
         mmioDut.pop();
-        return true;
+        return !dut.error;
     }
     // Callback for processors to let the simulation know they were reset.
     virtual void proc_reset(unsigned id)  {
@@ -975,7 +981,11 @@ int main(int argc, char** argv, char** env){
             case ARG_STATS_START_SYMBOL:
             case ARG_STATS_STOP_SYMBOL:
             case ARG_STATS_TOGGLE_SYMBOL: break;
-            default: failure(); break;
+            default: {
+                printf("Unknown argument\n");
+                failure();
+                break;
+            }
         }
     }
 
@@ -1046,7 +1056,10 @@ int main(int argc, char** argv, char** env){
             }break;
             case ARG_FAIL_SYMBOL:  {
                 u64 addr = elf->getSymbolAddress(optarg);
-                addPcEvent(addr, [&](RvData pc){ failure();});
+                addPcEvent(addr, [&](RvData pc){
+                  printf("Failure due to fail symbol encounter\n");
+                  failure();
+                });
                 wrap.memory.write(addr, 4, nop);
                 soc->memory.write(addr, 4, nop);
             }break;

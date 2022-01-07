@@ -1,5 +1,6 @@
 package naxriscv
 
+import naxriscv.Fetch.INSTRUCTION_SLICE_COUNT
 import naxriscv.Global.{PC, PC_TRANSLATED_WIDTH}
 import naxriscv.utilities.Plugin
 import spinal.core._
@@ -59,6 +60,8 @@ object Fetch extends AreaObject{
   def SLICE_RANGE = (SLICE_RANGE_LOW + log2Up(SLICE_COUNT) - 1) downto SLICE_RANGE_LOW
 
   val WORD = Stageable(Bits(FETCH_DATA_WIDTH bits))
+  val WORD_FAULT = Stageable(Bool())
+  val WORD_FAULT_PAGE = Stageable(Bool())
   val INSTRUCTION_WIDTH = NaxParameter[Int]
 
   val FETCH_PC_TRANSLATED   = Stageable(UInt(PC_TRANSLATED_WIDTH bits))
@@ -79,6 +82,10 @@ object Frontend extends AreaObject {
   val INSTRUCTION_ALIGNED = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
   val INSTRUCTION_DECOMPRESSED = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
   val MICRO_OP = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
+
+  val FETCH_FAULT = Stageable(Bool())
+  val FETCH_FAULT_PAGE = Stageable(Bool())
+  val FETCH_FAULT_SLICE = Stageable(INSTRUCTION_SLICE_COUNT)
 }
 
 

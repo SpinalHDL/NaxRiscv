@@ -225,6 +225,7 @@ class DataCache(val cacheSize: Int,
   case class Tag() extends Bundle{
     val loaded = Bool()
     val address = UInt(tagWidth bits)
+    val fault = Bool()
   }
 
   case class Status() extends Bundle{
@@ -237,6 +238,7 @@ class DataCache(val cacheSize: Int,
   val WAYS_HITS = Stageable(Bits(wayCount bits))
   val WAYS_HIT = Stageable(Bool())
   val MISS = Stageable(Bool())
+  val FAULT = Stageable(Bool())
   val REDO = Stageable(Bool())
   val IO = Stageable(Bool())
   val REFILL_SLOT = Stageable(Bits(refillCount bits))
@@ -289,7 +291,6 @@ class DataCache(val cacheSize: Int,
     }
   }
 
-
   val status = new Area{
     //Hazard between load/store is solved by the fact that only one can write trigger a refill/change the status at a given time
     val mem = Mem.fill(linePerWay)(Vec.fill(wayCount)(Status()))
@@ -306,14 +307,19 @@ class DataCache(val cacheSize: Int,
     }
     val writeLast = write.stage()
 
+
+    def bypass(status : Vec[Status], address : UInt, withLast : Boolean): Vec[Status] ={
+      val ret = CombInit(status)
+      if(withLast) when(writeLast.valid && writeLast.address === address(lineRange)){
+        ret  := writeLast.data
+      }
+      when(write.valid && write.address === address(lineRange)){
+        ret  := write.data
+      }
+      ret
+    }
     def bypass(stage: Stage, address : Stageable[UInt], withLast : Boolean): Unit ={
-      stage.overloaded(STATUS) := stage(STATUS)
-      if(withLast) when(writeLast.valid && writeLast.address === stage(address)(lineRange)){
-        stage.overloaded(STATUS)  := writeLast.data
-      }
-      when(write.valid && write.address === stage(address)(lineRange)){
-        stage.overloaded(STATUS)  := write.data
-      }
+      stage.overloaded(STATUS) := bypass(stage(STATUS), stage(address), withLast)
     }
   }
 
@@ -322,7 +328,7 @@ class DataCache(val cacheSize: Int,
   val flush = new Area{
     val counter = Reg(UInt(log2Up(linePerWay)+1 bits)) init(0)
     val done = counter.msb
-    val reservation = tagsOrStatusWriteArbitration.create(0)
+    val reservation = tagsOrStatusWriteArbitration.create(0) //Warning assume no refill at the same time
     when(!done && reservation.win){
       reservation.takeIt()
       counter := counter + 1
@@ -427,6 +433,9 @@ class DataCache(val cacheSize: Int,
 
       val hadError = RegInit(False) setWhen(io.mem.read.rsp.valid && io.mem.read.rsp.error)
       val fire = False
+      val reservation = tagsOrStatusWriteArbitration.create(0)
+      val faulty = hadError || io.mem.read.rsp.error
+
       io.refillCompletions := 0
       when(io.mem.read.rsp.valid) {
         wordIndex := wordIndex + 1
@@ -435,6 +444,15 @@ class DataCache(val cacheSize: Int,
           slots.map(_.loaded).write(io.mem.read.rsp.id, True)
           fire := True
           io.refillCompletions(io.mem.read.rsp.id) := True
+
+          when(faulty) {
+            reservation.takeIt()
+            waysWrite.mask(way) := True
+            waysWrite.address := rspAddress(lineRange)
+            waysWrite.tag.loaded := True
+            waysWrite.tag.fault := True
+            waysWrite.tag.address := rspAddress(tagRange)
+          }
         }
       }
     }
@@ -700,7 +718,7 @@ class DataCache(val cacheSize: Int,
     val ctrl = new Area {
       import controlStage._
 
-      val reservation = tagsOrStatusWriteArbitration.create(1)
+      val reservation = tagsOrStatusWriteArbitration.create(2)
       val refillWay = CombInit(wayRandom.value)
       val refillWayNeedWriteback = WAYS_TAGS(refillWay).loaded && STATUS(refillWay).dirty
       val refillHit = REFILL_HITS.orR
@@ -711,6 +729,7 @@ class DataCache(val cacheSize: Int,
 
       REDO := !WAYS_HIT || waysHitHazard || bankBusy || refillHit
       MISS := !WAYS_HIT && !waysHitHazard && !refillHit
+      FAULT := !REDO && (WAYS_HITS & WAYS_TAGS.map(_.fault).asBits).orR
       val canRefill = !refill.full && !refillLineBusy && reservation.win && !(refillWayNeedWriteback && writeback.full)
       val askRefill = MISS && canRefill && !refillHit
       val startRefill = isValid && askRefill
@@ -731,6 +750,7 @@ class DataCache(val cacheSize: Int,
         waysWrite.mask(refillWay) := True
         waysWrite.address := ADDRESS_PRE_TRANSLATION(lineRange)
         waysWrite.tag.loaded := True
+        waysWrite.tag.fault := False
         waysWrite.tag.address := ADDRESS_PRE_TRANSLATION(tagRange)
 
         status.write.valid := True
@@ -752,8 +772,8 @@ class DataCache(val cacheSize: Int,
 
       io.load.rsp.valid := isValid
       io.load.rsp.data := CPU_WORD
-      io.load.rsp.fault := False //TODO
-      io.load.rsp.redo := REDO
+      io.load.rsp.fault := FAULT
+      io.load.rsp.redo  := REDO
 
       (loadRspAt-loadControlAt) match {
         case 0 =>{
@@ -838,7 +858,7 @@ class DataCache(val cacheSize: Int,
 
       GENERATION_OK := GENERATION === target
 
-      val reservation = tagsOrStatusWriteArbitration.create(2)
+      val reservation = tagsOrStatusWriteArbitration.create(3)
       val refillWay = CombInit(wayRandom.value)
       val refillWayNeedWriteback = WAYS_TAGS(refillWay).loaded && STATUS(refillWay).dirty
       val refillHits = B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
@@ -885,6 +905,7 @@ class DataCache(val cacheSize: Int,
         waysWrite.mask(refillWay) := True
         waysWrite.address := ADDRESS_POST_TRANSLATION(lineRange)
         waysWrite.tag.loaded := True
+        waysWrite.tag.fault := False
         waysWrite.tag.address := ADDRESS_POST_TRANSLATION(tagRange)
 
         writeback.push.valid := refillWayNeedWriteback

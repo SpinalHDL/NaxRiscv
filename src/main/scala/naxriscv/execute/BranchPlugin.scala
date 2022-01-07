@@ -91,6 +91,9 @@ class BranchPlugin(euId : String,
       )
 
       (PC, "TRUE") := U(target_a + target_b)
+      (PC, "TRUE")(0) clearWhen(BRANCH_CTRL === BranchCtrlEnum.JALR)
+
+
       val slices = Fetch.INSTRUCTION_SLICE_COUNT+^1
       (PC, "FALSE") := PC + (slices << sliceShift)
       (PC, "TARGET") := COND ? stage(PC, "TRUE") | stage(PC, "FALSE")
@@ -114,15 +117,17 @@ class BranchPlugin(euId : String,
 
       def target = if(setup.withBranchContext)  stage(PC, "TARGET") else stage(PC, "TRUE")
 
-      setup.reschedule.valid := isFireing && SEL && misspredicted
+      val missaligned = if(Fetch.RVC) False else target(0, sliceShift bits) =/= 0 && COND
+
+      setup.reschedule.valid := isFireing && SEL && (misspredicted || missaligned)
       setup.reschedule.robId := ROB.ID
       setup.reschedule.cause := 0
       setup.reschedule.tval := 0
       setup.reschedule.pcTarget := target
       setup.reschedule.reason  := ((BRANCH_CTRL === BranchCtrlEnum.B) ? U(ScheduleReason.BRANCH) otherwise U(ScheduleReason.JUMP)).resized
 
-      setup.reschedule.trap := target(0, sliceShift bits) =/= 0
-      setup.reschedule.skipCommit := setup.reschedule.trap
+      setup.reschedule.trap := missaligned
+      setup.reschedule.skipCommit := missaligned
 
       val finalBranch = setup.withBranchContext generate branchContext.writeFinal()
       if(setup.withBranchContext) {
