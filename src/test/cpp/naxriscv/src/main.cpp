@@ -920,6 +920,8 @@ enum ARG
     ARG_PROGRESS,
     ARG_SEED,
     ARG_TRACE,
+    ARG_TRACE_START_TIME,
+    ARG_TRACE_STOP_TIME,
     ARG_TRACE_REF,
     ARG_STATS_PRINT,
     ARG_STATS_PRINT_ALL,
@@ -943,6 +945,8 @@ static const struct option long_options[] =
     { "progress", required_argument, 0, ARG_PROGRESS },
     { "seed", required_argument, 0, ARG_SEED },
     { "trace", no_argument, 0, ARG_TRACE },
+    { "trace_start_time", required_argument, 0, ARG_TRACE_START_TIME },
+    { "trace_stop_time", required_argument, 0, ARG_TRACE_STOP_TIME },
     { "trace_ref", no_argument, 0, ARG_TRACE_REF },
     { "stats_print", no_argument, 0, ARG_STATS_PRINT },
     { "stats_print_all", no_argument, 0, ARG_STATS_PRINT_ALL },
@@ -955,9 +959,15 @@ static const struct option long_options[] =
 
 u64 startPc = 0x80000000l;
 map<RvData, vector<function<void(RvData)>>> pcToEvent;
+map<u64, vector<function<void()>>> timeToEvent;
 void addPcEvent(RvData pc, function<void(RvData)> func){
     if(pcToEvent.count(pc) == 0) pcToEvent[pc] = vector<function<void(RvData)>>();
     pcToEvent[pc].push_back(func);
+}
+
+void addTimeEvent(u64 time, function<void()> func){
+    if(timeToEvent.count(time) == 0) timeToEvent[time] = vector<function<void()>>();
+    timeToEvent[time].push_back(func);
 }
 
 int main(int argc, char** argv, char** env){
@@ -970,6 +980,8 @@ int main(int argc, char** argv, char** env){
     bool statsPrint = false;
     bool statsPrintHist = false;
     bool traceGem5 = false;
+
+    bool trace_enable = true;
 
     while (1) {
         int index = -1;
@@ -985,10 +997,11 @@ int main(int argc, char** argv, char** env){
             case ARG_TRACE: {
                 trace = true;
 #ifndef TRACE
-                printf("You need to recompile with TRACE=yes to enable tracing");
-                failure();
+                printf("You need to recompile with TRACE=yes to enable tracing"); failure();
 #endif
             } break;
+            case ARG_TRACE_START_TIME: trace_enable = false; addTimeEvent(stol(optarg), [&](){ trace_enable = true;}); break;
+            case ARG_TRACE_STOP_TIME: trace_enable = false; addTimeEvent(stol(optarg), [&](){ trace_enable = false;}); break;
             case ARG_TRACE_REF: trace_ref = true; break;
             case ARG_NAME: name = optarg; break;
             case ARG_OUTPUT_DIR: outputDir = optarg; break;
@@ -1150,9 +1163,15 @@ int main(int argc, char** argv, char** env){
                 printf("simulation timeout\n");
                 failure();
             }
+            if(timeToEvent.count(main_time) != 0){
+                for(auto event : timeToEvent[main_time]){
+                    event();
+                }
+            }
+
             #ifdef TRACE
             if(trace){
-                tfp->dump(main_time);
+                if(trace_enable) tfp->dump(main_time);
                 if(main_time % 100000 == 0) tfp->flush();
             }
     //        		if(i == TRACE_START && i != 0) cout << "**" << endl << "**" << endl << "**" << endl << "**" << endl << "**" << endl << "START TRACE" << endl;
@@ -1294,6 +1313,7 @@ int main(int argc, char** argv, char** env){
         if(main_time % 100000 == 0) tfp->flush();
         }
         #endif
+        printf("TIME=%ld\n", main_time);
         printf("LAST PC=%lx\n", state->last_inst_pc);
         printf("INCOMING PC=%lx\n", state->pc);
         printf("ROB_ID=x%x\n", robIdChecked);
