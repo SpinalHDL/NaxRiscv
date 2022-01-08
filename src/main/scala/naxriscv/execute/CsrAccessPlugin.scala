@@ -191,7 +191,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       val imm = IMM(MICRO_OP)
 
       ALU_INPUT := CSR_VALUE
-      ALU_MASK := CSR_MASK ? imm.z.resized | eu(IntRegFile, RS1)
+      ALU_MASK := CSR_IMM ? imm.z.resized | eu(IntRegFile, RS1)
       ALU_MASKED := CSR_CLEAR ? (ALU_INPUT & ~ALU_MASK) otherwise (ALU_INPUT | ALU_MASK)
       ALU_RESULT := CSR_MASK ? stage(ALU_MASKED) otherwise ALU_MASK
 

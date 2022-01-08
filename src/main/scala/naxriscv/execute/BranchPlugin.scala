@@ -62,7 +62,7 @@ class BranchPlugin(euId : String,
     val process = new ExecuteArea(0) {
       import stage._
       val ss = SrcStageables
-      
+
       EQ := ss.SRC1 === ss.SRC2
 
       COND := BRANCH_CTRL.mux(

@@ -61,7 +61,7 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
 
     setup.reschedule.valid      := isValid && (EBREAK || ECALL || XRET)
     setup.reschedule.robId      := ROB.ID
-    setup.reschedule.tval       := 0
+    setup.reschedule.tval       := B(PC).andMask(EBREAK) //That's what spike do
     setup.reschedule.skipCommit := EBREAK || ECALL || xretTrap
     setup.reschedule.reason     := ScheduleReason.ENV
     setup.reschedule.cause.assignDontCare()

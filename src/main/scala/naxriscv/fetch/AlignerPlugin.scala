@@ -184,12 +184,12 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       when((firstWord || lastWord) && input(WORD_FAULT)){
         output(FETCH_FAULT, i) := True
         output(FETCH_FAULT_PAGE, i) := input(WORD_FAULT_PAGE)
-        output(FETCH_FAULT_SLICE, i) := 1
+        output(FETCH_FAULT_SLICE, i)(0) := !firstWord
       }
       when((!firstWord || !lastWord) && buffer.fault){
         output(FETCH_FAULT, i) := True
         output(FETCH_FAULT_PAGE, i) := buffer.fault_page
-        output(FETCH_FAULT_SLICE, i) := 0
+        output(FETCH_FAULT_SLICE, i)(0) := False
       }
     }
 

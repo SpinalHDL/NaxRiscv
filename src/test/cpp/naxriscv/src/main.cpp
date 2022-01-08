@@ -95,21 +95,34 @@ void breakMe(){
 
 #define BASE 0x10000000
 #define PUTC BASE
-#define CLINT_TIME BASE + 0x1BFF8
+#define CLINT_BASE (BASE + 0x10000)
+#define CLINT_TIME (CLINT_BASE + 0x0BFF8)
 #define MACHINE_EXTERNAL_INTERRUPT_CTRL (BASE+0x10)
 
+#define MM_FAULT_ADDRESS 0x00001230
+#define IO_FAULT_ADDRESS 0x1FFFFFF0
 
 
-class Soc{
+#define CLINT_CMP_ADDR (CLINT_BASE + 0x4000)
+
+class SimElement{
+public:
+	virtual ~SimElement(){}
+	virtual void onReset(){}
+	virtual void postReset(){}
+	virtual void preCycle(){}
+	virtual void postCycle(){}
+};
+
+
+class Soc : public SimElement{
 public:
     Memory memory;
     VNaxRiscv* nax;
+    u64 clintCmp = 0;
 
     Soc(VNaxRiscv* nax){
         this->nax = nax;
-        nax->PrivilegedPlugin_io_int_machine_external = 0;
-        nax->PrivilegedPlugin_io_int_machine_timer = 0;
-        nax->PrivilegedPlugin_io_int_machine_software = 0;
     }
     virtual int memoryRead(uint32_t address,uint32_t length, uint8_t *data){
         if(address < 0x10000000) return 1;
@@ -127,6 +140,8 @@ public:
         switch(address){
         case PUTC: printf("%c", *data); break;
         case MACHINE_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_machine_external = *data & 1;  break;
+        case CLINT_CMP_ADDR: memcpy(&clintCmp, data, length); /*printf("CMPA=%lx\n", clintCmp);*/ break;
+        case CLINT_CMP_ADDR+4: memcpy(((char*)&clintCmp)+4, data, length); /*printf("CMPB=%lx\n", clintCmp);*/  break;
         default: return 1; break;
         }
         return 0;
@@ -142,20 +157,29 @@ public:
             u64 time = (main_time/2) >> 32;
             memcpy(data, &time, length);
         } break;
+        case CLINT_CMP_ADDR:  memcpy(data, &clintCmp, length); break;
+        case CLINT_CMP_ADDR+4:memcpy(data, ((char*)&clintCmp) + 4, length); break;
         default: return 1; break;
         }
         return 0;
     }
+
+
+    virtual void onReset(){
+        nax->PrivilegedPlugin_io_int_machine_external = 0;
+        nax->PrivilegedPlugin_io_int_machine_timer = 0;
+        nax->PrivilegedPlugin_io_int_machine_software = 0;
+    }
+
+    virtual void preCycle(){
+
+    }
+
+    virtual void postCycle(){
+        nax->PrivilegedPlugin_io_int_machine_timer = clintCmp < (main_time/2);
+    }
 };
 
-class SimElement{
-public:
-	virtual ~SimElement(){}
-	virtual void onReset(){}
-	virtual void postReset(){}
-	virtual void preCycle(){}
-	virtual void postCycle(){}
-};
 
 
 #define FETCH_MEM_DATA_BYTES (FETCH_MEM_DATA_BITS/8)
@@ -1014,6 +1038,7 @@ int main(int argc, char** argv, char** env){
     Soc *soc;
     soc = new Soc(top);
 	vector<SimElement*> simElements;
+	simElements.push_back(soc);
     simElements.push_back(new FetchCached(top, soc, true));
     simElements.push_back(new DataCached(top, soc, true));
     simElements.push_back(new LsuPeripheral(top, soc, &wrap.mmioDut, true));
@@ -1247,10 +1272,10 @@ int main(int argc, char** argv, char** env){
                     bool interrupt = top->NaxRiscv->trap_interrupt;
                     int code = top->NaxRiscv->trap_code;
                     int mask = 1 << code;
-                    cout << "DUT TRAP " << interrupt << " " << code << endl;
-                    state->mip->write_with_mask(mask, mask);
+//                    cout << "DUT TRAP " << interrupt << " " << code << endl;
+                    if(interrupt) state->mip->write_with_mask(mask, mask);
                     proc.step(1);
-                    state->mip->write_with_mask(mask, 0);
+                    if(interrupt) state->mip->write_with_mask(mask, 0);
                 }
 
                 top->eval();

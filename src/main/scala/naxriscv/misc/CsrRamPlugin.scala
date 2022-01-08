@@ -9,7 +9,7 @@ import spinal.core.fiber.Handle
 
 import scala.collection.mutable.ArrayBuffer
 
-class CsrRamPlugin extends Plugin with CsrRamService{
+class CsrRamPlugin extends Plugin with CsrRamService with InitCycles {
   val allocations = ArrayBuffer[CsrRamAllocation]()
   val reads = ArrayBuffer[Handle[CsrRamRead]]()
   val writes = ArrayBuffer[Handle[CsrRamWrite]]()
@@ -18,8 +18,12 @@ class CsrRamPlugin extends Plugin with CsrRamService{
   override def ramReadPort() : Handle[CsrRamRead] = reads.addRet(Handle())
   override def ramWritePort()  : Handle[CsrRamWrite] = writes.addRet(Handle())
 
+  override def initCycles = 1 << (setup.addressWidth+1)
+
   val setup = create late new Area{
     lock.await()
+
+    val initPort = ramWritePort()
 
     val sorted = allocations.sortBy(_.entriesLog2).reverse
     var offset = 0
@@ -40,6 +44,18 @@ class CsrRamPlugin extends Plugin with CsrRamService{
 
     val addressWidth = setup.addressWidth
     val mem = Mem.fill(1 << addressWidth)(Bits(Global.XLEN bits))
+
+    val flush = new Area{
+      val counter = Reg(UInt(log2Up(mem.wordCount)+1 bits)) init(0)
+      val done = counter.msb
+
+      setup.initPort.valid  := !done
+      setup.initPort.address := counter.resized
+      setup.initPort.data := 0
+      when(!done && setup.initPort.ready){
+        counter := counter + 1
+      }
+    }
 
     val writeLogic = new Area{
       val hits = writes.map(_.valid)

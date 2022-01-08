@@ -21,13 +21,21 @@ object PrivilegedConfig{
   def full = PrivilegedConfig(
     withSupervisor = false,
     withUser       = false,
-    withUserTrap   = false
+    withUserTrap   = false,
+    vendorId       = 0,
+    archId         = 0,
+    impId          = 0,
+    hartId         = 0
   )
 }
 
 case class PrivilegedConfig(withSupervisor : Boolean,
-                            withUser : Boolean,
-                            withUserTrap : Boolean){
+                            withUser: Boolean,
+                            withUserTrap: Boolean,
+                            vendorId: Int,
+                            archId: Int,
+                            impId: Int,
+                            hartId: Int) {
 
 }
 
@@ -98,17 +106,13 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
 
 
     val machine = new Area {
-      val tvec    = csr.readWriteRam(CSR.MTVEC)
-      val tval    = csr.readWriteRam(CSR.MTVAL)
-      val epc     = csr.readWriteRam(CSR.MEPC)
-      val scratch = csr.readWriteRam(CSR.MSCRATCH)
       val cause = new Area{
         val interrupt = RegInit(False)
         val code = Reg(UInt(commit.rescheduleCauseWidth bits)) init(0)
       }
       val mstatus = new Area{
         val mie, mpie = RegInit(False)
-        val mpp = RegInit(U"11")
+        val mpp = RegInit(U"00")
       }
       val mip = new Area{
         val meip = RegNext(io.int.machine.external) init(False)
@@ -118,6 +122,17 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       val mie = new Area{
         val meie, mtie, msie = RegInit(False)
       }
+
+      val tvec    = csr.readWriteRam(CSR.MTVEC)
+      val tval    = csr.readWriteRam(CSR.MTVAL)
+      val epc     = csr.readWriteRam(CSR.MEPC)
+      val scratch = csr.readWriteRam(CSR.MSCRATCH)
+
+      csr.readOnly(U(p.vendorId),CSR.MVENDORID) // MRO Vendor ID.
+      csr.readOnly(U(p.archId),  CSR.MARCHID) // MRO Architecture ID.
+      csr.readOnly(U(p.impId),   CSR.MIMPID) // MRO Implementation ID.
+      csr.readOnly(U(p.hartId),  CSR.MHARTID) // MRO Hardware thread ID.Machine Trap Setup
+//      csr.readOnly(CSR.MISA     , p.vendorId) // MRW ISA and extensions
 
       csr.readWrite(CSR.MCAUSE, XLEN-1 -> cause.interrupt, 0 -> cause.code)
       csr.readWrite(CSR.MSTATUS, 11 -> mstatus.mpp, 7 -> mstatus.mpie, 3 -> mstatus.mie)
@@ -373,11 +388,11 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         setup.jump.valid := True
         setup.jump.pc    := U(readed)
 //TODO
-//        mstatus.MPP := U"00"
-//        mstatus.MIE := mstatus.MPIE
-//        mstatus.MPIE := True
-//        jumpInterface.payload := mepc
-//        if(privilegeGen) privilegeReg := mstatus.MPP
+        machine.mstatus.mpp := 0
+        machine.mstatus.mie := machine.mstatus.mpie
+        machine.mstatus.mpie := True
+        setup.machinePrivilege := machine.mstatus.mpp(1)
+        if(p.withSupervisor) setup.supervisorPrivilege := machine.mstatus.mpp(0)
 //TODO
 //        sstatus.SPP := U"0"
 //        sstatus.SIE := sstatus.SPIE
