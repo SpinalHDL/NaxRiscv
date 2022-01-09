@@ -922,6 +922,7 @@ enum ARG
     ARG_TRACE,
     ARG_TRACE_START_TIME,
     ARG_TRACE_STOP_TIME,
+    ARG_TRACE_SPORADIC,
     ARG_TRACE_REF,
     ARG_STATS_PRINT,
     ARG_STATS_PRINT_ALL,
@@ -947,6 +948,7 @@ static const struct option long_options[] =
     { "trace", no_argument, 0, ARG_TRACE },
     { "trace_start_time", required_argument, 0, ARG_TRACE_START_TIME },
     { "trace_stop_time", required_argument, 0, ARG_TRACE_STOP_TIME },
+    { "trace_sporadic", required_argument, 0, ARG_TRACE_SPORADIC },
     { "trace_ref", no_argument, 0, ARG_TRACE_REF },
     { "stats_print", no_argument, 0, ARG_STATS_PRINT },
     { "stats_print_all", no_argument, 0, ARG_STATS_PRINT_ALL },
@@ -982,6 +984,8 @@ int main(int argc, char** argv, char** env){
     bool traceGem5 = false;
 
     bool trace_enable = true;
+    float trace_sporadic_factor = 0.0f;
+    u64 trace_sporadic_period = 100000;
 
     while (1) {
         int index = -1;
@@ -1002,6 +1006,7 @@ int main(int argc, char** argv, char** env){
             } break;
             case ARG_TRACE_START_TIME: trace_enable = false; addTimeEvent(stol(optarg), [&](){ trace_enable = true;}); break;
             case ARG_TRACE_STOP_TIME: trace_enable = false; addTimeEvent(stol(optarg), [&](){ trace_enable = false;}); break;
+            case ARG_TRACE_SPORADIC: trace_enable = false; trace_sporadic_factor = stof(optarg); break;
             case ARG_TRACE_REF: trace_ref = true; break;
             case ARG_NAME: name = optarg; break;
             case ARG_OUTPUT_DIR: outputDir = optarg; break;
@@ -1025,6 +1030,8 @@ int main(int argc, char** argv, char** env){
             }
         }
     }
+
+    u64 trace_sporadic_trigger = trace_sporadic_period * trace_sporadic_factor;
 
     Verilated::debug(0);
     Verilated::randReset(2);
@@ -1171,14 +1178,9 @@ int main(int argc, char** argv, char** env){
 
             #ifdef TRACE
             if(trace){
-                if(trace_enable) tfp->dump(main_time);
+                if(trace_enable || (main_time % trace_sporadic_period) < trace_sporadic_trigger) tfp->dump(main_time);
                 if(main_time % 100000 == 0) tfp->flush();
             }
-    //        		if(i == TRACE_START && i != 0) cout << "**" << endl << "**" << endl << "**" << endl << "**" << endl << "**" << endl << "START TRACE" << endl;
-    //        		if(i >= TRACE_START) tfp->dump(i);
-    //        		#ifdef TRACE_SPORADIC
-    //        		else if(i % 1000000 < 100) tfp->dump(i);
-    //        		#endif
             #endif
             if(progressPeriod != 0.0 && main_time % 20000 == 0){
                 auto now = std::chrono::high_resolution_clock::now();
