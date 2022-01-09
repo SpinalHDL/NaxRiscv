@@ -378,21 +378,21 @@ class DataCache(val cacheSize: Int,
       val victim = Bits(writebackCount bits)
     }).setIdle()
 
-    for (slot <- slots;
-         (other, prio) <- (slots.filter(_ != slot), slot.priority.asBools).zipped ) {
-      prio.clearWhen(other.valid)
-    }
-
-    for (slot <- slots) when(push.valid && free(slot.id)) {
-      slot.valid := True
-      slot.address := push.address
-      slot.way := push.way
-      slot.cmdSent := False
-      slot.priority.setAll()
-      slot.loaded := False
-      slot.loadedCounter := 0
-      slot.victim := push.victim
-      slot.writebackHazards := 0
+    for (slot <- slots) when(push.valid) {
+      when(free(slot.id)) {
+        slot.valid := True
+        slot.address := push.address
+        slot.way := push.way
+        slot.cmdSent := False
+        slot.priority.setAll()
+        slot.loaded := False
+        slot.loadedCounter := 0
+        slot.victim := push.victim
+        slot.writebackHazards := 0
+      } otherwise {
+        val freeFiltred = free.asBools.patch(slot.id, Nil, 1)
+        (slot.priority.asBools, freeFiltred).zipped.foreach(_ clearWhen(_))
+      }
     }
 
     val read = new Area{
@@ -486,21 +486,21 @@ class DataCache(val cacheSize: Int,
       val way = UInt(log2Up(wayCount) bits)
     }).setIdle()
 
-    for (slot <- slots; (other, prio) <- (slots.filter(_ != slot), slot.priority.asBools).zipped ) {
-      prio.clearWhen(other.valid)
+    for (slot <- slots) when(push.valid) {
+      when(free(slot.id)) {
+        slot.valid := True
+        slot.address := push.address
+        slot.way := push.way
+        slot.readCmdDone := False
+        slot.readRspDone := False
+        slot.victimBufferReady := False
+        slot.writeCmdDone := False
+        slot.priority.setAll()
+      } otherwise {
+        val freeFiltred = free.asBools.patch(slot.id, Nil, 1)
+        (slot.priority.asBools, freeFiltred).zipped.foreach(_ clearWhen (_))
+      }
     }
-
-    for (slot <- slots) when(push.valid && free(slot.id)) {
-      slot.valid := True
-      slot.address := push.address
-      slot.way := push.way
-      slot.readCmdDone := False
-      slot.readRspDone := False
-      slot.victimBufferReady := False
-      slot.writeCmdDone := False
-      slot.priority.setAll()
-    }
-
 
     val victimBuffer = Mem.fill(writebackCount*memWordPerLine)(Bits(memDataWidth bits))
     val read = new Area{
