@@ -42,6 +42,10 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
   override def onReadTrap()  = setup.onReadTrap  := True
   override def onWriteTrap() = setup.onWriteTrap := True
   override def onWriteBits = setup.onWriteBits
+  override def onWriteAddress = setup.onWriteAddress
+  override def onReadAddress  = setup.onReadAddress
+  override def onReadMovingOff = setup.onReadMovingOff
+  override def onWriteMovingOff = setup.onWriteMovingOff
   override def getCsrRam() = getService[CsrRamService]
 
   import CsrAccessPlugin._
@@ -49,7 +53,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
   val setup = create early new Setup{
     val dispatch = getService[DispatchPlugin]
     getServiceOption[CsrRamService] match {
-      case Some(x) => x.retain()
+      case Some(x) => x.portLock.retain()
       case None =>
     }
     assert(getServicesOf[CsrService].size == 1)
@@ -60,6 +64,10 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
     val onReadTrap  = False
     val onWriteTrap = False
     val onWriteBits = Bits(XLEN bits)
+    val onWriteAddress = UInt(12 bits)
+    val onReadAddress  = UInt(12 bits)
+    val onReadMovingOff = Bool()
+    val onWriteMovingOff = Bool()
 
     add(Rvi.CSRRW , Nil, DecodeList(CSR_IMM -> False, CSR_MASK -> False))
     add(Rvi.CSRRS , Nil, DecodeList(CSR_IMM -> False, CSR_MASK -> True , CSR_CLEAR -> False))
@@ -91,7 +99,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
 
     val ramReadPort = useRamRead generate ram.ramReadPort()
     val ramWritePort = useRamWrite generate ram.ramWritePort()
-    if(ram != null) ram.release()
+    if(ram != null) ram.portLock.release()
 
     def filterToName(filter : Any) = filter match{
       case f : Int => f.toString
@@ -106,7 +114,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       import stage._
       sels.foreach{
         case (filter : Int, stageable) => stageable := MICRO_OP(Const.csrRange) === filter
-        case (filter : CsrRamFilter, stageable) => stageable := filter.mapping.map(MICRO_OP(Const.csrRange) === _).orR
+        case (filter : CsrListFilter, stageable) => stageable := filter.mapping.map(MICRO_OP(Const.csrRange) === _).orR
       }
       RAM_SEL := spec.filter(_.isInstanceOf[CsrRamSpec]).map(e => stage(sels(e.csrFilter))).orR
 
@@ -121,7 +129,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
         RAM_ADDRESS.assignDontCare()
         switch(MICRO_OP(Const.csrRange)) {
           for (e <- spec.collect{ case x : CsrRamSpec => x}) e.csrFilter match {
-            case filter: CsrRamFilter => for((csrId, offset) <- filter.mapping.zipWithIndex){
+            case filter: CsrListFilter => for((csrId, offset) <- filter.mapping.zipWithIndex){
               is(csrId){
                 RAM_ADDRESS := e.alloc.at + offset
               }
@@ -139,9 +147,11 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
     val readLogic = new ExecuteArea(readAt) {
       import stage._
 
+      setup.onReadAddress := U(MICRO_OP)(Const.csrRange)
       CSR_READ_TRAP := setup.onReadTrap
       val onReadsDo = isValid && SEL && CSR_READ
       val onReadsFireDo = isFireing && SEL && CSR_READ && !CSR_READ_TRAP
+      setup.onReadMovingOff := stage.isReady || stage.isFlushed
 
       haltIt(setup.onReadHalt)
       when(isValid && SEL && !CSR_IMPLEMENTED){
@@ -176,8 +186,8 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       }
 
       val ramRead = useRamRead generate new Area {
-        val fired = RegInit(False) setWhen(ramReadPort.fire) clearWhen(isReady || isFlushed)
-        ramReadPort.valid := onReadsDo && RAM_SEL && !fired
+        //val fired = RegInit(False) setWhen(ramReadPort.fire) clearWhen(isReady || isFlushed)
+        ramReadPort.valid := onReadsDo && RAM_SEL// && !fired
         ramReadPort.address := RAM_ADDRESS
         when(RAM_SEL) {
           CSR_VALUE := ramReadPort.data
@@ -189,6 +199,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
     val writeLogic = new ExecuteArea(writeAt) {
       import stage._
       val imm = IMM(MICRO_OP)
+      setup.onWriteMovingOff := stage.isReady || stage.isFlushed
 
       ALU_INPUT := CSR_VALUE
       ALU_MASK := CSR_IMM ? imm.z.resized | eu(IntRegFile, RS1)
@@ -196,6 +207,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       ALU_RESULT := CSR_MASK ? stage(ALU_MASKED) otherwise ALU_MASK
 
       setup.onWriteBits := ALU_RESULT
+      setup.onWriteAddress := U(MICRO_OP)(Const.csrRange)
 
       CSR_WRITE_TRAP := setup.onWriteTrap
 

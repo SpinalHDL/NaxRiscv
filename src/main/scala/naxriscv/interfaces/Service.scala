@@ -390,7 +390,7 @@ case class CsrOnReadData (override val csrFilter : Any, bitOffset : Int, value :
 
 case class CsrRamSpec(override val csrFilter : Any, alloc : CsrRamAllocation) extends CsrSpec(csrFilter)
 
-case class CsrRamFilter(mapping : List[Int]) extends Nameable
+case class CsrListFilter(mapping : List[Int]) extends Nameable
 trait CsrService extends Service with LockedImpl{
   val spec = ArrayBuffer[CsrSpec]()
   def onRead (csrFilter : Any, onlyOnFire : Boolean)(body : => Unit) = spec += CsrOnRead(csrFilter, onlyOnFire, () => body)
@@ -398,9 +398,13 @@ trait CsrService extends Service with LockedImpl{
   def onReadHalt() : Unit
   def onWriteHalt() : Unit
   def onWriteBits : Bits
+  def onWriteAddress : UInt
+  def onReadAddress : UInt
   def onReadTrap() : Unit
   def onWriteTrap() : Unit
   def getCsrRam() : CsrRamService
+  def onReadMovingOff : Bool
+  def onWriteMovingOff : Bool
 
   def readWrite(alloc : CsrRamAllocation, filters : Any) = spec += CsrRamSpec(filters, alloc)
   def readWriteRam(filters : Int) = {
@@ -427,7 +431,11 @@ trait CsrService extends Service with LockedImpl{
   def readWrite(csrAddress : Int, thats : (Int, Data)*) : Unit = for(that <- thats) readWrite(that._2, csrAddress, that._1)
   def write(csrAddress : Int, thats : (Int, Data)*) : Unit = for(that <- thats) write(that._2, csrAddress, that._1)
   def read(csrAddress : Int, thats : (Int, Data)*) : Unit = for(that <- thats) read(that._2, csrAddress, that._1)
-
+  def isReading(csrFilter : Any): Bool ={
+    val ret = False
+    onRead(csrFilter, false){ ret := True }
+    ret
+  }
 }
 
 class CsrRamAllocation(val entries : Int){
@@ -457,10 +465,12 @@ case class CsrRamWrite(addressWidth : Int, dataWidth : Int) extends Bundle{
 }
 
 //usefull for, for instance, mscratch scratch mtvec stvec mepc sepc mtval stval satp pmp stuff
-trait CsrRamService extends Service with LockedImpl {
+trait CsrRamService extends Service {
   def ramAllocate(entries : Int) : CsrRamAllocation
   def ramReadPort() : Handle[CsrRamRead]
   def ramWritePort() : Handle[CsrRamWrite]
+  val allocationLock = Lock()
+  val portLock = Lock()
 }
 
 

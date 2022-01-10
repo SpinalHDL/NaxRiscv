@@ -4,7 +4,7 @@ import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifie
 import spinal.core._
 import naxriscv.frontend._
 import naxriscv.fetch._
-import naxriscv.misc.{CommitDebugFilterPlugin, CommitPlugin, CsrRamPlugin, PrivilegedConfig, PrivilegedPlugin, RegFilePlugin, RobPlugin, StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
+import naxriscv.misc.{CommitDebugFilterPlugin, CommitPlugin, CsrRamPlugin, PerformanceCounterPlugin, PrivilegedConfig, PrivilegedPlugin, RegFilePlugin, RobPlugin, StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
 import naxriscv.execute._
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
@@ -129,6 +129,10 @@ object Config{
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
     plugins += new CsrRamPlugin()
     plugins += new PrivilegedPlugin(PrivilegedConfig.full)
+    plugins += new PerformanceCounterPlugin(
+      additionalCounterCount = 4,
+      bufferWidth            = 6
+    )
 
     //EXECUTION UNITES
     plugins += new ExecutionUnitBase("EU0")
@@ -229,7 +233,6 @@ make clean compile  test_clean output/nax/dhrystone/PASS ARGS="--stats_print_all
 /*
 - Decoder ILLEGAL datapath can be optimized to use INSTRUCTION_ALIGNED instead, with some additional hit from the decompressor for RVC stuff
 - DataCache pipeline load refill hits to cut path
-- BTB should patch history
 - Check that sw -> lw do not trigger a checkLq reschedule
 - store to load hazard prediction (unlearning bad entry over time, ...)
 - less pessimistic store to load detection (only trigger if the load got the data from the cache, instead of just having its address), else there is also the case where both load/store on a line miss will trigger lqCheck

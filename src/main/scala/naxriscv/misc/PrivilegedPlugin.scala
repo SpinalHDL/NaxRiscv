@@ -6,7 +6,7 @@ import naxriscv.execute.{CsrAccessPlugin, EnvCallPlugin}
 import naxriscv.fetch.{FetchPlugin, PcPlugin}
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.JumpService.Priorities
-import naxriscv.interfaces.{CommitService, CsrRamFilter, DecoderService, PrivilegedService}
+import naxriscv.interfaces.{CommitService, CsrListFilter, DecoderService, PrivilegedService}
 import naxriscv.riscv.CSR
 import spinal.core._
 import spinal.lib._
@@ -71,7 +71,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     val frontend = getService[FrontendPlugin]
     val rob = getService[RobPlugin]
     csr.retain()
-    ram.retain()
+    ram.allocationLock.retain()
     fetch.retain()
     rob.retain()
     frontend.retain()
@@ -165,7 +165,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     privilege.freeze()
 
     csr.release()
-    ram.release()
+    ram.allocationLock.release()
 
 
 
@@ -209,10 +209,6 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         privilegs = privilegs.tail
       }
     }
-
-
-
-
 
 
     val rescheduleUnbuffered = Stream(new Bundle{

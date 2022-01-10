@@ -14,14 +14,14 @@ class CsrRamPlugin extends Plugin with CsrRamService with InitCycles {
   val reads = ArrayBuffer[Handle[CsrRamRead]]()
   val writes = ArrayBuffer[Handle[CsrRamWrite]]()
 
-  override def ramAllocate(entries: Int = 1) = allocations.addRet(new CsrRamAllocation(entries))
-  override def ramReadPort() : Handle[CsrRamRead] = reads.addRet(Handle())
-  override def ramWritePort()  : Handle[CsrRamWrite] = writes.addRet(Handle())
+  override def ramAllocate(entries: Int = 1) : CsrRamAllocation= allocations.addRet(new CsrRamAllocation(entries))
+  override def ramReadPort() : Handle[CsrRamRead] = reads.addRet(Handle(CsrRamRead(setup.addressWidth, Global.XLEN.get)))
+  override def ramWritePort()  : Handle[CsrRamWrite] = writes.addRet(Handle(CsrRamWrite(setup.addressWidth, Global.XLEN.get)))
 
   override def initCycles = 1 << (setup.addressWidth+1)
 
   val setup = create late new Area{
-    lock.await()
+    allocationLock.await()
 
     val initPort = ramWritePort()
 
@@ -35,12 +35,10 @@ class CsrRamPlugin extends Plugin with CsrRamService with InitCycles {
     val addressWidth = log2Up(offset)
 
     for(alloc <- allocations) alloc.addressWidth = addressWidth
-    for(read <- reads) read.load(CsrRamRead(addressWidth, Global.XLEN.get))
-    for(write <- writes) write.load(CsrRamWrite(addressWidth, Global.XLEN.get))
   }
 
   val logic = create late new Area{
-    setup.await()
+    portLock.await()
 
     val addressWidth = setup.addressWidth
     val mem = Mem.fill(1 << addressWidth)(Bits(Global.XLEN bits))

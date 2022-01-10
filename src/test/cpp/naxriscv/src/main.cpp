@@ -1228,7 +1228,7 @@ int main(int argc, char** argv, char** env){
                             }
                         }
 
-                        auto lastInstret = state->minstret.get()->read();
+                        auto spike_commit_count = state->commit_count;
                         int credit = 10;
                         do{
                             proc.step(1);
@@ -1237,7 +1237,7 @@ int main(int argc, char** argv, char** env){
                                 failure();
                             }
                             credit--;
-                        } while(lastInstret == state->minstret.get()->read());
+                        } while(spike_commit_count == state->commit_count);
 
 //                        cout << state->minstret.get()->read() << endl;
                         RvData pc = state->last_inst_pc;
