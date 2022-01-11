@@ -181,6 +181,8 @@ class DataCache(val cacheSize: Int,
     ))
     val mem = master(DataMemBus(memParameter))
     val refillCompletions = out Bits(refillCount bits)
+    val refillEvent = out Bool()
+    val writebackEvent = out Bool()
   }
 
   val cpuWordWidth = cpuDataWidth
@@ -947,5 +949,7 @@ class DataCache(val cacheSize: Int,
     pipeline.build()
   }
 
-//  io.flatten.filter(_.isOutput).map(_.assignDontCare())
+
+  io.refillEvent := refill.push.valid
+  io.writebackEvent := writeback.push.valid
 }

@@ -2,7 +2,7 @@ package naxriscv.misc
 
 import naxriscv.Global._
 import naxriscv.execute.CsrAccessPlugin
-import naxriscv.interfaces.{CommitService, CsrListFilter, LockedImpl}
+import naxriscv.interfaces.{CommitService, CsrListFilter, LockedImpl, PerformanceCounterService, ScheduleReason}
 import naxriscv.riscv.CSR
 import spinal.core._
 import spinal.lib._
@@ -12,15 +12,13 @@ import spinal.lib.fsm._
 import scala.collection.mutable.ArrayBuffer
 
 
-trait PerformanceCounterService extends Service with LockedImpl{
-  def addEvent(id : Int, event : Bool) : Unit
-}
-
 class PerformanceCounterPlugin(additionalCounterCount : Int,
                                bufferWidth : Int = 7) extends Plugin with PerformanceCounterService{
   val counterCount = 2 + (if(additionalCounterCount != 0) additionalCounterCount + 1 else 0)
 
-  override def addEvent(id: Int, event: Bool) = ???
+  case class Spec(id : Int, event : Bool)
+  val specs = ArrayBuffer[Spec]()
+  override def createEventPort(id: Int) = specs.addRet(Spec(id, Bool())).event
 
   val setup = create early new Area{
     val csr = getService[CsrAccessPlugin]
@@ -38,6 +36,11 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
     val s = setup.get
     import s._
 
+    val reschedule = getService[CommitService].reschedulingPort()
+    val branchMissEvent = createEventPort(PerformanceCounterService.BRANCH_MISS)
+    branchMissEvent := RegNext(reschedule.valid && reschedule.reason === ScheduleReason.BRANCH) init(False)
+
+
     val csrList = ArrayBuffer[Int]()
     csrList ++= List(CSR.MCYCLE, CSR.MINSTRET)
     csrList ++= CSR.MHPMCOUNTER3 until CSR.MHPMCOUNTER3 + additionalCounterCount
@@ -52,19 +55,39 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
       ignoreNextCommit clearWhen(commitMask.orR)
     }
 
-    val slots = for(id <- 0 until counterCount) yield new Area{
-      val counter = Reg(UInt(bufferWidth bits)) init(0)
-      val needFlush = counter.msb
+    val events = new Area {
+      val selWidth = log2Up((specs.map(_.id) :+ 0).max + 1)
+      val grouped = specs.groupByLinked(_.id)
+      val sums = grouped.map{ case (id, specs) => id -> CountOne(specs.map(_.event)) }
+    }
+
+
+    val counters = for(id <- 0 until counterCount) yield new Area{
+      val dummy = id == 1
+      val value = if(dummy) U(0, bufferWidth bits) else Reg(UInt(bufferWidth bits)).init(0)
+      val needFlush = value.msb
 
       id match {
         case 0 =>
           setPartialName("cycle")
-          counter := counter + 1
+          value := value + 1
+        case 1 =>
+          setPartialName("time")
         case 2 =>
           setPartialName("instret")
-          counter := counter + RegNext(commitCount).init(0)
-        case _ => setPartialName(s"mhpmcounter$id")
+          value := value + RegNext(commitCount).init(0)
+        case _ =>
+          setPartialName(s"mhpmcounter$id")
       }
+    }
+
+    val hpm = for(id <- 3 until 3+additionalCounterCount) yield new Area{
+      setPartialName(id.toString)
+      val counter = counters(id)
+      val eventId = Reg(UInt(events.selWidth bits)) init(0)
+      val incr    = if(events.sums.isEmpty) U(0) else events.sums.map(e => e._2.andMask(eventId === e._1)).toList.reduceBalancedTree(_ | _)
+      counter.value := counter.value + incr
+      csr.readWrite(eventId, CSR.MHPMEVENT0 + id)
     }
 
 
@@ -112,6 +135,7 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
           cmd.flusher := False
           cmd.address := csrReadCmd.address
           csrReadCmd.ready := True
+          done := False
           goto(READ_LOW)
         } elsewhen(csrWriteCmd.valid){
           writePort.valid := True
@@ -119,9 +143,11 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
           if(withHigh) writePort.address(log2Up(counterCount)) := csrWriteCmd.high
           writePort.data := csr.onWriteBits
           when(!csrWriteCmd.high) {
-            whenIndexed(slots, csrWriteCmd.address) { slot =>
-              slot.counter := csr.onWriteBits.asUInt.resized
-              slot.counter.msb := False
+            whenIndexed(counters, csrWriteCmd.address) { slot =>
+              if(!slot.dummy) {
+                slot.value := csr.onWriteBits.asUInt.resized
+                slot.value.msb := False
+              }
             }
           }
           csrWriteCmd.ready := writePort.ready
@@ -131,7 +157,7 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
       READ_LOW.whenIsActive{
         readPort.valid := True
         ramReaded(0, XLEN bits) := U(readPort.data)
-        counterReaded := slots.map(_.counter).read(cmd.address.resized)
+        counterReaded := counters.map(_.value).read(cmd.address.resized)
         when(readPort.ready) {
           if(withHigh) goto(READ_HIGH) else goto(CALC)
         }
@@ -150,7 +176,7 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
       CALC.whenIsActive{
         result := calc
         when(counterReaded.msb){
-          whenIndexed(slots, cmd.address)(_.counter.msb := False)
+          whenIndexed(counters, cmd.address)(_.value.msb := False)
         }
         when(cmd.flusher) {
           goto(WRITE_LOW)
@@ -181,7 +207,7 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
     }
 
     val flusher = new Area{
-      val hits = B(slots.map(_.needFlush))
+      val hits = B(counters.map(_.needFlush))
       val hit = hits.orR
       val oh = OHMasking.first(hits)
       val sel = OHToUInt(oh)
@@ -201,15 +227,12 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
         csr.read(fsm.resultCsr, csrFilter)
 
       when(requested){
-        when(!fsm.done){
+        when(!fired || !fsm.done){
           csr.onReadHalt()
-        } otherwise {
-          fsm.done := False
         }
       }
       when(csr.onReadMovingOff){
         fired := False
-        fsm.done := False
       }
     }
 

@@ -1,6 +1,6 @@
 package naxriscv.fetch
 
-import naxriscv.interfaces.{AddressTranslationService, JumpService}
+import naxriscv.interfaces.{AddressTranslationService, JumpService, PerformanceCounterService}
 import naxriscv.utilities._
 import spinal.core._
 import spinal.lib._
@@ -39,7 +39,8 @@ class FetchCachePlugin(val cacheSize : Int,
                        val bankMuxAt : Int = 2,
                        val controlAt : Int = 2,
                        val injectionAt : Int = 2,
-                       val reducedBankWidth : Boolean = false
+                       val reducedBankWidth : Boolean = false,
+                       val refillEventId : Int = PerformanceCounterService.ICACHE_REFILL
                       ) extends Plugin with FetchPipelineRequirements {
   override def stagesCountMin = injectionAt + 1
 
@@ -53,6 +54,7 @@ class FetchCachePlugin(val cacheSize : Int,
     val priority = JumpService.Priorities.FETCH_WORD(controlAt, false)
     val redoJump = getService[PcPlugin].createJumpInterface(priority)
     val historyJump = withHistory generate getService[HistoryPlugin].createJumpPort(priority)
+    val refillEvent = getServiceOption[PerformanceCounterService].map(_.createEventPort(refillEventId))
 
     mem.flatten.filter(_.isOutput).foreach(_.assignDontCare())
 
@@ -206,6 +208,8 @@ class FetchCachePlugin(val cacheSize : Int,
 
       hadError clearWhen (fire)
       setup.pipeline.getStage(0).haltIt(valid)
+
+      setup.refillEvent.map(_ := RegNext(fire) init(False))
     }
 
     val read = new Area{

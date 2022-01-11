@@ -2,7 +2,7 @@ package naxriscv.lsu
 
 import naxriscv.Global
 import naxriscv.Global.XLEN
-import naxriscv.interfaces.{AddressTranslationService, LockedImpl}
+import naxriscv.interfaces.{AddressTranslationService, LockedImpl, PerformanceCounterService}
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.{DocPlugin, Plugin}
@@ -75,6 +75,9 @@ class DataCachePlugin(val memDataWidth : Int,
     doc.property("DATA_CACHE_REFILL_COUNT", refillCount)
     doc.property("DATA_CACHE_WRITEBACK_COUNT", writebackCount)
 
+    val perf = getServiceOption[PerformanceCounterService]
+    val refillEvent = perf.map(_.createEventPort(PerformanceCounterService.DCACHE_REFILL))
+    val writebackEvent = perf.map(_.createEventPort(PerformanceCounterService.DCACHE_WRITEBACK))
 
     val refillCompletions = Bits(refillCount bits)
   }
@@ -106,8 +109,10 @@ class DataCachePlugin(val memDataWidth : Int,
       storeControlAt  = storeControlAt,
       storeRspAt      = storeRspAt,
       reducedBankWidth = reducedBankWidth
-
     )
+
+    setup.refillEvent.map(_ := RegNext(cache.io.refillEvent) init(False))
+    setup.writebackEvent.map(_ := RegNext(cache.io.writebackEvent) init(False))
 
     setup.refillCompletions := cache.io.refillCompletions
 

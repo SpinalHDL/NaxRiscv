@@ -154,6 +154,7 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
       reschedulePort.trap      := reschedule.trap
       reschedulePort.cause     := reschedule.cause
       reschedulePort.tval      := reschedule.tval
+      reschedulePort.reason    := reschedule.reason
 
 
       val head = UInt(ROB.ID_WIDTH bits)

@@ -170,6 +170,7 @@ case class RescheduleEvent(causeWidth : Int) extends Bundle{
   val trap       = Bool()
   val cause      = UInt(causeWidth bits)
   val tval       = Bits(Global.XLEN bits)
+  val reason     = ScheduleReason.hardType()
 }
 
 
@@ -481,4 +482,15 @@ trait PrivilegedService extends Service{
 
   def implementSupervisor : Boolean
   def implementUserTrap : Boolean
+}
+
+object PerformanceCounterService{
+  val ICACHE_REFILL = 1
+  val DCACHE_REFILL = 2
+  val DCACHE_WRITEBACK = 3
+  val BRANCH_MISS = 4
+}
+
+trait PerformanceCounterService extends Service with LockedImpl{
+  def createEventPort(id : Int) : Bool
 }

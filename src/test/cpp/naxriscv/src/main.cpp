@@ -87,7 +87,7 @@ void breakMe(){
 #define MIE_MSIE (1 << CAUSE_MACHINE_SOFTWARE)
 #define MIE_SEIE (1 << CAUSE_SUPERVISOR_EXTERNAL)
 
-
+#include "encoding.h"
 #define MIP 0x344
 #define SIP 0x144
 #define UIP  0x44
@@ -95,6 +95,7 @@ void breakMe(){
 
 #define BASE 0x10000000
 #define PUTC BASE
+#define PUT_HEX (BASE + 0x8)
 #define CLINT_BASE (BASE + 0x10000)
 #define CLINT_TIME (CLINT_BASE + 0x0BFF8)
 #define MACHINE_EXTERNAL_INTERRUPT_CTRL (BASE+0x10)
@@ -139,6 +140,7 @@ public:
     virtual int peripheralWrite(u64 address, uint32_t length, uint8_t *data){
         switch(address){
         case PUTC: printf("%c", *data); break;
+        case PUT_HEX: printf("%lx", *((u64*)data)); break;
         case MACHINE_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_machine_external = *data & 1;  break;
         case CLINT_CMP_ADDR: memcpy(&clintCmp, data, length); /*printf("CMPA=%lx\n", clintCmp);*/ break;
         case CLINT_CMP_ADDR+4: memcpy(((char*)&clintCmp)+4, data, length); /*printf("CMPB=%lx\n", clintCmp);*/  break;
@@ -1218,16 +1220,33 @@ int main(int argc, char** argv, char** env){
 //                        printf("Commit %d %x\n", robId, whitebox.robCtx[robId].pc);
 
                         //Sync some CSR
+                        u64 backup;
                         if(robCtx.csrReadDone){
                             switch(robCtx.csrAddress){
                             case MIP:
                             case SIP:
                             case UIP:
-                                state->mip->write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, robCtx.csrReadData);
+                                backup = state->mie->read();
+                                state->mip->unlogged_write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, robCtx.csrReadData);
+                                state->mie->unlogged_write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, 0);
+                                break;
+                            case CSR_MCYCLE:
+                                backup = state->minstret->read();
+                                state->minstret->unlogged_write(robCtx.csrReadData+1); //+1 patch a spike internal workaround XD
+                                break;
+                            case CSR_MCYCLEH:
+                                backup = state->minstret->read();
+                                state->minstret->unlogged_write((((u64)robCtx.csrReadData) << 32)+1);
+                                break;
+                            default:
+                                if(robCtx.csrAddress >= CSR_MHPMCOUNTER3 && robCtx.csrAddress <= CSR_MHPMCOUNTER31){
+                                    state->csrmap[robCtx.csrAddress]->unlogged_write(robCtx.csrReadData);
+                                }
                                 break;
                             }
                         }
 
+                        //Run spike for one instruction
                         auto spike_commit_count = state->commit_count;
                         int credit = 10;
                         do{
@@ -1238,6 +1257,23 @@ int main(int argc, char** argv, char** env){
                             }
                             credit--;
                         } while(spike_commit_count == state->commit_count);
+
+                        //Sync back some CSR
+                        if(robCtx.csrReadDone){
+                            switch(robCtx.csrAddress){
+                            case MIP:
+                            case SIP:
+                            case UIP:
+                                state->mip->unlogged_write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, 0);
+                                state->mie->unlogged_write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, backup);
+                                break;
+                            case CSR_MCYCLE:
+                            case CSR_MCYCLEH:
+                                state->minstret->unlogged_write(backup+2);
+                                break;
+                                break;
+                            }
+                        }
 
 //                        cout << state->minstret.get()->read() << endl;
                         RvData pc = state->last_inst_pc;
