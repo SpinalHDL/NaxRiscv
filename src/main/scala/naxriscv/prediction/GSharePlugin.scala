@@ -60,27 +60,38 @@ class GSharePlugin(historyWidth : Int,
 
     val keys = setup.keys
 
-    def gshareHash(address : UInt, history : Bits) = address(SLICE_RANGE.high + 1, log2Up(words) bits).reversed ^ U(history).resized
+    def hashWidth = log2Up(words)
+    def gshareHash(address : UInt, history : Bits) = address(SLICE_RANGE.high + 1, hashWidth bits).reversed ^ U(history).resized
 
     val mem = new Area{ //TODO bypass read durring write ?
       val counter = Mem.fill(words)(keys.GSHARE_COUNTER)
+      val write = counter.writePort
     }
+
+    val BYPASS = Stageable(cloneOf(mem.write))
+    val HASH = Stageable(UInt(hashWidth bits))
 
     val readCmd = new Area{
       val stage = fetch.getStage(readAt)
       import stage._
 
-      val address = gshareHash(FETCH_PC, BRANCH_HISTORY)
+      HASH := gshareHash(FETCH_PC, BRANCH_HISTORY)
+      stage(BYPASS) := mem.write
     }
 
     val readRsp = new Area{
       val stage = fetch.getStage(readAt+1)
+      import stage._
 
-      def readMem[T <: Data](mem : Mem[T], address : UInt = readCmd.address) = readAsync match {
+      def readMem[T <: Data](mem : Mem[T], address : UInt = readCmd.stage(HASH)) = readAsync match {
         case false => mem.readSync(address, readCmd.stage.isReady)
         case true  => mem.readAsync(address)
       }
       stage(keys.GSHARE_COUNTER) := readMem(mem.counter)
+      when(BYPASS.valid && stage(BYPASS).address === HASH){
+        stage(keys.GSHARE_COUNTER) := stage(BYPASS).data
+      }
+
       KeepAttribute(stage(keys.GSHARE_COUNTER))
     }
 
@@ -105,10 +116,9 @@ class GSharePlugin(historyWidth : Int,
         overflow setWhen(ctx.taken && counters(sliceId).msb && !updated(sliceId).msb || !ctx.taken && !counters(sliceId).msb && updated(sliceId).msb)
       }
 
-      val counterPort = mem.counter.writePort
-      counterPort.valid := branchContext.learnValid && branchContext.learnRead(IS_BRANCH) && !overflow
-      counterPort.address := hash
-      counterPort.data := updated
+      mem.write.valid := branchContext.learnValid && branchContext.learnRead(IS_BRANCH) && !overflow
+      mem.write.address := hash
+      mem.write.data := updated
     }
 
     fetch.release()
