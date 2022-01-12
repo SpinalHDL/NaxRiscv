@@ -16,6 +16,8 @@ import Frontend._
 
 
 class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) extends Plugin with JumpService{
+  assert(XLEN.get == 32)
+
   case class JumpSpec(interface :  Flow[JumpCmd], priority : Int)
   val jumpsSpec = ArrayBuffer[JumpSpec]()
   override def createJumpInterface(priority : Int): Flow[JumpCmd] = {
@@ -34,8 +36,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) exten
     val pipeline = fetch.getPipeline()
     import stage._
 
-    val sliceRangeLow = if (RVC) 1 else 2
-    val sliceRange = (sliceRangeLow + log2Up(SLICE_COUNT) - 1 downto sliceRangeLow)
+    val sliceRange = (SLICE_RANGE_LOW + log2Up(SLICE_COUNT) - 1 downto SLICE_RANGE_LOW)
 
     val jump = new Area {
       val sortedByStage = jumpsSpec.sortWith(_.priority > _.priority)
@@ -73,7 +74,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) exten
 
       val flushed = False
 
-      if(RVC) when(inc) {
+      when(inc) {
         pc(sliceRange) := 0
       }
 

@@ -18,7 +18,7 @@ object Config{
   def properties() = {
     NaxDataBase.create()
 
-    Fetch.RVC.set(true)
+    Fetch.RVC.set(false)
     Fetch.FETCH_DATA_WIDTH.set(64)
     Fetch.INSTRUCTION_WIDTH.set(32)
     Frontend.DECODE_COUNT.set(2)
@@ -26,7 +26,7 @@ object Config{
     Global.XLEN.set(32)
     ROB.SIZE.set(64)
 
-//    Fetch.RVC.set(true)
+//    Fetch.RVC.set(false)
 //    Fetch.FETCH_DATA_WIDTH.set(32)
 //    Fetch.INSTRUCTION_WIDTH.set(32)
 //    Frontend.DECODE_COUNT.set(1)

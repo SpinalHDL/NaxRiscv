@@ -63,8 +63,7 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
 
     val ignoreInput = CombInit(input.isSelfRemoved) // This is to ensure we don't propagate stuff futher if the instruction cache has a cache miss on that instruction
     val isInputValid = input.isValid && !ignoreInput
-    val sliceRangeLow = if (RVC) 1 else 2
-    val sliceRange = (sliceRangeLow + log2Up(SLICE_COUNT) - 1) downto sliceRangeLow
+    val sliceRange = (SLICE_RANGE_LOW + log2Up(SLICE_COUNT) - 1) downto SLICE_RANGE_LOW
     val maskGen = new Area {
       val maskStage = fetch.getStage(inputAt-1)
       import maskStage._
@@ -94,47 +93,61 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
     }
 
     val decoders = for (i <- 0 until SLICE_COUNT * 2) yield new Area {
-      val rvc = slices.data(i)(1 downto 0) =/= 3
+      val rvc = RVC.get generate slices.data(i)(1 downto 0) =/= 3
 
-      def mask16 = B(1 << i, SLICE_COUNT*2 bits)
-      def mask32 = B(3 << i, SLICE_COUNT*2 bits)
 
-      val usage = if(i == SLICE_COUNT*2 - 1)
-        mask16
-      else
-        rvc ? mask16 | mask32
+      val usage = if(RVC) {
+        def mask16 = B(1 << i, SLICE_COUNT*2 bits)
+        def mask32 = B(3 << i, SLICE_COUNT*2 bits)
+        if(i == SLICE_COUNT*2 - 1) mask16 else rvc ? mask16 | mask32
+      } else {
+        B(1 << i, SLICE_COUNT*2 bits)
+      }
 
-      val notEnoughData = if(i == SLICE_COUNT * 2 - 1)
-        !rvc
-      else if(i == SLICE_COUNT - 1)
-        !rvc && !MASK_FRONT.lsb
-      else
-        False
+      val notEnoughData = RVC.get match {
+        case true =>
+          if(i == SLICE_COUNT * 2 - 1)
+            !rvc
+          else if(i == SLICE_COUNT - 1)
+            !rvc && !MASK_FRONT.lsb
+          else
+            False
+        case false => False
+      }
+
 
       val pastPrediction = if(i <= SLICE_COUNT) False else WORD_BRANCH_VALID && U(i - SLICE_COUNT) > WORD_BRANCH_SLICE //TODO may use MASK_BACK instead for timings ?
       val usable = !notEnoughData && !pastPrediction
     }
 
     //This ensure that the input word isn't cut by some bad prediction aliasing (prediction from another part of the programm that had the same hash)
-    val predictionSanity = new Area{
-      val sliceMasks = (MASK_FRONT & MASK_BACK) ## buffer.mask
-      var skip = False
-      val skips = Bits(SLICE_COUNT*2 bits)
-      val errors = Bits(SLICE_COUNT*2 bits)
-      for(i <- 0 until SLICE_COUNT*2){ //TODO optimize, could skip the first SLICE_COUNT entry if their results was stored in the buffer
-        errors(i) := skip && !sliceMasks(i)
-        skip = !skip && sliceMasks(i) && !decoders(i).rvc
-        skips(i) := skip
-      }
-
-      val backMaskError = errors(SLICE_COUNT, SLICE_COUNT bits).orR // The prediction is cutting on of the non RVC instruction (doesn't check last slice)
-      val partialFetchError = WORD_BRANCH_SLICE.andR && skip  // The prediction is cutting the last slice non rvc instruction
-      val failure = isInputValid && WORD_BRANCH_VALID && (backMaskError || partialFetchError) //TODO check that it only set in the right cases (as it can silently produce false positive)
-
-      when(backMaskError){
-        for(decoder <- decoders.drop(SLICE_COUNT)){
-          decoder.pastPrediction := False
+    class PredictionSanity{
+      val failure = Bool()
+    }
+    val predictionSanity = RVC.get match {
+      case true => new PredictionSanity {
+        val sliceMasks = (MASK_FRONT & MASK_BACK) ## buffer.mask
+        var skip = False
+        val skips = Bits(SLICE_COUNT * 2 bits)
+        val errors = Bits(SLICE_COUNT * 2 bits)
+        for (i <- 0 until SLICE_COUNT * 2) { //TODO optimize, could skip the first SLICE_COUNT entry if their results was stored in the buffer
+          errors(i) := skip && !sliceMasks(i)
+          skip = !skip && sliceMasks(i) && !decoders(i).rvc
+          skips(i) := skip
         }
+
+        val backMaskError = errors(SLICE_COUNT, SLICE_COUNT bits).orR // The prediction is cutting on of the non RVC instruction (doesn't check last slice)
+        val partialFetchError = WORD_BRANCH_SLICE.andR && skip // The prediction is cutting the last slice non rvc instruction
+        failure := isInputValid && WORD_BRANCH_VALID && (backMaskError || partialFetchError) //TODO check that it only set in the right cases (as it can silently produce false positive)
+
+        when(backMaskError) {
+          for (decoder <- decoders.drop(SLICE_COUNT)) {
+            decoder.pastPrediction := False
+          }
+        }
+      }
+      case false => new PredictionSanity {
+        failure := False
       }
     }
 
@@ -142,10 +155,10 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       val maskOh = OHMasking.firstV2(slices.mask.drop(i))
       val usage  = MuxOH.or(maskOh, decoders.drop(i).map(_.usage))
       val usable = MuxOH.or(maskOh, decoders.drop(i).map(_.usable))
-      val rvc    = MuxOH.or(maskOh, decoders.drop(i).map(_.rvc))
+      val rvc    = RVC.get generate MuxOH.or(maskOh, decoders.drop(i).map(_.rvc))
       val slice0 = MuxOH.or(maskOh, slices.data.drop(i))
-      val slice1 = MuxOH.or(maskOh.dropHigh(1), slices.data.drop(i + 1))
-      val instruction = slice1 ## slice0
+      val slice1 = RVC.get generate MuxOH.or(maskOh.dropHigh(1), slices.data.drop(i + 1))
+      val instruction = if(RVC) slice1 ## slice0 else slice0
       val valid = slices.mask.drop(i).orR && usable
       slices.used \= slices.used | usage
       slices.mask \= slices.mask & ~usage
@@ -153,10 +166,15 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       output(MASK_ALIGNED, i) := valid
       output(INSTRUCTION_SLICE_COUNT, i) := (if(RVC) U(!rvc) else U(0))
 
-      val sliceLast = output(PC, i)(sliceRange) + U(!rvc)
+      val sliceLast = RVC.get match {
+        case true => output(PC, i)(sliceRange) + U(!rvc)
+        case false => output(PC, i)(sliceRange)
+      }
       val bufferPredictionLast = buffer.branchSlice === sliceLast
       val inputPredictionLast  = WORD_BRANCH_SLICE === sliceLast
-      val lastWord = maskOh.drop(SLICE_COUNT-i).orR || rvc && maskOh(SLICE_COUNT-i-1)
+      val lastWord = maskOh.drop(SLICE_COUNT-i).orR
+      if(RVC) lastWord.setWhen(rvc && maskOh(SLICE_COUNT-i-1))
+
       when(lastWord) {
         output(ALIGNED_BRANCH_VALID, i)   := WORD_BRANCH_VALID && !predictionSanity.failure && inputPredictionLast
         output(ALIGNED_BRANCH_PC_NEXT, i) := WORD_BRANCH_PC_NEXT
@@ -170,7 +188,7 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       val sliceOffset = OHToUInt(maskOh << i)
       val firstWord = sliceOffset.msb
       val pcWord = Vec(buffer.pc, input(FETCH_PC)).read(U(firstWord))
-      output(PC, i) := (pcWord >> sliceRange.high+1) @@ U(sliceOffset.dropHigh(1)) @@ U(0, sliceRangeLow bits)
+      output(PC, i) := (pcWord >> sliceRange.high+1) @@ U(sliceOffset.dropHigh(1)) @@ U(0, SLICE_RANGE_LOW bits)
 
       when(firstWord){
         for(key <- firstWordContextSpec) output(key, i).assignFrom(input(key))
@@ -184,12 +202,12 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
       when((firstWord || lastWord) && input(WORD_FAULT)){
         output(FETCH_FAULT, i) := True
         output(FETCH_FAULT_PAGE, i) := input(WORD_FAULT_PAGE)
-        output(FETCH_FAULT_SLICE, i)(0) := !firstWord
+        if(RVC) output(FETCH_FAULT_SLICE, i)(0) := !firstWord
       }
       when((!firstWord || !lastWord) && buffer.fault){
         output(FETCH_FAULT, i) := True
         output(FETCH_FAULT_PAGE, i) := buffer.fault_page
-        output(FETCH_FAULT_SLICE, i)(0) := False
+        if(RVC) output(FETCH_FAULT_SLICE, i)(0) := False
       }
     }
 
