@@ -178,6 +178,14 @@ object Config{
 //    plugins += new ShiftPlugin("EU3")
 //    plugins += new BranchPlugin("EU3")
 
+//    plugins += new ExecutionUnitBase("EU4", writebackCountMax = 0)
+//    plugins += new SrcPlugin("EU4")
+//    plugins += new LoadPlugin("EU4")
+//
+//    plugins += new ExecutionUnitBase("EU5", writebackCountMax = 0)
+//    plugins += new SrcPlugin("EU5")
+//    plugins += new StorePlugin("EU5")
+
     plugins
   }
 }

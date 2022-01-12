@@ -43,6 +43,8 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
     add(Rvi.MRET  , DecodeList(XRET   -> True))
     if(priv.implementSupervisor) add(Rvi.SRET  , DecodeList(XRET   -> True))
     if(priv.implementUserTrap)   add(Rvi.URET  , DecodeList(XRET   -> True))
+
+    eu.addRobStageable(PC) //Used by ebreak
   }
 
   val logic = create late new Area{

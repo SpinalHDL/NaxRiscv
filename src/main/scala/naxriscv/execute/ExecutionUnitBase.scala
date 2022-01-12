@@ -189,7 +189,13 @@ class ExecutionUnitBase(euId : String,
       import stage._
 
       def read[T <: Data](key : Stageable[T]) = rob.readAsyncSingle(key, ROB.ID, sf, so)
-      def readAndInsert[T <: Data](key : Stageable[T]) = stage(key) := read(key)
+
+      val inserted = mutable.LinkedHashSet[Stageable[_ <: Data]]()
+      def readAndInsert[T <: Data](key : Stageable[T]) : Unit = {
+        if(inserted.contains(key)) return
+        inserted += key
+        stage(key) := read(key)
+      }
 
       readAndInsert(Frontend.MICRO_OP)
       for(e <- rfReads){
