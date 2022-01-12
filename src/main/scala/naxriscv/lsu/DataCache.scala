@@ -223,6 +223,7 @@ class DataCache(val cacheSize: Int,
   val WAYS_HAZARD = Stageable(Bits(wayCount bits))
   val REDO_ON_DATA_HAZARD = Stageable(Bool())
   val BANK_BUSY = Stageable(Bits(bankCount bits))
+  val BANK_BUSY_REMAPPED = Stageable(Bits(bankCount bits))
   val REFILL_HITS_EARLY = Stageable(Bits(refillCount bits))
   val REFILL_HITS = Stageable(Bits(refillCount bits))
 
@@ -661,7 +662,21 @@ class DataCache(val cacheSize: Int,
           }
           overloaded(BANK_BUSY)(bankId) := BANK_BUSY(bankId) || bank.write.valid && REDO_ON_DATA_HAZARD
         }
-        pipeline.stages(loadReadAt + 1)(BANKS_WORDS)(bankId) := banks(bankId).read.rsp;
+
+        {
+          val stage = pipeline.stages(loadReadAt + 1)
+          import stage._
+          BANKS_WORDS(bankId) := banks(bankId).read.rsp
+
+          def wayToBank(way : Int) : UInt = {
+            val wayId = U(way, log2Up(wayCount) bits)
+            if(!reducedBankWidth) return wayId
+            (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
+          }
+
+          BANK_BUSY_REMAPPED(bankId) := BANK_BUSY(wayToBank(bankId))
+        }
+
         {
           import bankMuxesStage._;
           BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(ADDRESS_PRE_TRANSLATION(bankWordToCpuWordRange))
@@ -734,7 +749,7 @@ class DataCache(val cacheSize: Int,
       val refillHit = REFILL_HITS.orR
       val refillLoaded = (B(refill.slots.map(_.loaded)) & REFILL_HITS).orR
       val lineBusy = isLineBusy(ADDRESS_PRE_TRANSLATION, refillWay)
-      val bankBusy = (BANK_BUSY & WAYS_HITS) =/= 0
+      val bankBusy = (BANK_BUSY_REMAPPED & WAYS_HITS) =/= 0
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
 
       REDO := !WAYS_HIT || waysHitHazard || bankBusy || refillHit
