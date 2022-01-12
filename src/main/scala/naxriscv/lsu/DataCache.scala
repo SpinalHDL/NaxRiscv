@@ -725,14 +725,14 @@ class DataCache(val cacheSize: Int,
       val refillWayNeedWriteback = WAYS_TAGS(refillWay).loaded && STATUS(refillWay).dirty
       val refillHit = REFILL_HITS.orR
       val refillLoaded = (B(refill.slots.map(_.loaded)) & REFILL_HITS).orR
-      val refillLineBusy = isLineBusy(ADDRESS_PRE_TRANSLATION, refillWay)
+      val lineBusy = isLineBusy(ADDRESS_PRE_TRANSLATION, refillWay)
       val bankBusy = (BANK_BUSY & WAYS_HITS) =/= 0
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
 
       REDO := !WAYS_HIT || waysHitHazard || bankBusy || refillHit
       MISS := !WAYS_HIT && !waysHitHazard && !refillHit
       FAULT := !REDO && (WAYS_HITS & WAYS_TAGS.map(_.fault).asBits).orR
-      val canRefill = !refill.full && !refillLineBusy && reservation.win && !(refillWayNeedWriteback && writeback.full)
+      val canRefill = !refill.full && !lineBusy && reservation.win && !(refillWayNeedWriteback && writeback.full)
       val askRefill = MISS && canRefill && !refillHit
       val startRefill = isValid && askRefill
 
@@ -866,13 +866,13 @@ class DataCache(val cacheSize: Int,
       val refillHits = B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
       val refillHit = refillHits.orR
       val refillLoaded = (B(refill.slots.map(_.loaded)) & refillHits).orR
-      val refillLineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, refillWay)
+      val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, refillWay)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
       val wasClean = !(B(STATUS.map(_.dirty)) & WAYS_HITS).orR
 
       REDO := MISS || waysHitHazard || refill.banksWrite || refillHit || (wasClean && !reservation.win)// || refillOverlap
       MISS := !WAYS_HIT && !waysHitHazard && !refillHit
-      val canRefill = !refill.full && !refillLineBusy && !load.ctrl.startRefill && reservation.win && !(refillWayNeedWriteback && writeback.full)
+      val canRefill = !refill.full && !lineBusy && !load.ctrl.startRefill && reservation.win && !(refillWayNeedWriteback && writeback.full)
       val askRefill = MISS && canRefill && !refillHit
       val startRefill = isValid && GENERATION_OK && askRefill
 

@@ -1,6 +1,6 @@
 package naxriscv
 
-import naxriscv.compatibility.{MultiPortReadSymplifier, MultiPortWritesSymplifier}
+import naxriscv.compatibility.{MemReadDuringWriteHazardPhase, MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
 import naxriscv.frontend._
 import naxriscv.fetch._
@@ -185,28 +185,35 @@ object Config{
 // ramstyle = "MLAB, no_rw_check"
 object Gen extends App{
   LutInputs.set(6)
-  val spinalConfig = SpinalConfig(inlineRom = true)
-  spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
-//  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
 
-//  def wrapper[T <: Component](c : T) = c
-  def wrapper[T <: Component](c : T) = { c.afterElaboration(Rtl.ffIo(c)); c }
+  {
+    val spinalConfig = SpinalConfig(inlineRom = true)
+    spinalConfig.addTransformationPhase(new MemReadDuringWriteHazardPhase)
+    spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
+    //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
 
-  val report = spinalConfig.generateVerilog(new Component {
-    setDefinitionName("NaxRiscv")
-    Config.properties()
-    val framework = new Framework(Config.plugins())
-  })
-  val doc = report.toplevel.framework.getService[DocPlugin]
-  doc.genC()
+    val report = spinalConfig.generateVerilog(new Component {
+      setDefinitionName("NaxRiscv")
+      Config.properties()
+      val framework = new Framework(Config.plugins())
+    })
+    val doc = report.toplevel.framework.getService[DocPlugin]
+    doc.genC()
+  }
 
-
-  spinalConfig.addStandardMemBlackboxing(blackboxByteEnables)
-  spinalConfig.generateVerilog(wrapper(new Component {
-    setDefinitionName("NaxRiscvSynt")
-    Config.properties()
-    val framework = new Framework(Config.plugins())
-  }))
+  {
+    def wrapper[T <: Component](c: T) = {
+      c.afterElaboration(Rtl.ffIo(c)); c
+    }
+    val spinalConfig = SpinalConfig(inlineRom = true)
+    spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
+    spinalConfig.addStandardMemBlackboxing(blackboxByteEnables)
+    spinalConfig.generateVerilog(wrapper(new Component {
+      setDefinitionName("NaxRiscvSynt")
+      Config.properties()
+      val framework = new Framework(Config.plugins())
+    }))
+  }
 }
 
 
@@ -288,7 +295,7 @@ checkLq => 6.8slack 550 LUT (16lq/16sq)
 obj_dir/VNaxRiscv --name dhrystone --output_dir output/nax/dhrystone --load_elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/dhrystone.elf --start_symbol _start --pass_symbol pass --fail_symbol fail --stats_print --stats_toggle_symbol sim_time
 obj_dir/VNaxRiscv --name coremark --output_dir output/nax/coremark --load_elf /media/data/open/riscv/coremark/build/coremark_rv32im.elf --start_symbol _start --pass_symbol pass  --stats_print_all --stats_toggle_symbol sim_time --trace
 obj_dir/VNaxRiscv --name play --load_elf ../../../../ext/NaxSoftware/baremetal/play/build/play.elf --start_symbol _start --pass_symbol pass --fail_symbol fail --trace --trace_ref --stats_print_all
-
+obj_dir/VNaxRiscv --load_elf ../../../../ext/NaxSoftware/baremetal/freertosDemo/build/freertosDemo.elf --start_symbol _start --pass_symbol c_pass --fail_symbol c_fail --stats_print_all
 
 
 SUCCESS dhrystone
