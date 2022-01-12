@@ -362,6 +362,9 @@ class DataCache(val cacheSize: Int,
       val cmdSent = Reg(Bool())
       val priority = Reg(Bits(refillCount-1 bits)) //TODO Check it
 
+      // This counter ensure that load which started before the end of the refill memory transfer but ended after the end
+      // of the memory transfer do see that there was a refill ongoing and that they need to retry
+      // Store will consider refill slots which a loaded as ready for a write already
       val loaded = Reg(Bool())
       val loadedCounterMax = loadControlAt-1
       val loadedCounter = Reg(UInt(log2Up(loadedCounterMax+1) bits))
@@ -886,8 +889,7 @@ class DataCache(val cacheSize: Int,
       val reservation = tagsOrStatusWriteArbitration.create(3)
       val refillWay = CombInit(wayRandom.value)
       val refillWayNeedWriteback = WAYS_TAGS(refillWay).loaded && STATUS(refillWay).dirty
-      val refillHit = REFILL_HITS.orR
-      val refillLoaded = (B(refill.slots.map(_.loaded)) & REFILL_HITS).orR
+      val refillHit = (REFILL_HITS & B(refill.slots.map(!_.loaded))).orR
       val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, refillWay)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
       val wasClean = !(B(STATUS.map(_.dirty)) & WAYS_HITS).orR
@@ -899,7 +901,7 @@ class DataCache(val cacheSize: Int,
       val startRefill = isValid && GENERATION_OK && askRefill
 
       REFILL_SLOT_FULL := MISS && !refillHit && refill.full
-      REFILL_SLOT := REFILL_HITS.andMask(!refillLoaded) | refill.free.andMask(askRefill)
+      REFILL_SLOT := refill.free.andMask(askRefill) //| REFILL_HITS.andMask(!refillLoaded)
 
       val writeCache = isValid && GENERATION_OK && !REDO
       val setDirty = writeCache && wasClean
