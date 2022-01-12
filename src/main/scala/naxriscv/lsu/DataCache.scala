@@ -30,6 +30,7 @@ case class DataLoadPort(preTranslationWidth : Int,
 case class DataLoadCmd(preTranslationWidth : Int, dataWidth : Int) extends Bundle {
   val virtual = UInt(preTranslationWidth bits)
   val size = UInt(log2Up(log2Up(dataWidth/8)+1) bits)
+  val redoOnDataHazard = Bool() //Usefull for access not protected by the LSU (ex MMU refill)
 }
 
 case class DataLoadTranslated(physicalWidth : Int) extends Bundle {
@@ -220,6 +221,7 @@ class DataCache(val cacheSize: Int,
   val CPU_MASK = Stageable(Bits(cpuWordWidth/8 bits))
 //  val TAGS_CORRUPTED = Stageable(Bool())
   val WAYS_HAZARD = Stageable(Bits(wayCount bits))
+  val REDO_ON_DATA_HAZARD = Stageable(Bool())
   val BANK_BUSY = Stageable(Bits(bankCount bits))
   val REFILL_HITS_EARLY = Stageable(Bits(refillCount bits))
   val REFILL_HITS = Stageable(Bits(refillCount bits))
@@ -641,6 +643,7 @@ class DataCache(val cacheSize: Int,
 
       isValid := io.load.cmd.valid
       ADDRESS_PRE_TRANSLATION := io.load.cmd.virtual
+      REDO_ON_DATA_HAZARD := io.load.cmd.redoOnDataHazard
       WAYS_HAZARD := 0
     }
 
@@ -653,6 +656,7 @@ class DataCache(val cacheSize: Int,
             bank.read.cmd.valid := !isStuck
             bank.read.cmd.payload := ADDRESS_PRE_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
           }
+          overloaded(BANK_BUSY)(bankId) := BANK_BUSY(bankId) || bank.write.valid && REDO_ON_DATA_HAZARD
         }
         pipeline.stages(loadReadAt + 1)(BANKS_WORDS)(bankId) := banks(bankId).read.rsp;
         {

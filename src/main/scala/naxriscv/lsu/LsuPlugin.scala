@@ -514,6 +514,7 @@ class LsuPlugin(lqSize: Int,
           cmd.valid := stage.isFireing
           cmd.virtual := ADDRESS_PRE_TRANSLATION
           cmd.size := SIZE
+          cmd.redoOnDataHazard := False
         }
 
         val feedContext = new Area {
