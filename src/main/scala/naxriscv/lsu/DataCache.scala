@@ -40,7 +40,7 @@ case class DataLoadTranslated(physicalWidth : Int) extends Bundle {
 
 case class DataLoadRsp(dataWidth : Int, refillCount : Int) extends Bundle {
   val data = Bits(dataWidth bits)
-  val fault = Bool()
+  val fault = Bool() //redo win against fault
   val redo = Bool()
   val refillSlot = Bits(refillCount bits) //Zero when refillSlotAny
   val refillSlotAny = Bool() //Not valid if !miss
@@ -739,7 +739,7 @@ class DataCache(val cacheSize: Int,
 
       REDO := !WAYS_HIT || waysHitHazard || bankBusy || refillHit
       MISS := !WAYS_HIT && !waysHitHazard && !refillHit
-      FAULT := !REDO && (WAYS_HITS & WAYS_TAGS.map(_.fault).asBits).orR
+      FAULT := (WAYS_HITS & WAYS_TAGS.map(_.fault).asBits).orR
       val canRefill = !refill.full && !lineBusy && reservation.win && !(refillWayNeedWriteback && writeback.full)
       val askRefill = MISS && canRefill && !refillHit
       val startRefill = isValid && askRefill
