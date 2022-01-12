@@ -31,11 +31,39 @@ cd $NAXRISCV/src/test/cpp/naxriscv
 make compile TRACE=yes
 ```
 
+# How to use the simulator 
+
+```shell
+obj_dir/VNaxRiscv --help
+--help                  : Print this
+--load-hex              : Load a hex file in the simulation memory
+--load-elf              : Load a elf file in the simulation memory
+--start-symbol=SYMBOL   : Force the CPU to boot at the given elf symbol
+--pass-symbol=SYMBOL    : The simulation will pass when the given elf symbol execute
+--fail-symbol=SYMBOL    : The simulation will fail when the given elf symbol execute
+--output-dir=DIR        : Path to where every traces will be written
+--name=STRING           : Test name reported when on exit (not very useful XD)
+--timeout=INT           : Simulation time before failure (~number of cycles x 2)
+--progress=PERIOD       : Will print the simulation speed each period seconds
+--seed=INT              : Seed used to initialize randomizers
+--trace                 : Enable FST wave capture
+--trace-start-time=INT  : Add a time to which the FST should start capturing
+--trace-stop-time=INT   : Add a time to which the FST should stop capturng
+--trace-sporadic=RATIO  : Specify that periodically the FST capture a bit of the wave
+--trace-ref             : Store the spike execution traces in a file
+--stats-print           : Print some stats about the CPU execution at the end of the sim
+--stats-print-all       : Print all the stats possible (including which branches had miss)
+--stats-start-symbol=SY : Specify at which elf symbol the stats should start capturing
+--stats-stop-symbol=SYM : Specify at which elf symbol the stats should stop capturing
+--stats-toggle-symbol=S : Specify at which elf symbol the stats should change its capture state
+--trace-gem5            : Enable capture of the pipeline timings as a gem5 trace, readable with github konata
+```
+
 # Run the simulation
 
 ```shell
 cd $NAXRISCV/src/test/cpp/naxriscv
-./obj_dir/VNaxRiscv --timeout 1000 --load_elf ../../../../ext/NaxSoftware/baremetal/play/build/play.elf
+./obj_dir/VNaxRiscv --timeout 100000 --load-elf ../../../../ext/NaxSoftware/baremetal/play/build/play.elf --pass-symbol=pass
 ```
 
 # Run a riscv-test
@@ -43,10 +71,10 @@ cd $NAXRISCV/src/test/cpp/naxriscv
 ```shell
 cd $NAXRISCV/src/test/cpp/naxriscv
 ./obj_dir/VNaxRiscv \
---load_elf ../../../../ext/NaxSoftware/riscv-tests/rv32ui-p-addi \
---start_symbol test_2 \
---pass_symbol pass \
---fail_symbol fail \
+--load-elf ../../../../ext/NaxSoftware/riscv-tests/rv32ui-p-addi \
+--start-symbol test_2 \
+--pass-symbol pass \
+--fail-symbol fail \
 --timeout 10000 
 ```
 

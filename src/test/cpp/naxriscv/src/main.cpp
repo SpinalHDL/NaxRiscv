@@ -932,34 +932,62 @@ enum ARG
     ARG_STATS_STOP_SYMBOL,
     ARG_STATS_TOGGLE_SYMBOL,
     ARG_TRACE_GEM5,
+    ARG_HELP,
 };
 
 
 static const struct option long_options[] =
 {
-    { "load_hex", required_argument, 0, ARG_LOAD_HEX },
-    { "load_elf", required_argument, 0, ARG_LOAD_ELF },
-    { "start_symbol", required_argument, 0, ARG_START_SYMBOL },
-    { "pass_symbol", required_argument, 0, ARG_PASS_SYMBOL },
-    { "fail_symbol", required_argument, 0, ARG_FAIL_SYMBOL },
-    { "output_dir", required_argument, 0, ARG_OUTPUT_DIR },
+    { "help", no_argument, 0, ARG_HELP },
+    { "load-hex", required_argument, 0, ARG_LOAD_HEX },
+    { "load-elf", required_argument, 0, ARG_LOAD_ELF },
+    { "start-symbol", required_argument, 0, ARG_START_SYMBOL },
+    { "pass-symbol", required_argument, 0, ARG_PASS_SYMBOL },
+    { "fail-symbol", required_argument, 0, ARG_FAIL_SYMBOL },
+    { "output-dir", required_argument, 0, ARG_OUTPUT_DIR },
     { "name", required_argument, 0, ARG_NAME },
     { "timeout", required_argument, 0, ARG_TIMEOUT },
     { "progress", required_argument, 0, ARG_PROGRESS },
     { "seed", required_argument, 0, ARG_SEED },
     { "trace", no_argument, 0, ARG_TRACE },
-    { "trace_start_time", required_argument, 0, ARG_TRACE_START_TIME },
-    { "trace_stop_time", required_argument, 0, ARG_TRACE_STOP_TIME },
-    { "trace_sporadic", required_argument, 0, ARG_TRACE_SPORADIC },
-    { "trace_ref", no_argument, 0, ARG_TRACE_REF },
-    { "stats_print", no_argument, 0, ARG_STATS_PRINT },
-    { "stats_print_all", no_argument, 0, ARG_STATS_PRINT_ALL },
-    { "stats_start_symbol", required_argument, 0, ARG_STATS_START_SYMBOL },
-    { "stats_stop_symbol", required_argument, 0, ARG_STATS_STOP_SYMBOL },
-    { "stats_toggle_symbol", required_argument, 0, ARG_STATS_TOGGLE_SYMBOL },
-    { "trace_gem5", no_argument, 0, ARG_TRACE_GEM5 },
+    { "trace-start-time", required_argument, 0, ARG_TRACE_START_TIME },
+    { "trace-stop-time", required_argument, 0, ARG_TRACE_STOP_TIME },
+    { "trace-sporadic", required_argument, 0, ARG_TRACE_SPORADIC },
+    { "trace-ref", no_argument, 0, ARG_TRACE_REF },
+    { "stats-print", no_argument, 0, ARG_STATS_PRINT },
+    { "stats-print-all", no_argument, 0, ARG_STATS_PRINT_ALL },
+    { "stats-start-symbol", required_argument, 0, ARG_STATS_START_SYMBOL },
+    { "stats-stop-symbol", required_argument, 0, ARG_STATS_STOP_SYMBOL },
+    { "stats-toggle-symbol", required_argument, 0, ARG_STATS_TOGGLE_SYMBOL },
+    { "trace-gem5", no_argument, 0, ARG_TRACE_GEM5 },
     0
 };
+
+
+string helpString = R"(
+--help                  : Print this
+--load-hex              : Load a hex file in the simulation memory
+--load-elf              : Load a elf file in the simulation memory
+--start-symbol=SYMBOL   : Force the CPU to boot at the given elf symbol
+--pass-symbol=SYMBOL    : The simulation will pass when the given elf symbol execute
+--fail-symbol=SYMBOL    : The simulation will fail when the given elf symbol execute
+--output-dir=DIR        : Path to where every traces will be written
+--name=STRING           : Test name reported when on exit (not very useful XD)
+--timeout=INT           : Simulation time before failure (~number of cycles x 2)
+--progress=PERIOD       : Will print the simulation speed each period seconds
+--seed=INT              : Seed used to initialize randomizers
+--trace                 : Enable FST wave capture
+--trace-start-time=INT  : Add a time to which the FST should start capturing
+--trace-stop-time=INT   : Add a time to which the FST should stop capturng
+--trace-sporadic=RATIO  : Specify that periodically the FST capture a bit of the wave
+--trace-ref             : Store the spike execution traces in a file
+--stats-print           : Print some stats about the CPU execution at the end of the sim
+--stats-print-all       : Print all the stats possible (including which branches had miss)
+--stats-start-symbol=SY : Specify at which elf symbol the stats should start capturing
+--stats-stop-symbol=SYM : Specify at which elf symbol the stats should stop capturing
+--stats-toggle-symbol=S : Specify at which elf symbol the stats should change its capture state
+--trace-gem5            : Enable capture of the pipeline timings as a gem5 trace, readable with github konata
+)";
 
 u64 startPc = 0x80000000l;
 map<RvData, vector<function<void(RvData)>>> pcToEvent;
@@ -1017,6 +1045,7 @@ int main(int argc, char** argv, char** env){
             case ARG_STATS_PRINT: statsPrint = true; break;
             case ARG_STATS_PRINT_ALL: statsPrint = true; statsPrintHist = true; break;
             case ARG_TRACE_GEM5: traceGem5 = true; break;
+            case ARG_HELP: cout << helpString; exit(0); break;
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_START_SYMBOL:

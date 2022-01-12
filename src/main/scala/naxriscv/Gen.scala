@@ -300,10 +300,10 @@ checkLq => 6.8slack 550 LUT (16lq/16sq)
  */
 
 /*
-obj_dir/VNaxRiscv --name dhrystone --output_dir output/nax/dhrystone --load_elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/dhrystone.elf --start_symbol _start --pass_symbol pass --fail_symbol fail --stats_print --stats_toggle_symbol sim_time
-obj_dir/VNaxRiscv --name coremark --output_dir output/nax/coremark --load_elf /media/data/open/riscv/coremark/build/coremark_rv32im.elf --start_symbol _start --pass_symbol pass  --stats_print_all --stats_toggle_symbol sim_time --trace
-obj_dir/VNaxRiscv --name play --load_elf ../../../../ext/NaxSoftware/baremetal/play/build/play.elf --start_symbol _start --pass_symbol pass --fail_symbol fail --trace --trace_ref --stats_print_all
-obj_dir/VNaxRiscv --load_elf ../../../../ext/NaxSoftware/baremetal/freertosDemo/build/freertosDemo.elf --start_symbol _start --pass_symbol c_pass --fail_symbol c_fail --stats_print_all
+obj_dir/VNaxRiscv --name dhrystone --output-dir output/nax/dhrystone --load-elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/dhrystone.elf --start-symbol _start --pass-symbol pass --fail-symbol fail --stats-print --stats-toggle-symbol sim-time
+obj_dir/VNaxRiscv --name coremark --output-dir output/nax/coremark --load-elf /media/data/open/riscv/coremark/build/coremark_rv32im.elf --start-symbol _start --pass-symbol pass  --stats-print-all --stats-toggle-symbol sim-time --trace
+obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/play/build/play.elf --start-symbol _start --pass-symbol pass --fail-symbol fail --trace --trace-ref --stats-print-all
+obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/freertosDemo/build/freertosDemo.elf --start-symbol _start --pass-symbol c_pass --fail-symbol c_fail --stats-print-all
 
 
 SUCCESS dhrystone

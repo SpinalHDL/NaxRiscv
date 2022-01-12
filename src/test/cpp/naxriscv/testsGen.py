@@ -111,11 +111,11 @@ with open('tests.mk', 'w') as f:
         f.write("\t" + " ".join([
             "obj_dir/VNaxRiscv",
             "--name", name,
-            "--output_dir", outputDir,
-            "--load_elf", f"../../../../ext/NaxSoftware/riscv-tests/{name}",
-            "--start_symbol", "test_2",
-            "--pass_symbol", "pass",
-            "--fail_symbol", "fail",
+            "--output-dir", outputDir,
+            "--load-elf", f"../../../../ext/NaxSoftware/riscv-tests/{name}",
+            "--start-symbol", "test_2",
+            "--pass-symbol", "pass",
+            "--fail-symbol", "fail",
             "--timeout", "10000",
            "${ARGS}"
         ]))
@@ -129,11 +129,11 @@ with open('tests.mk', 'w') as f:
         f.write("\t" + " ".join([
             "obj_dir/VNaxRiscv",
             "--name", spec[0],
-            "--output_dir", outputDir,
-            "--load_elf", f"../../../../ext/NaxSoftware/{spec[1]}",
-            "--start_symbol", "_start",
-            "--pass_symbol", "pass",
-            "--fail_symbol", "fail",
+            "--output-dir", outputDir,
+            "--load-elf", f"../../../../ext/NaxSoftware/{spec[1]}",
+            "--start-symbol", "_start",
+            "--pass-symbol", "pass",
+            "--fail-symbol", "fail",
            "${ARGS}"
         ]))
         f.write(f"\n\n")
