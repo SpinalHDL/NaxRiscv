@@ -142,6 +142,7 @@ class DataCache(val cacheSize: Int,
                 val preTranslationWidth: Int,
                 val postTranslationWidth: Int,
                 val loadRefillCheckEarly : Boolean = true,
+                val storeRefillCheckEarly : Boolean = true,
                 val lineSize: Int = 64,
                 val loadReadAt: Int = 0,
                 val loadHitsAt: Int = 1,
@@ -855,6 +856,24 @@ class DataCache(val cacheSize: Int,
       statusBypassOn.foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION,  stage == statusBypassOn.head))
     }
 
+    val refillCheckEarly = storeRefillCheckEarly generate new Area{
+      val stage = pipeline.stages(storeControlAt-1)
+      import stage._
+
+      REFILL_HITS_EARLY := B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
+      val refillPushHit = refill.push.valid && refill.push.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)
+      when(refillPushHit){
+        whenMasked(REFILL_HITS_EARLY.asBools, refill.free)(_ := True)
+      }
+
+      controlStage(REFILL_HITS) := controlStage(REFILL_HITS_EARLY) & refill.slots.map(_.valid).asBits()
+    }
+
+    val refillCheckLate = !storeRefillCheckEarly generate new Area{
+      import controlStage._
+      REFILL_HITS := B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
+    }
+
     val ctrl = new Area {
       import controlStage._
 
@@ -863,9 +882,8 @@ class DataCache(val cacheSize: Int,
       val reservation = tagsOrStatusWriteArbitration.create(3)
       val refillWay = CombInit(wayRandom.value)
       val refillWayNeedWriteback = WAYS_TAGS(refillWay).loaded && STATUS(refillWay).dirty
-      val refillHits = B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
-      val refillHit = refillHits.orR
-      val refillLoaded = (B(refill.slots.map(_.loaded)) & refillHits).orR
+      val refillHit = REFILL_HITS.orR
+      val refillLoaded = (B(refill.slots.map(_.loaded)) & REFILL_HITS).orR
       val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, refillWay)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
       val wasClean = !(B(STATUS.map(_.dirty)) & WAYS_HITS).orR
@@ -877,7 +895,7 @@ class DataCache(val cacheSize: Int,
       val startRefill = isValid && GENERATION_OK && askRefill
 
       REFILL_SLOT_FULL := MISS && !refillHit && refill.full
-      REFILL_SLOT := refillHits.andMask(!refillLoaded) | refill.free.andMask(askRefill)
+      REFILL_SLOT := REFILL_HITS.andMask(!refillLoaded) | refill.free.andMask(askRefill)
 
       val writeCache = isValid && GENERATION_OK && !REDO
       val setDirty = writeCache && wasClean
