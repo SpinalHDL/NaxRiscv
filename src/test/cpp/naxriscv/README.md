@@ -1,3 +1,11 @@
+# Setup the repos :
+
+```shell
+git clone https://github.com/SpinalHDL/SpinalHDL.git --recursive
+git clone https://github.com/SpinalHDL/NaxRiscv.git --recursive
+cd NaxRiscv
+```
+
 # Building riscv-isa-sim (spike)
 
 ```shell

@@ -101,8 +101,7 @@ object Config{
       hazardPredictionTagWidth = 16,
 //      storeToLoadBypass = true,
       loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
-      storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1),
-      loadFeedAt = 0 //TODO
+      storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
     )
     plugins += new DataCachePlugin(
       memDataWidth = Global.XLEN,
@@ -110,8 +109,7 @@ object Config{
       wayCount     = 4,
       refillCount = 2,
       writebackCount = 2,
-      reducedBankWidth = false,
-      loadRspAt = 2 //TODO optimise timings to reduce to 2 again
+      reducedBankWidth = false
     )
 
     //MISC
@@ -301,9 +299,9 @@ checkLq => 6.8slack 550 LUT (16lq/16sq)
 
 /*
 obj_dir/VNaxRiscv --name dhrystone --output-dir output/nax/dhrystone --load-elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/dhrystone.elf --start-symbol _start --pass-symbol pass --fail-symbol fail --stats-print --stats-toggle-symbol sim-time
-obj_dir/VNaxRiscv --name coremark --output-dir output/nax/coremark --load-elf /media/data/open/riscv/coremark/build/coremark_rv32im.elf --start-symbol _start --pass-symbol pass  --stats-print-all --stats-toggle-symbol sim-time --trace
+obj_dir/VNaxRiscv --name coremark --output-dir output/nax/coremark --load-elf /media/data/open/riscv/coremark/build/coremark_rv32im.elf --start-symbol _start --pass-symbol pass  --stats-print-all --stats-toggle-symbol sim_time
 obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/play/build/play.elf --start-symbol _start --pass-symbol pass --fail-symbol fail --trace --trace-ref --stats-print-all
-obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/freertosDemo/build/freertosDemo.elf --start-symbol _start --pass-symbol c_pass --fail-symbol c_fail --stats-print-all
+obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/freertosDemo/integer/rv32im/freertosDemo.elf --start-symbol _start --pass-symbol c_pass --fail-symbol c_fail --stats-print-all
 
 
 SUCCESS dhrystone

@@ -2,10 +2,6 @@
 
 import subprocess
 
-# class Test:
-#     def __init__(self):
-#         pass
-
 
 riscv_tests = [
 	"rv32ui-p-lui",
@@ -77,9 +73,6 @@ riscvTestDouble = [
     "rv32ud-p-ldst"
 ]
 
-
-
-
 riscvTestMul = [
 	"rv32um-p-mul",
 	"rv32um-p-mulh",
@@ -94,19 +87,40 @@ riscvTestDiv = [
 	"rv32um-p-remu"
 ]
 
+
+arch="rv32im"
+
 naxSoftware = [
 	["lsu", "baremetal/lsu/build/lsu.elf"],
-	["dhrystone", "baremetal/dhrystone/build/dhrystone.elf"],
+]
+
+naxSoftwareRegular = [
+    "machine", "dhrystone"
 ]
 
 
+freertos = ["blocktim", "countsem", "EventGroupsDemo", "flop", "integer", "QPeek",
+            "QueueSet", "recmutex", "semtest", "TaskNotify", "dynamic",
+            "GenQTest", "PollQ", "QueueOverwrite", "QueueSetPolling", "sp_flop", "test1"]
+
+for e in naxSoftwareRegular:
+    naxSoftware.append([e, f"baremetal/{e}/build/{arch}/{e}.elf"])
+
+for e in freertos:
+    naxSoftware.append([e, f"baremetal/freertosDemo/build/{e}/{arch}/freertosDemo.elf"])
+
+
+naxSoftware.append(["coremark", f"baremetal/coremark/coremark_{arch}.elf"])
+
 tests = []
+ouputs = []
 
 with open('tests.mk', 'w') as f:
     for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv:
         outputDir = "output/riscv_tests/" + name
         rule = outputDir +"/PASS"
         tests.append(rule)
+        ouputs.append(outputDir)
         f.write(f"{outputDir}/PASS:\n")
         f.write("\t" + " ".join([
             "obj_dir/VNaxRiscv",
@@ -125,6 +139,7 @@ with open('tests.mk', 'w') as f:
         outputDir = "output/nax/" + spec[0]
         rule = outputDir +"/PASS"
         tests.append(rule)
+        ouputs.append(outputDir)
         f.write(f"{outputDir}/PASS:\n")
         f.write("\t" + " ".join([
             "obj_dir/VNaxRiscv",
@@ -155,7 +170,7 @@ with open('tests.mk', 'w') as f:
     f.write(f"\n\n")
 
     f.write(f"""test_clean:\n""")
-    f.write(f"""\trm -f {" ".join(tests)}\n""")
+    f.write(f"""\trm -rf {" ".join(ouputs)}\n""")
 
     f.write(f"\n\n")
 

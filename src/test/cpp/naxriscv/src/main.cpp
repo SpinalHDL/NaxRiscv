@@ -1370,6 +1370,7 @@ int main(int argc, char** argv, char** env){
         }
     }catch (const successException e) {
         printf("SUCCESS %s\n", name.c_str());
+        remove((outputDir + "/FAIL").c_str());
         auto f = fopen((outputDir + "/PASS").c_str(),"w");
         fclose(f);
     } catch (const std::exception& e) {
@@ -1385,6 +1386,9 @@ int main(int argc, char** argv, char** env){
         printf("INCOMING PC=%lx\n", state->pc);
         printf("ROB_ID=x%x\n", robIdChecked);
         printf("FAILURE %s\n", name.c_str());
+        remove((outputDir + "/PASS").c_str());
+        auto f = fopen((outputDir + "/FAIL").c_str(),"w");
+        fclose(f);
     }
 
     if(statsPrint){

@@ -146,6 +146,7 @@ class DataCache(val cacheSize: Int,
                 val storeRefillCheckEarly : Boolean = true,
                 val lineSize: Int = 64,
                 val loadReadAt: Int = 0,
+                val loadTranslatedAt : Int = 1,
                 val loadHitsAt: Int = 1,
                 val loadHitAt: Int = 1,
                 val loadBankMuxesAt: Int = 1,
@@ -174,7 +175,7 @@ class DataCache(val cacheSize: Int,
       dataWidth     = cpuDataWidth,
       refillCount   = refillCount,
       rspAt         = loadRspAt,
-      translatedAt  = loadHitsAt
+      translatedAt  = loadTranslatedAt
     ))
     val store = slave(DataStorePort(
       postTranslationWidth = postTranslationWidth,
@@ -369,7 +370,7 @@ class DataCache(val cacheSize: Int,
       val loaded = Reg(Bool())
       val loadedCounterMax = loadControlAt-1
       val loadedCounter = Reg(UInt(log2Up(loadedCounterMax+1) bits))
-      loadedCounter := loadedCounter + U(loaded)
+      loadedCounter := loadedCounter + U(loaded).resized
       valid clearWhen (loadedCounter === loadedCounterMax)
 
       val victim = Reg(Bits(writebackCount bits))
@@ -630,13 +631,14 @@ class DataCache(val cacheSize: Int,
       }
     }
 
-    val readStage      = pipeline.stages(loadReadAt)
-    val hitsStage      = pipeline.stages(loadHitsAt)
-    val hitStage       = pipeline.stages(loadHitAt)
-    val bankMuxesStage = pipeline.stages(loadBankMuxesAt)
-    val bankMuxStage   = pipeline.stages(loadBankMuxAt)
-    val controlStage   = pipeline.stages(loadControlAt)
-    val rspStage       = pipeline.stages(loadRspAt)
+    val readStage       = pipeline.stages(loadReadAt)
+    val translatedStage = pipeline.stages(loadTranslatedAt)
+    val hitsStage       = pipeline.stages(loadHitsAt)
+    val hitStage        = pipeline.stages(loadHitAt)
+    val bankMuxesStage  = pipeline.stages(loadBankMuxesAt)
+    val bankMuxStage    = pipeline.stages(loadBankMuxAt)
+    val controlStage    = pipeline.stages(loadControlAt)
+    val rspStage        = pipeline.stages(loadRspAt)
 
 
     waysHazard((loadReadAt+1 to loadReadAt+1).map(pipeline.stages(_)), ADDRESS_PRE_TRANSLATION)
@@ -691,8 +693,8 @@ class DataCache(val cacheSize: Int,
       }
 
 
-      hitsStage(ADDRESS_POST_TRANSLATION) := io.load.translated.physical
-      hitsStage(ABORD) := io.load.translated.abord
+      translatedStage(ADDRESS_POST_TRANSLATION) := io.load.translated.physical
+      translatedStage(ABORD) := io.load.translated.abord
 
       for ((way, wayId) <- ways.zipWithIndex) yield new Area {
         {
@@ -817,7 +819,7 @@ class DataCache(val cacheSize: Int,
 
   val store = new Area{
     val pipeline = new Pipeline{
-      val stages = Array.fill(loadRspAt+1)(newStage())
+      val stages = Array.fill(storeRspAt+1)(newStage())
       connect(stages)(List(M2S()))
 
       val discardAll = False

@@ -74,14 +74,14 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
 
 class LsuPlugin(lqSize: Int,
                 sqSize : Int,
-                loadToCacheBypass : Boolean,  //Reduce the load latency by one cycle. When the LoadPlugin calculate the address it directly start the query the cache
-                lqToCachePipelined : Boolean, //Add one additional stage between LQ arbitration and the cache query
                 hazardPedictionEntries : Int,
                 hazardPredictionTagWidth : Int,
 //                storeToLoadBypass : Boolean,
                 loadTranslationParameter : Any,
                 storeTranslationParameter : Any,
-                loadFeedAt : Int = 1, //Stage at which the d$ cmd is sent
+                loadToCacheBypass : Boolean = true,  //Reduce the load latency by one cycle. When the LoadPlugin calculate the address it directly start the query the cache
+                lqToCachePipelined : Boolean = true, //Add one additional stage between LQ arbitration and the cache query
+                loadFeedAt : Int = 0, //Stage at which the d$ cmd is sent
                 loadCheckSqAt : Int = 1) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService {
 
   val wordWidth = Global.XLEN.get
@@ -443,7 +443,7 @@ class LsuPlugin(lqSize: Int,
         val translationPort = translationService.newTranslationPort(
           stages = this.stages,
           preAddress = ADDRESS_PRE_TRANSLATION,
-          p = storeTranslationParameter
+          p = loadTranslationParameter
         )
         val tpk = translationPort.keys
 
