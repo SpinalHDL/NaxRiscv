@@ -4,6 +4,7 @@
 git clone https://github.com/SpinalHDL/SpinalHDL.git --recursive
 git clone https://github.com/SpinalHDL/NaxRiscv.git --recursive
 cd NaxRiscv
+export NAXRISCV=${PWD}
 ```
 
 # Building riscv-isa-sim (spike)
@@ -91,5 +92,7 @@ cd $NAXRISCV/src/test/cpp/naxriscv
 ```shell
 cd $NAXRISCV/src/test/cpp/naxriscv
 ./testsGen.py
-make compile test_clean test_all test_report
+make compile test_clean
+make test_all -j$(nproc)
+make test_report 
 ```
