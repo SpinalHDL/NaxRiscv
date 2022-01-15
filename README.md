@@ -1,9 +1,11 @@
 # NaxRiscv
 
-An out of order RISC-V core currently characterised by : 
+An RISC-V core currently characterised by : 
 
-- It is work in progress (currently working RV32IM)
-- Target FPGA with distributed ram
+- Out of order execution
+- Superscalar (ex : 2 decode and 2 issue)
+- Under design, but currently working RV32IM (can run freertos in simulation)
+- Portable HDL, But target FPGA with distributed ram (Xilinx series 7 is the reference used so far)
 - Target a (relatively) low area usage and high fmax (not the best IPC)
 - Decentralized hardware elaboration (No toplevel, composed of plugins)
 - Frontend implemented around a pipelining framework to ease customisation
