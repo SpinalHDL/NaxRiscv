@@ -156,7 +156,7 @@ with open('tests.mk', 'w') as f:
 
     f.write(f"""TESTS_COUNT={len(tests)}\n""")
 
-    f.write(f"""test_report:\n""")
+    f.write(f"""test-report:\n""")
     for test in tests:
         f.write(f"""\t@[ ! -f {test} ] && echo "{test} didn't passed"  || true\n""")
     f.write(f"""\t@PASSED=$(shell find {" ".join(tests)} | wc -l) && echo $$PASSED/$(TESTS_COUNT) passed\n""")  #; [ $PASSED $(TESTS_COUNT) ] && true || false
@@ -166,10 +166,10 @@ with open('tests.mk', 'w') as f:
 # 	echo $$PASSED/$(TESTS_COUNT) passed
 
 
-    f.write(f"""test_all: {" ".join(tests)}\n""")
+    f.write(f"""test-all: {" ".join(tests)}\n""")
     f.write(f"\n\n")
 
-    f.write(f"""test_clean:\n""")
+    f.write(f"""test-clean:\n""")
     f.write(f"""\trm -rf {" ".join(ouputs)}\n""")
 
     f.write(f"\n\n")
