@@ -63,7 +63,7 @@ run: compile
 	./obj_dir/VNaxRiscv
 
 verilate: ${NAX_VERILOG}
-	verilator -cc  ${NAX_VERILOG}  -CFLAGS -std=c++17 -LDFLAGS -pthread  ${ADDCFLAGS}  ${FLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH --x-assign unique --exe ${SRCS}
+	verilator -cc  ${NAX_VERILOG}  -CFLAGS -std=c++14 -LDFLAGS -pthread  ${ADDCFLAGS}  ${FLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH --x-assign unique --exe ${SRCS}
 
 nax.h: ${NAX_HEADER}
 	cp ${NAX_HEADER} src/nax.h

@@ -244,6 +244,8 @@ make clean compile  test_clean output/nax/dhrystone/PASS ARGS="--stats_print_all
 
 //TODO Optimisations
 /*
+- bypass for write to read on btb
+- commit.reschedule storage could be used to trigger frontend flush, reducing branch miss penality and combinatorial delay
 - Decoder ILLEGAL datapath can be optimized to use INSTRUCTION_ALIGNED instead, with some additional hit from the decompressor for RVC stuff
 - DataCache pipeline load refill hits to cut path
 - Check that sw -> lw do not trigger a checkLq reschedule

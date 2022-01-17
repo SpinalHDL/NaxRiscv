@@ -24,6 +24,8 @@
 
 using namespace std;
 
+#define VL_RANDOM_I_WIDTH(w) (VL_RANDOM_I() & (1 << w)-1)
+
 #include "type.h"
 #include "memory.h"
 #include "elf.h"
@@ -74,6 +76,29 @@ void breakMe(){
     failure();\
 }
 
+#include <sys/stat.h>
+
+//Thanks https://stackoverflow.com/questions/675039/how-can-i-create-directory-tree-in-c-linux
+int mkpath(std::string s,mode_t mode)
+{
+    size_t pos=0;
+    std::string dir;
+    int mdret;
+
+    if(s[s.size()-1]!='/'){
+        // force trailing / so we can handle everything in loop
+        s+='/';
+    }
+
+    while((pos=s.find_first_of('/',pos))!=std::string::npos){
+        dir=s.substr(0,pos++);
+        if(dir.size()==0) continue; // if leading / first time is 0 length
+        if((mdret=mkdir(dir.c_str(),mode)) && errno!=EEXIST){
+            return mdret;
+        }
+    }
+    return mdret;
+}
 
 
 #define CAUSE_MACHINE_SOFTWARE 3
@@ -217,13 +242,13 @@ public:
 
 	virtual void postCycle(){
 		nax->FetchCachePlugin_mem_rsp_valid = 0;
-		if(pendingCount != 0 && (!stall || VL_RANDOM_I(7) < 100)){
+		if(pendingCount != 0 && (!stall || VL_RANDOM_I_WIDTH(7) < 100)){
 			nax->FetchCachePlugin_mem_rsp_payload_error = soc->memoryRead(address, FETCH_MEM_DATA_BYTES, (u8*)&nax->FetchCachePlugin_mem_rsp_payload_data);
 			pendingCount-=FETCH_MEM_DATA_BYTES;
 			address = address + FETCH_MEM_DATA_BYTES;
 			nax->FetchCachePlugin_mem_rsp_valid = 1;
 		}
-		if(stall) nax->FetchCachePlugin_mem_cmd_ready = VL_RANDOM_I(7) < 100 && pendingCount == 0;
+		if(stall) nax->FetchCachePlugin_mem_cmd_ready = VL_RANDOM_I_WIDTH(7) < 100 && pendingCount == 0;
 	}
 };
 
@@ -334,9 +359,9 @@ public:
     virtual void postCycle(){
         // Generate read responses
         nax->DataCachePlugin_mem_read_rsp_valid = 0;
-        if(!stall || VL_RANDOM_I(7) < 100){
+        if(!stall || VL_RANDOM_I_WIDTH(7) < 100){
             if(chLock == NULL){
-                int id = VL_RANDOM_I(7) % DATA_CACHE_REFILL_COUNT;
+                int id = VL_RANDOM_I_WIDTH(7) % DATA_CACHE_REFILL_COUNT;
                 for(int i = 0;i < DATA_CACHE_REFILL_COUNT; i++){
                     if(readChannels[id].beats != 0){
                         chLock = &readChannels[id];
@@ -359,13 +384,13 @@ public:
                 }
             }
         }
-        if(stall) nax->DataCachePlugin_mem_read_cmd_ready = VL_RANDOM_I(7) < 100;
+        if(stall) nax->DataCachePlugin_mem_read_cmd_ready = VL_RANDOM_I_WIDTH(7) < 100;
 
         // Generate write responses
         nax->DataCachePlugin_mem_write_rsp_valid = 0;
-        if(!stall || VL_RANDOM_I(7) < 100){
+        if(!stall || VL_RANDOM_I_WIDTH(7) < 100){
             DataCachedWriteRspChannel *ch = NULL;
-            int id = VL_RANDOM_I(7) % DATA_CACHE_WRITEBACK_COUNT;
+            int id = VL_RANDOM_I_WIDTH(7) % DATA_CACHE_WRITEBACK_COUNT;
             for(int i = 0;i < DATA_CACHE_WRITEBACK_COUNT; i++){
                 if(writeRspChannels[id].valid != 0){
                     ch = &writeRspChannels[id];
@@ -383,7 +408,7 @@ public:
 #endif
             }
         }
-        if(stall) nax->DataCachePlugin_mem_write_cmd_ready = VL_RANDOM_I(7) < 100;
+        if(stall) nax->DataCachePlugin_mem_write_cmd_ready = VL_RANDOM_I_WIDTH(7) < 100;
     }
 };
 //TODO randomize buses when not valid ^
@@ -444,7 +469,7 @@ public:
     virtual void postCycle(){
         // Generate read responses
         nax->LsuPlugin_peripheralBus_rsp_valid = 0;
-        if(valid && (!stall || VL_RANDOM_I(7) < 100)){
+        if(valid && (!stall || VL_RANDOM_I_WIDTH(7) < 100)){
             nax->LsuPlugin_peripheralBus_rsp_valid = 1;
             u64 offset = address & (LSU_PERIPHERAL_WIDTH/8-1);
             u8 *ptr = ((u8*) &data) + offset;
@@ -466,7 +491,7 @@ public:
             mmioDut->push(access);
             valid = false;
         }
-        if(stall) nax->LsuPlugin_peripheralBus_cmd_ready = VL_RANDOM_I(7) < 100;
+        if(stall) nax->LsuPlugin_peripheralBus_cmd_ready = VL_RANDOM_I_WIDTH(7) < 100;
     }
 };
 
@@ -601,7 +626,9 @@ public:
         if(hist){
             u64 branchCount = 0;
             ss << tab << "branch miss from :" << endl;
-            for (auto const& [key, val] : branchMissHist){
+            for (auto const& x : branchMissHist){
+                auto key = x.first;
+                auto val = x.second;
                 ss << tab << tab << hex << key <<" " << dec <<  setw(5) << val << " / " << pcHist[key] << endl;
                 branchCount += pcHist[key];
             }
@@ -609,7 +636,9 @@ public:
 
             u64 jumpCount = 0;
             ss << tab << "jump miss from :" << endl;
-            for (auto const& [key, val] : jumpMissHist){
+            for (auto const& x : jumpMissHist){
+                auto key = x.first;
+                auto val = x.second;
                 ss << tab << tab << hex << key <<" " << dec <<  std::setw(5) << val << " / " << pcHist[key] << endl;
                 jumpCount += pcHist[key];
             }
@@ -1153,7 +1182,8 @@ int main(int argc, char** argv, char** env){
 
 
 //    std::filesystem::remove_all(output_dir); That's toooooo much power
-    std::filesystem::create_directories(outputDir);
+//    std::filesystem::create_directories(outputDir);
+    mkpath(outputDir, 0777);
 
 
 	#ifdef TRACE
