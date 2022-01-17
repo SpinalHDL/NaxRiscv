@@ -55,6 +55,17 @@ object Rvi{
   def SW                 = TypeSSQ(M"-----------------010-----0100011")
 
 
+  def AMOSWAP            = TypeASQ(M"00001------------010-----0101111")
+  def AMOADD             = TypeASQ(M"00000------------010-----0101111")
+  def AMOXOR             = TypeASQ(M"00100------------010-----0101111")
+  def AMOAND             = TypeASQ(M"01100------------010-----0101111")
+  def AMOOR              = TypeASQ(M"01000------------010-----0101111")
+  def AMOMIN             = TypeASQ(M"10000------------010-----0101111")
+  def AMOMAX             = TypeASQ(M"10100------------010-----0101111")
+  def AMOMINU            = TypeASQ(M"11000------------010-----0101111")
+  def AMOMAXU            = TypeASQ(M"11100------------010-----0101111")
+
+
   def MUL                = TypeR(M"0000001----------000-----0110011")
   def MULH               = TypeR(M"0000001----------001-----0110011")
   def MULHSU             = TypeR(M"0000001----------010-----0110011")
@@ -94,4 +105,25 @@ object Rvi{
 //  def AMOMINU            = M"11000------------010-----0101111"
 //  def AMOMAXU            = M"11100------------010-----0101111"
 
+}
+
+
+
+class AtomicAlu(op : Bits,
+                swap : Bool,
+                mem : Bits,
+                rf : Bits) extends Area{
+  val compare  = op.msb
+  val unsigned = op(1)
+  val addSub = (rf.asSInt + Mux(compare, ~mem, mem).asSInt + Mux(compare, S(1), S(0))).asBits
+  val less = Mux(rf.msb === mem.msb, addSub.msb, Mux(unsigned, mem.msb, rf.msb))
+  val selectRf = swap ? True | (op.lsb ^ less)
+
+  val result = (op | (swap ## B"00")).mux(
+    B"000"  -> addSub,
+    B"001"  -> (rf ^ mem),
+    B"010"  -> (rf | mem),
+    B"011"  -> (rf & mem),
+    default -> (selectRf ? rf | mem)
+  )
 }

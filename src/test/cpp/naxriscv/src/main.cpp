@@ -961,6 +961,7 @@ enum ARG
     ARG_STATS_STOP_SYMBOL,
     ARG_STATS_TOGGLE_SYMBOL,
     ARG_TRACE_GEM5,
+    ARG_SPIKE_DEBUG,
     ARG_HELP,
 };
 
@@ -989,6 +990,7 @@ static const struct option long_options[] =
     { "stats-stop-symbol", required_argument, 0, ARG_STATS_STOP_SYMBOL },
     { "stats-toggle-symbol", required_argument, 0, ARG_STATS_TOGGLE_SYMBOL },
     { "trace-gem5", no_argument, 0, ARG_TRACE_GEM5 },
+    { "spike-debug", no_argument, 0, ARG_SPIKE_DEBUG },
     0
 };
 
@@ -1010,6 +1012,7 @@ string helpString = R"(
 --trace-stop-time=INT   : Add a time to which the FST should stop capturng
 --trace-sporadic=RATIO  : Specify that periodically the FST capture a bit of the wave
 --trace-ref             : Store the spike execution traces in a file
+--spike-debug           : Enable spike debug mode (more verbose traces)
 --stats-print           : Print some stats about the CPU execution at the end of the sim
 --stats-print-all       : Print all the stats possible (including which branches had miss)
 --stats-start-symbol=SY : Specify at which elf symbol the stats should start capturing
@@ -1041,6 +1044,7 @@ int main(int argc, char** argv, char** env){
     bool statsPrint = false;
     bool statsPrintHist = false;
     bool traceGem5 = false;
+    bool spike_debug = false;
 
     bool trace_enable = true;
     float trace_sporadic_factor = 0.0f;
@@ -1075,6 +1079,7 @@ int main(int argc, char** argv, char** env){
             case ARG_STATS_PRINT_ALL: statsPrint = true; statsPrintHist = true; break;
             case ARG_TRACE_GEM5: traceGem5 = true; break;
             case ARG_HELP: cout << helpString; exit(0); break;
+            case ARG_SPIKE_DEBUG: spike_debug = true; break;
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_START_SYMBOL:
@@ -1105,8 +1110,9 @@ int main(int argc, char** argv, char** env){
     std::ofstream outfile ("/dev/null",std::ofstream::binary);
     sim_wrap wrap;
 
-    processor_t proc("RV32IM", "MSU", "", &wrap, 0, false, fptr, outfile);
+    processor_t proc("RV32IMA", "MSU", "", &wrap, 0, false, fptr, outfile);
     if(trace_ref) proc.enable_log_commits();
+    if(spike_debug) proc.debug = true;
 
 
     VNaxRiscv* top = new VNaxRiscv;  // Or use a const unique_ptr, or the VL_UNIQUE_PTR wrapper
@@ -1424,6 +1430,11 @@ int main(int argc, char** argv, char** env){
     if(statsPrint){
         printf("STATS :\n%s", whitebox.stats.report("  ", statsPrintHist).c_str());
     }
+    if(fptr) {
+        fflush(fptr);
+        fclose(fptr);
+    }
+
 //    printf("Commits=%ld\n", commits);
 //    printf("Time=%ld\n", main_time);
 //    printf("Cycles=%ld\n", main_time/2);

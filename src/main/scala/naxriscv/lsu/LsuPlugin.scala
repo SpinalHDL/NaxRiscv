@@ -2,9 +2,9 @@ package naxriscv.lsu
 
 import naxriscv.Frontend.{DECODE_COUNT, DISPATCH_COUNT, DISPATCH_MASK}
 import naxriscv.{Fetch, Frontend, Global, ROB}
-import naxriscv.frontend.FrontendPlugin
+import naxriscv.frontend.{DispatchPlugin, FrontendPlugin}
 import naxriscv.interfaces._
-import naxriscv.riscv.CSR
+import naxriscv.riscv.{AtomicAlu, CSR, Rvi}
 import naxriscv.utilities.{AddressToMask, DocPlugin, Plugin}
 import spinal.core._
 import spinal.lib._
@@ -14,6 +14,7 @@ import spinal.lib.pipeline.{Pipeline, Stageable, StageableOffset}
 import scala.collection.mutable.ArrayBuffer
 import naxriscv.Global._
 import naxriscv.misc.RobPlugin
+import spinal.lib.fsm._
 
 object LsuUtils{
   def sizeWidth(wordWidth : Int) = log2Up(log2Up(wordWidth/8)+1)
@@ -28,17 +29,26 @@ case class LsuLoadPort(lqSize : Int, wordWidth : Int, physicalRdWidth : Int, pcW
   val physicalRd = UInt(physicalRdWidth bits)
   val writeRd = Bool()
   val pc = UInt(pcWidth bits)
+  val lr = Bool()
 
   val earlySample = Bool()
   val earlyPc = UInt(pcWidth bits) //One cycle early pc, to fetch prediction
 }
 
-case class LsuStorePort(sqSize : Int, wordWidth : Int) extends Bundle {
+case class LsuStorePort(sqSize : Int, wordWidth : Int, physicalRdWidth : Int) extends Bundle {
   val robId = ROB.ID()
   val sqId = UInt(log2Up(sqSize) bits)
   val address = UInt(Global.XLEN bits)
   val data = Bits(wordWidth bits)
   val size = UInt(log2Up(log2Up(wordWidth/8)+1) bits)
+
+  //Atomic stuff
+  val amo = Bool()
+  val sc = Bool()
+  val swap = Bool()
+  val op  = Bits(3 bits)
+  val physicalRd = UInt(physicalRdWidth bits)
+  val writeRd = Bool()
 }
 
 case class LsuPeripheralBusParameter(addressWidth : Int,
@@ -101,7 +111,8 @@ class LsuPlugin(lqSize: Int,
   case class StorePortSpec(port : Flow[LsuStorePort])
   val storePorts = ArrayBuffer[StorePortSpec]()
   def newStorePort(): Flow[LsuStorePort] = {
-    storePorts.addRet(StorePortSpec(Flow(LsuStorePort(sqSize, wordWidth)))).port
+    val physicalRdWidth = getService[DecoderService].PHYS_RD
+    storePorts.addRet(StorePortSpec(Flow(LsuStorePort(sqSize, wordWidth,  widthOf(physicalRdWidth))))).port
   }
 
   case class LoadPortSpec(port : Flow[LsuLoadPort])
@@ -141,11 +152,18 @@ class LsuPlugin(lqSize: Int,
     val commit = getService[CommitService]
     val translation = getService[AddressTranslationService]
     val doc = getService[DocPlugin]
+    val dispatch = getService[DispatchPlugin]
 
     rob.retain()
     decoder.retain()
     frontend.retain()
     translation.retain()
+
+    val amos = List(
+      Rvi.AMOSWAP, Rvi.AMOADD, Rvi.AMOXOR, Rvi.AMOAND, Rvi.AMOOR,
+      Rvi.AMOMIN, Rvi.AMOMAX, Rvi.AMOMINU, Rvi.AMOMAXU
+    )
+    amos.foreach(dispatch.fenceYounger(_))
 
     val rfWrite = regfile.newWrite(withReady = false, latency = 1)
     val cacheLoad = cache.newLoadPort()
@@ -192,6 +210,8 @@ class LsuPlugin(lqSize: Int,
       val SQCHECK_END_ID = Stageable(UInt(log2Up(sqSize) + 1 bits))
       val SQCHECK_HITS = Stageable(Bits(sqSize bits))
       val SQCHECK_NO_OLDER = Stageable(Bool())
+
+      val AMO, LR, SC = Stageable(Bool())
     }
     import keysLocal._
 
@@ -303,6 +323,13 @@ class LsuPlugin(lqSize: Int,
         val robId = Mem.fill(sqSize)(ROB.ID)
         val lqAlloc = Mem.fill(sqSize)(UInt(log2Up(lqSize) + 1 bits))
         val io = Mem.fill(sqSize)(Bool())
+        val amo = Mem.fill(sqSize)(Bool())
+        val sc = Mem.fill(sqSize)(Bool())
+        //Only one AMO/SC can be schedule at once, so we can store things in simple registers
+        val swap = Reg(Bool())
+        val op  = Reg(Bits(3 bits))
+        val physRd = Reg(decoder.PHYS_RD)
+        val writeRd = Reg(Bool())
       }
 
       val ptr = new Area{
@@ -331,31 +358,18 @@ class LsuPlugin(lqSize: Int,
 
       val push = for(spec <- loadPorts) yield new Area{
         import spec._
-        mem.addressPre.write(
-          enable = port.valid,
-          address = port.lqId,
-          data = port.address
-        )
-        mem.physRd.write(
-          enable = port.valid,
-          address = port.lqId,
-          data = port.physicalRd
-        )
-        mem.robId.write(
-          enable = port.valid,
-          address = port.lqId,
-          data = port.robId
-        )
-        mem.pc.write(
-          enable = port.valid,
-          address = port.lqId,
-          data = port.pc
-        )
-        mem.writeRd.write(
-          enable = port.valid,
-          address = port.lqId,
-          data = port.writeRd
-        )
+        def writeMem[T <: Data](mem : Mem[T], value : T) = {
+          mem.write(
+            enable = port.valid,
+            address = port.lqId,
+            data = value
+          )
+        }
+        writeMem(mem.addressPre, port.address)
+        writeMem(mem.physRd, port.physicalRd)
+        writeMem(mem.robId, port.robId)
+        writeMem(mem.pc, port.pc)
+        writeMem(mem.writeRd, port.writeRd)
 
         val prediction = new Area{
           val read = lq.prediction.readSyncPort
@@ -717,21 +731,27 @@ class LsuPlugin(lqSize: Int,
       import sq._
       for(spec <- storePorts){
         import spec._
-        mem.addressPre.write(
-          enable = port.valid,
-          address = port.sqId,
-          data = port.address
-        )
-        mem.word.write(
-          enable = port.valid,
-          address = port.sqId,
-          data = port.data
-        )
-        mem.robId.write(
-          enable = port.valid,
-          address = port.sqId,
-          data = port.robId
-        )
+
+        def writeMem[T <: Data](mem : Mem[T], value : T) = {
+          mem.write(
+            enable = port.valid,
+            address = port.sqId,
+            data = value
+          )
+        }
+
+        writeMem(mem.addressPre, port.address)
+        writeMem(mem.word, port.data)
+        writeMem(mem.robId, port.robId)
+        writeMem(mem.amo, port.amo)
+        writeMem(mem.sc, port.sc)
+        when(port.fire && (port.sc || port.amo)){
+          mem.swap    := port.swap
+          mem.op      := port.op
+          mem.physRd  := port.physicalRd
+          mem.writeRd := port.writeRd
+        }
+
         when(port.valid) {
           for (entry <- regs) when(port.sqId === entry.id) {
             entry.waitOn.address := False
@@ -819,6 +839,7 @@ class LsuPlugin(lqSize: Int,
           SQ_SEL_OH := selOh
           ROB.ID := mem.robId.readAsync(sel)
           ADDRESS_PRE_TRANSLATION := mem.addressPre.readAsync(sel)
+          AMO := mem.amo.readAsync(sel)
           SIZE := regs.map(_.address.size).read(sel)
           DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
           LQCHECK_START_ID := mem.lqAlloc.readAsync(sel)
@@ -894,7 +915,7 @@ class LsuPlugin(lqSize: Int,
           setup.storeTrap.pcTarget   := YOUNGER_LOAD_PC
 
           val missAligned = (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
-          val pageFault = !tpk.ALLOW_WRITE || tpk.PAGE_FAULT
+          val pageFault = !tpk.ALLOW_WRITE || tpk.PAGE_FAULT || AMO && !tpk.ALLOW_READ
 
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(SQ_SEL_OH(reg.id)){ body(reg) }
           when(isFireing) {
@@ -922,9 +943,7 @@ class LsuPlugin(lqSize: Int,
               setup.storeTrap.cause      := CSR.MCAUSE_ENUM.STORE_PAGE_FAULT
             } otherwise {
               onRegs(_.waitOn.writeback := True)
-              when(tpk.IO) {
-
-              } otherwise {
+              when(!tpk.IO && !AMO) {
                 setup.storeCompletion.valid := True
               }
             }
@@ -1038,22 +1057,26 @@ class LsuPlugin(lqSize: Int,
       }
     }
 
-    val peripheral = new Area{
+    val special = new Area{
       val lqOnTop = lq.mem.robId.readAsync(lq.ptr.freeReal) === commit.currentCommitRobId
       val sqOnTop = sq.mem.robId.readAsync(sq.ptr.commitReal) === commit.currentCommitRobId
       val storeWriteBackUsable = sq.ptr.writeBack === sq.ptr.commit
-      val storeHit = sqOnTop && storeWriteBackUsable && sq.regs.map(reg => reg.valid && reg.waitOn.writeback).read(sq.ptr.commitReal) && sq.mem.io.readAsync(sq.ptr.commitReal)
+
+      val hitStoreIo  = sq.mem.io.readAsync(sq.ptr.commitReal)
+      val hitStoreAmo = sq.mem.amo.readAsync(sq.ptr.commitReal)
+      val hitStoreSc  = sq.mem.sc.readAsync(sq.ptr.commitReal)
+      val storeHit = sqOnTop && storeWriteBackUsable && sq.regs.map(reg => reg.valid && reg.waitOn.writeback).read(sq.ptr.commitReal) && (hitStoreIo || hitStoreAmo || hitStoreSc)
       val loadHit = lqOnTop && lq.regs.map(reg => reg.valid && reg.waitOn.commit).read(lq.ptr.freeReal) && lq.mem.io.readAsync(lq.ptr.freeReal)
       val hit = storeHit || loadHit
 
-      val fire = RegNext(peripheralBus.rsp.fire) init(False)
+      val fire = CombInit(RegNext(peripheralBus.rsp.fire) init(False))
       val enabled = RegInit(False) setWhen(hit) clearWhen(fire)
       val isStore = RegNextWhen(storeHit, hit)
       val isLoad = RegNextWhen(!storeHit, hit)
       val cmdSent = RegInit(False) setWhen(peripheralBus.cmd.fire) clearWhen(fire)
 
       val robId = RegNext(commit.currentCommitRobId)
-      val physRd = RegNext(lq.mem.physRd.readAsync(lq.ptr.freeReal))
+      val loadPhysRd = RegNext(lq.mem.physRd.readAsync(lq.ptr.freeReal))
       val loadAddress = RegNext(lq.mem.addressPost.readAsync(lq.ptr.freeReal))
       val loadSize = RegNext(lq.regs.map(_.address.size).read(lq.ptr.freeReal))
       val loadWriteRd = RegNext(lq.mem.writeRd.readAsync(lq.ptr.freeReal))
@@ -1061,9 +1084,14 @@ class LsuPlugin(lqSize: Int,
       val storeSize = RegNextWhen(store.writeback.feed.size, hit)
       val storeData = RegNextWhen(setup.cacheStore.cmd.data, hit)
       val storeMask = RegNextWhen(setup.cacheStore.cmd.mask, hit)
+      val storeAmo = RegNextWhen(hitStoreAmo, hit)
+      val storeSc = RegNextWhen(hitStoreSc, hit)
       val address = isStore ? storeAddress otherwise loadAddress
 
-      peripheralBus.cmd.valid := enabled && !cmdSent
+      val isIo = !(isStore && (storeAmo || storeSc))
+      val isAtomic = !isIo
+
+      peripheralBus.cmd.valid   := enabled && !cmdSent && isIo
       peripheralBus.cmd.write   := isStore
       peripheralBus.cmd.address := address
       peripheralBus.cmd.size    := isStore ? storeSize otherwise loadSize
@@ -1085,7 +1113,7 @@ class LsuPlugin(lqSize: Int,
         setup.peripheralTrap.valid := peripheralBus.rsp.error
 
         setup.rfWrite.valid               setWhen(isLoad && loadWriteRd)
-        setup.rfWrite.address             := physRd
+        setup.rfWrite.address             := loadPhysRd
         setup.rfWrite.robId               := robId
         load.pipeline.cacheRsp.rspAddress := loadAddress
         load.pipeline.cacheRsp.rspSize    := loadSize
@@ -1095,7 +1123,96 @@ class LsuPlugin(lqSize: Int,
         load.pipeline.cacheRsp.wakeRob.robId := robId
 
         load.pipeline.cacheRsp.wakeRf.valid setWhen(isLoad && loadWriteRd)
-        load.pipeline.cacheRsp.wakeRf.physical := physRd
+        load.pipeline.cacheRsp.wakeRf.physical := loadPhysRd
+      }
+
+      val atomic = new StateMachine{
+        val IDLE, LOAD_CMD, LOAD_RSP, ALU, WRITE_BACK, SYNC = new State
+        setEntry(IDLE)
+
+        val readed = Reg(Bits(XLEN bits))
+        val alu = new AtomicAlu(
+          op   = sq.mem.op,
+          swap = sq.mem.swap,
+          mem  = readed,
+          rf   = storeData
+        )
+        val result = RegNext(alu.result)
+
+        when(enabled && isAtomic){
+          setup.cacheLoad.translated.physical := storeAddress
+          setup.cacheLoad.translated.abord    := False
+        }
+
+        IDLE whenIsActive {
+          when(enabled && isAtomic){
+            when(sq.ptr.commit === sq.ptr.free){
+              goto(LOAD_CMD)
+            }
+          }
+        }
+
+        LOAD_CMD whenIsActive{
+          val cmd = setup.cacheLoad.cmd //If you move that in another stage, be carefull to update loadFeedAt usages (sq d$ writeback rsp delay)
+          cmd.valid   := True
+          cmd.virtual := storeAddress
+          cmd.size    := storeSize
+          cmd.redoOnDataHazard := False
+          when(cmd.fire){
+            goto(LOAD_RSP)
+          }
+        }
+
+        //TODO lock the cache line !
+        LOAD_RSP whenIsActive{
+          val rsp = setup.cacheLoad.rsp
+          readed := load.pipeline.cacheRsp.rspFormated
+          when(rsp.fire){
+            setup.rfWrite.valid        setWhen(sq.mem.writeRd)
+            setup.rfWrite.address      := sq.mem.physRd
+            setup.rfWrite.robId        := robId
+
+            load.pipeline.cacheRsp.rspAddress := storeAddress
+            load.pipeline.cacheRsp.rspSize    := storeSize
+
+            when(rsp.redo){
+              goto(IDLE)
+            } elsewhen (rsp.fault) {
+              setup.peripheralTrap.valid := True
+              goto(IDLE)
+            } otherwise {
+              goto(ALU)
+            }
+          }
+        }
+
+        ALU whenIsActive{
+          //Ensure one cycle delay for the ALU result to update
+          goto(WRITE_BACK)
+        }
+
+        WRITE_BACK whenIsActive{
+          setup.loadCompletion.valid := True
+          setup.loadCompletion.id    := robId
+
+          load.pipeline.cacheRsp.wakeRob.valid setWhen(sq.mem.writeRd)
+          load.pipeline.cacheRsp.wakeRob.robId := robId
+
+          load.pipeline.cacheRsp.wakeRf.valid setWhen(sq.mem.writeRd)
+          load.pipeline.cacheRsp.wakeRf.physical := sq.mem.physRd
+
+          goto(SYNC)
+        }
+
+        SYNC.whenIsActive{
+          store.writeback.feed.data := result
+          when(sq.ptr.onFree.valid) {
+            fire := True
+            goto(IDLE)
+          }
+        }
+
+        frontend.pipeline.dispatch.haltIt(isActive(SYNC))
       }
     }
 
@@ -1126,7 +1243,7 @@ class LsuPlugin(lqSize: Int,
         reg.allLqIsYounger := True
       }
       sq.ptr.alloc := sq.ptr.commitNext
-      peripheral.enabled := False
+      special.enabled := False
     }
 
 

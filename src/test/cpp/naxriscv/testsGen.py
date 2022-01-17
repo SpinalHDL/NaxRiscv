@@ -44,6 +44,18 @@ riscvTestMemory = [
 	"rv32ui-p-sw"
 ]
 
+riscvTestAmo = [
+    "rv32ua-p-amoswap_w",
+    "rv32ua-p-amoor_w",
+    "rv32ua-p-amoand_w",
+    "rv32ua-p-amoxor_w",
+    "rv32ua-p-amoadd_w",
+    "rv32ua-p-amomaxu_w",
+    "rv32ua-p-amomax_w",
+    "rv32ua-p-amominu_w",
+    "rv32ua-p-amomin_w",
+]
+
 
 riscvTestFloat = [
     "rv32uf-p-fmadd",
@@ -116,7 +128,7 @@ tests = []
 ouputs = []
 
 with open('tests.mk', 'w') as f:
-    for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv:
+    for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv + riscvTestAmo:
         outputDir = "output/riscv_tests/" + name
         rule = outputDir +"/PASS"
         tests.append(rule)
