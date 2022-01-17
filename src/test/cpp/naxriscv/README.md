@@ -68,6 +68,10 @@ obj_dir/VNaxRiscv --help
 --trace-gem5            : Enable capture of the pipeline timings as a gem5 trace, readable with github konata
 ```
 
+Here is a konata visualisation of the trace produced by --trace-gem5 when running a simple memory copy loop hitting a cache miss on a dual issue pipeline: 
+
+![alt text](assets/konata.png "Konata")
+
 # Run the simulation
 
 ```shell
