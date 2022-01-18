@@ -68,6 +68,8 @@ class DataCachePlugin(val memDataWidth : Int,
   
   def refillCompletions = setup.refillCompletions
 
+  def lockPort = setup.lockPort
+
   val setup = create early new Area{
 
     val doc = getService[DocPlugin]
@@ -81,6 +83,8 @@ class DataCachePlugin(val memDataWidth : Int,
     val writebackEvent = perf.map(_.createEventPort(PerformanceCounterService.DCACHE_WRITEBACK))
 
     val refillCompletions = Bits(refillCount bits)
+
+    val lockPort = LockPort()
   }
 
   val logic = create late new Area{
@@ -113,6 +117,7 @@ class DataCachePlugin(val memDataWidth : Int,
       reducedBankWidth = reducedBankWidth
     )
 
+    setup.lockPort <> cache.io.lock
     setup.refillEvent.map(_ := RegNext(cache.io.refillEvent) init(False))
     setup.writebackEvent.map(_ := RegNext(cache.io.writebackEvent) init(False))
 

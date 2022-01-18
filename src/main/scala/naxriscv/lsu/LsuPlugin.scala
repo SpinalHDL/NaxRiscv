@@ -1144,6 +1144,14 @@ class LsuPlugin(lqSize: Int,
           setup.cacheLoad.translated.abord    := False
         }
 
+        val lockPort = setup.cache.lockPort
+        lockPort.valid := False
+        lockPort.address := storeAddress.resized
+        setup.cacheLoad.cmd.unlocked := True //As we already fenced on the dispatch stage
+        when(!isActive(IDLE)) {
+          lockPort.valid := True
+        }
+
         IDLE whenIsActive {
           when(enabled && isAtomic){
             when(sq.ptr.commit === sq.ptr.free){

@@ -8,6 +8,13 @@ import spinal.lib.pipeline.{Pipeline, Stage, Stageable, StageableOffsetNone}
 
 import scala.collection.mutable.ArrayBuffer
 
+case class LockPort() extends Bundle with IMasterSlave {
+  val valid = Bool()
+  val address = UInt(12 bits)
+
+  override def asMaster() = out(this)
+}
+
 case class DataLoadPort(preTranslationWidth : Int,
                         postTranslationWidth : Int,
                         dataWidth : Int,
@@ -31,6 +38,7 @@ case class DataLoadCmd(preTranslationWidth : Int, dataWidth : Int) extends Bundl
   val virtual = UInt(preTranslationWidth bits)
   val size = UInt(log2Up(log2Up(dataWidth/8)+1) bits)
   val redoOnDataHazard = Bool() //Usefull for access not protected by the LSU (ex MMU refill)
+  val unlocked = Bool()
 }
 
 case class DataLoadTranslated(physicalWidth : Int) extends Bundle {
@@ -169,6 +177,7 @@ class DataCache(val cacheSize: Int,
   )
 
   val io = new Bundle {
+    val lock = slave(LockPort())
     val load = slave(DataLoadPort(
       preTranslationWidth  = preTranslationWidth,
       postTranslationWidth = postTranslationWidth,
@@ -227,6 +236,7 @@ class DataCache(val cacheSize: Int,
   val BANK_BUSY_REMAPPED = Stageable(Bits(bankCount bits))
   val REFILL_HITS_EARLY = Stageable(Bits(refillCount bits))
   val REFILL_HITS = Stageable(Bits(refillCount bits))
+  val LOCKED, UNLOCKED = Stageable(Bool())
 
 
   case class Tag() extends Bundle{
@@ -637,6 +647,7 @@ class DataCache(val cacheSize: Int,
     val hitStage        = pipeline.stages(loadHitAt)
     val bankMuxesStage  = pipeline.stages(loadBankMuxesAt)
     val bankMuxStage    = pipeline.stages(loadBankMuxAt)
+    val preControlStage = pipeline.stages(loadControlAt - 1)
     val controlStage    = pipeline.stages(loadControlAt)
     val rspStage        = pipeline.stages(loadRspAt)
 
@@ -651,6 +662,7 @@ class DataCache(val cacheSize: Int,
       ADDRESS_PRE_TRANSLATION := io.load.cmd.virtual
       REDO_ON_DATA_HAZARD := io.load.cmd.redoOnDataHazard
       WAYS_HAZARD := 0
+      UNLOCKED := io.load.cmd.unlocked
     }
 
     val fetch = new Area {
@@ -742,6 +754,8 @@ class DataCache(val cacheSize: Int,
       REFILL_HITS := B(refill.slots.map(r => r.valid && r.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)))
     }
 
+    preControlStage(LOCKED) := !preControlStage(UNLOCKED) && io.lock.valid && io.lock.address(lineRange) === preControlStage(ADDRESS_PRE_TRANSLATION)(lineRange)
+
     val ctrl = new Area {
       import controlStage._
 
@@ -754,8 +768,8 @@ class DataCache(val cacheSize: Int,
       val bankBusy = (BANK_BUSY_REMAPPED & WAYS_HITS) =/= 0
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
 
-      REDO := !WAYS_HIT || waysHitHazard || bankBusy || refillHit
-      MISS := !WAYS_HIT && !waysHitHazard && !refillHit
+      REDO := !WAYS_HIT || waysHitHazard || bankBusy || refillHit || LOCKED
+      MISS := !WAYS_HIT && !waysHitHazard && !refillHit && !LOCKED
       FAULT := (WAYS_HITS & WAYS_TAGS.map(_.fault).asBits).orR
       val canRefill = !refill.full && !lineBusy && reservation.win && !(refillWayNeedWriteback && writeback.full)
       val askRefill = MISS && canRefill && !refillHit
