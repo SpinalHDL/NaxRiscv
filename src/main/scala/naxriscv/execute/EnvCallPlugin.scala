@@ -15,6 +15,7 @@ object EnvCallPlugin extends AreaObject{
   val EBREAK = Stageable(Bool())
   val XRET = Stageable(Bool())
   val WFI = Stageable(Bool())
+  val FENCE = Stageable(Bool())
 
   val CAUSE_XRET = CSR.MCAUSE_ENUM.ECALL_USER
 }
@@ -41,6 +42,7 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
     add(Rvi.ECALL , DecodeList(ECALL  -> True))
     add(Rvi.EBREAK, DecodeList(EBREAK -> True))
     add(Rvi.MRET  , DecodeList(XRET   -> True))
+    add(Rvi.FENCE , DecodeList(FENCE   -> True))
     if(priv.implementSupervisor) add(Rvi.SRET  , DecodeList(XRET   -> True))
     if(priv.implementUserTrap)   add(Rvi.URET  , DecodeList(XRET   -> True))
 
