@@ -44,7 +44,8 @@ class StorePlugin(euId : String) extends Plugin{
       Rvi.AMOSWAP, Rvi.AMOADD, Rvi.AMOXOR, Rvi.AMOAND, Rvi.AMOOR,
       Rvi.AMOMIN, Rvi.AMOMAX, Rvi.AMOMINU, Rvi.AMOMAXU
     )
-    amos.foreach(add(_, List(sk.Op.SRC1, sk.SRC1.RF), List(AMO -> True, SC -> False)))
+    for(amo <- amos) add(amo, List(sk.Op.SRC1, sk.SRC1.RF), List(AMO -> True, SC -> False))
+    add(Rvi.SC, List(sk.Op.SRC1, sk.SRC1.RF), List(AMO -> False, SC -> True))
   }
 
   val logic = create late new Area{

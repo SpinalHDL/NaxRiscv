@@ -86,7 +86,7 @@ class LsuPlugin(lqSize: Int,
                 sqSize : Int,
                 hazardPedictionEntries : Int,
                 hazardPredictionTagWidth : Int,
-//                storeToLoadBypass : Boolean,
+                //                storeToLoadBypass : Boolean,
                 loadTranslationParameter : Any,
                 storeTranslationParameter : Any,
                 loadToCacheBypass : Boolean = true,  //Reduce the load latency by one cycle. When the LoadPlugin calculate the address it directly start the query the cache
@@ -161,9 +161,11 @@ class LsuPlugin(lqSize: Int,
 
     val amos = List(
       Rvi.AMOSWAP, Rvi.AMOADD, Rvi.AMOXOR, Rvi.AMOAND, Rvi.AMOOR,
-      Rvi.AMOMIN, Rvi.AMOMAX, Rvi.AMOMINU, Rvi.AMOMAXU
+      Rvi.AMOMIN, Rvi.AMOMAX, Rvi.AMOMINU, Rvi.AMOMAXU,
+      Rvi.SC
     )
     amos.foreach(dispatch.fenceYounger(_))
+    dispatch.fenceOlder(Rvi.LR)
 
     val rfWrite = regfile.newWrite(withReady = false, latency = 1)
     val cacheLoad = cache.newLoadPort()
@@ -263,6 +265,12 @@ class LsuPlugin(lqSize: Int,
         val sqAlloc = Mem.fill(lqSize)(UInt(log2Up(sqSize)+1 bits))
         val io = Mem.fill(lqSize)(Bool())
         val writeRd = Mem.fill(lqSize)(Bool())
+        val lr = Mem.fill(lqSize)(Bool())
+      }
+
+      val reservation = new Area{
+        val valid = Reg(Bool()) init(False)
+        val address = Reg(UInt(postWidth bits))
       }
 
       case class PredictionEntry() extends Bundle {
@@ -370,6 +378,7 @@ class LsuPlugin(lqSize: Int,
         writeMem(mem.robId, port.robId)
         writeMem(mem.pc, port.pc)
         writeMem(mem.writeRd, port.writeRd)
+        writeMem(mem.lr, port.lr)
 
         val prediction = new Area{
           val read = lq.prediction.readSyncPort
@@ -504,13 +513,13 @@ class LsuPlugin(lqSize: Int,
                 }
               }
             }
-//            when(port.valid && !portPush.prediction.waitSq){
-//              isValid                 := True
-//              LQ_SEL                  := port.lqId
-//              LQ_SEL_OH               := UIntToOh(port.lqId)
-//              ADDRESS_PRE_TRANSLATION := port.address
-//              SIZE                    := port.size
-//            }
+            //            when(port.valid && !portPush.prediction.waitSq){
+            //              isValid                 := True
+            //              LQ_SEL                  := port.lqId
+            //              LQ_SEL_OH               := UIntToOh(port.lqId)
+            //              ADDRESS_PRE_TRANSLATION := port.address
+            //              SIZE                    := port.size
+            //            }
           }
 
 
@@ -535,10 +544,11 @@ class LsuPlugin(lqSize: Int,
           val stage = stages(1)
           import stage._
 
-          PC := mem.pc(LQ_SEL)
-          ROB.ID := mem.robId.readAsync(LQ_SEL)
-          WRITE_RD := mem.writeRd.readAsync(LQ_SEL)
-          UNSIGNED := regs.map(_.address.unsigned).read(LQ_SEL)
+          PC              := mem.pc(LQ_SEL)
+          ROB.ID          := mem.robId.readAsync(LQ_SEL)
+          WRITE_RD        := mem.writeRd.readAsync(LQ_SEL)
+          LR              := mem.lr.readAsync(LQ_SEL)
+          UNSIGNED        := regs.map(_.address.unsigned).read(LQ_SEL)
           decoder.PHYS_RD := mem.physRd.readAsync(LQ_SEL)
         }
 
@@ -592,9 +602,9 @@ class LsuPlugin(lqSize: Int,
           }
 
 
-//          OLDER_STORE_RESCHEDULE := False
-//          OLDER_STORE_ID := 0
-//          OLDER_STORE_COMPLETED := False
+          //          OLDER_STORE_RESCHEDULE := False
+          //          OLDER_STORE_ID := 0
+          //          OLDER_STORE_COMPLETED := False
         }
 
         val cacheRsp = new Area{
@@ -693,6 +703,10 @@ class LsuPlugin(lqSize: Int,
               }
               when(!tpk.IO && !peripheralOverride) {
                 setup.loadCompletion.valid := True
+                when(LR){
+                  lq.reservation.valid   := True
+                  lq.reservation.address := tpk.TRANSLATED
+                }
                 when(WRITE_RD) {
                   setup.rfWrite.valid := True
                   wakeRob.valid := True
@@ -840,6 +854,7 @@ class LsuPlugin(lqSize: Int,
           ROB.ID := mem.robId.readAsync(sel)
           ADDRESS_PRE_TRANSLATION := mem.addressPre.readAsync(sel)
           AMO := mem.amo.readAsync(sel)
+          SC := mem.sc.readAsync(sel)
           SIZE := regs.map(_.address.size).read(sel)
           DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
           LQCHECK_START_ID := mem.lqAlloc.readAsync(sel)
@@ -880,9 +895,9 @@ class LsuPlugin(lqSize: Int,
           YOUNGER_LOAD_ROB := lq.mem.robId.readAsync(youngerSel)
           YOUNGER_LOAD_RESCHEDULE := youngerHit
 
-//          YOUNGER_LOAD_PC := 0
-//          YOUNGER_LOAD_ROB := 0
-//          YOUNGER_LOAD_RESCHEDULE := False
+          //          YOUNGER_LOAD_PC := 0
+          //          YOUNGER_LOAD_ROB := 0
+          //          YOUNGER_LOAD_RESCHEDULE := False
         }
 
         val completion = new Area{
@@ -943,7 +958,7 @@ class LsuPlugin(lqSize: Int,
               setup.storeTrap.cause      := CSR.MCAUSE_ENUM.STORE_PAGE_FAULT
             } otherwise {
               onRegs(_.waitOn.writeback := True)
-              when(!tpk.IO && !AMO) {
+              when(!tpk.IO && !AMO && !SC) {
                 setup.storeCompletion.valid := True
               }
             }
@@ -969,10 +984,10 @@ class LsuPlugin(lqSize: Int,
 
       val writeback = new Area{
         val generation = RegInit(False)
-//        val pipeline = new Pipeline {
-//          val stages = Array.fill(3)(newStage()) //TODO
-//          connect(stages)(List(M2S()))
-//        }
+        //        val pipeline = new Pipeline {
+        //          val stages = Array.fill(3)(newStage()) //TODO
+        //          connect(stages)(List(M2S()))
+        //        }
 
         val waitOn = new Area{
           val refillSlot    = Reg(Bits(cache.refillCount bits)) init(0) //Zero when refillSlotAny
@@ -992,6 +1007,7 @@ class LsuPlugin(lqSize: Int,
           val io = sq.mem.io.readAsync(ptr.writeBackReal)
           val size = regs.map(_.address.size).read(ptr.writeBackReal)
           val data = mem.word.readAsync(ptr.writeBackReal)
+          val skip = False //Used for store conditional
           val doit = ptr.writeBack =/= ptr.commit && waitOn.ready
           val fire = CombInit(doit)
 
@@ -1009,12 +1025,7 @@ class LsuPlugin(lqSize: Int,
           }
 
           ptr.writeBack := ptr.writeBack + U(fire)
-        }
-
-//        val peripheralBypass = new Area{
-//          val valid = Delay(feed.fire && feed.io, cache.storeRspLatency, init = False)
-//          val generation = Delay(generation, cache.storeRspLatency)
-//        }
+                  }
 
         val rsp = new Area{
           val hazardFreeDelay = loadCheckSqAt - (loadFeedAt + cache.loadCmdHazardFreeLatency) + cache.storeRspHazardFreeLatency - 1 // -1 because sq regs update is sequancial
@@ -1053,6 +1064,14 @@ class LsuPlugin(lqSize: Int,
               }
             }
           }
+        }
+
+        when(feed.doit && feed.skip){
+          setup.cacheStore.cmd.valid := False
+          feed.fire := True
+          sq.ptr.onFree.valid := True
+          ptr.free := ptr.free + 1
+          ptr.writeBack := ptr.writeBack + 1
         }
       }
     }
@@ -1127,7 +1146,7 @@ class LsuPlugin(lqSize: Int,
       }
 
       val atomic = new StateMachine{
-        val IDLE, LOAD_CMD, LOAD_RSP, ALU, WRITE_BACK, SYNC = new State
+        val IDLE, LOAD_CMD, LOAD_RSP, ALU, COMPLETION, SYNC = new State
         setEntry(IDLE)
 
         val readed = Reg(Bits(XLEN bits))
@@ -1137,7 +1156,9 @@ class LsuPlugin(lqSize: Int,
           mem  = readed,
           rf   = storeData
         )
-        val result = RegNext(alu.result)
+
+        val result = Reg(Bits(XLEN bits))
+        val reservationHit = RegNext(lq.reservation.valid && lq.reservation.address === storeAddress)
 
         when(enabled && isAtomic){
           setup.cacheLoad.translated.physical := storeAddress
@@ -1155,7 +1176,11 @@ class LsuPlugin(lqSize: Int,
         IDLE whenIsActive {
           when(enabled && isAtomic){
             when(sq.ptr.commit === sq.ptr.free){
-              goto(LOAD_CMD)
+              when(storeSc){
+                goto(ALU)
+              } otherwise {
+                goto(LOAD_CMD)
+              }
             }
           }
         }
@@ -1195,11 +1220,11 @@ class LsuPlugin(lqSize: Int,
         }
 
         ALU whenIsActive{
-          //Ensure one cycle delay for the ALU result to update
-          goto(WRITE_BACK)
+          result := alu.result
+          goto(COMPLETION)
         }
 
-        WRITE_BACK whenIsActive{
+        COMPLETION whenIsActive{
           setup.loadCompletion.valid := True
           setup.loadCompletion.id    := robId
 
@@ -1209,13 +1234,30 @@ class LsuPlugin(lqSize: Int,
           load.pipeline.cacheRsp.wakeRf.valid setWhen(sq.mem.writeRd)
           load.pipeline.cacheRsp.wakeRf.physical := sq.mem.physRd
 
+          when(storeSc){
+            setup.rfWrite.valid      setWhen(sq.mem.writeRd)
+            setup.rfWrite.address := sq.mem.physRd
+            setup.rfWrite.robId   := robId
+            setup.rfWrite.data    := 0
+            setup.rfWrite.data(0) := !reservationHit
+          }
+
           goto(SYNC)
         }
 
         SYNC.whenIsActive{
-          store.writeback.feed.data := result
+          when(storeAmo) {
+            store.writeback.feed.data := result
+          }
+          when(storeSc && !reservationHit){
+            store.writeback.feed.skip := True
+          }
+
           when(sq.ptr.onFree.valid) {
             fire := True
+            when(storeSc) {
+              lq.reservation.valid := False
+            }
             goto(IDLE)
           }
         }
@@ -1252,6 +1294,7 @@ class LsuPlugin(lqSize: Int,
       }
       sq.ptr.alloc := sq.ptr.commitNext
       special.enabled := False
+      lq.reservation.valid := False
     }
 
 

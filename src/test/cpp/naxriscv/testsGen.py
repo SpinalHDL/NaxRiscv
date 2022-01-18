@@ -56,7 +56,6 @@ riscvTestAmo = [
     "rv32ua-p-amomin_w",
 ]
 
-
 riscvTestFloat = [
     "rv32uf-p-fmadd",
     "rv32uf-p-fadd",
@@ -128,7 +127,10 @@ tests = []
 ouputs = []
 
 with open('tests.mk', 'w') as f:
-    for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv + riscvTestAmo:
+
+    def rvTest(name, elf=None, timeout=10000, passs="pass", start="test_2"):
+        if not elf:
+            elf = name
         outputDir = "output/riscv_tests/" + name
         rule = outputDir +"/PASS"
         tests.append(rule)
@@ -138,14 +140,20 @@ with open('tests.mk', 'w') as f:
             "obj_dir/VNaxRiscv",
             "--name", name,
             "--output-dir", outputDir,
-            "--load-elf", f"../../../../ext/NaxSoftware/riscv-tests/{name}",
-            "--start-symbol", "test_2",
-            "--pass-symbol", "pass",
+            "--load-elf", f"../../../../ext/NaxSoftware/riscv-tests/{elf}",
+            "--start-symbol", start,
+            "--pass-symbol", passs,
             "--fail-symbol", "fail",
-            "--timeout", "10000",
+            "--timeout", str(timeout),
            "${ARGS}"
         ]))
         f.write(f"\n\n")
+
+    for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv + riscvTestAmo:
+        rvTest(name)
+
+    rvTest("rv32ua-p-lrsc_1234", elf="rv32ua-p-lrsc", timeout=100000, passs="test_5")
+    rvTest("rv32ua-p-lrsc_6", elf="rv32ua-p-lrsc", timeout=100000, start="test_6")
 
     for spec in naxSoftware:
         outputDir = "output/nax/" + spec[0]

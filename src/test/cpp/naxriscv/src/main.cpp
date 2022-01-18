@@ -1216,8 +1216,9 @@ int main(int argc, char** argv, char** env){
 //    }
 
 
-
+    u64 traps_since_commit = 0;
     u64 commits = 0;
+    u64 last_commit_pc;
     int robIdChecked = 0;
     int cycleSinceLastCommit = 0;
     auto progressLast = std::chrono::high_resolution_clock::now();
@@ -1267,7 +1268,6 @@ int main(int argc, char** argv, char** env){
                 if(cycleSinceLastCommit == 2000){
                     printf("NO PROGRESS the cpu hasn't commited anything since too long\n");
                     failure();
-
                 }
                 cycleSinceLastCommit += 1;
 
@@ -1278,6 +1278,7 @@ int main(int argc, char** argv, char** env){
                         auto &robCtx = whitebox.robCtx[robId];
                         robIdChecked = robId;
                         commits += 1;
+                        traps_since_commit = 0;
 //                        printf("Commit %d %x\n", robId, whitebox.robCtx[robId].pc);
 
                         //Sync some CSR
@@ -1338,6 +1339,7 @@ int main(int argc, char** argv, char** env){
 
 //                        cout << state->minstret.get()->read() << endl;
                         RvData pc = state->last_inst_pc;
+                        last_commit_pc = pc;
                         assertEq("MISSMATCH PC", whitebox.robCtx[robId].pc,  pc);
                         for (auto item : state->log_reg_write) {
                             if (item.first == 0)
@@ -1394,6 +1396,12 @@ int main(int argc, char** argv, char** env){
                     if(interrupt) state->mip->write_with_mask(mask, mask);
                     proc.step(1);
                     if(interrupt) state->mip->write_with_mask(mask, 0);
+
+                    traps_since_commit += 1;
+                    if(traps_since_commit > 10){
+                        cout << "DUT is blocked in a endless trap cycle of death" << endl;
+                        failure();
+                    }
                 }
 
                 top->eval();
@@ -1414,8 +1422,8 @@ int main(int argc, char** argv, char** env){
         }
         #endif
         printf("TIME=%ld\n", main_time);
-        printf("LAST PC=%lx\n", state->last_inst_pc);
-        printf("INCOMING PC=%lx\n", state->pc);
+        printf("LAST PC COMMIT=%lx\n", last_commit_pc);
+        printf("INCOMING SPIKE PC=%lx\n", state->pc);
         printf("ROB_ID=x%x\n", robIdChecked);
         printf("FAILURE %s\n", name.c_str());
         remove((outputDir + "/PASS").c_str());

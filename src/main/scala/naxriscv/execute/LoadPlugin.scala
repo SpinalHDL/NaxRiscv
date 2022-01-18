@@ -10,8 +10,9 @@ import spinal.lib.pipeline.Stageable
 import naxriscv.Global._
 
 object LoadPlugin extends AreaObject{
-  val SEL = Stageable(Bool())
+  val SEL      = Stageable(Bool())
   val UNSIGNED = Stageable(Bool())
+  val LR       = Stageable(Bool())
 }
 
 class LoadPlugin(euId : String) extends Plugin{
@@ -34,12 +35,10 @@ class LoadPlugin(euId : String) extends Plugin{
     }
 
     val sk = SrcKeys
-    val srcOps = List(sk.Op.ADD, sk.SRC1.RF, sk.SRC2.I)
-    add(Rvi.LB , srcOps, Nil)
-    add(Rvi.LH , srcOps, Nil)
-    add(Rvi.LW , srcOps, Nil)
-    add(Rvi.LBU, srcOps, Nil)
-    add(Rvi.LHU, srcOps, Nil)
+    val loads = List(Rvi.LB , Rvi.LH , Rvi.LW , Rvi.LBU, Rvi.LHU)
+
+    for(op <- loads) add(op, List(sk.Op.ADD, sk.SRC1.RF, sk.SRC2.I), List(LR -> False))
+    add(Rvi.LR,  List(sk.Op.SRC1, sk.SRC1.RF),  List(LR -> True))
   }
 
   val logic = create late new Area{
@@ -59,6 +58,7 @@ class LoadPlugin(euId : String) extends Plugin{
     setup.port.physicalRd := decoder.PHYS_RD
     setup.port.writeRd := decoder.WRITE_RD
     setup.port.pc := PC
+    setup.port.lr := LR
 
     eu.release()
   }

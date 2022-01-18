@@ -96,6 +96,6 @@ cd $NAXRISCV/src/test/cpp/naxriscv
 ```shell
 cd $NAXRISCV/src/test/cpp/naxriscv
 ./testsGen.py
-make compile test-clean
-make test-all -j$(nproc); make test-report
+make clean compile
+make test-clean && make test-all -j$(nproc); make test-report
 ```
