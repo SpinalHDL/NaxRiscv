@@ -1104,6 +1104,7 @@ int main(int argc, char** argv, char** env){
     Verilated::commandArgs(argc, argv);
     Verilated::mkdir("logs");
 
+    mkpath(outputDir, 0777);
 
     FILE *fptr;
     fptr = trace_ref ? fopen((outputDir + "/spike.log").c_str(),"w") : NULL;
@@ -1185,11 +1186,6 @@ int main(int argc, char** argv, char** env){
     {
         printf("other parameter: <%s>\n", argv[optind++]);
     }
-
-
-//    std::filesystem::remove_all(output_dir); That's toooooo much power
-//    std::filesystem::create_directories(outputDir);
-    mkpath(outputDir, 0777);
 
 
 	#ifdef TRACE
