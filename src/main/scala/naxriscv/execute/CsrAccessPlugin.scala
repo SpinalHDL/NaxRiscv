@@ -126,6 +126,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       CSR_IMPLEMENTED := sels.values.map(stage(_)).toSeq.orR
 
       val ram = useRam generate new Area{
+        ramReadPort.get //Ensure the ram port is generated
         RAM_ADDRESS.assignDontCare()
         switch(MICRO_OP(Const.csrRange)) {
           for (e <- spec.collect{ case x : CsrRamSpec => x}) e.csrFilter match {
