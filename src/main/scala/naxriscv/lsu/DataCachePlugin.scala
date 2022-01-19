@@ -39,9 +39,15 @@ class DataCachePlugin(val memDataWidth : Int,
   def storeRspHazardFreeLatency = (storeControlAt+1)-storeRspAt
   def loadCmdHazardFreeLatency = (loadReadAt)
 
+  val waySize = cacheSize/wayCount
+  val linePerWay = waySize/lineSize
+  def lineRange = log2Up(linePerWay*lineSize) -1 downto log2Up(lineSize)
+
   val cpuDataWidth = XLEN.get
   def preTranslationWidth : Int = getService[AddressTranslationService].preWidth
   def postTranslationWidth : Int = getService[AddressTranslationService].postWidth
+
+  def writebackBusy = setup.writebackBusy
 
   case class LoadPortSpec(port : DataLoadPort)
   val loadPorts = ArrayBuffer[LoadPortSpec]()
@@ -78,6 +84,7 @@ class DataCachePlugin(val memDataWidth : Int,
     doc.property("DATA_CACHE_REFILL_COUNT", refillCount)
     doc.property("DATA_CACHE_WRITEBACK_COUNT", writebackCount)
 
+    val writebackBusy = Bool()
     val perf = getServiceOption[PerformanceCounterService]
     val refillEvent = perf.map(_.createEventPort(PerformanceCounterService.DCACHE_REFILL))
     val writebackEvent = perf.map(_.createEventPort(PerformanceCounterService.DCACHE_WRITEBACK))
@@ -117,6 +124,7 @@ class DataCachePlugin(val memDataWidth : Int,
       reducedBankWidth = reducedBankWidth
     )
 
+    setup.writebackBusy <> cache.io.writebackBusy
     setup.lockPort <> cache.io.lock
     setup.refillEvent.map(_ := RegNext(cache.io.refillEvent) init(False))
     setup.writebackEvent.map(_ := RegNext(cache.io.writebackEvent) init(False))

@@ -231,6 +231,7 @@ for e in freertos:
 naxSoftware.append(["coremark", f"baremetal/coremark/coremark_{arch}.elf"])
 
 tests = []
+testsFast = []
 ouputs = []
 
 with open('tests.mk', 'w') as f:
@@ -241,6 +242,7 @@ with open('tests.mk', 'w') as f:
         outputDir = "output/riscv_tests/" + name
         rule = outputDir +"/PASS"
         tests.append(rule)
+        testsFast.append(rule)
         ouputs.append(outputDir)
         f.write(f"{outputDir}/PASS:\n")
         f.write("\t" + " ".join([
@@ -272,6 +274,7 @@ with open('tests.mk', 'w') as f:
         outputDir = "output/riscv_arch/" + name
         rule = outputDir +"/PASS"
         tests.append(rule)
+        testsFast.append(rule)
         ouputs.append(outputDir)
         f.write(f"{outputDir}/PASS:\n")
         f.write("\t" + " ".join([
@@ -321,6 +324,10 @@ with open('tests.mk', 'w') as f:
 
     f.write(f"""test-all: {" ".join(tests)}\n""")
     f.write(f"\n\n")
+
+    f.write(f"""test-fast: {" ".join(testsFast)}\n""")
+    f.write(f"\n\n")
+
 
     f.write(f"""test-clean:\n""")
     f.write(f"""\trm -rf {" ".join(ouputs)}\n""")

@@ -58,6 +58,7 @@ class DispatchPlugin(slotCount : Int = 0,
     lock.await()
     decoder.release()
 
+    //Ensure that instruction which need to have some dispatch ordering are alone in their ROB allocation
     val sparseRob = (DISPATCH_COUNT > 1) generate new Area{
       val stage = frontend.pipeline.serialized
       import stage._
@@ -77,7 +78,7 @@ class DispatchPlugin(slotCount : Int = 0,
         }
       }
       val masked = remains & filter
-      val forkLast = filter.andR
+      val forkLast = (filter | ~mask).andR
 
       for(slotId <- 0 until DISPATCH_COUNT) stage.overloaded(DISPATCH_MASK, slotId) := stage(DISPATCH_MASK, slotId) && masked(slotId)
 

@@ -13,6 +13,7 @@ import spinal.lib.pipeline.{Pipeline, Stageable, StageableOffset}
 
 import scala.collection.mutable.ArrayBuffer
 import naxriscv.Global._
+import naxriscv.fetch.FetchPlugin
 import naxriscv.misc.RobPlugin
 import spinal.lib.fsm._
 
@@ -125,7 +126,7 @@ class LsuPlugin(lqSize: Int,
 
   override def wakeRobs = List(logic.get.load.pipeline.cacheRsp.wakeRob)
   override def wakeRegFile = List(logic.get.load.pipeline.cacheRsp.wakeRf)
-
+  def flushPort = setup.flushPort
 
   val keys = new AreaRoot{
     val SQ_ALLOC = Stageable(Bool())
@@ -153,11 +154,13 @@ class LsuPlugin(lqSize: Int,
     val translation = getService[AddressTranslationService]
     val doc = getService[DocPlugin]
     val dispatch = getService[DispatchPlugin]
+    val fetch = getService[FetchPlugin]
 
     rob.retain()
     decoder.retain()
     frontend.retain()
     translation.retain()
+    fetch.retain()
 
     val amos = List(
       Rvi.AMOSWAP, Rvi.AMOADD, Rvi.AMOXOR, Rvi.AMOAND, Rvi.AMOOR,
@@ -175,6 +178,7 @@ class LsuPlugin(lqSize: Int,
     val loadTrap = commit.newSchedulePort(canTrap = true, canJump = false)
     val storeTrap = commit.newSchedulePort(canTrap = true, canJump = true)
     val peripheralTrap = commit.newSchedulePort(canTrap = true, canJump = false)
+    val flushPort = False
 
     decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
     decoder.addResourceDecoding(naxriscv.interfaces.SQ, SQ_ALLOC)
@@ -185,6 +189,7 @@ class LsuPlugin(lqSize: Int,
     val rob = getService[RobPlugin]
     val decoder = getService[DecoderService]
     val frontend = getService[FrontendPlugin]
+    val fetch = getService[FetchPlugin]
     val cache = getService[DataCachePlugin]
     val commit = getService[CommitService]
     val translationService = getService[AddressTranslationService]
@@ -1025,7 +1030,7 @@ class LsuPlugin(lqSize: Int,
           }
 
           ptr.writeBack := ptr.writeBack + U(fire)
-                  }
+        }
 
         val rsp = new Area{
           val hazardFreeDelay = loadCheckSqAt - (loadFeedAt + cache.loadCmdHazardFreeLatency) + cache.storeRspHazardFreeLatency - 1 // -1 because sq regs update is sequancial
@@ -1045,7 +1050,7 @@ class LsuPlugin(lqSize: Int,
           sq.ptr.onFree.valid := False
           sq.ptr.onFree.payload := ptr.freeReal
 
-          when(delayed.last.valid && !delayed.last.generationKo){
+          when(delayed.last.valid && !delayed.last.generationKo && !delayed.last.flush){
             when(delayed.last.redo) {
               waitOn.refillSlotSet := delayed.last.refillSlot
               waitOn.refillSlotAnySet := delayed.last.refillSlotAny
@@ -1072,6 +1077,48 @@ class LsuPlugin(lqSize: Int,
           sq.ptr.onFree.valid := True
           ptr.free := ptr.free + 1
           ptr.writeBack := ptr.writeBack + 1
+        }
+      }
+    }
+
+    val flush = new Area{
+      val busy = RegInit(False)
+      val doit = RegInit(False)
+      val cmdPtr, rspPtr = Reg(UInt(cache.lineRange.size+1 bits))
+      def cmd = setup.cacheStore.cmd
+      def rsp = setup.cacheStore.rsp
+
+      doit := sq.ptr.commit === sq.ptr.free
+      when(setup.flushPort){
+        cmdPtr := 0
+        rspPtr := 0
+        busy   := True
+        doit   := False
+      }
+
+      when(busy){
+        fetch.getStage(0).haltIt()
+      }
+
+      cmd.flush := False
+      when(busy && doit){
+        cmd.valid := !cmdPtr.msb
+        cmd.flush := True
+        cmd.address(cache.lineRange) := cmdPtr.resized
+
+        when(cmd.fire){
+          cmdPtr := cmdPtr + 1
+        }
+        when(rsp.fire && !rsp.generationKo){
+          when(rsp.redo){
+            cmdPtr := rspPtr
+            store.writeback.generation := !store.writeback.generation
+          } otherwise {
+            rspPtr := rspPtr + 1
+          }
+        }
+        when(rspPtr.msb && !cache.writebackBusy){
+          busy := False
         }
       }
     }
@@ -1313,6 +1360,7 @@ class LsuPlugin(lqSize: Int,
     rob.release()
     decoder.release()
     frontend.release()
+    fetch.release()
     translationService.release()
   }
 

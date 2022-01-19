@@ -10,6 +10,8 @@ import spinal.lib.{Flow, KeepAttribute}
 import spinal.lib.pipeline.Stageable
 import naxriscv.Global._
 import naxriscv.fetch.FetchCachePlugin
+import naxriscv.frontend.DispatchPlugin
+import naxriscv.lsu.LsuPlugin
 import naxriscv.prediction.{BranchContextPlugin, DecoderPredictionPlugin}
 
 object BranchPlugin extends AreaObject {
@@ -46,6 +48,7 @@ class BranchPlugin(euId : String,
     add(Rvi.BGEU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
 
     add(Rvi.FENCE_I , Nil, List(BRANCH_CTRL -> BranchCtrlEnum.FENCE_I))
+    getService[DispatchPlugin].fenceOlder(Rvi.FENCE_I) //Ensure we do not generate uncommitted flushes
 
     val withBranchContext = isServiceAvailable[BranchContextPlugin]
     if(withBranchContext){
@@ -151,8 +154,9 @@ class BranchPlugin(euId : String,
         misspredicted := True
         missaligned := False
         finalBranch.valid := False
-        when(isValid){
-          getService[FetchCachePlugin].flushPort := True
+        when(SEL && isFireing){
+          getService[FetchCachePlugin].invalidatePort := True
+          getService[LsuPlugin].flushPort := True
         }
       }
     }
