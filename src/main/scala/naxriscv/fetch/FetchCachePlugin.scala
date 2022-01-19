@@ -45,6 +45,7 @@ class FetchCachePlugin(val cacheSize : Int,
   override def stagesCountMin = injectionAt + 1
 
   val mem = create early master(FetchL1Bus(this, getService[AddressTranslationService].postWidth))
+  def flushPort = setup.flushPort
 
   val setup = create early new Area{
     val pipeline = getService[FetchPlugin]
@@ -55,6 +56,7 @@ class FetchCachePlugin(val cacheSize : Int,
     val redoJump = getService[PcPlugin].createJumpInterface(priority)
     val historyJump = withHistory generate getService[HistoryPlugin].createJumpPort(priority)
     val refillEvent = getServiceOption[PerformanceCounterService].map(_.createEventPort(refillEventId))
+    val flushPort = False
 
     mem.flatten.filter(_.isOutput).foreach(_.assignDontCare())
 
@@ -144,6 +146,8 @@ class FetchCachePlugin(val cacheSize : Int,
     }
 
     val flush = new Area{
+      val requested = RegInit(False) setWhen(setup.flushPort)
+      val canStart = True
       val counter = Reg(UInt(log2Up(linePerWay)+1 bits)) init(0)
       val done = counter.msb
       when(!done){
@@ -156,7 +160,16 @@ class FetchCachePlugin(val cacheSize : Int,
         waysWrite.tag.loaded := False
       }
 
-      readStage.haltIt(!done)
+      readStage.haltIt(!done || requested)
+
+      when(requested && canStart){
+        counter := 0
+        requested := False
+      }
+
+      when(fetch.pipeline.stages.drop(readAt+1).map(_.isValid).toList.orR){
+        canStart := False
+      }
     }
 
 
@@ -165,6 +178,8 @@ class FetchCachePlugin(val cacheSize : Int,
       val valid = RegInit(False) clearWhen (fire)
       val address = KeepAttribute(Reg(UInt(preTranslationWidth bits)))
       val hadError = RegInit(False)
+
+      flush.canStart clearWhen(valid)
 
       val cmdSent = RegInit(False) setWhen (mem.cmd.fire) clearWhen (fire)
       mem.cmd.valid := valid && !cmdSent

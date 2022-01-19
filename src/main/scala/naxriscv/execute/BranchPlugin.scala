@@ -9,6 +9,7 @@ import spinal.core._
 import spinal.lib.{Flow, KeepAttribute}
 import spinal.lib.pipeline.Stageable
 import naxriscv.Global._
+import naxriscv.fetch.FetchCachePlugin
 import naxriscv.prediction.{BranchContextPlugin, DecoderPredictionPlugin}
 
 object BranchPlugin extends AreaObject {
@@ -16,7 +17,7 @@ object BranchPlugin extends AreaObject {
   val COND = Stageable(Bool())
   val EQ = Stageable(Bool())
   val BranchCtrlEnum = new SpinalEnum(binarySequential){
-    val B, JAL, JALR = newElement()
+    val B, JAL, JALR, FENCE_I = newElement()
   }
   val BRANCH_CTRL = new Stageable(BranchCtrlEnum())
 }
@@ -44,6 +45,8 @@ class BranchPlugin(euId : String,
     add(Rvi.BLTU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
     add(Rvi.BGEU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
 
+    add(Rvi.FENCE_I , Nil, List(BRANCH_CTRL -> BranchCtrlEnum.FENCE_I))
+
     val withBranchContext = isServiceAvailable[BranchContextPlugin]
     if(withBranchContext){
       eu.addRobStageable(getService[BranchContextPlugin].keys.BRANCH_ID)
@@ -66,6 +69,7 @@ class BranchPlugin(euId : String,
       EQ := ss.SRC1 === ss.SRC2
 
       COND := BRANCH_CTRL.mux(
+        BranchCtrlEnum.FENCE_I -> False,
         BranchCtrlEnum.JALR -> True,
         BranchCtrlEnum.JAL -> True,
         BranchCtrlEnum.B    -> MICRO_OP(14 downto 12).mux(
@@ -78,13 +82,12 @@ class BranchPlugin(euId : String,
 
       val imm = IMM(Frontend.MICRO_OP)
       val target_a = BRANCH_CTRL.mux(
-        BranchCtrlEnum.B    -> S(stage(PC)),
-        BranchCtrlEnum.JAL  -> S(stage(PC)),
+        default             -> S(stage(PC)),
         BranchCtrlEnum.JALR -> stage(ss.SRC1)
       )
 
       val target_b = BRANCH_CTRL.mux(
-        BranchCtrlEnum.B     -> imm.b_sext,
+        default              -> imm.b_sext,
         BranchCtrlEnum.JAL   -> imm.j_sext,
         BranchCtrlEnum.JALR  -> imm.i_sext
       )
@@ -141,6 +144,16 @@ class BranchPlugin(euId : String,
         finalBranch.data.taken := COND
 
         rob.write(branchContext.keys.BRANCH_TAKEN, 1, List(stage(COND)), ROB.ID, isFireing)
+      }
+
+      val fencei = BRANCH_CTRL === BranchCtrlEnum.FENCE_I
+      when(fencei){
+        misspredicted := True
+        missaligned := False
+        finalBranch.valid := False
+        when(isValid){
+          getService[FetchCachePlugin].flushPort := True
+        }
       }
     }
     rob.release()
