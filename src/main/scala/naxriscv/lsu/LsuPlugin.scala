@@ -621,7 +621,7 @@ class LsuPlugin(lqSize: Int,
 
           val rspSize = CombInit(stage(SIZE))
           val rspAddress = CombInit(stage(ADDRESS_PRE_TRANSLATION))
-          val rspRaw = CombInit(rsp.data.subdivideIn(wordWidth bits).read(ADDRESS_PRE_TRANSLATION(memToCpuRange)))
+          val rspRaw = rsp.data //CombInit(rsp.data.subdivideIn(wordWidth bits).read(ADDRESS_PRE_TRANSLATION(memToCpuRange)))
           val rspSplits = rspRaw.subdivideIn(8 bits)
           val rspShifted = Bits(wordWidth bits)
 

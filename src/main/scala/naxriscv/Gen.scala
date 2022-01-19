@@ -104,7 +104,7 @@ object Config{
       storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
     )
     plugins += new DataCachePlugin(
-      memDataWidth = Global.XLEN,
+      memDataWidth = 64,
       cacheSize    = 4096*4,
       wayCount     = 4,
       refillCount = 2,
