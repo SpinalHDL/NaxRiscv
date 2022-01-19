@@ -177,7 +177,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
           if(flushOnBranch) MISSMATCH setWhen(IS_BRANCH)
 
           branchContext.keys.BRANCH_SEL         := IS_ANY
-          when(CAN_IMPROVE){
+          when(NEED_CORRECTION){
             branchContext.keys.BRANCH_EARLY.taken := BRANCHED_PREDICTION
             branchContext.keys.BRANCH_EARLY.pc    := U(PC_TARGET)
           } otherwise {
