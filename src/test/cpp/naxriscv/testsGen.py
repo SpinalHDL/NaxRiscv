@@ -98,6 +98,113 @@ riscvTestDiv = [
 	"rv32um-p-remu"
 ]
 
+def listPrefix(prefix, l):
+    return list(map(lambda x : prefix + x, l))
+
+riscvArch32i = listPrefix("rv32i_m/I/", [
+    "add-01",
+    "addi-01",
+    "and-01",
+    "andi-01",
+    "auipc-01",
+    "beq-01",
+    "bge-01",
+    "bgeu-01",
+    "blt-01",
+    "bltu-01",
+    "bne-01",
+    "fence-01",
+    "jal-01",
+    "jalr-01",
+    "lb-align-01",
+    "lbu-align-01",
+    "lh-align-01",
+    "lhu-align-01",
+    "lui-01",
+    "lw-align-01",
+    "or-01",
+    "ori-01",
+    "sb-align-01",
+    "sh-align-01",
+    "sll-01",
+    "slli-01",
+    "slt-01",
+    "slti-01",
+    "sltiu-01",
+    "sltu-01",
+    "sra-01",
+    "srai-01",
+    "srl-01",
+    "srli-01",
+    "sub-01",
+    "sw-align-01",
+    "xor-01",
+    "xori-01",
+])
+
+riscvArch32M = listPrefix("rv32i_m/M/", [
+    "div-01",
+    "divu-01",
+    "mul-01",
+    "mulh-01",
+    "mulhsu-01",
+    "mulhu-01",
+    "rem-01",
+    "remu-01",
+])
+
+riscvArch32Zifencei = listPrefix("rv32i_m/Zifencei/", [
+    "Fencei",
+])
+
+riscvArch32C = listPrefix("rv32i_m/C/", [
+    "cadd-01",
+    "caddi-01",
+    "caddi16sp-01",
+    "caddi4spn-01",
+    "cand-01",
+    "candi-01",
+    "cbeqz-01",
+    "cbnez-01",
+    "cebreak-01",
+    "cj-01",
+    "cjal-01",
+    "cjalr-01",
+    "cjr-01",
+    "cli-01",
+    "clui-01",
+    "clw-01",
+    "clwsp-01",
+    "cmv-01",
+    "cnop-01",
+    "cor-01",
+    "cslli-01",
+    "csrai-01",
+    "csrli-01",
+    "csub-01",
+    "csw-01",
+    "cswsp-01",
+    "cxor-01",
+])
+
+riscvArch32Priv = listPrefix("rv32i_m/privilege/", [
+    "ebreak",
+    "ecall",
+    "misalign1-jalr-01",
+    "misalign2-jalr-01",
+    "misalign-beq-01",
+    "misalign-bge-01",
+    "misalign-bgeu-01",
+    "misalign-blt-01",
+    "misalign-bltu-01",
+    "misalign-bne-01",
+    "misalign-jal-01",
+    "misalign-lh-01",
+    "misalign-lhu-01",
+    "misalign-lw-01",
+    "misalign-sh-01",
+    "misalign-sw-01",
+])
 
 arch="rv32im"
 
@@ -149,11 +256,37 @@ with open('tests.mk', 'w') as f:
         ]))
         f.write(f"\n\n")
 
+
+
     for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv + riscvTestAmo:
         rvTest(name)
 
-    rvTest("rv32ua-p-lrsc_1234", elf="rv32ua-p-lrsc", timeout=100000, passs="test_5")
+
+    rvTest("rv32ua-p-lrsc_1234", elf="rv32ua-p-lrsc", timeout=300000, passs="test_5")
     rvTest("rv32ua-p-lrsc_6", elf="rv32ua-p-lrsc", timeout=100000, start="test_6")
+
+
+    def rvArch(name, elf=None, timeout=1000000, passs="pass"):
+        if not elf:
+            elf = name
+        outputDir = "output/riscv_arch/" + name
+        rule = outputDir +"/PASS"
+        tests.append(rule)
+        ouputs.append(outputDir)
+        f.write(f"{outputDir}/PASS:\n")
+        f.write("\t" + " ".join([
+            "obj_dir/VNaxRiscv",
+            "--name", name,
+            "--output-dir", outputDir,
+            "--load-elf", f"../../../../ext/NaxSoftware/riscv-arch-test/{elf}.elf",
+            "--pass-symbol", passs,
+            "--timeout", str(timeout),
+           "${ARGS}"
+        ]))
+        f.write(f"\n\n")
+
+    for name in riscvArch32i + riscvArch32M + riscvArch32Zifencei:
+        rvArch(name)
 
     for spec in naxSoftware:
         outputDir = "output/nax/" + spec[0]
