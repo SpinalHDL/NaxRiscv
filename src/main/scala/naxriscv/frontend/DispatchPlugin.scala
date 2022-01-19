@@ -301,6 +301,7 @@ class DispatchPlugin(slotCount : Int = 0,
         val masks = offseted.map(o => B(slotCount bits, default -> o.valid) & UIntToOh(o.payload))
       }
       val statics = for(latency <- globalStaticLatencies.latencies) yield new Area{
+        val lat = latency
         val popMasks = pop.flatMap(_.wake.filter(_.lat == latency).map(_.mask))
         val popMask = popMasks.reduceBalancedTree(_ | _) & queueStaticWakeTransposed(globalStaticLatencies.toBits(latency))
         val history = Vec.fill(latency+1)(cloneOf(popMask))
@@ -311,7 +312,15 @@ class DispatchPlugin(slotCount : Int = 0,
         }
         val mask = history(latency)
       }
-      queue.io.events := (dynamic.masks ++ statics.map(_.mask)).reduceBalancedTree(_ | _) //Todo squezing first the dynamic one with some KEEP attribut may help synthesis timings for statics
+      val withZeroLatency = globalStaticLatencies.latencies.exists(_ == 0)
+      if(!withZeroLatency) queue.io.events := (dynamic.masks ++ statics.map(_.mask)).reduceBalancedTree(_ | _)
+      val optReduce = withZeroLatency generate new Area{
+        //This implementation first reduce the timings's relaxed path, then take the zero latency wake up path
+        val relaxed = (dynamic.masks ++ statics.filter(_.lat != 0).map(_.mask)).reduceBalancedTree(_ | _)
+        val reduced = relaxed | statics.find(_.lat == 0).get.mask
+        queue.io.events := reduced
+        KeepAttribute(relaxed)
+      }
     }
 
     val whitebox = new Area{
