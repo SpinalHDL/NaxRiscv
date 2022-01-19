@@ -605,11 +605,6 @@ class LsuPlugin(lqSize: Int,
           for(s <- stages.dropWhile(_ != stage)){
             s.overloaded(OLDER_STORE_COMPLETED) := s(OLDER_STORE_COMPLETED) || sq.ptr.onFree.valid && sq.ptr.onFree.payload === s(OLDER_STORE_ID)
           }
-
-
-          //          OLDER_STORE_RESCHEDULE := False
-          //          OLDER_STORE_ID := 0
-          //          OLDER_STORE_COMPLETED := False
         }
 
         val cacheRsp = new Area{
@@ -699,25 +694,31 @@ class LsuPlugin(lqSize: Int,
             } elsewhen(pageFault) {
               setup.loadTrap.valid := True
               setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_PAGE_FAULT
-            } elsewhen (accessFault) {
+            } elsewhen(accessFault) {
               setup.loadTrap.valid := True
               setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT
             } otherwise {
               when(tpk.IO || !peripheralOverride) {
                 onRegs(_.waitOn.commit := True)
               }
-              when(!tpk.IO && !peripheralOverride) {
-                setup.loadCompletion.valid := True
-                when(LR){
-                  lq.reservation.valid   := True
-                  lq.reservation.address := tpk.TRANSLATED
-                }
-                when(WRITE_RD) {
-                  setup.rfWrite.valid := True
-                  wakeRob.valid := True
-                  wakeRf.valid := True
-                }
-              }
+              //doCompletion
+            }
+          }
+
+          //Critical path extracted to help synthesis
+          val doCompletion = isFireing && !OLDER_STORE_RESCHEDULE && !missAligned && !pageFault && !pageFault && !accessFault && !tpk.IO && !peripheralOverride
+          KeepAttribute(doCompletion)
+
+          when(doCompletion && !rsp.redo){
+            setup.loadCompletion.valid := True
+            when(LR){
+              lq.reservation.valid   := True
+              lq.reservation.address := tpk.TRANSLATED
+            }
+            when(WRITE_RD) {
+              setup.rfWrite.valid := True
+              wakeRob.valid := True
+              wakeRf.valid := True
             }
           }
         }
