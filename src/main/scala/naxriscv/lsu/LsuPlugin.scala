@@ -124,7 +124,7 @@ class LsuPlugin(lqSize: Int,
   }
 
 
-  override def wakeRobs = List(logic.get.load.pipeline.cacheRsp.wakeRob)
+  override def wakeRobs = List(logic.get.load.pipeline.cacheRsp.wakeRob, logic.get.special.wakeRob)
   override def wakeRegFile = List(logic.get.load.pipeline.cacheRsp.wakeRf)
   def flushPort = setup.flushPort
 
@@ -1158,6 +1158,10 @@ class LsuPlugin(lqSize: Int,
       val isIo = !(isStore && (storeAmo || storeSc))
       val isAtomic = !isIo
 
+      val wakeRob = Flow(WakeRob())
+      wakeRob.valid := False
+      wakeRob.robId := robId
+
       peripheralBus.cmd.valid   := enabled && !cmdSent && isIo
       peripheralBus.cmd.write   := isStore
       peripheralBus.cmd.address := address
@@ -1186,8 +1190,7 @@ class LsuPlugin(lqSize: Int,
         load.pipeline.cacheRsp.rspSize    := loadSize
         load.pipeline.cacheRsp.rspRaw     := peripheralBus.rsp.data
 
-        load.pipeline.cacheRsp.wakeRob.valid setWhen(isLoad && loadWriteRd)
-        load.pipeline.cacheRsp.wakeRob.robId := robId
+        wakeRob.valid setWhen(isLoad && loadWriteRd)
 
         load.pipeline.cacheRsp.wakeRf.valid setWhen(isLoad && loadWriteRd)
         load.pipeline.cacheRsp.wakeRf.physical := loadPhysRd
@@ -1276,8 +1279,7 @@ class LsuPlugin(lqSize: Int,
           setup.loadCompletion.valid := True
           setup.loadCompletion.id    := robId
 
-          load.pipeline.cacheRsp.wakeRob.valid setWhen(sq.mem.writeRd)
-          load.pipeline.cacheRsp.wakeRob.robId := robId
+          wakeRob.valid setWhen(sq.mem.writeRd)
 
           load.pipeline.cacheRsp.wakeRf.valid setWhen(sq.mem.writeRd)
           load.pipeline.cacheRsp.wakeRf.physical := sq.mem.physRd
