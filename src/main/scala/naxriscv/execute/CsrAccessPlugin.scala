@@ -20,6 +20,7 @@ object CsrAccessPlugin extends AreaObject{
   val CSR_WRITE = Stageable(Bool())
   val CSR_READ = Stageable(Bool())
   val CSR_VALUE = Stageable(Bits(XLEN bits))
+  val CSR_VALUE_TO_ALU = Stageable(Bits(XLEN bits))
   val ALU_INPUT = Stageable(Bits(XLEN bits))
   val ALU_MASK = Stageable(Bits(XLEN bits))
   val ALU_MASKED = Stageable(Bits(XLEN bits))
@@ -54,6 +55,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
   override def onDecodeRead = setup.onDecodeRead
   override def onDecodeWrite = setup.onDecodeWrite
   override def onDecodeAddress  = setup.onDecodeAddress
+  override def onReadToWriteBits = setup.onReadToWriteBits
 
   val setup = create early new Setup{
     val dispatch = getService[DispatchPlugin]
@@ -71,6 +73,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
     val onReadHalt  = False
     val onWriteHalt = False
 
+    val onReadToWriteBits = Bits(XLEN bits)
     val onWriteBits = Bits(XLEN bits)
     val onWriteAddress = UInt(12 bits)
     val onReadAddress  = UInt(12 bits)
@@ -215,6 +218,13 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
         }
         haltIt(ramReadPort.valid && !ramReadPort.ready)
       }
+
+      setup.onReadToWriteBits := CSR_VALUE
+      for ((csrFilter, elements) <- grouped) {
+        val onReadToWrite = elements.collect { case e: CsrOnReadToWrite => e }
+        if(onReadToWrite.nonEmpty)  when(onReadsDo  && sels(csrFilter)){ onReadToWrite.foreach(_.body()) }
+      }
+      CSR_VALUE_TO_ALU := setup.onReadToWriteBits
     }
 
     val writeLogic = new ExecuteArea(writeAt) {

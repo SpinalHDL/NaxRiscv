@@ -55,34 +55,28 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
     val stage = eu.getExecute(rescheduleAt)
     import stage._
 
-    val mretPriv = Frontend.MICRO_OP(29)
-    val sretPriv = Frontend.MICRO_OP(28)
-
-    val xretTrap = False
-    xretTrap setWhen(mretPriv && !priv.hasMachinePriv)
-    if(priv.implementSupervisor) xretTrap setWhen(sretPriv && !priv.hasSupervisorPriv)
-    xretTrap clearWhen(!XRET)
-
     setup.reschedule.valid      := isValid && (EBREAK || ECALL || XRET)
     setup.reschedule.robId      := ROB.ID
     setup.reschedule.tval       := B(PC).andMask(EBREAK) //That's what spike do
-    setup.reschedule.skipCommit := EBREAK || ECALL || xretTrap
+    setup.reschedule.skipCommit := EBREAK || ECALL
     setup.reschedule.reason     := ScheduleReason.ENV
     setup.reschedule.cause.assignDontCare()
 
+    val xretPriv = Frontend.MICRO_OP(29 downto 28).asUInt
     when(XRET){
-      setup.reschedule.cause      := CAUSE_XRET //the reschedule cause isn't the final value which will end up into XCAUSE csr
+      setup.reschedule.cause            := CAUSE_XRET //the reschedule cause isn't the final value which will end up into XCAUSE csr
+      setup.reschedule.tval(1 downto 0) := xretPriv.asBits
+      when(xretPriv < priv.getPrivilege()){
+        setup.reschedule.cause      := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
+        setup.reschedule.reason     := ScheduleReason.TRAP
+        setup.reschedule.skipCommit := True
+      }
     }
     when(EBREAK){
       setup.reschedule.cause      := CSR.MCAUSE_ENUM.BREAKPOINT
     }
     when(ECALL){
       setup.reschedule.cause      := CSR.MCAUSE_ENUM.ECALL_MACHINE //the reschedule cause isn't the final value which will end up into XCAUSE csr
-    }
-    when(xretTrap){
-      setup.reschedule.cause      := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
-      setup.reschedule.reason     := ScheduleReason.TRAP
-      setup.reschedule.skipCommit := True
     }
 
     eu.release()

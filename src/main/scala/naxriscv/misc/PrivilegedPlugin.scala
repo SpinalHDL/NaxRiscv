@@ -2,6 +2,7 @@ package naxriscv.misc
 
 import naxriscv.{Frontend, Global}
 import naxriscv.Global._
+import naxriscv.execute.EnvCallPlugin.CAUSE_XRET
 import naxriscv.execute.{CsrAccessPlugin, EnvCallPlugin}
 import naxriscv.fetch.{FetchPlugin, PcPlugin}
 import naxriscv.frontend.FrontendPlugin
@@ -44,6 +45,7 @@ case class PrivilegedConfig(withSupervisor : Boolean,
 class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedService{
   override def hasMachinePriv = setup.withMachinePrivilege
   override def hasSupervisorPriv = setup.withSupervisorPrivilege
+  override def getPrivilege() = setup.privilege
 
   override def implementSupervisor = p.withSupervisor
   override def implementUserTrap = p.withUserTrap
@@ -132,6 +134,15 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         val meie, mtie, msie = RegInit(False)
       }
 
+      val medeleg = new Area {
+        val iam, iaf, ii, lam, laf, sam, saf, eu, es, ipf, lpf, spf = RegInit(False)
+        val mapping = mutable.LinkedHashMap(0 -> iam, 1 -> iaf, 2 -> ii, 4 -> lam, 5 -> laf, 6 -> sam, 7 -> saf, 8 -> eu, 9 -> es, 12 -> ipf, 13 -> lpf, 15 -> spf)
+      }
+
+      val mideleg = new Area {
+        val st, se, ss = RegInit(False)
+      }
+
       val tvec    = csr.readWriteRam(CSR.MTVEC)
       val tval    = csr.readWriteRam(CSR.MTVAL)
       val epc     = csr.readWriteRam(CSR.MEPC)
@@ -155,10 +166,50 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     }
 
     val supervisor = p.withSupervisor generate new Area {
+      val cause = new Area{
+        val interrupt = RegInit(False)
+        val code = Reg(UInt(commit.rescheduleCauseWidth bits)) init(0)
+      }
+
+      val sstatus = new Area{
+        val sie, spie = RegInit(False)
+        val spp = RegInit(U"0")
+      }
+
+      val sip = new Area {
+        val seipSoft = RegInit(False)
+        val seipInput = RegNext(io.int.supervisor.external)
+        val seipOr = seipSoft || seipInput
+        val stip = RegInit(False)
+        val ssip = RegInit(False)
+      }
+
+      val sie = new Area{
+        val seie, stie, ssie = RegInit(False)
+      }
+
       val tvec    = csr.readWriteRam(CSR.STVEC)
       val tval    = csr.readWriteRam(CSR.STVAL)
       val epc     = csr.readWriteRam(CSR.SEPC)
       val scratch = csr.readWriteRam(CSR.SSCRATCH)
+
+      csr.readWrite(CSR.SCAUSE, XLEN-1 -> cause.interrupt, 0 -> cause.code)
+
+      for(offset <- List(CSR.MSTATUS, CSR.SSTATUS))  csr.readWrite(offset, 8 -> sstatus.spp, 5 -> sstatus.spie, 1 -> sstatus.sie)
+      for(offset <- List(CSR.MIP, CSR.SIP)){
+        csr.readWrite(offset, 5 -> sip.stip, 1 -> sip.ssip)
+        csr.read(offset,  9 -> sip.seipOr)
+        csr.write(offset,  9 -> sip.seipSoft)
+        csr.readToWrite(sip.seipSoft, offset, 9)
+      }
+      csr.readWrite(CSR.SIP, 3 -> sip.ssip)
+      csr.readWrite(CSR.SIE, 11 -> sie.seie, 7 -> sie.stie, 3 -> sie.ssie)
+
+      addInterrupt(sip.stip && sie.stie,    id = 5, privilege = 1, delegators = List(Delegator(machine.mideleg.st, 3)))
+      addInterrupt(sip.ssip && sie.ssie,    id = 1, privilege = 1, delegators = List(Delegator(machine.mideleg.ss, 3)))
+      addInterrupt(sip.seipOr && sie.seie,  id = 9, privilege = 1, delegators = List(Delegator(machine.mideleg.se, 3)))
+
+      for((id, enable) <- machine.medeleg.mapping) exceptionSpecs += ExceptionSpec(id, List(Delegator(enable, 3)))
     }
 
     val userTrap = p.withUserTrap generate new Area {
@@ -168,14 +219,47 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       val scratch = csr.readWriteRam(CSR.USCRATCH)
     }
 
-//    val privilege = UInt(2 bits)
-//    privilege(1) := setup.machinePrivilege
-//    privilege(0) := (if(p.withSupervisor) setup.supervisorPrivilege else setup.machinePrivilege)
-//    privilege.freeze()
-
     csr.release()
     ram.allocationLock.release()
 
+
+
+    val rescheduleUnbuffered = Stream(new Bundle{
+      val cause      = UInt(commit.rescheduleCauseWidth bits)
+      val epc        = PC()
+      val tval       = Bits(Global.XLEN bits)
+    })
+    val reschedule = rescheduleUnbuffered.stage()
+
+    val cr = commit.reschedulingPort()
+    rescheduleUnbuffered.valid := cr.valid && cr.trap
+    rescheduleUnbuffered.cause := cr.cause
+    rescheduleUnbuffered.epc   := rob.readAsyncSingle(Global.PC, cr.robId)
+    rescheduleUnbuffered.tval  := cr.tval
+
+    val dt = decoder.getTrap()
+    when(dt.valid) {
+      rescheduleUnbuffered.valid := True
+      rescheduleUnbuffered.cause := dt.cause
+      rescheduleUnbuffered.epc   := dt.epc
+      rescheduleUnbuffered.tval  := dt.tval
+    }
+
+    assert(!rescheduleUnbuffered.isStall)
+
+
+    val targetMachine = True
+
+    val readed = Reg(Bits(Global.XLEN bits))
+
+    reschedule.ready := False
+    setup.ramWrite.valid := False
+    setup.ramWrite.address.assignDontCare()
+    setup.ramWrite.data.assignDontCare()
+    setup.ramRead.valid := False
+    setup.ramRead.address.assignDontCare()
+    setup.jump.valid := False
+    setup.jump.pc.assignDontCare()
 
 
     //Process interrupt request, code and privilege
@@ -219,45 +303,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       }
     }
 
-
-    val rescheduleUnbuffered = Stream(new Bundle{
-      val cause      = UInt(commit.rescheduleCauseWidth bits)
-      val epc        = PC()
-      val tval       = Bits(Global.XLEN bits)
-    })
-    val reschedule = rescheduleUnbuffered.stage()
-
-    val cr = commit.reschedulingPort()
-    rescheduleUnbuffered.valid := cr.valid && cr.trap
-    rescheduleUnbuffered.cause := cr.cause
-    rescheduleUnbuffered.epc   := rob.readAsyncSingle(Global.PC, cr.robId)
-    rescheduleUnbuffered.tval  := cr.tval
-
-    val dt = decoder.getTrap()
-    when(dt.valid) {
-      rescheduleUnbuffered.valid := True
-      rescheduleUnbuffered.cause := dt.cause
-      rescheduleUnbuffered.epc   := dt.epc
-      rescheduleUnbuffered.tval  := dt.tval
-    }
-
-    assert(!rescheduleUnbuffered.isStall)
-
-
-    val targetMachine = True
-
-    val readed = Reg(Bits(Global.XLEN bits))
-
-    reschedule.ready := False
-    setup.ramWrite.valid := False
-    setup.ramWrite.address.assignDontCare()
-    setup.ramWrite.data.assignDontCare()
-    setup.ramRead.valid := False
-    setup.ramRead.address.assignDontCare()
-    setup.jump.valid := False
-    setup.jump.pc.assignDontCare()
-
-    val decoderTrap = new Area{
+    val decoderInterrupt = new Area{
       val raised = RegInit(False)
       val pendingInterrupt = RegNext(interrupt.valid) init(False)
       val counter = Reg(UInt(3 bits)) init(0) //Implement a little delay to ensure propagation of everthing in the calculation of the interrupt
@@ -284,21 +330,50 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     }
 
 
-    val trapContext = new Area{
-      val fire      = False
-      val code      = decoderTrap.raised ? decoderTrap.buffer.code | reschedule.cause
-      val interrupt = decoderTrap.raised
+    val exception = new Area{
+      val exceptionTargetPrivilegeUncapped = U"11"
+
+      val code = CombInit(reschedule.cause)
+      when(reschedule.cause === CSR.MCAUSE_ENUM.ECALL_MACHINE){
+        code(1 downto 0) := setup.privilege
+      }
+
+      switch(code){
+        for(s <- exceptionSpecs){
+          is(s.id){
+            var exceptionPrivilegs = if (p.withSupervisor) List(1, 3) else List(3)
+            while(exceptionPrivilegs.length != 1){
+              val p = exceptionPrivilegs.head
+              if (exceptionPrivilegs.tail.forall(e => s.delegators.exists(_.privilege == e))) {
+                val delegUpOn = s.delegators.filter(_.privilege > p).map(_.enable).fold(True)(_ && _)
+                val delegDownOff = !s.delegators.filter(_.privilege <= p).map(_.enable).orR
+                when(delegUpOn && delegDownOff) {
+                  exceptionTargetPrivilegeUncapped := p
+                }
+              }
+              exceptionPrivilegs = exceptionPrivilegs.tail
+            }
+          }
+        }
+      }
+
+      val targetPrivilege = setup.privilege.max(exceptionTargetPrivilegeUncapped)
     }
+
 
     val fsm = new StateMachine{
       val IDLE, SETUP, EPC_WRITE, TVAL_WRITE, EPC_READ, TVEC_READ, XRET = new State()
       setEntry(IDLE)
 
-      val cause = Reg(UInt(commit.rescheduleCauseWidth bits))
-      val interrupt = Reg(Bool())
+      val trap = new Area{
+        val fire  = False
+        val interrupt = Reg(Bool())
+        val code      = Reg(UInt(commit.rescheduleCauseWidth bits))
+        val targetPrivilege = Reg(UInt(2 bits))
+      }
 
       IDLE.onEntry{
-        decoderTrap.raised := False
+        decoderInterrupt.raised := False
       }
       IDLE.whenIsActive{
         reschedule.ready := True
@@ -307,12 +382,18 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         }
       }
       SETUP.whenIsActive{
-        when(decoderTrap.raised){
+        when(decoderInterrupt.raised){
+          trap.interrupt := True
+          trap.code := decoderInterrupt.buffer.code
+          trap.targetPrivilege := decoderInterrupt.buffer.targetPrivilege
           goto(TVEC_READ)
         } otherwise {
-          when(reschedule.cause === EnvCallPlugin.CAUSE_XRET) {
+          when(reschedule.cause === CAUSE_XRET) {
             goto(EPC_READ)
           } otherwise {
+            trap.interrupt := False
+            trap.code := exception.code
+            trap.targetPrivilege := exception.targetPrivilege
             goto(TVEC_READ)
           }
         }
@@ -337,7 +418,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         setup.ramWrite.valid   := True
         setup.ramWrite.address := machine.tval.getAddress()
         setup.ramWrite.data    := reschedule.tval
-        when(decoderTrap.raised){ setup.ramWrite.data    := 0 }
+        when(decoderInterrupt.raised){ setup.ramWrite.data    := 0 }
         when(setup.ramWrite.ready){
           goto(EPC_WRITE)
         }
@@ -349,61 +430,48 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         setup.jump.pc := U(readed) //TODO mask
         when(setup.ramWrite.ready){
           setup.jump.valid := True
-          trapContext.fire := True
+          trap.fire := True
+          setup.privilege := trap.targetPrivilege
+          switch(trap.targetPrivilege){
+            is(3){
+              machine.mstatus.mie  := False
+              machine.mstatus.mpie := machine.mstatus.mie
+              machine.mstatus.mpp  := setup.privilege
 
-          machine.mstatus.mie  := False
-          machine.mstatus.mpie := machine.mstatus.mie
-          machine.mstatus.mpp  := setup.privilege
+              machine.cause.interrupt := trap.interrupt
+              machine.cause.code      := trap.code
+            }
+            p.withSupervisor generate is(1){
+              supervisor.sstatus.sie  := False
+              supervisor.sstatus.spie := machine.mstatus.mie
+              supervisor.sstatus.spp  := setup.privilege(0, 1 bits)
 
-//TODO
-//          if(privilegeGen) privilegeReg := targetPrivilege
-//
-//          switch(targetPrivilege){
-//            if(supervisorGen) is(1) {
-//              sstatus.SIE := False
-//              sstatus.SPIE := sstatus.SIE
-//              sstatus.SPP := privilege(0 downto 0)
-//              scause.interrupt := !hadexception
-//              scause.exceptionCode := trapCause
-//              sepc := mepcCaptureStage.input(PC)
-//              if (exceptionPortCtrl != null) when(hadException){
-//                stval := exceptionPortCtrl.exceptionContext.badAddr
-//              }
-//            }
-//
-//            is(3){
-//              mstatus.MIE  := False
-//              mstatus.MPIE := mstatus.MIE
-//              mstatus.MPP  := privilege
-//              mcause.interrupt := !hadException
-//              mcause.exceptionCode := trapCause
-//              mepc := mepcCaptureStage.input(PC)
-//              if(exceptionportctrl != null) when(hadexception){
-//                mtval := exceptionPortCtrl.exceptionContext.badAddr
-//              }
-//            }
-
-          machine.cause.interrupt := trapContext.interrupt
-          machine.cause.code      := trapContext.code
-
+              supervisor.cause.interrupt := trap.interrupt
+              supervisor.cause.code      := trap.code
+            }
+          }
           goto(IDLE)
         }
       }
       XRET.whenIsActive{
         setup.jump.valid := True
         setup.jump.pc    := U(readed)
-//TODO
-        machine.mstatus.mpp := 0
-        machine.mstatus.mie := machine.mstatus.mpie
-        machine.mstatus.mpie := True
-        setup.privilege := machine.mstatus.mpp
 
-//TODO
-//        sstatus.SPP := U"0"
-//        sstatus.SIE := sstatus.SPIE
-//        sstatus.SPIE := True
-//        jumpInterface.payload := sepc
-//        if(privilegeGen) privilegeReg := U"0" @@ sstatus.SPP
+        switch(reschedule.tval(1 downto 0)){
+          is(3){
+            machine.mstatus.mpp := 0
+            machine.mstatus.mie := machine.mstatus.mpie
+            machine.mstatus.mpie := True
+            setup.privilege := machine.mstatus.mpp
+          }
+          p.withSupervisor generate is(1){
+            supervisor.sstatus.spp  := U"0"
+            supervisor.sstatus.sie  := supervisor.sstatus.spie
+            supervisor.sstatus.spie := True
+            setup.privilege         := U"0" @@ supervisor.sstatus.spp
+          }
+        }
+
         goto(IDLE)
       }
       fetch.getStage(0).haltIt(rescheduleUnbuffered.valid || !isActive(IDLE))
@@ -412,9 +480,9 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
 
     val whitebox = new AreaRoot{
       val trap = new Area{
-        val fire      = Verilator.public(CombInit(trapContext.fire     ))
-        val code      = Verilator.public(CombInit(trapContext.code     ))
-        val interrupt = Verilator.public(CombInit(trapContext.interrupt))
+        val fire      = Verilator.public(CombInit(fsm.trap.fire     ))
+        val code      = Verilator.public(CombInit(fsm.trap.code     ))
+        val interrupt = Verilator.public(CombInit(fsm.trap.interrupt))
       }
     }
 

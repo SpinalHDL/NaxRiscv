@@ -386,6 +386,7 @@ class CsrSpec(val csrFilter : Any){
 //  }
 }
 case class CsrOnRead (override val csrFilter : Any, onlyOnFire : Boolean, body : () => Unit) extends CsrSpec(csrFilter)
+case class CsrOnReadToWrite (override val csrFilter : Any, body : () => Unit) extends CsrSpec(csrFilter) //Allow the fancy supervisor external interrupt logic
 case class CsrOnWrite(override val csrFilter : Any, onlyOnFire : Boolean, body : () => Unit) extends CsrSpec(csrFilter)
 case class CsrOnReadData (override val csrFilter : Any, bitOffset : Int, value : Data) extends CsrSpec(csrFilter)
 case class CsrOnDecode (override val csrFilter : Any, priority : Int, body : () => Unit) extends CsrSpec(csrFilter)
@@ -396,6 +397,7 @@ case class CsrListFilter(mapping : List[Int]) extends Nameable
 trait CsrService extends Service with LockedImpl{
   val spec = ArrayBuffer[CsrSpec]()
   def onRead (csrFilter : Any, onlyOnFire : Boolean)(body : => Unit) = spec += CsrOnRead(csrFilter, onlyOnFire, () => body)
+  def onReadToWrite (csrFilter : Any)(body : => Unit) = spec += CsrOnReadToWrite(csrFilter, () => body)
   def onWrite(csrFilter : Any, onlyOnFire : Boolean)(body : => Unit) = spec += CsrOnWrite(csrFilter, onlyOnFire, () => body)
   def onReadHalt() : Unit
   def onWriteHalt() : Unit
@@ -411,6 +413,8 @@ trait CsrService extends Service with LockedImpl{
   def onDecodeRead : Bool
   def onDecodeWrite : Bool
   def onDecodeAddress : UInt
+
+  def onReadToWriteBits : Bits
 
   def readWrite(alloc : CsrRamAllocation, filters : Any) = spec += CsrRamSpec(filters, alloc)
   def readWriteRam(filters : Int) = {
@@ -432,6 +436,12 @@ trait CsrService extends Service with LockedImpl{
   def readWrite[T <: Data](value : T, csrId : Int, bitOffset : Int = 0) : Unit = {
     read(value, csrId, bitOffset)
     write(value, csrId, bitOffset)
+  }
+
+  def readToWrite[T <: Data](value : T, csrFilter : Any, bitOffset : Int = 0) : Unit = {
+    onReadToWrite(csrFilter){
+      onReadToWriteBits(bitOffset, widthOf(value) bits) := value.asBits
+    }
   }
 
   def readWrite(csrAddress : Int, thats : (Int, Data)*) : Unit = for(that <- thats) readWrite(that._2, csrAddress, that._1)
@@ -484,6 +494,7 @@ trait CsrRamService extends Service {
 trait PrivilegedService extends Service{
   def hasMachinePriv : Bool
   def hasSupervisorPriv : Bool
+  def getPrivilege() : UInt
 
   def implementSupervisor : Boolean
   def implementUserTrap : Boolean
