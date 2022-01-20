@@ -213,7 +213,7 @@ naxSoftware = [
 ]
 
 naxSoftwareRegular = [
-    "machine", "dhrystone"
+    "machine", "supervisor", "dhrystone"
 ]
 
 

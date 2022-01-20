@@ -433,6 +433,9 @@ trait CsrService extends Service with LockedImpl{
   def write[T <: Data](value : T, csrId : Int, bitOffset : Int = 0) : Unit = {
     onWrite(csrId, true){ value.assignFromBits(onWriteBits(bitOffset, widthOf(value) bits)) }
   }
+  def writeWhen[T <: Data](value : T, cond : Bool, csrId : Int, bitOffset : Int = 0) : Unit = {
+    onWrite(csrId, true){ when(cond) { value.assignFromBits(onWriteBits(bitOffset, widthOf(value) bits)) }}
+  }
   def readWrite[T <: Data](value : T, csrId : Int, bitOffset : Int = 0) : Unit = {
     read(value, csrId, bitOffset)
     write(value, csrId, bitOffset)

@@ -11,7 +11,7 @@ import naxriscv.interfaces.{CommitService, CsrListFilter, DecoderService, Privil
 import naxriscv.riscv.CSR
 import spinal.core._
 import spinal.lib._
-import naxriscv.utilities.Plugin
+import naxriscv.utilities.{DocPlugin, Plugin}
 import spinal.lib.fsm._
 import spinal.lib.pipeline.StageableOffset
 
@@ -20,8 +20,8 @@ import scala.collection.mutable.ArrayBuffer
 
 object PrivilegedConfig{
   def full = PrivilegedConfig(
-    withSupervisor = false,
-    withUser       = false,
+    withSupervisor = true,
+    withUser       = true,
     withUserTrap   = false,
     vendorId       = 0,
     archId         = 0,
@@ -95,6 +95,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     val frontend = setup.frontend
     val decoder = getService[DecoderService]
     val commit = getService[CommitService]
+    val doc = getService[DocPlugin]
 
 
     case class Delegator(var enable : Bool, privilege : Int)
@@ -134,7 +135,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         val meie, mtie, msie = RegInit(False)
       }
 
-      val medeleg = new Area {
+      val medeleg = p.withSupervisor generate new Area {
         val iam, iaf, ii, lam, laf, sam, saf, eu, es, ipf, lpf, spf = RegInit(False)
         val mapping = mutable.LinkedHashMap(0 -> iam, 1 -> iaf, 2 -> ii, 4 -> lam, 5 -> laf, 6 -> sam, 7 -> saf, 8 -> eu, 9 -> es, 12 -> ipf, 13 -> lpf, 15 -> spf)
       }
@@ -156,9 +157,13 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
 
       csr.readWrite(CSR.MCAUSE, XLEN-1 -> cause.interrupt, 0 -> cause.code)
       csr.readWrite(CSR.MSTATUS, 11 -> mstatus.mpp, 7 -> mstatus.mpie, 3 -> mstatus.mie)
-      csr.read     (CSR.MIP, 11 -> mip.meip, 7 -> mip.mtip)
-      csr.readWrite(CSR.MIP, 3 -> mip.msip)
+      csr.read     (CSR.MIP, 11 -> mip.meip, 7 -> mip.mtip, 3 -> mip.msip)
       csr.readWrite(CSR.MIE, 11 -> mie.meie, 7 -> mie.mtie, 3 -> mie.msie)
+
+      if(p.withSupervisor) {
+        for((id, enable) <- medeleg.mapping) csr.readWrite(CSR.MEDELEG, id -> enable)
+        csr.readWrite(CSR.MIDELEG, 9 -> mideleg.se, 5 -> mideleg.st, 1 -> mideleg.ss)
+      }
 
       addInterrupt(mip.mtip && mie.mtie, id = 7,  privilege = 3, delegators = Nil)
       addInterrupt(mip.msip && mie.msie, id = 3,  privilege = 3, delegators = Nil)
@@ -182,6 +187,10 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         val seipOr = seipSoft || seipInput
         val stip = RegInit(False)
         val ssip = RegInit(False)
+
+        val seipMasked = seipOr && machine.mideleg.se
+        val stipMasked = stip   && machine.mideleg.st
+        val ssipMasked = ssip   && machine.mideleg.ss
       }
 
       val sie = new Area{
@@ -196,17 +205,26 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       csr.readWrite(CSR.SCAUSE, XLEN-1 -> cause.interrupt, 0 -> cause.code)
 
       for(offset <- List(CSR.MSTATUS, CSR.SSTATUS))  csr.readWrite(offset, 8 -> sstatus.spp, 5 -> sstatus.spie, 1 -> sstatus.sie)
-      for(offset <- List(CSR.MIP, CSR.SIP)){
-        csr.readWrite(offset, 5 -> sip.stip, 1 -> sip.ssip)
-        csr.read(offset,  9 -> sip.seipOr)
-        csr.write(offset,  9 -> sip.seipSoft)
-        csr.readToWrite(sip.seipSoft, offset, 9)
-      }
-      csr.readWrite(CSR.SIP, 3 -> sip.ssip)
-      csr.readWrite(CSR.SIE, 11 -> sie.seie, 7 -> sie.stie, 3 -> sie.ssie)
 
-      addInterrupt(sip.stip && sie.stie,    id = 5, privilege = 1, delegators = List(Delegator(machine.mideleg.st, 3)))
+      def mapMie(machineCsr : Int, supervisorCsr : Int, bitId : Int, reg : Bool, machineDeleg : Bool, sWrite : Boolean = true): Unit ={
+        csr.read(reg, machineCsr, bitId)
+        csr.write(reg, machineCsr, bitId)
+        csr.read(reg && machineDeleg, supervisorCsr, bitId)
+        if(sWrite) csr.writeWhen(reg, machineDeleg, supervisorCsr, bitId)
+      }
+      mapMie(CSR.MIE, CSR.SIE, 9, sie.seie, machine.mideleg.se)
+      mapMie(CSR.MIE, CSR.SIE, 5, sie.stie, machine.mideleg.st)
+      mapMie(CSR.MIE, CSR.SIE, 1, sie.ssie, machine.mideleg.ss)
+
+      csr.read(sip.seipOr, CSR.MIP, 9)
+      csr.write(sip.seipSoft, CSR.MIP, 9)
+      csr.read(sip.seipOr && machine.mideleg.se, CSR.SIP, 9)
+      mapMie(CSR.MIP, CSR.SIP, 5, sip.stip, machine.mideleg.st, sWrite = false)
+      mapMie(CSR.MIP, CSR.SIP, 1, sip.ssip, machine.mideleg.ss)
+
+
       addInterrupt(sip.ssip && sie.ssie,    id = 1, privilege = 1, delegators = List(Delegator(machine.mideleg.ss, 3)))
+      addInterrupt(sip.stip && sie.stie,    id = 5, privilege = 1, delegators = List(Delegator(machine.mideleg.st, 3)))
       addInterrupt(sip.seipOr && sie.seie,  id = 9, privilege = 1, delegators = List(Delegator(machine.mideleg.se, 3)))
 
       for((id, enable) <- machine.medeleg.mapping) exceptionSpecs += ExceptionSpec(id, List(Delegator(enable, 3)))
@@ -276,7 +294,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
 
       if (p.withSupervisor) {
         privilegs = 1 :: privilegs
-        ??? // privilegeAllowInterrupts += 1 -> ((sstatus.SIE && !setup.machinePrivilege) || !setup.supervisorPrivilege)
+        privilegeAllowInterrupts += 1 -> ((supervisor.sstatus.sie && !setup.withMachinePrivilege) || !setup.withSupervisorPrivilege)
       }
 
       if (p.withUserTrap) {
@@ -380,7 +398,8 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       }
 
       val xret = new Area{
-        val targetPrivilege = privilegeMux(reschedule.tval(1 downto 0).asUInt)(
+        val sourcePrivilege = reschedule.tval(1 downto 0).asUInt
+        val targetPrivilege = privilegeMux(sourcePrivilege)(
           machine.mstatus.mpp,
           U"0" @@ supervisor.sstatus.spp
         )
@@ -414,7 +433,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       }
       EPC_READ.whenIsActive{
         setup.ramRead.valid   := True
-        setup.ramRead.address := privilegeMux(xret.targetPrivilege)(
+        setup.ramRead.address := privilegeMux(xret.sourcePrivilege)(
           machine.epc.getAddress(),
           supervisor.epc.getAddress()
         )
@@ -469,7 +488,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
             }
             p.withSupervisor generate is(1){
               supervisor.sstatus.sie  := False
-              supervisor.sstatus.spie := machine.mstatus.mie
+              supervisor.sstatus.spie := supervisor.sstatus.sie
               supervisor.sstatus.spp  := setup.privilege(0, 1 bits)
 
               supervisor.cause.interrupt := trap.interrupt
@@ -510,6 +529,9 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         val interrupt = Verilator.public(CombInit(fsm.trap.interrupt))
       }
     }
+
+
+    doc.property("SUPERVISOR", p.withSupervisor.toInt)
 
     frontend.release()
     fetch.release()
