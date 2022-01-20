@@ -94,6 +94,7 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
     val fsm = new StateMachine{
       val IDLE, READ_LOW, CALC, WRITE_LOW = new State
       val READ_HIGH, WRITE_HIGH = withHigh generate new State
+      val CSR_WRITE = new State
       setEntry(IDLE)
 
       val csrReadCmd, flusherCmd = Stream(new Bundle {
@@ -138,22 +139,30 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
           done := False
           goto(READ_LOW)
         } elsewhen(csrWriteCmd.valid){
-          writePort.valid := True
-          writePort.address := allocation.getAddress(csrWriteCmd.address.resized)
-          if(withHigh) writePort.address(log2Up(counterCount)) := csrWriteCmd.high
-          writePort.data := csr.onWriteBits
-          when(!csrWriteCmd.high) {
-            whenIndexed(counters, csrWriteCmd.address) { slot =>
-              if(!slot.dummy) {
-                slot.value := csr.onWriteBits.asUInt.resized
-                slot.value.msb := False
-              }
-            }
-          }
-          csrWriteCmd.ready := writePort.ready
-          ignoreNextCommit setWhen(csrWriteCmd.address === 2) // && (if(withHigh) !csrWriteCmd.high else True)
+          goto(CSR_WRITE)
         }
       }
+
+      CSR_WRITE whenIsActive {
+        writePort.valid := True
+        writePort.address := allocation.getAddress(csrWriteCmd.address.resized)
+        if(withHigh) writePort.address(log2Up(counterCount)) := csrWriteCmd.high
+        writePort.data := csr.onWriteBits
+        when(!csrWriteCmd.high) {
+          whenIndexed(counters, csrWriteCmd.address) { slot =>
+            if(!slot.dummy) {
+              slot.value := csr.onWriteBits.asUInt.resized
+              slot.value.msb := False
+            }
+          }
+        }
+        ignoreNextCommit setWhen(csrWriteCmd.address === 2) // && (if(withHigh) !csrWriteCmd.high else True)
+        when(writePort.ready){
+          csrWriteCmd.ready := True
+          goto(IDLE)
+        }
+      }
+
       READ_LOW.whenIsActive{
         readPort.valid := True
         ramReaded(0, XLEN bits) := U(readPort.data)
