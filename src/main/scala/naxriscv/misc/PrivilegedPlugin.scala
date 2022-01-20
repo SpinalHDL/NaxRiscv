@@ -42,8 +42,8 @@ case class PrivilegedConfig(withSupervisor : Boolean,
 
 
 class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedService{
-  override def hasMachinePriv = setup.machinePrivilege
-  override def hasSupervisorPriv = setup.supervisorPrivilege
+  override def hasMachinePriv = setup.withMachinePrivilege
+  override def hasSupervisorPriv = setup.withSupervisorPrivilege
 
   override def implementSupervisor = p.withSupervisor
   override def implementUserTrap = p.withUserTrap
@@ -80,8 +80,9 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     val ramRead  = ram.ramReadPort()
     val ramWrite = ram.ramWritePort()
 
-    val machinePrivilege    = RegInit(True)
-    val supervisorPrivilege = implementSupervisor generate RegInit(True)
+    val privilege = RegInit(U"11")
+    val withMachinePrivilege    = privilege >= U"11"
+    val withSupervisorPrivilege = privilege >= U"01"
   }
 
   val logic = create late new Area{
@@ -104,6 +105,14 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       interruptSpecs += InterruptSpec(cond, id, privilege, delegators)
     }
 
+
+    val defaultTrap = new Area{
+      val csrPrivilege = csr.onDecodeAddress(8, 2 bits)
+      val csrReadOnly  = csr.onDecodeAddress(10, 2 bits).andR
+      when(csrReadOnly && csr.onDecodeWrite || csrPrivilege > setup.privilege){
+        csr.onDecodeTrap()
+      }
+    }
 
     val machine = new Area {
       val cause = new Area{
@@ -128,11 +137,11 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       val epc     = csr.readWriteRam(CSR.MEPC)
       val scratch = csr.readWriteRam(CSR.MSCRATCH)
 
-      csr.readOnly(U(p.vendorId),CSR.MVENDORID) // MRO Vendor ID.
-      csr.readOnly(U(p.archId),  CSR.MARCHID) // MRO Architecture ID.
-      csr.readOnly(U(p.impId),   CSR.MIMPID) // MRO Implementation ID.
-      csr.readOnly(U(p.hartId),  CSR.MHARTID) // MRO Hardware thread ID.Machine Trap Setup
-//      csr.readOnly(CSR.MISA     , p.vendorId) // MRW ISA and extensions
+      csr.read(U(p.vendorId),CSR.MVENDORID) // MRO Vendor ID.
+      csr.read(U(p.archId),  CSR.MARCHID) // MRO Architecture ID.
+      csr.read(U(p.impId),   CSR.MIMPID) // MRO Implementation ID.
+      csr.read(U(p.hartId),  CSR.MHARTID) // MRO Hardware thread ID.Machine Trap Setup
+//      csr.read(CSR.MISA     , p.vendorId) // MRW ISA and extensions
 
       csr.readWrite(CSR.MCAUSE, XLEN-1 -> cause.interrupt, 0 -> cause.code)
       csr.readWrite(CSR.MSTATUS, 11 -> mstatus.mpp, 7 -> mstatus.mpie, 3 -> mstatus.mie)
@@ -140,8 +149,8 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       csr.readWrite(CSR.MIP, 3 -> mip.msip)
       csr.readWrite(CSR.MIE, 11 -> mie.meie, 7 -> mie.mtie, 3 -> mie.msie)
 
-      addInterrupt(mip.mtip && mie.mtie, id = 7,  privilege = 3,  delegators = Nil)
-      addInterrupt(mip.msip && mie.msie, id = 3,  privilege = 3,  delegators = Nil)
+      addInterrupt(mip.mtip && mie.mtie, id = 7,  privilege = 3, delegators = Nil)
+      addInterrupt(mip.msip && mie.msie, id = 3,  privilege = 3, delegators = Nil)
       addInterrupt(mip.meip && mie.meie, id = 11, privilege = 3, delegators = Nil)
     }
 
@@ -159,10 +168,10 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       val scratch = csr.readWriteRam(CSR.USCRATCH)
     }
 
-    val privilege = UInt(2 bits)
-    privilege(1) := setup.machinePrivilege
-    privilege(0) := (if(p.withSupervisor) setup.supervisorPrivilege else setup.machinePrivilege)
-    privilege.freeze()
+//    val privilege = UInt(2 bits)
+//    privilege(1) := setup.machinePrivilege
+//    privilege(0) := (if(p.withSupervisor) setup.supervisorPrivilege else setup.machinePrivilege)
+//    privilege.freeze()
 
     csr.release()
     ram.allocationLock.release()
@@ -179,7 +188,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       var privilegs: List[Int] = Nil
 
       privilegs = List(3)
-      privilegeAllowInterrupts += 3 -> (machine.mstatus.mie || !setup.machinePrivilege)
+      privilegeAllowInterrupts += 3 -> (machine.mstatus.mie || !setup.withMachinePrivilege)
 
       if (p.withSupervisor) {
         privilegs = 1 :: privilegs
@@ -344,7 +353,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
 
           machine.mstatus.mie  := False
           machine.mstatus.mpie := machine.mstatus.mie
-          machine.mstatus.mpp  := privilege
+          machine.mstatus.mpp  := setup.privilege
 
 //TODO
 //          if(privilegeGen) privilegeReg := targetPrivilege
@@ -387,8 +396,8 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         machine.mstatus.mpp := 0
         machine.mstatus.mie := machine.mstatus.mpie
         machine.mstatus.mpie := True
-        setup.machinePrivilege := machine.mstatus.mpp(1)
-        if(p.withSupervisor) setup.supervisorPrivilege := machine.mstatus.mpp(0)
+        setup.privilege := machine.mstatus.mpp
+
 //TODO
 //        sstatus.SPP := U"0"
 //        sstatus.SIE := sstatus.SPIE

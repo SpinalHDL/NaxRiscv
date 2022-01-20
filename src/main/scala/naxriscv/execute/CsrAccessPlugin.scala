@@ -19,8 +19,6 @@ object CsrAccessPlugin extends AreaObject{
   val CSR_CLEAR = Stageable(Bool())
   val CSR_WRITE = Stageable(Bool())
   val CSR_READ = Stageable(Bool())
-  val CSR_READ_TRAP = Stageable(Bool())
-  val CSR_WRITE_TRAP = Stageable(Bool())
   val CSR_VALUE = Stageable(Bits(XLEN bits))
   val ALU_INPUT = Stageable(Bits(XLEN bits))
   val ALU_MASK = Stageable(Bits(XLEN bits))
@@ -28,6 +26,7 @@ object CsrAccessPlugin extends AreaObject{
   val ALU_RESULT = Stageable(Bits(XLEN bits))
   val RAM_SEL    = Stageable(Bool())
   val CSR_IMPLEMENTED = Stageable(Bool())
+  val CSR_TRAP = Stageable(Bool())
 }
 
 class CsrAccessPlugin(euId: String)(decodeAt: Int,
@@ -39,8 +38,6 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
 
   override def onReadHalt()   = setup.onReadHalt   := True
   override def onWriteHalt()  = setup.onWriteHalt  := True
-  override def onReadTrap()  = setup.onReadTrap  := True
-  override def onWriteTrap() = setup.onWriteTrap := True
   override def onWriteBits = setup.onWriteBits
   override def onWriteAddress = setup.onWriteAddress
   override def onReadAddress  = setup.onReadAddress
@@ -48,7 +45,15 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
   override def onWriteMovingOff = setup.onWriteMovingOff
   override def getCsrRam() = getService[CsrRamService]
 
+
+
   import CsrAccessPlugin._
+
+  override def onDecodeTrap() = setup.onDecodeTrap := True
+  override def onDecodeUntrap() = setup.onDecodeTrap := False
+  override def onDecodeRead = setup.onDecodeRead
+  override def onDecodeWrite = setup.onDecodeWrite
+  override def onDecodeAddress  = setup.onDecodeAddress
 
   val setup = create early new Setup{
     val dispatch = getService[DispatchPlugin]
@@ -58,11 +63,14 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
     }
     assert(getServicesOf[CsrService].size == 1)
 
+    val onDecodeTrap = False
+    val onDecodeRead  = Bool()
+    val onDecodeWrite = Bool()
+    val onDecodeAddress = UInt(12 bits)
 
     val onReadHalt  = False
     val onWriteHalt = False
-    val onReadTrap  = False
-    val onWriteTrap = False
+
     val onWriteBits = Bits(XLEN bits)
     val onWriteAddress = UInt(12 bits)
     val onReadAddress  = UInt(12 bits)
@@ -125,6 +133,21 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       CSR_READ := !(!CSR_MASK && !decoder.WRITE_RD)
       CSR_IMPLEMENTED := sels.values.map(stage(_)).toSeq.orR
 
+      setup.onDecodeRead := CSR_READ
+      setup.onDecodeWrite := CSR_WRITE
+      CSR_TRAP := !CSR_IMPLEMENTED || setup.onDecodeTrap
+
+      setup.onDecodeAddress := U(MICRO_OP)(Const.csrRange)
+      val priorities = spec.collect{ case e : CsrOnDecode  => e.priority }.distinct.sorted
+      for(priority <- priorities) {
+        for ((csrFilter, elements) <- grouped) {
+          val onDecodes = elements.collect { case e: CsrOnDecode if e.priority == priority => e }
+          if (onDecodes.nonEmpty) when(sels(csrFilter)) {
+            onDecodes.foreach(_.body())
+          }
+        }
+      }
+
       val ram = useRam generate new Area{
         ramReadPort.get //Ensure the ram port is generated
         RAM_ADDRESS.assignDontCare()
@@ -149,15 +172,12 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       import stage._
 
       setup.onReadAddress := U(MICRO_OP)(Const.csrRange)
-      CSR_READ_TRAP := setup.onReadTrap
-      val onReadsDo = isValid && SEL && CSR_READ
-      val onReadsFireDo = isFireing && SEL && CSR_READ && !CSR_READ_TRAP
+      val onReadsDo = isValid && SEL && !CSR_TRAP && CSR_READ
+      val onReadsFireDo = isFireing && SEL && !CSR_TRAP && CSR_READ
       setup.onReadMovingOff := stage.isReady || stage.isFlushed
 
       haltIt(setup.onReadHalt)
-      when(isValid && SEL && !CSR_IMPLEMENTED){
-        onReadTrap()
-      }
+
 
       val groupedLogic = for ((csrFilter, elements) <- grouped) yield new Area{
         setPartialName(filterToName(csrFilter))
@@ -210,10 +230,8 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       setup.onWriteBits := ALU_RESULT
       setup.onWriteAddress := U(MICRO_OP)(Const.csrRange)
 
-      CSR_WRITE_TRAP := setup.onWriteTrap
-
-      val onWritesDo = isValid && SEL && CSR_WRITE && !CSR_READ_TRAP
-      val onWritesFireDo = isFireing && SEL && CSR_WRITE && !CSR_WRITE_TRAP && !CSR_READ_TRAP
+      val onWritesDo = isValid && SEL && !CSR_TRAP && CSR_WRITE
+      val onWritesFireDo = isFireing && SEL && !CSR_TRAP && CSR_WRITE
 
       haltIt(setup.onWriteHalt)
 
@@ -230,7 +248,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
 
       val ramWrite = useRamRead generate new Area {
         val fired = RegInit(False) setWhen(ramWritePort.fire) clearWhen(isReady || isFlushed)
-        ramWritePort.valid := onWritesDo && RAM_SEL && !fired && !CSR_WRITE_TRAP
+        ramWritePort.valid := onWritesDo && RAM_SEL && !fired
         ramWritePort.address := RAM_ADDRESS
         ramWritePort.data := setup.onWriteBits
         haltIt(ramWritePort.valid && !ramWritePort.ready)
@@ -241,7 +259,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       import stage._
       wb.payload := CSR_VALUE
 
-      setup.trap.valid      := isValid && (CSR_READ_TRAP || CSR_WRITE_TRAP)
+      setup.trap.valid      := isValid && SEL && CSR_TRAP
       setup.trap.robId      := ROB.ID
       setup.trap.cause      := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
       setup.trap.tval       := MICRO_OP
@@ -260,7 +278,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
         val writeDone = Bool()
         val readDone = Bool()
       }))
-      csrAccess.valid := isFireing && SEL && !CSR_WRITE_TRAP && !CSR_READ_TRAP
+      csrAccess.valid := isFireing && SEL && !CSR_TRAP
       csrAccess.robId := ROB.ID
       csrAccess.address := U(MICRO_OP)(Const.csrRange)
       csrAccess.write := setup.onWriteBits

@@ -388,6 +388,7 @@ class CsrSpec(val csrFilter : Any){
 case class CsrOnRead (override val csrFilter : Any, onlyOnFire : Boolean, body : () => Unit) extends CsrSpec(csrFilter)
 case class CsrOnWrite(override val csrFilter : Any, onlyOnFire : Boolean, body : () => Unit) extends CsrSpec(csrFilter)
 case class CsrOnReadData (override val csrFilter : Any, bitOffset : Int, value : Data) extends CsrSpec(csrFilter)
+case class CsrOnDecode (override val csrFilter : Any, priority : Int, body : () => Unit) extends CsrSpec(csrFilter)
 
 case class CsrRamSpec(override val csrFilter : Any, alloc : CsrRamAllocation) extends CsrSpec(csrFilter)
 
@@ -401,11 +402,15 @@ trait CsrService extends Service with LockedImpl{
   def onWriteBits : Bits
   def onWriteAddress : UInt
   def onReadAddress : UInt
-  def onReadTrap() : Unit
-  def onWriteTrap() : Unit
   def getCsrRam() : CsrRamService
   def onReadMovingOff : Bool
   def onWriteMovingOff : Bool
+  def onDecode(csrFilter : Any, priority : Int = 0)(body : => Unit) = spec += CsrOnDecode(csrFilter, priority, () => body)
+  def onDecodeTrap() : Unit
+  def onDecodeUntrap() : Unit
+  def onDecodeRead : Bool
+  def onDecodeWrite : Bool
+  def onDecodeAddress : UInt
 
   def readWrite(alloc : CsrRamAllocation, filters : Any) = spec += CsrRamSpec(filters, alloc)
   def readWriteRam(filters : Int) = {
@@ -417,10 +422,10 @@ trait CsrService extends Service with LockedImpl{
   def read[T <: Data](value : T, csrFilter : Any, bitOffset : Int = 0) : Unit = {
     spec += CsrOnReadData(csrFilter, bitOffset, value)
   }
-  def readOnly[T <: Data](value : T, csrFilter : Any, bitOffset : Int = 0) : Unit = {
-    read(value, csrFilter, bitOffset)
-    onWrite(csrFilter, false){ onWriteTrap() }
-  }
+//  def readOnly[T <: Data](value : T, csrFilter : Any, bitOffset : Int = 0) : Unit = {
+//    read(value, csrFilter, bitOffset)
+//    onDecode(csrFilter, false){ onWriteTrap() }
+//  }
   def write[T <: Data](value : T, csrId : Int, bitOffset : Int = 0) : Unit = {
     onWrite(csrId, true){ value.assignFromBits(onWriteBits(bitOffset, widthOf(value) bits)) }
   }
