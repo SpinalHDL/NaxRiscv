@@ -360,6 +360,13 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       val targetPrivilege = setup.privilege.max(exceptionTargetPrivilegeUncapped)
     }
 
+    def privilegeMux[T <: Data](priv : UInt)(machine : => T, supervisor : => T): T ={
+      val ret = CombInit(machine)
+      switch(priv) {
+        if(p.withSupervisor) is(1) { ret := supervisor }
+      }
+      ret
+    }
 
     val fsm = new StateMachine{
       val IDLE, SETUP, EPC_WRITE, TVAL_WRITE, EPC_READ, TVEC_READ, XRET = new State()
@@ -370,6 +377,13 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         val interrupt = Reg(Bool())
         val code      = Reg(UInt(commit.rescheduleCauseWidth bits))
         val targetPrivilege = Reg(UInt(2 bits))
+      }
+
+      val xret = new Area{
+        val targetPrivilege = privilegeMux(reschedule.tval(1 downto 0).asUInt)(
+          machine.mstatus.mpp,
+          U"0" @@ supervisor.sstatus.spp
+        )
       }
 
       IDLE.onEntry{
@@ -400,7 +414,10 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       }
       EPC_READ.whenIsActive{
         setup.ramRead.valid   := True
-        setup.ramRead.address := machine.epc.getAddress()
+        setup.ramRead.address := privilegeMux(xret.targetPrivilege)(
+          machine.epc.getAddress(),
+          supervisor.epc.getAddress()
+        )
         readed := setup.ramRead.data
         when(setup.ramRead.ready){
           goto(XRET)
@@ -408,7 +425,10 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       }
       TVEC_READ.whenIsActive{
         setup.ramRead.valid   := True
-        setup.ramRead.address := machine.tvec.getAddress()
+        setup.ramRead.address := privilegeMux(trap.targetPrivilege)(
+          machine.tvec.getAddress(),
+          supervisor.tvec.getAddress()
+        )
         readed := setup.ramRead.data
         when(setup.ramRead.ready){
           goto(TVAL_WRITE)
@@ -416,7 +436,10 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       }
       TVAL_WRITE.whenIsActive{
         setup.ramWrite.valid   := True
-        setup.ramWrite.address := machine.tval.getAddress()
+        setup.ramWrite.address := privilegeMux(trap.targetPrivilege)(
+          machine.tval.getAddress(),
+          supervisor.tval.getAddress()
+        )
         setup.ramWrite.data    := reschedule.tval
         when(decoderInterrupt.raised){ setup.ramWrite.data    := 0 }
         when(setup.ramWrite.ready){
@@ -425,7 +448,10 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       }
       EPC_WRITE.whenIsActive{
         setup.ramWrite.valid   := True
-        setup.ramWrite.address := machine.epc.getAddress()
+        setup.ramWrite.address := privilegeMux(trap.targetPrivilege)(
+          machine.epc.getAddress(),
+          supervisor.epc.getAddress()
+        )
         setup.ramWrite.data    := B(reschedule.epc)
         setup.jump.pc := U(readed) //TODO mask
         when(setup.ramWrite.ready){
@@ -457,18 +483,17 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         setup.jump.valid := True
         setup.jump.pc    := U(readed)
 
+        setup.privilege  := xret.targetPrivilege
         switch(reschedule.tval(1 downto 0)){
           is(3){
-            machine.mstatus.mpp := 0
-            machine.mstatus.mie := machine.mstatus.mpie
+            machine.mstatus.mpp  := 0
+            machine.mstatus.mie  := machine.mstatus.mpie
             machine.mstatus.mpie := True
-            setup.privilege := machine.mstatus.mpp
           }
           p.withSupervisor generate is(1){
             supervisor.sstatus.spp  := U"0"
             supervisor.sstatus.sie  := supervisor.sstatus.spie
             supervisor.sstatus.spie := True
-            setup.privilege         := U"0" @@ supervisor.sstatus.spp
           }
         }
 
