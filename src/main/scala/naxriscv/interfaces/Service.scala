@@ -356,10 +356,14 @@ object AddressTranslationPortUsage{
 trait AddressTranslationService extends Service with LockedImpl {
   def preWidth : Int
   def postWidth : Int
+
+  def newStorage(pAny: Any) : Any
   def newTranslationPort(stages: Seq[Stage],
                          preAddress: Stageable[UInt],
-                         usage : AddressTranslationPortUsage,
-                         p: Any): AddressTranslationRsp
+                         usage: AddressTranslationPortUsage,
+                         portSpec: Any,
+                         storageSpec: Any): AddressTranslationRsp
+
   def wakerCount : Int
   def wakes : Bits
   def withTranslation : Boolean

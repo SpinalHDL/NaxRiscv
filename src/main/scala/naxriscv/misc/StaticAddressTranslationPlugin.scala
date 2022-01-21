@@ -21,9 +21,15 @@ class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with
 
   case class Spec(stages: Seq[Stage], preAddress: Stageable[UInt], p: StaticAddressTranslationParameter, rsp : AddressTranslationRsp)
   val specs = ArrayBuffer[Spec]()
+  override def newStorage(pAny: Any) : Any = "dummy <3"
 
-  override def newTranslationPort(stages: Seq[Stage], preAddress: Stageable[UInt], usage : AddressTranslationPortUsage, pAny: Any) = {
-    val p = pAny.asInstanceOf[StaticAddressTranslationParameter]
+
+  override def newTranslationPort(stages: Seq[Stage],
+                         preAddress: Stageable[UInt],
+                         usage: AddressTranslationPortUsage,
+                         portSpec: Any,
+                         storageSpec: Any): AddressTranslationRsp = {
+    val p = portSpec.asInstanceOf[StaticAddressTranslationParameter]
     specs.addRet(new Spec(stages, preAddress, p, new AddressTranslationRsp(this, 0, stages(p.rspAt)){
       import rspStage._
       import keys._

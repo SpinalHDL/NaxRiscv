@@ -89,6 +89,7 @@ class LsuPlugin(lqSize: Int,
                 hazardPedictionEntries : Int,
                 hazardPredictionTagWidth : Int,
                 //                storeToLoadBypass : Boolean,
+                translationStorageParameter : Any,
                 loadTranslationParameter : Any,
                 storeTranslationParameter : Any,
                 loadToCacheBypass : Boolean = true,  //Reduce the load latency by one cycle. When the LoadPlugin calculate the address it directly start the query the cache
@@ -184,6 +185,8 @@ class LsuPlugin(lqSize: Int,
     decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
     decoder.addResourceDecoding(naxriscv.interfaces.SQ, SQ_ALLOC)
     doc.property("LSU_PERIPHERAL_WIDTH", wordWidth)
+
+    val translationStorage = translation.newStorage(translationStorageParameter)
   }
 
   val logic = create late new Area{
@@ -470,7 +473,8 @@ class LsuPlugin(lqSize: Int,
           stages = this.stages,
           preAddress = ADDRESS_PRE_TRANSLATION,
           usage = LOAD_STORE,
-          p = loadTranslationParameter
+          portSpec = loadTranslationParameter,
+          storageSpec = setup.translationStorage
         )
         val tpk = translationPort.keys
 
@@ -838,8 +842,9 @@ class LsuPlugin(lqSize: Int,
         val translationPort = translationService.newTranslationPort(
           stages = this.stages,
           preAddress = ADDRESS_PRE_TRANSLATION,
-          LOAD_STORE,
-          p = storeTranslationParameter
+          usage = LOAD_STORE,
+          portSpec = storeTranslationParameter,
+          storageSpec = setup.translationStorage
         )
         val tpk = translationPort.keys
 

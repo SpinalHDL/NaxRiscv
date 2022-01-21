@@ -100,6 +100,7 @@ object Config{
       hazardPedictionEntries = 512*8,
       hazardPredictionTagWidth = 16,
 //      storeToLoadBypass = true,
+      translationStorageParameter = null,
       loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
       storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
     )
