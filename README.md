@@ -5,12 +5,17 @@ An RISC-V core currently characterised by :
 - Out of order execution
 - Superscalar (ex : 2 decode and 2 issue)
 - Under design, but currently working RV32IMA (can run freertos in simulation)
-- Portable HDL, But target FPGA with distributed ram (Xilinx series 7 is the reference used so far)
+- Portable HDL, but target FPGA with distributed ram (Xilinx series 7 is the reference used so far)
 - Target a (relatively) low area usage and high fmax (not the best IPC)
 - Decentralized hardware elaboration (No toplevel, composed of plugins)
 - Frontend implemented around a pipelining framework to ease customisation
+- Non-blocking data cache
+- The data cache can concurrently refill and writeback multiple lines
+- BTB + GSHARE + RAS branch predictors
+- Implement performance counters
+- Pipeline visualisation via verilator simulation and Konata (gem5 file format)
 
-# Running simulation
+# Running Verilator simulation
 
 See src/test/cpp/naxriscv/README.md
 
