@@ -14,7 +14,12 @@ import scala.collection.mutable.ArrayBuffer
 case class MmuPortLevel(id : Int, ways : Int, depth : Int){
   assert(isPow2(depth))
 }
-case class MmuPluginParameter(rspAt : Int, levels : Seq[MmuPortLevel])
+case class MmuPluginParameter(rspAt : Int,
+                              levels : Seq[MmuPortLevel],
+                              priority : Int,
+                              readAt : Int,
+                              hitsAt : Int,
+                              ctrlAt : Int)
 
 
 case class MmuSpec(levels : Seq[MmuLevel], entryBytes : Int, preWidth : Int, postWidth : Int)
@@ -31,12 +36,16 @@ class MmuPluginPlugin(spec : MmuSpec, ioRange : UInt => Bool) extends Plugin wit
   Global.PC_WIDTH.set(preWidth)
   Global.PC_TRANSLATED_WIDTH.set(postWidth)
 
-  case class Spec(stages: Seq[Stage], preAddress: Stageable[UInt], p: MmuPluginParameter, rsp : AddressTranslationRsp)
-  val specs = ArrayBuffer[Spec]()
+  case class PortSpec(stages: Seq[Stage], preAddress: Stageable[UInt], p: MmuPluginParameter, rsp : AddressTranslationRsp){
+    val readStage = stages(p.readAt)
+    val hitsStage = stages(p.hitsAt)
+    val ctrlStage = stages(p.ctrlAt)
+  }
+  val portSpecs = ArrayBuffer[PortSpec]()
 
   override def newTranslationPort(stages: Seq[Stage], preAddress: Stageable[UInt], pAny: Any) = {
     val p = pAny.asInstanceOf[MmuPluginParameter]
-    specs.addRet(new Spec(stages, preAddress, p, new AddressTranslationRsp(this, 1, stages(p.rspAt)))).rsp
+    portSpecs.addRet(new PortSpec(stages, preAddress, p, new AddressTranslationRsp(this, 1, stages(p.rspAt)))).rsp
   }
 
 
@@ -51,39 +60,53 @@ class MmuPluginPlugin(spec : MmuSpec, ioRange : UInt => Bool) extends Plugin wit
   val logic = create late new Area{
     lock.await()
 
+    val priv = getService[PrivilegedPlugin]
+
     case class StorageEntry(levelId : Int, depth : Int) extends Bundle {
       val w = spec.levels.drop(levelId).map(_.width).sum
       val valid, exception = Bool()
       val virtualAddress  = UInt(w-log2Up(depth) bits)
       val physicalAddress = UInt(w bits)
       val allowRead, allowWrite, allowExecute, allowUser = Bool
+
+      def hit(address : UInt) = valid && virtualAddress === address(spec.levels(levelId).addressOffset + log2Up(depth), w - log2Up(depth) bits)
+      def physicalAddressFrom(address : UInt) = physicalAddress @@ address(0, spec.levels(levelId).addressOffset bits)
     }
 
-
-    val satp = new Area{
-      val (modeWidth, ppnWidth) = Global.XLEN.get match {
-        case 32 => (1, 20) //20 instead of 22 to avoid 34 physical bits
-        case 64 => (4, 44)
+    val csr = new Area {
+      val satp = new Area {
+        val (modeWidth, ppnWidth) = Global.XLEN.get match {
+          case 32 => (1, 20) //20 instead of 22 to avoid 34 physical bits
+          case 64 => (4, 44)
+        }
+        val mode = Reg(Bits(modeWidth bits))
+        val ppn = Reg(UInt(ppnWidth bits))
       }
-      val mode = Reg(Bits(modeWidth bits))
-      val ppn  = Reg(UInt(ppnWidth bits))
+      val status = new Area{
+        val mxr = Reg(Bool())
+        val sum = Reg(Bool())
+      }
     }
 
 
-    val ports = for(e <- specs) yield new Area{
+    assert(portSpecs.map(_.p.priority).distinct.size == portSpecs.size, "MMU ports needs different priorities")
+    val portSpecsSorted = portSpecs.sortBy(_.p.priority).reverse
+    val ports = for(e <- portSpecsSorted) yield new Area{
       val portSpec = e
       import portSpec._
 
       val storage = for(e <- portSpec.p.levels) yield new Area{
         val level = e
         val specLevel = spec.levels(level.id)
-        val ways = List.fill(level.ways)(Mem.fill(level.depth)(StorageEntry(level.id, level.depth)))
+        def newEntry() = StorageEntry(level.id, level.depth)
+        val ways = List.fill(level.ways)(Mem.fill(level.depth)(newEntry()))
         val writes = ways.map(_.writePort.setIdle())
+        val lineRange = specLevel.addressOffset + log2Up(level.depth) -1 downto specLevel.addressOffset
 
         val write = new Area{
           val mask    = Bits(level.ways bits)
           val address = UInt(log2Up(level.depth) bits)
-          val data    = StorageEntry(level.id, level.depth)
+          val data    = newEntry()
 
           mask := 0
           address.assignDontCare()
@@ -94,6 +117,54 @@ class MmuPluginPlugin(spec : MmuSpec, ioRange : UInt => Bool) extends Plugin wit
           }
         }
         val allocId = Counter(level.ways)
+
+        val ENTRIES = Stageable(Vec.fill(level.ways)(newEntry()))
+        val HITS = Stageable(Bits(level.ways bits))
+
+        val readAddress = readStage(portSpec.preAddress)(lineRange)
+        for((way, wayId) <- ways.zipWithIndex) {
+          readStage(ENTRIES)(wayId) := way.readAsync(readAddress)
+          hitsStage(HITS)(wayId) := hitsStage(ENTRIES)(wayId).hit(hitsStage(portSpec.preAddress))
+        }
+      }
+
+
+      val ctrl = new Area{
+        import ctrlStage._
+        def entriesMux[T <: Data](f : StorageEntry => T) : T = OhMux.or(hits, entries.map(f))
+
+        val hits = Cat(storage.map(s => ctrlStage(s.HITS)))
+        val entries = storage.flatMap(s => ctrlStage(s.ENTRIES))
+        val hit = hits.orR
+        val requireMmuLockup = ???
+        val needRefill = isValid && !hit && requireMmuLockup
+        val needRefillAddress = ctrlStage(portSpec.preAddress)
+        val lineAllowExecute = entriesMux(_.allowExecute)
+        val lineAllowRead    = entriesMux(_.allowRead)
+        val lineAllowWrite   = entriesMux(_.allowWrite)
+        val lineAllowUser    = entriesMux(_.allowUser)
+        val lineException    = entriesMux(_.exception)
+        val lineTranslated   = entriesMux(_.physicalAddressFrom(portSpec.preAddress))
+
+        import portSpec.rsp.keys._
+        IO := ioRange(TRANSLATED)
+//        WAKER         := 0
+//        WAKER_ANY     := False
+        when(requireMmuLockup) {
+          REDO          := !hit
+          TRANSLATED    := lineTranslated
+          ALLOW_EXECUTE := lineAllowExecute
+          ALLOW_READ    := lineAllowRead || csr.status.mxr && lineAllowExecute
+          ALLOW_WRITE   := lineAllowWrite
+          PAGE_FAULT    := hit && (lineException || lineAllowUser && priv.isSupervisor() && !csr.status.sum || !lineAllowUser && priv.isUser())
+        } otherwise {
+          REDO          := False
+          TRANSLATED    := portSpec.preAddress
+          ALLOW_EXECUTE := True
+          ALLOW_READ    := True
+          ALLOW_WRITE   := True
+          PAGE_FAULT    := False
+        }
       }
     }
 
@@ -105,10 +176,17 @@ class MmuPluginPlugin(spec : MmuSpec, ioRange : UInt => Bool) extends Plugin wit
       val portOh = Reg(Bits(ports.size bits))
       val virtual = Reg(UInt(preWidth bits))
 
+      val portsRequests = ports.map(_.ctrl.needRefill).asBits()
+      val portsRequest  = portsRequests.orR
+      val portsOh       = OHMasking.first(portsRequests)
+      val portsAddress  = OhMux.or(portsOh, ports.map(_.ctrl.needRefillAddress))
+
       setEntry(IDLE)
       IDLE whenIsActive{
-        when(???) {
-          load.address := satp.ppn @@ spec.levels.last.vpn(virtual) @@ U(0, log2Up(spec.entryBytes) bits)
+
+        when(portsRequest) {
+          load.address := csr.satp.ppn @@ spec.levels.last.vpn(portsAddress) @@ U(0, log2Up(spec.entryBytes) bits)
+          virtual := portsAddress
           goto(CMD(spec.levels.size - 1))
         }
       }
@@ -157,7 +235,7 @@ class MmuPluginPlugin(spec : MmuSpec, ioRange : UInt => Bool) extends Plugin wit
             val specLevel = storageLevel.specLevel
 
             storageLevel.write.mask                 := UIntToOh(storageLevel.allocId)
-            storageLevel.write.address              := virtual(specLevel.addressOffset, log2Up(storageLevel.level.depth) bits)
+            storageLevel.write.address              := virtual(storageLevel.lineRange)
             storageLevel.write.data.exception       := load.exception || load.levelException(levelId)
             storageLevel.write.data.virtualAddress  := virtual.takeHigh(widthOf(storageLevel.write.data.virtualAddress)).asUInt
             storageLevel.write.data.physicalAddress := load.levelToPhysicalAddress(levelId) >> specLevel.addressOffset

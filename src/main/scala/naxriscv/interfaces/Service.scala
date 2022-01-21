@@ -364,8 +364,6 @@ class AddressTranslationRsp(s : AddressTranslationService, wakesCount : Int, val
     val WAKER = Stageable(Bits(wakesCount bits))
     val WAKER_ANY = Stageable(Bool())
   }
-
-  val wakes = Bits(wakesCount bits)
 }
 
 trait AddressTranslationService extends Service with LockedImpl {
@@ -498,6 +496,9 @@ trait PrivilegedService extends Service{
   def hasMachinePriv : Bool
   def hasSupervisorPriv : Bool
   def getPrivilege() : UInt
+  def isUser() = getPrivilege() === 0
+  def isSupervisor() = getPrivilege() === 1
+  def isMachine() = getPrivilege() === 3
 
   def implementSupervisor : Boolean
   def implementUserTrap : Boolean
