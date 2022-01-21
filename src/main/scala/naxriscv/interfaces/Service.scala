@@ -334,26 +334,6 @@ trait WakeWithBypassService extends Service{
   def wakeRobsWithBypass : Seq[Flow[UInt]]
 }
 
-//case class AddressTranslationPort(prenWidth : Int,
-//                                  postWidth : Int) extends Bundle with IMasterSlave {
-//  val cmd = Flow(AddressTranslationCmd(prenWidth))
-//  val rsp = Flow(AddressTranslationRsp(postWidth))
-//
-//  override def asMaster() = {
-//    master(cmd)
-//    slave(rsp)
-//  }
-//}
-//
-//case class AddressTranslationCmd(preWidth : Int) extends Bundle{
-//  val virtual = UInt(preWidth bits)
-//}
-//
-//case class AddressTranslationRsp(postWidth : Int) extends Bundle{
-//  val physical = UInt(postWidth bits)
-//  val peripheral = Bool()
-//}
-
 class AddressTranslationRsp(s : AddressTranslationService, wakesCount : Int, val rspStage : Stage) extends Area{
   val keys = new AreaRoot {
     val TRANSLATED = Stageable(UInt(s.postWidth bits))
@@ -361,9 +341,16 @@ class AddressTranslationRsp(s : AddressTranslationService, wakesCount : Int, val
     val REDO = Stageable(Bool())
     val ALLOW_READ, ALLOW_WRITE, ALLOW_EXECUTE = Stageable(Bool())
     val PAGE_FAULT = Bool()
-    val WAKER = Stageable(Bits(wakesCount bits))
-    val WAKER_ANY = Stageable(Bool())
+//    val WAKER = Stageable(Bits(wakesCount bits))
+//    val WAKER_ANY = Stageable(Bool())
   }
+  val wake = Bool()
+}
+
+trait AddressTranslationPortUsage
+object AddressTranslationPortUsage{
+  object FETCH extends AddressTranslationPortUsage
+  object LOAD_STORE extends AddressTranslationPortUsage
 }
 
 trait AddressTranslationService extends Service with LockedImpl {
@@ -371,6 +358,7 @@ trait AddressTranslationService extends Service with LockedImpl {
   def postWidth : Int
   def newTranslationPort(stages: Seq[Stage],
                          preAddress: Stageable[UInt],
+                         usage : AddressTranslationPortUsage,
                          p: Any): AddressTranslationRsp
   def wakerCount : Int
   def wakes : Bits

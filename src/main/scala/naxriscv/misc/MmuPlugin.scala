@@ -1,7 +1,8 @@
 package naxriscv.misc
 
 import naxriscv._
-import naxriscv.interfaces.{AddressTranslationRsp, AddressTranslationService}
+import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
+import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService}
 import naxriscv.lsu.DataCachePlugin
 import naxriscv.utilities.Plugin
 import spinal.core._
@@ -22,7 +23,7 @@ case class MmuPluginParameter(rspAt : Int,
                               ctrlAt : Int)
 
 
-case class MmuSpec(levels : Seq[MmuLevel], entryBytes : Int, preWidth : Int, postWidth : Int)
+case class MmuSpec(levels : Seq[MmuLevel], entryBytes : Int, preWidth : Int, postWidth : Int, satpMode : Int)
 case class MmuLevel(addressOffset : Int, entryOffset : Int, width : Int){
   def vpn(address : UInt) : UInt = address(addressOffset, width bits)
   def ppn(address : Bits) : UInt = address(entryOffset, width bits).asUInt
@@ -33,19 +34,20 @@ class MmuPluginPlugin(spec : MmuSpec, ioRange : UInt => Bool) extends Plugin wit
   override def postWidth = spec.postWidth
   override def withTranslation = true
 
+
   Global.PC_WIDTH.set(preWidth)
   Global.PC_TRANSLATED_WIDTH.set(postWidth)
 
-  case class PortSpec(stages: Seq[Stage], preAddress: Stageable[UInt], p: MmuPluginParameter, rsp : AddressTranslationRsp){
+  case class PortSpec(stages: Seq[Stage], preAddress: Stageable[UInt], usage : AddressTranslationPortUsage, p: MmuPluginParameter, rsp : AddressTranslationRsp){
     val readStage = stages(p.readAt)
     val hitsStage = stages(p.hitsAt)
     val ctrlStage = stages(p.ctrlAt)
   }
   val portSpecs = ArrayBuffer[PortSpec]()
 
-  override def newTranslationPort(stages: Seq[Stage], preAddress: Stageable[UInt], pAny: Any) = {
+  override def newTranslationPort(stages: Seq[Stage], preAddress: Stageable[UInt], usage : AddressTranslationPortUsage, pAny: Any) = {
     val p = pAny.asInstanceOf[MmuPluginParameter]
-    portSpecs.addRet(new PortSpec(stages, preAddress, p, new AddressTranslationRsp(this, 1, stages(p.rspAt)))).rsp
+    portSpecs.addRet(new PortSpec(stages, preAddress, usage, p, new AddressTranslationRsp(this, 1, stages(p.rspAt)))).rsp
   }
 
 
@@ -85,6 +87,7 @@ class MmuPluginPlugin(spec : MmuSpec, ioRange : UInt => Bool) extends Plugin wit
       val status = new Area{
         val mxr = Reg(Bool())
         val sum = Reg(Bool())
+        val mprv = Reg(Bool()) //Also, clear it on xret going lower than machine mode
       }
     }
 
@@ -136,7 +139,6 @@ class MmuPluginPlugin(spec : MmuSpec, ioRange : UInt => Bool) extends Plugin wit
         val hits = Cat(storage.map(s => ctrlStage(s.HITS)))
         val entries = storage.flatMap(s => ctrlStage(s.ENTRIES))
         val hit = hits.orR
-        val requireMmuLockup = ???
         val needRefill = isValid && !hit && requireMmuLockup
         val needRefillAddress = ctrlStage(portSpec.preAddress)
         val lineAllowExecute = entriesMux(_.allowExecute)
@@ -146,10 +148,19 @@ class MmuPluginPlugin(spec : MmuSpec, ioRange : UInt => Bool) extends Plugin wit
         val lineException    = entriesMux(_.exception)
         val lineTranslated   = entriesMux(_.physicalAddressFrom(portSpec.preAddress))
 
+
+        val requireMmuLockup = csr.satp.mode === spec.satpMode
+        requireMmuLockup clearWhen(!csr.status.mprv && priv.isMachine())
+        when(priv.isMachine()) {
+          if (portSpec.usage == LOAD_STORE) {
+            requireMmuLockup clearWhen (!csr.status.mprv || priv.logic.machine.mstatus.mpp === 3)
+          } else {
+            requireMmuLockup := False
+          }
+        }
+
         import portSpec.rsp.keys._
         IO := ioRange(TRANSLATED)
-//        WAKER         := 0
-//        WAKER_ANY     := False
         when(requireMmuLockup) {
           REDO          := !hit
           TRANSLATED    := lineTranslated
@@ -182,8 +193,8 @@ class MmuPluginPlugin(spec : MmuSpec, ioRange : UInt => Bool) extends Plugin wit
       val portsAddress  = OhMux.or(portsOh, ports.map(_.ctrl.needRefillAddress))
 
       setEntry(IDLE)
-      IDLE whenIsActive{
 
+      IDLE whenIsActive {
         when(portsRequest) {
           load.address := csr.satp.ppn @@ spec.levels.last.vpn(portsAddress) @@ U(0, log2Up(spec.entryBytes) bits)
           virtual := portsAddress
@@ -191,6 +202,8 @@ class MmuPluginPlugin(spec : MmuSpec, ioRange : UInt => Bool) extends Plugin wit
         }
       }
 
+      val doWake = isActive(IDLE)
+      portSpecs.foreach(_.rsp.wake := doWake)
 
       val load = new Area{
         val address = Reg(UInt(postWidth bits))

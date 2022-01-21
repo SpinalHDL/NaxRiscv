@@ -1,11 +1,12 @@
 package naxriscv.misc
 
 import naxriscv._
-import naxriscv.interfaces.{AddressTranslationRsp, AddressTranslationService}
+import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.{Stage, Stageable}
+
 import scala.collection.mutable.ArrayBuffer
 
 case class StaticAddressTranslationParameter(rspAt : Int)
@@ -21,7 +22,7 @@ class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with
   case class Spec(stages: Seq[Stage], preAddress: Stageable[UInt], p: StaticAddressTranslationParameter, rsp : AddressTranslationRsp)
   val specs = ArrayBuffer[Spec]()
 
-  override def newTranslationPort(stages: Seq[Stage], preAddress: Stageable[UInt], pAny: Any) = {
+  override def newTranslationPort(stages: Seq[Stage], preAddress: Stageable[UInt], usage : AddressTranslationPortUsage, pAny: Any) = {
     val p = pAny.asInstanceOf[StaticAddressTranslationParameter]
     specs.addRet(new Spec(stages, preAddress, p, new AddressTranslationRsp(this, 0, stages(p.rspAt)){
       import rspStage._
@@ -34,8 +35,6 @@ class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with
       ALLOW_READ := True
       ALLOW_WRITE := True
       PAGE_FAULT := False
-      WAKER := 0
-      WAKER_ANY := False
     })).rsp
   }
 

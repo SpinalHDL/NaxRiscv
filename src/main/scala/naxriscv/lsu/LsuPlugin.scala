@@ -14,6 +14,7 @@ import spinal.lib.pipeline.{Pipeline, Stageable, StageableOffset}
 import scala.collection.mutable.ArrayBuffer
 import naxriscv.Global._
 import naxriscv.fetch.FetchPlugin
+import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
 import naxriscv.misc.RobPlugin
 import spinal.lib.fsm._
 
@@ -316,11 +317,8 @@ class LsuPlugin(lqSize: Int,
           val translationWake = Reg(Bits(translationService.wakerCount bits))
           val translationWakeAny = Reg(Bool)
           val writeback  = Reg(Bool())
-
-          val translationWakeSet = translationWake.getZero
           val translationWakeAnySet = False
 
-          translationWake := (translationWake | translationWakeSet) & ~translationService.wakes
           translationWakeAny := (translationWakeAny | translationWakeAnySet) & !translationService.wakes.orR
         }
 
@@ -471,6 +469,7 @@ class LsuPlugin(lqSize: Int,
         val translationPort = translationService.newTranslationPort(
           stages = this.stages,
           preAddress = ADDRESS_PRE_TRANSLATION,
+          usage = LOAD_STORE,
           p = loadTranslationParameter
         )
         val tpk = translationPort.keys
@@ -839,6 +838,7 @@ class LsuPlugin(lqSize: Int,
         val translationPort = translationService.newTranslationPort(
           stages = this.stages,
           preAddress = ADDRESS_PRE_TRANSLATION,
+          LOAD_STORE,
           p = storeTranslationParameter
         )
         val tpk = translationPort.keys
@@ -955,8 +955,7 @@ class LsuPlugin(lqSize: Int,
 
             when(tpk.REDO){
               whenMasked(regs, SQ_SEL_OH){reg =>
-                reg.waitOn.translationWakeSet := tpk.WAKER
-                reg.waitOn.translationWakeAnySet := tpk.WAKER_ANY
+                reg.waitOn.translationWakeAnySet := True
               }
             } elsewhen(missAligned) {
               setup.storeTrap.valid      := True
