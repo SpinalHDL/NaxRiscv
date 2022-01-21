@@ -171,7 +171,7 @@ class LsuPlugin(lqSize: Int,
     dispatch.fenceOlder(Rvi.LR)
 
     val rfWrite = regfile.newWrite(withReady = false, latency = 1)
-    val cacheLoad = cache.newLoadPort()
+    val cacheLoad = cache.newLoadPort(priority = 0)
     val cacheStore = cache.newStorePort()
     val loadCompletion = rob.newRobCompletion()
     val storeCompletion = rob.newRobCompletion()
@@ -539,10 +539,12 @@ class LsuPlugin(lqSize: Int,
           import stage._
 
           val cmd = setup.cacheLoad.cmd //If you move that in another stage, be carefull to update loadFeedAt usages (sq d$ writeback rsp delay)
-          cmd.valid := stage.isFireing
+          cmd.valid := stage.isValid
           cmd.virtual := ADDRESS_PRE_TRANSLATION
           cmd.size := SIZE
           cmd.redoOnDataHazard := False
+
+          haltIt(!cmd.ready)
         }
 
         val feedContext = new Area {

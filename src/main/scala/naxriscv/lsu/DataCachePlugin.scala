@@ -49,17 +49,20 @@ class DataCachePlugin(val memDataWidth : Int,
 
   def writebackBusy = setup.writebackBusy
 
-  case class LoadPortSpec(port : DataLoadPort)
+  case class LoadPortSpec(port : DataLoadPort, priority : Int)
   val loadPorts = ArrayBuffer[LoadPortSpec]()
-  def newLoadPort(): DataLoadPort = {
-    loadPorts.addRet(LoadPortSpec(DataLoadPort(
-      preTranslationWidth  = preTranslationWidth,
-      postTranslationWidth = postTranslationWidth,
-      dataWidth     = cpuDataWidth,
-      refillCount   = refillCount,
-      rspAt         = loadRspAt,
-      translatedAt  = loadTranslatedAt
-    ))).port
+  def newLoadPort(priority : Int): DataLoadPort = {
+    loadPorts.addRet(LoadPortSpec(
+      DataLoadPort(
+        preTranslationWidth  = preTranslationWidth,
+        postTranslationWidth = postTranslationWidth,
+        dataWidth     = cpuDataWidth,
+        refillCount   = refillCount,
+        rspAt         = loadRspAt,
+        translatedAt  = loadTranslatedAt
+      ),
+      priority
+    )).port
   }
 
   case class StorePortSpec(port : DataStorePort)
@@ -132,8 +135,24 @@ class DataCachePlugin(val memDataWidth : Int,
     setup.refillCompletions := cache.io.refillCompletions
 
     val load = new Area{
-      assert(loadPorts.size == 1)//for now, dev
-      cache.io.load <> loadPorts.head.port
+      assert(loadPorts.map(_.priority).distinct.size == loadPorts.size)
+      val sorted = loadPorts.sortBy(_.priority).reverse //High priority first
+      val hits = B(sorted.map(_.port.cmd.valid))
+      val hit = hits.orR
+      val oh = OHMasking.firstV2(hits)
+      val ohHistory = History(oh, 0 to loadRspAt, init= B(0, sorted.size bits))
+
+      cache.io.load.cmd.valid := hit
+      cache.io.load.cmd.payload := OhMux(oh, sorted.map(_.port.cmd.payload))
+      (sorted, oh.asBools).zipped.foreach(_.port.cmd.ready := _ )
+
+      cache.io.load.cancels := sorted.map(_.port.cancels).reduceBalancedTree(_ | _)
+      cache.io.load.translated := OhMux(ohHistory(loadTranslatedAt), sorted.map(_.port.translated))
+
+      for((spec, sel) <- (sorted, ohHistory(loadRspAt).asBools).zipped){
+        spec.port.rsp.valid := cache.io.load.rsp.valid && sel
+        spec.port.rsp.payload := cache.io.load.rsp.payload
+      }
     }
 
     val store = new Area{

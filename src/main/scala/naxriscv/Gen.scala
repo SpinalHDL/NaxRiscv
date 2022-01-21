@@ -267,7 +267,7 @@ make clean compile  test_clean output/nax/dhrystone/PASS ARGS="--stats_print_all
 /*
 - IMPORTANT add datacache option to create poison on read during write ram blocks
 - refill -> store delay may not be right (refill stay active a extra time after completion to avoid hazard)
-- Should i$ d$ check permitions before triggering a refill ?
+- Should i$ d$ check permitions before triggering a refill ? Seems already ok for data cache via the abord signal
 - lsu peripheral do not handle rsp.error yet
 - lsu load to load with same address ordering in a far future
 - Manage the verilator seeds

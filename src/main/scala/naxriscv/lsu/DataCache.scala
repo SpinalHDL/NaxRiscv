@@ -21,7 +21,7 @@ case class DataLoadPort(preTranslationWidth : Int,
                         refillCount : Int,
                         rspAt : Int,
                         translatedAt : Int) extends Bundle with IMasterSlave {
-  val cmd = Flow(DataLoadCmd(preTranslationWidth, dataWidth))
+  val cmd = Stream(DataLoadCmd(preTranslationWidth, dataWidth))
   val translated = DataLoadTranslated(postTranslationWidth)
   val cancels = Bits(rspAt+1 bits)
   val rsp = Flow(DataLoadRsp(dataWidth, refillCount)) //The rsp.valid is fondamentaly necessary, as it has a fixed latency
@@ -664,6 +664,7 @@ class DataCache(val cacheSize: Int,
 
       import stage._
 
+      io.load.cmd.ready := True
       isValid := io.load.cmd.valid
       ADDRESS_PRE_TRANSLATION := io.load.cmd.virtual
       REDO_ON_DATA_HAZARD := io.load.cmd.redoOnDataHazard

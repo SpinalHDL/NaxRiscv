@@ -225,7 +225,7 @@ for e in naxSoftwareRegular:
     naxSoftware.append([e, f"baremetal/{e}/build/{arch}/{e}.elf"])
 
 for e in freertos:
-    naxSoftware.append([e, f"baremetal/freertosDemo/build/{e}/{arch}/freertosDemo.elf"])
+    naxSoftware.append(["freertos/" + e, f"baremetal/freertosDemo/build/{e}/{arch}/freertosDemo.elf"])
 
 
 naxSoftware.append(["coremark", f"baremetal/coremark/coremark_{arch}.elf"])
