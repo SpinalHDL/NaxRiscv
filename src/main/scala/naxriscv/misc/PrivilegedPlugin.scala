@@ -46,9 +46,11 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
   override def hasMachinePriv = setup.withMachinePrivilege
   override def hasSupervisorPriv = setup.withSupervisorPrivilege
   override def getPrivilege() = setup.privilege
+  override def xretAwayFromMachine = setup.xretAwayFromMachine
 
   override def implementSupervisor = p.withSupervisor
   override def implementUserTrap = p.withUserTrap
+
 
   val io = create early new Area{
     val int = new Area{
@@ -85,6 +87,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     val privilege = RegInit(U"11")
     val withMachinePrivilege    = privilege >= U"11"
     val withSupervisorPrivilege = privilege >= U"01"
+    val xretAwayFromMachine = False
   }
 
   val logic = create late new Area{
@@ -503,6 +506,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         setup.jump.pc    := U(readed)
 
         setup.privilege  := xret.targetPrivilege
+        setup.xretAwayFromMachine clearWhen(xret.targetPrivilege < 3)
         switch(reschedule.tval(1 downto 0)){
           is(3){
             machine.mstatus.mpp  := 0

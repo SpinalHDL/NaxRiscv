@@ -4,7 +4,7 @@ import naxriscv.compatibility.{MemReadDuringWriteHazardPhase, MultiPortReadSympl
 import spinal.core._
 import naxriscv.frontend._
 import naxriscv.fetch._
-import naxriscv.misc.{CommitDebugFilterPlugin, CommitPlugin, CsrRamPlugin, PerformanceCounterPlugin, PrivilegedConfig, PrivilegedPlugin, RegFilePlugin, RobPlugin, StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
+import naxriscv.misc.{CommitDebugFilterPlugin, CommitPlugin, CsrRamPlugin, MmuPlugin, MmuPortParameter, MmuSpec, MmuStorageLevel, MmuStorageParameter, PerformanceCounterPlugin, PrivilegedConfig, PrivilegedPlugin, RegFilePlugin, RobPlugin, StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
 import naxriscv.execute._
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
@@ -38,7 +38,11 @@ object Config{
   def plugins(): Seq[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
-    plugins += new StaticAddressTranslationPlugin(
+//    plugins += new StaticAddressTranslationPlugin(
+//      ioRange = _(31 downto 28) === 0x1
+//    )
+    plugins += new MmuPlugin(
+      spec    = MmuSpec.sv32,
       ioRange = _(31 downto 28) === 0x1
     )
 
@@ -100,9 +104,31 @@ object Config{
       hazardPedictionEntries = 512*8,
       hazardPredictionTagWidth = 16,
 //      storeToLoadBypass = true,
-      translationStorageParameter = null,
-      loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
-      storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
+      translationStorageParameter = MmuStorageParameter(
+        levels   = List(
+          MmuStorageLevel(
+            id    = 0,
+            ways  = 1,
+            depth = 8
+          )
+        ),
+        priority = 1
+      ),
+      loadTranslationParameter  = MmuPortParameter(
+        readAt = 1,
+        hitsAt = 1,
+        ctrlAt = 1,
+        rspAt  = 1
+      ),
+      storeTranslationParameter = MmuPortParameter(
+        readAt = 1,
+        hitsAt = 1,
+        ctrlAt = 1,
+        rspAt  = 1
+      )
+//      translationStorageParameter = null,
+//      loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
+//      storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
     )
     plugins += new DataCachePlugin(
       memDataWidth = 64,

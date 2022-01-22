@@ -41,12 +41,9 @@ class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with
       ALLOW_READ := True
       ALLOW_WRITE := True
       PAGE_FAULT := False
+      wake := True
     })).rsp
   }
-
-
-  override def wakerCount = 0
-  override def wakes = B(0)
 
   val setup = create early new Area{
 

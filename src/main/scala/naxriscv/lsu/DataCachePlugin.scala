@@ -162,5 +162,4 @@ class DataCachePlugin(val memDataWidth : Int,
   }
 
   val mem = create late logic.cache.io.mem.toIo()
-
 }

@@ -345,6 +345,7 @@ class AddressTranslationRsp(s : AddressTranslationService, wakesCount : Int, val
 //    val WAKER_ANY = Stageable(Bool())
   }
   val wake = Bool()
+  val pipelineLock = Lock().retain()
 }
 
 trait AddressTranslationPortUsage
@@ -364,8 +365,6 @@ trait AddressTranslationService extends Service with LockedImpl {
                          portSpec: Any,
                          storageSpec: Any): AddressTranslationRsp
 
-  def wakerCount : Int
-  def wakes : Bits
   def withTranslation : Boolean
 }
 
@@ -494,6 +493,8 @@ trait PrivilegedService extends Service{
 
   def implementSupervisor : Boolean
   def implementUserTrap : Boolean
+
+  def xretAwayFromMachine : Bool
 }
 
 object PerformanceCounterService{

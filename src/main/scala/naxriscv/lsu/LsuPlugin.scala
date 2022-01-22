@@ -16,6 +16,7 @@ import naxriscv.Global._
 import naxriscv.fetch.FetchPlugin
 import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
 import naxriscv.misc.RobPlugin
+import spinal.core.fiber.Handle
 import spinal.lib.fsm._
 
 object LsuUtils{
@@ -255,6 +256,12 @@ class LsuPlugin(lqSize: Int,
 
           cacheRefill := (cacheRefill | cacheRefillSet) & ~cache.refillCompletions
           cacheRefillAny := (cacheRefillAny | cacheRefillAnySet) & !cache.refillCompletions.orR
+
+          val translationWakeAny = Reg(Bool)
+          val translationWakeAnySet = False
+          val translationWakeAnyClear = Bool()
+
+          translationWakeAny := ((translationWakeAny & !translationWakeAnyClear) | translationWakeAnySet)
         }
         val address = new Area {
           val pageOffset = Reg(UInt(pageOffsetWidth bits))
@@ -263,8 +270,9 @@ class LsuPlugin(lqSize: Int,
           val mask = Reg(DATA_MASK)
         }
 
-        val ready = valid && !waitOn.address && !waitOn.cacheRsp && waitOn.cacheRefill === 0 && !waitOn.cacheRefillAny && !waitOn.commit && !waitOn.sq
+        val ready = valid && !waitOn.address && !waitOn.cacheRsp && waitOn.cacheRefill === 0 && !waitOn.cacheRefillAny && !waitOn.commit && !waitOn.sq && !waitOn.translationWakeAny
       }
+
       val mem = new Area{
         val addressPre = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
         val addressPost = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
@@ -317,17 +325,17 @@ class LsuPlugin(lqSize: Int,
         val waitOn = new Area {
           val address = Reg(Bool())
           val translationRsp  = Reg(Bool())
-          val translationWake = Reg(Bits(translationService.wakerCount bits))
           val translationWakeAny = Reg(Bool)
           val writeback  = Reg(Bool())
           val translationWakeAnySet = False
+          val translationWakeAnyClear = Bool()
 
-          translationWakeAny := (translationWakeAny | translationWakeAnySet) & !translationService.wakes.orR
+          translationWakeAny := (translationWakeAny | translationWakeAnySet) & !translationWakeAnyClear
         }
 
         val allLqIsYounger = Reg(Bool())
 
-        val ready = valid && !waitOn.address && !waitOn.translationRsp && !waitOn.writeback && waitOn.translationWake === 0 && !waitOn.translationWakeAny
+        val ready = valid && !waitOn.address && !waitOn.translationRsp && !waitOn.writeback && !waitOn.translationWakeAny
       }
 
       val mem = new Area{
@@ -458,6 +466,7 @@ class LsuPlugin(lqSize: Int,
               reg.waitOn.cacheRefill := 0
               reg.waitOn.cacheRefillAny := False
               reg.waitOn.commit := False
+              reg.waitOn.translationWakeAny := False
             }
           }
         }
@@ -477,6 +486,7 @@ class LsuPlugin(lqSize: Int,
           storageSpec = setup.translationStorage
         )
         val tpk = translationPort.keys
+        lq.regs.foreach(_.waitOn.translationWakeAnyClear := translationPort.wake)
 
         val feed = new Area{
           val stage = stages(0)
@@ -521,20 +531,10 @@ class LsuPlugin(lqSize: Int,
                 }
               }
             }
-            //            when(port.valid && !portPush.prediction.waitSq){
-            //              isValid                 := True
-            //              LQ_SEL                  := port.lqId
-            //              LQ_SEL_OH               := UIntToOh(port.lqId)
-            //              ADDRESS_PRE_TRANSLATION := port.address
-            //              SIZE                    := port.size
-            //            }
           }
-
-
 
           DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
           SQCHECK_END_ID := mem.sqAlloc.readAsync(LQ_SEL)
-
         }
 
         val feedCache = new Area{
@@ -666,7 +666,6 @@ class LsuPlugin(lqSize: Int,
           setup.loadTrap.cause.assignDontCare()
           setup.loadTrap.reason := ScheduleReason.TRAP
 
-          tpk.IO || tpk.PAGE_FAULT || !tpk.ALLOW_READ || tpk.REDO
           val missAligned = (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
           val pageFault = !tpk.ALLOW_READ || tpk.PAGE_FAULT
           val accessFault = CombInit(rsp.fault)
@@ -687,6 +686,8 @@ class LsuPlugin(lqSize: Int,
                 r.waitOn.sq setWhen(!stage.resulting(OLDER_STORE_COMPLETED))
                 r.waitOn.sqId := OLDER_STORE_ID
               }
+            } elsewhen(stage(tpk.REDO)){
+              onRegs(_.waitOn.translationWakeAnySet := True)
             } elsewhen(rsp.redo) {
               when(rsp.refillSlotAny) {
                 onRegs(_.waitOn.cacheRefillAnySet := True)
@@ -748,7 +749,10 @@ class LsuPlugin(lqSize: Int,
         ptr.priority := priority
         ptr.free := free
       }
-      pipeline.build()
+      Handle{
+        pipeline.translationPort.pipelineLock.await()
+        pipeline.build()
+      }
     }
 
 
@@ -826,7 +830,6 @@ class LsuPlugin(lqSize: Int,
               reg.waitOn.address := True
               reg.waitOn.translationRsp := False
               reg.waitOn.writeback := False
-              reg.waitOn.translationWake := 0
               reg.waitOn.translationWakeAny := False
             }
           }
@@ -847,6 +850,9 @@ class LsuPlugin(lqSize: Int,
           storageSpec = setup.translationStorage
         )
         val tpk = translationPort.keys
+
+        sq.regs.foreach(_.waitOn.translationWakeAnyClear := translationPort.wake)
+
 
         val feed = new Area{
           val stage = stages(0)
@@ -975,10 +981,12 @@ class LsuPlugin(lqSize: Int,
               }
             }
           }
-
         }
 
-        build()
+        Handle{
+          translationPort.pipelineLock.await()
+          build()
+        }
       }
 
       val onCommit = new Area{
