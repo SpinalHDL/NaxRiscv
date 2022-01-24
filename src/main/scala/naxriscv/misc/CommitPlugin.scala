@@ -130,7 +130,6 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
     }
 
     val commit = new Area {
-      var continue = True
       val rescheduleHit = False
       val active = rob.readAsync(DISPATCH_MASK, ROB.COLS, ptr.commit.dropHigh(1).asUInt).asBits //TODO can be ignore if schedule width == 1
       val mask = Reg(Bits(ROB.COLS bits)) init ((1 << ROB.COLS) - 1) //Bit set to zero after completion
@@ -165,28 +164,30 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
       setup.jump.pc    := reschedule.pcTarget //TODO another target for trap
       reschedule.valid clearWhen(rescheduleHit)
 
+      var continue = True
       when(!ptr.empty) {
         for (colId <- 0 until ROB.COLS) new Area{
           setName(s"CommitPlugin_commit_slot_$colId")
           val enable = mask(colId) && active(colId)
-          val hold = !ptr.robLineMaskRsp(colId)
+          val readyForCommit = ptr.robLineMaskRsp(colId)
           val rescheduleHitSlot = reschedule.commit.rowHit && reschedule.commit.col === colId
 
           when(enable){
             when(continue){
-              when(!hold && !(rescheduleHitSlot && reschedule.skipCommit)) {
+              when(readyForCommit && !(rescheduleHitSlot && reschedule.skipCommit)) {
                 maskComb(colId) := False
                 event.mask(colId) := True
               }
-              when(rescheduleHitSlot){
+              when(rescheduleHitSlot && (reschedule.skipCommit || readyForCommit)){
                 rescheduleHit := True
               }
             }
-            when(hold || rescheduleHitSlot){
+            when(!readyForCommit || rescheduleHitSlot){
               continue \= False
             }
           }
         }
+
         when(lineCommited || rescheduleHit) {
           mask := (1 << ROB.COLS) - 1
           lineEvent.valid := True
