@@ -400,6 +400,7 @@ trait CsrService extends Service with LockedImpl{
   def onDecode(csrFilter : Any, priority : Int = 0)(body : => Unit) = spec += CsrOnDecode(csrFilter, priority, () => body)
   def onDecodeTrap() : Unit
   def onDecodeUntrap() : Unit
+  def onDecodeFlushPipeline() : Unit
   def onDecodeRead : Bool
   def onDecodeWrite : Bool
   def onDecodeAddress : UInt

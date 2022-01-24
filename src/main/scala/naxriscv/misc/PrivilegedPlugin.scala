@@ -1,8 +1,8 @@
 package naxriscv.misc
 
-import naxriscv.{Frontend, Global}
+import naxriscv.{Fetch, Frontend, Global}
 import naxriscv.Global._
-import naxriscv.execute.EnvCallPlugin.CAUSE_XRET
+import naxriscv.execute.EnvCallPlugin.{CAUSE_FLUSH, CAUSE_XRET}
 import naxriscv.execute.{CsrAccessPlugin, EnvCallPlugin}
 import naxriscv.fetch.{FetchPlugin, PcPlugin}
 import naxriscv.frontend.FrontendPlugin
@@ -249,6 +249,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       val cause      = UInt(commit.rescheduleCauseWidth bits)
       val epc        = PC()
       val tval       = Bits(Global.XLEN bits)
+      val slices     = Fetch.INSTRUCTION_SLICE_COUNT()
     })
     val reschedule = rescheduleUnbuffered.stage()
 
@@ -256,6 +257,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     rescheduleUnbuffered.valid := cr.valid && cr.trap
     rescheduleUnbuffered.cause := cr.cause
     rescheduleUnbuffered.epc   := rob.readAsyncSingle(Global.PC, cr.robId)
+    rescheduleUnbuffered.slices := rob.readAsyncSingle(Fetch.INSTRUCTION_SLICE_COUNT, cr.robId)
     rescheduleUnbuffered.tval  := cr.tval
 
     val dt = decoder.getTrap()
@@ -390,7 +392,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     }
 
     val fsm = new StateMachine{
-      val IDLE, SETUP, EPC_WRITE, TVAL_WRITE, EPC_READ, TVEC_READ, XRET = new State()
+      val IDLE, SETUP, EPC_WRITE, TVAL_WRITE, EPC_READ, TVEC_READ, XRET, FLUSH_CALC, FLUSH_JUMP = new State()
       setEntry(IDLE)
 
       val trap = new Area{
@@ -424,16 +426,34 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
           trap.targetPrivilege := decoderInterrupt.buffer.targetPrivilege
           goto(TVEC_READ)
         } otherwise {
-          when(reschedule.cause === CAUSE_XRET) {
-            goto(EPC_READ)
-          } otherwise {
-            trap.interrupt := False
-            trap.code := exception.code
-            trap.targetPrivilege := exception.targetPrivilege
-            goto(TVEC_READ)
+          switch(reschedule.cause){
+            is(CAUSE_FLUSH){
+              goto(FLUSH_CALC)
+            }
+            is(CAUSE_XRET){
+              goto(EPC_READ)
+            }
+            default{
+              trap.interrupt := False
+              trap.code := exception.code
+              trap.targetPrivilege := exception.targetPrivilege
+              goto(TVEC_READ)
+            }
           }
         }
       }
+
+      FLUSH_CALC whenIsActive{
+        readed := B(reschedule.epc + (reschedule.slices + 1 << Fetch.SLICE_RANGE_LOW))
+        goto(FLUSH_JUMP)
+      }
+
+      FLUSH_JUMP whenIsActive{
+        setup.jump.valid := True
+        setup.jump.pc := U(readed)
+        goto(IDLE)
+      }
+
       EPC_READ.whenIsActive{
         setup.ramRead.valid   := True
         setup.ramRead.address := privilegeMux(xret.sourcePrivilege)(

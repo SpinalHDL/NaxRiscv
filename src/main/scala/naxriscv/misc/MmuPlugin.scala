@@ -168,6 +168,11 @@ class MmuPlugin(spec : MmuSpec,
     csr.write(CSR.SATP, 31 -> satp.mode, 22 -> satp.asid, 0 -> satp.ppn)
     csr.readWriteRam(CSR.SATP)
 
+    csr.onDecode(CSR.SATP){
+      csr.onDecodeFlushPipeline()
+      setup.invalidatePort.request := True
+    }
+
     ram.allocationLock.release()
     csr.release()
 

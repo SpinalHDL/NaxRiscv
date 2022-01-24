@@ -28,6 +28,7 @@ object CsrAccessPlugin extends AreaObject{
   val RAM_SEL    = Stageable(Bool())
   val CSR_IMPLEMENTED = Stageable(Bool())
   val CSR_TRAP = Stageable(Bool())
+  val CSR_FLUSH_PIPELINE = Stageable(Bool())
 }
 
 class CsrAccessPlugin(euId: String)(decodeAt: Int,
@@ -52,6 +53,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
 
   override def onDecodeTrap() = setup.onDecodeTrap := True
   override def onDecodeUntrap() = setup.onDecodeTrap := False
+  override def onDecodeFlushPipeline() = setup.onDecodeFlushPipeline := True
   override def onDecodeRead = setup.onDecodeRead
   override def onDecodeWrite = setup.onDecodeWrite
   override def onDecodeAddress  = setup.onDecodeAddress
@@ -66,6 +68,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
     assert(getServicesOf[CsrService].size == 1)
 
     val onDecodeTrap = False
+    val onDecodeFlushPipeline = False
     val onDecodeRead  = Bool()
     val onDecodeWrite = Bool()
     val onDecodeAddress = UInt(12 bits)
@@ -139,6 +142,7 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       setup.onDecodeRead := CSR_READ
       setup.onDecodeWrite := CSR_WRITE
       CSR_TRAP := !CSR_IMPLEMENTED || setup.onDecodeTrap
+      CSR_FLUSH_PIPELINE := setup.onDecodeFlushPipeline
 
       setup.onDecodeAddress := U(MICRO_OP)(Const.csrRange)
       val priorities = spec.collect{ case e : CsrOnDecode  => e.priority }.distinct.sorted
@@ -269,12 +273,16 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       import stage._
       wb.payload := CSR_VALUE
 
-      setup.trap.valid      := isValid && SEL && CSR_TRAP
+      setup.trap.valid      := isValid && SEL && (CSR_TRAP || CSR_FLUSH_PIPELINE)
       setup.trap.robId      := ROB.ID
       setup.trap.cause      := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
       setup.trap.tval       := MICRO_OP
-      setup.trap.skipCommit := True
+      setup.trap.skipCommit := CSR_TRAP
       setup.trap.reason     := ScheduleReason.TRAP
+
+      when(!CSR_TRAP){
+        setup.trap.cause := EnvCallPlugin.CAUSE_FLUSH
+      }
     }
 
     val whitebox = new AreaRoot {
