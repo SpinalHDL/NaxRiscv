@@ -1,7 +1,7 @@
 package naxriscv.misc
 
 import naxriscv._
-import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService}
+import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService, PulseHandshake}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -23,6 +23,8 @@ class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with
   val specs = ArrayBuffer[Spec]()
   override def newStorage(pAny: Any) : Any = "dummy <3"
 
+
+  override def invalidatePort = setup.invalidatePort
 
   override def newTranslationPort(stages: Seq[Stage],
                          preAddress: Stageable[UInt],
@@ -46,7 +48,8 @@ class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with
   }
 
   val setup = create early new Area{
-
+    val invalidatePort = PulseHandshake()
+    invalidatePort.served := RegNext(invalidatePort.request) init(False)
   }
 
   val logic = create late new Area{

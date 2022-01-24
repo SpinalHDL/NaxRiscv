@@ -1,8 +1,9 @@
 package naxriscv.misc
 
 import naxriscv._
+import naxriscv.fetch.FetchPlugin
 import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
-import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService, CsrRamService, CsrService}
+import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService, CsrRamService, CsrService, PulseHandshake}
 import naxriscv.lsu.DataCachePlugin
 import naxriscv.riscv.CSR
 import naxriscv.utilities.Plugin
@@ -64,10 +65,13 @@ class MmuPlugin(spec : MmuSpec,
   override def preWidth  = spec.preWidth
   override def postWidth = spec.postWidth
   override def withTranslation = true
+  override def invalidatePort = setup.invalidatePort
 
 
   Global.PC_WIDTH.set(preWidth)
   Global.PC_TRANSLATED_WIDTH.set(postWidth)
+
+
 
   case class PortSpec(stages: Seq[Stage],
                       preAddress: Stageable[UInt],
@@ -113,11 +117,14 @@ class MmuPlugin(spec : MmuSpec,
     val csr = getService[CsrService]
     val cache = getService[DataCachePlugin]
     val ram = getService[CsrRamService]
+    val fetch = getService[FetchPlugin]
 
     csr.retain()
     ram.allocationLock.retain()
+    fetch.retain()
 
     val cacheLoad = cache.newLoadPort(priority = 1)
+    val invalidatePort = PulseHandshake().idle()
   }
 
   val logic = create late new Area{
@@ -266,6 +273,8 @@ class MmuPlugin(spec : MmuSpec,
       val IDLE = new State
       val CMD, RSP = List.fill(spec.levels.size)(new State)
 
+      val busy = !isActive(IDLE)
+
       val portOhReg = Reg(Bits(ports.size bits))
       val virtual = Reg(UInt(preWidth bits))
 
@@ -337,6 +346,7 @@ class MmuPlugin(spec : MmuSpec,
             val sel = (portOhReg.asBools, ports).zipped.toList.filter(_._2.storage == storage).map(_._1).orR
             storageLevel.write.mask                 := UIntToOh(storageLevel.allocId).andMask(sel)
             storageLevel.write.address              := virtual(storageLevel.lineRange)
+            storageLevel.write.data.valid           := True
             storageLevel.write.data.exception       := load.exception || load.levelException(levelId)
             storageLevel.write.data.virtualAddress  := virtual.takeHigh(widthOf(storageLevel.write.data.virtualAddress)).asUInt
             storageLevel.write.data.physicalAddress := load.levelToPhysicalAddress(levelId) >> specLevel.virtualOffset
@@ -382,6 +392,39 @@ class MmuPlugin(spec : MmuSpec,
         }
       }
     }
+
+    val invalidate = new Area{
+      val requested = RegInit(True) setWhen(setup.invalidatePort.request)
+      val canStart = True
+      val depthMax = storageSpecs.map(_.p.levels.map(_.depth).max).max
+      val counter = Reg(UInt(log2Up(depthMax)+1 bits)) init(0)
+      val done = counter.msb
+      when(!done){
+        counter := counter + 1
+      }
+
+      when(!done) {
+        for(storage <- storages;
+            sl <- storage.sl){
+          sl.write.mask := (default -> true)
+          sl.write.data.valid := False
+        }
+      }
+
+      fetch.getStage(0).haltIt(!done || requested)
+
+      when(requested && canStart){
+        counter := 0
+        requested := False
+      }
+
+      when(refill.busy){
+        canStart := False
+      }
+
+      setup.invalidatePort.served setWhen(done.rise(False))
+    }
+    fetch.release()
   }
 }
 

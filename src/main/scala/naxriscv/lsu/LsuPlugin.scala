@@ -181,7 +181,7 @@ class LsuPlugin(lqSize: Int,
     val loadTrap = commit.newSchedulePort(canTrap = true, canJump = false)
     val storeTrap = commit.newSchedulePort(canTrap = true, canJump = true)
     val peripheralTrap = commit.newSchedulePort(canTrap = true, canJump = false)
-    val flushPort = False
+    val flushPort = PulseHandshake().idle()
 
     decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
     decoder.addResourceDecoding(naxriscv.interfaces.SQ, SQ_ALLOC)
@@ -1104,7 +1104,7 @@ class LsuPlugin(lqSize: Int,
       def rsp = setup.cacheStore.rsp
 
       doit := sq.ptr.commit === sq.ptr.free
-      when(setup.flushPort){
+      when(setup.flushPort.request){
         cmdPtr := 0
         rspPtr := 0
         busy   := True
@@ -1134,6 +1134,7 @@ class LsuPlugin(lqSize: Int,
         }
         when(rspPtr.msb && !cache.writebackBusy){
           busy := False
+          setup.flushPort.served := True
         }
       }
     }
