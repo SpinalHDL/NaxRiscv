@@ -145,11 +145,13 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       CSR_FLUSH_PIPELINE := setup.onDecodeFlushPipeline
 
       setup.onDecodeAddress := U(MICRO_OP)(Const.csrRange)
+
+      val onDecodeDo = isValid && SEL
       val priorities = spec.collect{ case e : CsrOnDecode  => e.priority }.distinct.sorted
       for(priority <- priorities) {
         for ((csrFilter, elements) <- grouped) {
           val onDecodes = elements.collect { case e: CsrOnDecode if e.priority == priority => e }
-          if (onDecodes.nonEmpty) when(sels(csrFilter)) {
+          if (onDecodes.nonEmpty) when(onDecodeDo && sels(csrFilter)) {
             onDecodes.foreach(_.body())
           }
         }

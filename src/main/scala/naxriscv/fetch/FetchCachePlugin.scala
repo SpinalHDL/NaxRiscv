@@ -1,6 +1,6 @@
 package naxriscv.fetch
 
-import naxriscv.interfaces.{AddressTranslationService, JumpService, PerformanceCounterService, PulseHandshake}
+import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationService, JumpService, PerformanceCounterService, PulseHandshake}
 import naxriscv.utilities._
 import spinal.core._
 import spinal.lib._
@@ -31,6 +31,8 @@ case class FetchL1Bus(p : FetchCachePlugin, physicalWidth : Int) extends Bundle 
 class FetchCachePlugin(val cacheSize : Int,
                        val wayCount : Int,
                        val memDataWidth : Int,
+                       val translationStorageParameter : Any,
+                       val translationPortParameter : Any,
                        val lineSize : Int = 64,
                        val readAt : Int = 0,
                        val hitsAt : Int = 1,
@@ -40,8 +42,7 @@ class FetchCachePlugin(val cacheSize : Int,
                        val controlAt : Int = 2,
                        val injectionAt : Int = 2,
                        val reducedBankWidth : Boolean = false,
-                       val refillEventId : Int = PerformanceCounterService.ICACHE_REFILL
-                      ) extends Plugin with FetchPipelineRequirements {
+                       val refillEventId : Int = PerformanceCounterService.ICACHE_REFILL) extends Plugin with FetchPipelineRequirements {
   override def stagesCountMin = injectionAt + 1
 
   val mem = create early master(FetchL1Bus(this, getService[AddressTranslationService].postWidth))
@@ -49,7 +50,9 @@ class FetchCachePlugin(val cacheSize : Int,
 
   val setup = create early new Area{
     val pipeline = getService[FetchPlugin]
+    val translation = getService[AddressTranslationService]
     pipeline.lock.retain()
+    translation.retain()
 
     val withHistory = isServiceAvailable[HistoryPlugin]
     val priority = JumpService.Priorities.FETCH_WORD(controlAt, false)
@@ -57,6 +60,9 @@ class FetchCachePlugin(val cacheSize : Int,
     val historyJump = withHistory generate getService[HistoryPlugin].createJumpPort(priority)
     val refillEvent = getServiceOption[PerformanceCounterService].map(_.createEventPort(refillEventId))
     val invalidatePort = PulseHandshake().idle
+
+
+    val translationStorage = translation.newStorage(translationStorageParameter)
 
     mem.flatten.filter(_.isOutput).foreach(_.assignDontCare())
 
@@ -67,6 +73,7 @@ class FetchCachePlugin(val cacheSize : Int,
 
   val logic = create late new Area{
     val fetch = getService[FetchPlugin]
+    val translation = getService[AddressTranslationService]
     val preTranslationWidth = getService[AddressTranslationService].postWidth
     val cpuWordWidth = FETCH_DATA_WIDTH.get
     val bytePerMemWord = memDataWidth/8
@@ -99,6 +106,16 @@ class FetchCachePlugin(val cacheSize : Int,
     val bankMuxStage = setup.pipeline.getStage(bankMuxAt)
     val controlStage = setup.pipeline.getStage(controlAt)
     val injectionStage = setup.pipeline.getStage(injectionAt)
+
+    val translationPort = translation.newTranslationPort(
+      stages = fetch.pipeline.stages,
+      preAddress = FETCH_PC,
+      usage = AddressTranslationPortUsage.FETCH,
+      portSpec = translationPortParameter,
+      storageSpec = setup.translationStorage
+    )
+    val tpk = translationPort.keys
+
 
     case class Tag() extends Bundle{
       val loaded = Bool()
@@ -254,7 +271,7 @@ class FetchCachePlugin(val cacheSize : Int,
           way.read.cmd.payload := FETCH_PC(lineRange)
         }
 
-        {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === FETCH_PC_TRANSLATED(tagRange) }
+        {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === tpk.TRANSLATED(tagRange) }
       }
 
       {import hitStage._;   WAYS_HIT := B(WAYS_HITS).orR}
@@ -265,33 +282,40 @@ class FetchCachePlugin(val cacheSize : Int,
         setup.redoJump.valid := False
         setup.redoJump.pc    := FETCH_PC
 
-        WORD_FAULT := (B(WAYS_HITS) & B(WAYS_TAGS.map(_.error))).orR
-        WORD_FAULT_PAGE := False //TODO
+        WORD_FAULT := (B(WAYS_HITS) & B(WAYS_TAGS.map(_.error))).orR || WORD_FAULT_PAGE
+        WORD_FAULT_PAGE := tpk.PAGE_FAULT || !tpk.ALLOW_EXECUTE
+
+        val redoIt = False
+        when(redoIt){
+          setup.redoJump.valid := True
+          flushIt()
+          setup.pipeline.getStage(0).haltIt() //"optional"
+        }
 
         when(isValid) {
-          when(!WAYS_HIT) {
+          when(tpk.REDO){
+            redoIt := True
+          } elsewhen(!WORD_FAULT_PAGE && !WAYS_HIT) {
+            redoIt := True
             refill.valid := True
-            refill.address := FETCH_PC_TRANSLATED
-
-            setup.redoJump.valid := True
-            flushIt()
-            setup.pipeline.getStage(0).haltIt() //"optional"
+            refill.address := tpk.TRANSLATED
           }
         }
+
+
+        setup.pipeline.getStage(0).haltIt(!translationPort.wake)
 
         if(setup.withHistory){
           setup.historyJump.valid := setup.redoJump.valid
           setup.historyJump.history := getService[HistoryPlugin].keys.BRANCH_HISTORY
         }
       }
-
-      val inject = new Area{
-      }
     }
 
 
 
 
+    translation.release()
     setup.pipeline.lock.release()
   }
 }

@@ -48,14 +48,31 @@ object Config{
 
     //FETCH
     plugins += new FetchPlugin()
-    plugins += new FetchAddressTranslationPlugin()
     plugins += new PcPlugin()
     plugins += new FetchCachePlugin(
       cacheSize = 4096*4,
       wayCount = 4,
       injectionAt = 2,
       memDataWidth = Fetch.FETCH_DATA_WIDTH,
-      reducedBankWidth = false
+      reducedBankWidth = false,
+      translationStorageParameter = MmuStorageParameter(
+        levels   = List(
+          MmuStorageLevel(
+            id    = 0,
+            ways  = 1,
+            depth = 8
+          )
+        ),
+        priority = 0
+      ),
+      translationPortParameter  = MmuPortParameter(
+        readAt = 1,
+        hitsAt = 1,
+        ctrlAt = 1,
+        rspAt  = 1
+      )
+      //      translationStorageParameter = null,
+      //      translationPortParameter  = StaticAddressTranslationParameter(rspAt = 1),
     )
     plugins += new AlignerPlugin(inputAt = 2)
 

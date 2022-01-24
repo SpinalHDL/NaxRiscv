@@ -96,7 +96,7 @@ class LsuPlugin(lqSize: Int,
                 loadToCacheBypass : Boolean = true,  //Reduce the load latency by one cycle. When the LoadPlugin calculate the address it directly start the query the cache
                 lqToCachePipelined : Boolean = true, //Add one additional stage between LQ arbitration and the cache query
                 loadFeedAt : Int = 0, //Stage at which the d$ cmd is sent
-                loadCheckSqAt : Int = 1) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService {
+                loadCheckSqAt : Int = 1) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy{
 
   val wordWidth = Global.XLEN.get
   val wordBytes = wordWidth/8
@@ -105,7 +105,7 @@ class LsuPlugin(lqSize: Int,
   val pageNumberRange = Global.XLEN.get-1 downto 12
   val pageOffsetWidth = pageOffsetRange.size
   val pageNumberWidth = pageNumberRange.size
-
+  override def postCommitBusy = setup.postCommitBusy
 
   val peripheralBus = create late master(LsuPeripheralBus(postWidth, wordWidth))
 
@@ -188,6 +188,7 @@ class LsuPlugin(lqSize: Int,
     doc.property("LSU_PERIPHERAL_WIDTH", wordWidth)
 
     val translationStorage = translation.newStorage(translationStorageParameter)
+    val postCommitBusy = False
   }
 
   val logic = create late new Area{
@@ -368,6 +369,8 @@ class LsuPlugin(lqSize: Int,
 
         val onFree = Flow(UInt(log2Up(sqSize) bits))
         val onFreeLast = onFree.stage()
+
+        setup.postCommitBusy setWhen(commit =/= free)
       }
     }
 
@@ -492,12 +495,13 @@ class LsuPlugin(lqSize: Int,
           val stage = stages(0)
           import stage._
 
+          //Get the oldest load in the LQ ready for the cache access
           val arbitration = new Area{
             val hits = B(regs.map(reg => reg.ready))
             val hit = hits.orR
 
             val selOh = OHMasking.roundRobinMasked(hits, ptr.priority)
-            val early = Flow(LQ_SEL_OH)
+            val early = Stream(LQ_SEL_OH)
             early.valid := hit
             early.payload := selOh
 
@@ -514,6 +518,7 @@ class LsuPlugin(lqSize: Int,
           LQ_SEL := arbitration.outputSel
           ADDRESS_PRE_TRANSLATION := mem.addressPre.readAsync(arbitration.outputSel)
           SIZE := regs.map(_.address.size).read(arbitration.outputSel)
+          arbitration.output.ready := isReady
 
           if(loadToCacheBypass){
             assert(loadPorts.size == 1, "Not suported yet")
@@ -525,8 +530,8 @@ class LsuPlugin(lqSize: Int,
               LQ_SEL_OH               := portPush.oh
               ADDRESS_PRE_TRANSLATION := port.address
               SIZE                    := port.size
-              when(port.valid){
-                for(reg <- regs) when(isValid && portPush.oh(reg.id)){
+              when(port.valid && isFireing){
+                for(reg <- regs) when(portPush.oh(reg.id)){
                   reg.waitOn.cacheRsp := True
                 }
               }

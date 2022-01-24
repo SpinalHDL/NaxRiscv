@@ -213,7 +213,7 @@ naxSoftware = [
 ]
 
 naxSoftwareRegular = [
-    "machine", "supervisor", "dhrystone"
+    "machine", "supervisor", "mmu_sv32", "dhrystone"
 ]
 
 

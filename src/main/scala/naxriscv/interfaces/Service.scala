@@ -520,3 +520,7 @@ case class PulseHandshake() extends Bundle{
     this
   }
 }
+
+trait PostCommitBusy extends Service{
+  def postCommitBusy : Bool
+}

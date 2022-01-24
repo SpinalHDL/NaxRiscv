@@ -64,7 +64,6 @@ object Fetch extends AreaObject{
   val WORD_FAULT_PAGE = Stageable(Bool())
   val INSTRUCTION_WIDTH = NaxParameter[Int]
 
-  val FETCH_PC_TRANSLATED   = Stageable(UInt(PC_TRANSLATED_WIDTH bits))
   val FETCH_PC  = Stageable(PC)
   val FETCH_PC_INC  = Stageable(PC)
 }

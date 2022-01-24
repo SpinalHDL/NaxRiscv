@@ -3,7 +3,7 @@ package naxriscv.misc
 import naxriscv._
 import naxriscv.fetch.FetchPlugin
 import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
-import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService, CsrRamService, CsrService, PulseHandshake}
+import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService, CsrRamService, CsrService, PostCommitBusy, PulseHandshake}
 import naxriscv.lsu.DataCachePlugin
 import naxriscv.riscv.CSR
 import naxriscv.utilities.Plugin
@@ -86,7 +86,7 @@ class MmuPlugin(spec : MmuSpec,
   }
   val portSpecs = ArrayBuffer[PortSpec]()
 
-  case class StorageSpec(p: MmuStorageParameter)
+  case class StorageSpec(p: MmuStorageParameter) extends Nameable
   val storageSpecs = ArrayBuffer[StorageSpec]()
 
   override def newStorage(pAny: Any) : Any = {
@@ -178,14 +178,12 @@ class MmuPlugin(spec : MmuSpec,
 
 
     assert(storageSpecs.map(_.p.priority).distinct.size == storageSpecs.size, "MMU storages needs different priorities")
-    val storages = for(_ss <- storageSpecs) yield new Area{
-      val ss = _ss
+    val storages = for(ss <- storageSpecs) yield new Composite(ss, "logic", false){
       val sl = for(e <- ss.p.levels) yield new Area{
         val slp = e
         val level = spec.levels(slp.id)
         def newEntry() = StorageEntry(slp.id, slp.depth)
         val ways = List.fill(slp.ways)(Mem.fill(slp.depth)(newEntry()))
-        val writes = ways.map(_.writePort.setIdle())
         val lineRange = level.virtualRange.low + log2Up(slp.depth) -1 downto level.virtualRange.low
 
         val write = new Area{
@@ -203,24 +201,26 @@ class MmuPlugin(spec : MmuSpec,
         }
         val allocId = Counter(slp.ways)
 
-        val ENTRIES = Stageable(Vec.fill(slp.ways)(newEntry()))
-        val HITS = Stageable(Bits(slp.ways bits))
+        val keys = new Area {
+          setName("MMU")
+          val ENTRIES = Stageable(Vec.fill(slp.ways)(newEntry()))
+          val HITS = Stageable(Bits(slp.ways bits))
+        }
       }
     }
 
 
     val portSpecsSorted = portSpecs.sortBy(_.ss.p.priority).reverse
-    val ports = for(portSpec <- portSpecsSorted) yield new Area{
-      val ps = portSpec
+    val ports = for(ps <- portSpecsSorted) yield new Composite(ps.rsp, "logic", false){
       import ps._
 
-      val storage = storages.find(_.ss == ps.ss).get
+      val storage = storages.find(_.self == ps.ss).get
 
       for (sl <- storage.sl) yield new Area {
         val readAddress = readStage(ps.preAddress)(sl.lineRange)
         for ((way, wayId) <- sl.ways.zipWithIndex) {
-          readStage(sl.ENTRIES)(wayId) := way.readAsync(readAddress)
-          hitsStage(sl.HITS)(wayId) := hitsStage(sl.ENTRIES)(wayId).hit(hitsStage(ps.preAddress))
+          readStage(sl.keys.ENTRIES)(wayId) := way.readAsync(readAddress)
+          hitsStage(sl.keys.HITS)(wayId) := hitsStage(sl.keys.ENTRIES)(wayId).hit(hitsStage(ps.preAddress))
         }
       }
 
@@ -229,8 +229,8 @@ class MmuPlugin(spec : MmuSpec,
         import ctrlStage._
         def entriesMux[T <: Data](f : StorageEntry => T) : T = OhMux.or(hits, entries.map(f))
 
-        val hits = Cat(storage.sl.map(s => ctrlStage(s.HITS)))
-        val entries = storage.sl.flatMap(s => ctrlStage(s.ENTRIES))
+        val hits = Cat(storage.sl.map(s => ctrlStage(s.keys.HITS)))
+        val entries = storage.sl.flatMap(s => ctrlStage(s.keys.ENTRIES))
         val hit = hits.orR
         val lineAllowExecute = entriesMux(_.allowExecute)
         val lineAllowRead    = entriesMux(_.allowRead)
@@ -270,7 +270,7 @@ class MmuPlugin(spec : MmuSpec,
           PAGE_FAULT    := False
         }
       }
-      portSpec.rsp.pipelineLock.release()
+      ps.rsp.pipelineLock.release()
     }
 
 
@@ -344,7 +344,7 @@ class MmuPlugin(spec : MmuSpec,
       val fetch = for((level, levelId) <- spec.levels.zipWithIndex) yield new Area{
         def doneLogic() : Unit = {
           for(storage <- storages){
-            val storageLevelId = storage.ss.p.levels.filter(_.id <= levelId).map(_.id).max
+            val storageLevelId = storage.self.p.levels.filter(_.id <= levelId).map(_.id).max
             val storageLevel = storage.sl.find(_.slp.id == storageLevelId).get
             val specLevel = storageLevel.level
 
@@ -352,11 +352,11 @@ class MmuPlugin(spec : MmuSpec,
             storageLevel.write.mask                 := UIntToOh(storageLevel.allocId).andMask(sel)
             storageLevel.write.address              := virtual(storageLevel.lineRange)
             storageLevel.write.data.valid           := True
-            storageLevel.write.data.exception       := load.exception || load.levelException(levelId)
+            storageLevel.write.data.exception       := load.exception || load.levelException(levelId) || !load.flags.A
             storageLevel.write.data.virtualAddress  := virtual.takeHigh(widthOf(storageLevel.write.data.virtualAddress)).asUInt
             storageLevel.write.data.physicalAddress := load.levelToPhysicalAddress(levelId) >> specLevel.virtualOffset
             storageLevel.write.data.allowRead       := load.flags.R
-            storageLevel.write.data.allowWrite      := load.flags.W
+            storageLevel.write.data.allowWrite      := load.flags.W && load.flags.D
             storageLevel.write.data.allowExecute    := load.flags.X
             storageLevel.write.data.allowUser       := load.flags.U
             storageLevel.allocId.increment()
@@ -405,13 +405,12 @@ class MmuPlugin(spec : MmuSpec,
       val counter = Reg(UInt(log2Up(depthMax)+1 bits)) init(0)
       val done = counter.msb
       when(!done){
+        refill.portsRequest := False
         counter := counter + 1
-      }
-
-      when(!done) {
         for(storage <- storages;
             sl <- storage.sl){
           sl.write.mask := (default -> true)
+          sl.write.address := counter.resized
           sl.write.data.valid := False
         }
       }
@@ -421,9 +420,10 @@ class MmuPlugin(spec : MmuSpec,
       when(requested && canStart){
         counter := 0
         requested := False
+        refill.portsRequest := False
       }
 
-      when(refill.busy){
+      when(refill.busy || getServicesOf[PostCommitBusy].map(_.postCommitBusy).orR){
         canStart := False
       }
 
