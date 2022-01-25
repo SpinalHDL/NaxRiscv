@@ -34,6 +34,7 @@ class MulPlugin(euId : String,
   override val setup = create early new Setup{
     import SrcKeys._
 
+    getServiceOption[PrivilegedService].foreach(_.addMisa('M'))
 
     add(Rvi.MUL   , List(), DecodeList(HIGH -> False, RS1_SIGNED -> True,  RS2_SIGNED -> True))
     add(Rvi.MULH  , List(), DecodeList(HIGH -> True,  RS1_SIGNED -> True,  RS2_SIGNED -> True))

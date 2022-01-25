@@ -25,6 +25,8 @@ class DivPlugin(euId : String,
   override def euWritebackAt = writebackAt
 
   override val setup = create early new Setup{
+    getServiceOption[PrivilegedService].foreach(_.addMisa('M'))
+
     add(Rvi.DIV , List(), DecodeList(REM -> False, SIGNED -> True))
     add(Rvi.DIVU, List(), DecodeList(REM -> False, SIGNED -> False))
     add(Rvi.REM , List(), DecodeList(REM -> True , SIGNED -> True))

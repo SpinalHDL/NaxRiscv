@@ -52,6 +52,12 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
   override def implementUserTrap = p.withUserTrap
 
 
+  val misaIds = mutable.LinkedHashSet[Int]()
+  override def addMisa(id: Int) = {
+    misaIds += id
+  }
+  override def addMisa(id: Char) = super.addMisa(id)
+
   val io = create early new Area{
     val int = new Area{
       val machine = new Area{
@@ -88,6 +94,10 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     val withMachinePrivilege    = privilege >= U"11"
     val withSupervisorPrivilege = privilege >= U"01"
     val xretAwayFromMachine = False
+
+    addMisa('I')
+    if(p.withUser) addMisa('U')
+    if(p.withSupervisor) addMisa('S')
   }
 
   val logic = create late new Area{
@@ -139,8 +149,8 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       }
 
       val medeleg = p.withSupervisor generate new Area {
-        val iam, iaf, ii, lam, laf, sam, saf, eu, es, ipf, lpf, spf = RegInit(False)
-        val mapping = mutable.LinkedHashMap(0 -> iam, 1 -> iaf, 2 -> ii, 4 -> lam, 5 -> laf, 6 -> sam, 7 -> saf, 8 -> eu, 9 -> es, 12 -> ipf, 13 -> lpf, 15 -> spf)
+        val iam, iaf, ii, bp, lam, laf, sam, saf, eu, es, ipf, lpf, spf = RegInit(False)
+        val mapping = mutable.LinkedHashMap(0 -> iam, 1 -> iaf, 2 -> ii, 3 -> bp, 4 -> lam, 5 -> laf, 6 -> sam, 7 -> saf, 8 -> eu, 9 -> es, 12 -> ipf, 13 -> lpf, 15 -> spf)
       }
 
       val mideleg = new Area {
@@ -156,7 +166,13 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       csr.read(U(p.archId),  CSR.MARCHID) // MRO Architecture ID.
       csr.read(U(p.impId),   CSR.MIMPID) // MRO Implementation ID.
       csr.read(U(p.hartId),  CSR.MHARTID) // MRO Hardware thread ID.Machine Trap Setup
-//      csr.read(CSR.MISA     , p.vendorId) // MRW ISA and extensions
+      val misaExt = misaIds.map(1l << _).reduce(_ | _)
+      val misaMxl = XLEN.get match {
+        case 32 => 1 << XLEN.get-2
+        case 64 => 2 << XLEN.get-2
+      }
+      val misa = misaMxl | misaExt
+      csr.read(U(misa, XLEN bits), CSR.MISA) // MRW ISA and extensions
 
       csr.readWrite(CSR.MCAUSE, XLEN-1 -> cause.interrupt, 0 -> cause.code)
       csr.readWrite(CSR.MSTATUS, 11 -> mstatus.mpp, 7 -> mstatus.mpie, 3 -> mstatus.mie)

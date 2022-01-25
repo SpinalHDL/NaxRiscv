@@ -187,6 +187,7 @@ public:
         #if SUPERVISOR == 1
         case SUPERVISOR_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_supervisor_external = *data & 1;  break;
         #endif
+        case CLINT_BASE: nax->PrivilegedPlugin_io_int_machine_software = *data & 1;  break;
         case CLINT_CMP_ADDR: memcpy(&clintCmp, data, length); /*printf("CMPA=%lx\n", clintCmp);*/ break;
         case CLINT_CMP_ADDR+4: memcpy(((char*)&clintCmp)+4, data, length); /*printf("CMPB=%lx\n", clintCmp);*/  break;
         default: return 1; break;
@@ -1152,6 +1153,7 @@ int main(int argc, char** argv, char** env){
     processor_t proc("RV32IMA", "MSU", "", &wrap, 0, false, fptr, outfile);
     if(trace_ref) proc.enable_log_commits();
     if(spike_debug) proc.debug = true;
+    proc.wfi_as_nop = true;
 
 
     VNaxRiscv* top = new VNaxRiscv;  // Or use a const unique_ptr, or the VL_UNIQUE_PTR wrapper
@@ -1246,6 +1248,8 @@ int main(int argc, char** argv, char** env){
 	}
     #endif
 
+
+	proc.set_pmp_num(0);
 
     state_t *state = proc.get_state();
     state->pc = startPc;

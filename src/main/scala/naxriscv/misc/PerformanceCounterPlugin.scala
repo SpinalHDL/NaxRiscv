@@ -23,6 +23,7 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
   val setup = create early new Area{
     val csr = getService[CsrAccessPlugin]
     val ram = getService[CsrRamPlugin]
+    val priv = getService[PrivilegedPlugin]
     csr.retain()
 
     val withHigh = XLEN.get == 32
@@ -46,6 +47,9 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
     csrList ++= CSR.MHPMCOUNTER3 until CSR.MHPMCOUNTER3 + additionalCounterCount
     if(withHigh) csrList ++= csrList.map(_ + 0x80)
     val csrFilter = CsrListFilter(csrList.toList)
+
+    if(priv.implementSupervisor) csr.allowCsr(CSR.SCOUNTEREN)
+    csr.allowCsr(CSR.MCOUNTEREN)
 
     val commitMask = getService[CommitService].onCommit().mask
     val commitCount = CountOne(commitMask)

@@ -165,6 +165,8 @@ class LsuPlugin(lqSize: Int,
     translation.retain()
     fetch.retain()
 
+    getServiceOption[PrivilegedService].foreach(_.addMisa('A'))
+
     val amos = List(
       Rvi.AMOSWAP, Rvi.AMOADD, Rvi.AMOXOR, Rvi.AMOAND, Rvi.AMOOR,
       Rvi.AMOMIN, Rvi.AMOMAX, Rvi.AMOMINU, Rvi.AMOMAXU,

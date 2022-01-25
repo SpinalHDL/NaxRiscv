@@ -5,6 +5,7 @@ import spinal.lib._
 import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
+import naxriscv.riscv.CSR
 import spinal.lib.pipeline._
 import naxriscv.utilities.{AllocatorMultiPortPop, Service}
 import spinal.core.fiber.{Handle, Lock}
@@ -403,6 +404,7 @@ trait CsrService extends Service with LockedImpl{
   def onDecodeRead : Bool
   def onDecodeWrite : Bool
   def onDecodeAddress : UInt
+  def allowCsr(csrFilter : Any) = onDecode(csrFilter){}
 
   def onReadToWriteBits : Bits
 
@@ -496,7 +498,12 @@ trait PrivilegedService extends Service{
   def implementUserTrap : Boolean
 
   def xretAwayFromMachine : Bool
+
+  def addMisa(id : Int) : Unit
+  def addMisa(id : Char) : Unit = addMisa(id - 'A')
 }
+
+
 
 object PerformanceCounterService{
   val ICACHE_REFILL = 1

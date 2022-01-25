@@ -54,6 +54,12 @@ object CSR {
     val INSTRUCTION_PAGE_FAULT = 12
   }
 
+  def misaExt(char: Char) = {
+    val c = char.toUpper
+    assert(c >= 'A' && c <= 'Z')
+    1 << c-'A'
+  }
+
   def MVENDORID = 0xF11 // MRO Vendor ID.
   def MARCHID   = 0xF12 // MRO Architecture ID.
   def MIMPID    = 0xF13 // MRO Implementation ID.
@@ -81,6 +87,7 @@ object CSR {
   def MINSTRETH = 0xB82 // MRW Upper 32 bits of minstret, RV32I only.
   def MHPMCOUNTER3  = 0xB03 // MRW Machine instructions-retired counter.
   def MHPMEVENT0    = 0x320 // MRW Machine instructions-retired counter.
+  val MCOUNTEREN  = 0x306
 
   val SSTATUS     = 0x100
   val SIE         = 0x104
