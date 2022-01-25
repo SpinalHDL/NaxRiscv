@@ -929,6 +929,8 @@ class LsuPlugin(lqSize: Int,
         val completion = new Area{
           val stage = stages(3)
           import stage._
+          val missAligned = (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
+          val pageFault = !tpk.ALLOW_WRITE || tpk.PAGE_FAULT //Assumed always ok -> AMO && !tpk.ALLOW_READ
 
           setup.storeCompletion.valid := False
           setup.storeCompletion.id := ROB.ID
@@ -938,25 +940,22 @@ class LsuPlugin(lqSize: Int,
           lqPredictionPort.address  := lq.index(YOUNGER_LOAD_PC)
           lqPredictionPort.data.tag := lq.hash(YOUNGER_LOAD_PC)
 
-          when(YOUNGER_LOAD_RESCHEDULE){
-            setup.storeTrap.valid    := isFireing
-            setup.storeTrap.trap     := False
-            setup.storeTrap.robId    := YOUNGER_LOAD_ROB
-            setup.storeTrap.reason   := ScheduleReason.STORE_TO_LOAD_HAZARD
-          } otherwise {
+          when(missAligned || pageFault) {
             setup.storeTrap.valid      := False
             setup.storeTrap.trap       := True
             setup.storeTrap.robId      := ROB.ID
             setup.storeTrap.reason     := ScheduleReason.TRAP
+          } otherwise {
+            setup.storeTrap.valid    := isFireing && YOUNGER_LOAD_RESCHEDULE
+            setup.storeTrap.trap     := False
+            setup.storeTrap.robId    := YOUNGER_LOAD_ROB
+            setup.storeTrap.reason   := ScheduleReason.STORE_TO_LOAD_HAZARD
           }
-
           setup.storeTrap.tval       := B(ADDRESS_PRE_TRANSLATION)
           setup.storeTrap.skipCommit := True
           setup.storeTrap.cause.assignDontCare()
           setup.storeTrap.pcTarget   := YOUNGER_LOAD_PC
 
-          val missAligned = (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
-          val pageFault = !tpk.ALLOW_WRITE || tpk.PAGE_FAULT //Assumed always ok -> AMO && !tpk.ALLOW_READ
 
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(SQ_SEL_OH(reg.id)){ body(reg) }
           when(isFireing) {
