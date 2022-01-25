@@ -572,7 +572,7 @@ class LsuPlugin(lqSize: Int,
           import stage._
 
           setup.cacheLoad.translated.physical := tpk.TRANSLATED
-          setup.cacheLoad.translated.abord := tpk.IO || tpk.PAGE_FAULT || !tpk.ALLOW_READ || tpk.REDO
+          setup.cacheLoad.translated.abord := stage(tpk.IO) || tpk.PAGE_FAULT || !tpk.ALLOW_READ || tpk.REDO
         }
 
         val cancels = for(stageId <- 0 to cache.loadRspLatency){
@@ -954,7 +954,7 @@ class LsuPlugin(lqSize: Int,
           setup.storeTrap.pcTarget   := YOUNGER_LOAD_PC
 
           val missAligned = (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
-          val pageFault = !tpk.ALLOW_WRITE || tpk.PAGE_FAULT || AMO && !tpk.ALLOW_READ
+          val pageFault = !tpk.ALLOW_WRITE || tpk.PAGE_FAULT //Assumed always ok -> AMO && !tpk.ALLOW_READ
 
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(SQ_SEL_OH(reg.id)){ body(reg) }
           when(isFireing) {
@@ -1078,15 +1078,6 @@ class LsuPlugin(lqSize: Int,
               ptr.writeBack := ptr.free
             } otherwise {
               sq.ptr.onFree.valid := True
-              ptr.free := ptr.free + 1
-              ptr.priority := ptr.priority |<< 1
-              when(ptr.priority === 0){
-                ptr.priority := (default -> true)
-              }
-              for(reg <- regs) when(ptr.freeReal === reg.id){
-                reg.valid := False
-                reg.commited := False
-              }
             }
           }
         }
@@ -1097,6 +1088,18 @@ class LsuPlugin(lqSize: Int,
           sq.ptr.onFree.valid := True
           ptr.free := ptr.free + 1
           ptr.writeBack := ptr.writeBack + 1
+        }
+
+        when(sq.ptr.onFree.valid) {
+          ptr.free := ptr.free + 1
+          ptr.priority := ptr.priority |<< 1
+          when(ptr.priority === 0){
+            ptr.priority := (default -> true)
+          }
+          for(reg <- regs) when(ptr.freeReal === reg.id){
+            reg.valid := False
+            reg.commited := False
+          }
         }
       }
     }
