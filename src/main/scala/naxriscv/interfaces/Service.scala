@@ -335,14 +335,13 @@ trait WakeWithBypassService extends Service{
 }
 
 class AddressTranslationRsp(s : AddressTranslationService, wakesCount : Int, val rspStage : Stage) extends Area{
-  val keys = new AreaRoot {
+  val keys = new Area {
+    setName("MMU")
     val TRANSLATED = Stageable(UInt(s.postWidth bits))
     val IO = Stageable(Bool())
     val REDO = Stageable(Bool())
     val ALLOW_READ, ALLOW_WRITE, ALLOW_EXECUTE = Stageable(Bool())
-    val PAGE_FAULT = Bool()
-//    val WAKER = Stageable(Bits(wakesCount bits))
-//    val WAKER_ANY = Stageable(Bool())
+    val PAGE_FAULT = Stageable(Bool())
   }
   val wake = Bool()
   val pipelineLock = Lock().retain()

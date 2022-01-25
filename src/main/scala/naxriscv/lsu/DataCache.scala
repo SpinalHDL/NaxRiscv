@@ -799,7 +799,7 @@ class DataCache(val cacheSize: Int,
         waysWrite.address := ADDRESS_PRE_TRANSLATION(lineRange)
         waysWrite.tag.loaded := True
         waysWrite.tag.fault := False
-        waysWrite.tag.address := ADDRESS_PRE_TRANSLATION(tagRange)
+        waysWrite.tag.address := ADDRESS_POST_TRANSLATION(tagRange)
 
         status.write.valid := True
         status.write.address := ADDRESS_PRE_TRANSLATION(lineRange)

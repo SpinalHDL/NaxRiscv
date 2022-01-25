@@ -257,10 +257,10 @@ class MmuPlugin(spec : MmuSpec,
         when(requireMmuLockup) {
           REDO          := !hit
           TRANSLATED    := lineTranslated
-          ALLOW_EXECUTE := lineAllowExecute
+          ALLOW_EXECUTE := lineAllowExecute && !(lineAllowUser && priv.isSupervisor())
           ALLOW_READ    := lineAllowRead || status.mxr && lineAllowExecute
           ALLOW_WRITE   := lineAllowWrite
-          PAGE_FAULT    := hit && (lineException || lineAllowUser && priv.isSupervisor() && !status.sum || !lineAllowUser && priv.isUser())
+          PAGE_FAULT    := lineException || lineAllowUser && priv.isSupervisor() && !status.sum || !lineAllowUser && priv.isUser()
         } otherwise {
           REDO          := False
           TRANSLATED    := ps.preAddress
@@ -288,6 +288,14 @@ class MmuPlugin(spec : MmuSpec,
       val portsOh       = OHMasking.first(portsRequests)
       val portsAddress  = OhMux.or(portsOh, ports.map(_.ctrl.needRefillAddress))
 
+      val cacheRefill = Reg(Bits(setup.cache.refillCount bits))
+      val cacheRefillAny = Reg(Bool())
+
+      val cacheRefillSet = cacheRefill.getZero
+      val cacheRefillAnySet = False
+      cacheRefill :=    (cacheRefill | cacheRefillSet) & ~setup.cache.refillCompletions
+      cacheRefillAny := (cacheRefillAny | cacheRefillAnySet) & !setup.cache.refillCompletions.orR
+
       setEntry(IDLE)
 
       IDLE whenIsActive {
@@ -306,8 +314,14 @@ class MmuPlugin(spec : MmuSpec,
         val address = Reg(UInt(postWidth bits))
 
         def cmd = setup.cacheLoad.cmd
-        val rsp = setup.cacheLoad.rsp.stage()
+        val rspUnbuffered = setup.cacheLoad.rsp
+        val rsp = rspUnbuffered.stage()
         val readed = rsp.data.subdivideIn(spec.entryBytes*8 bits).read((address >> log2Up(spec.entryBytes)).resized)
+
+        when(rspUnbuffered.valid && rspUnbuffered.redo) {
+          cacheRefillSet    := rspUnbuffered.refillSlot
+          cacheRefillAnySet := rspUnbuffered.refillSlotAny
+        }
 
         cmd.valid             := False
         cmd.virtual           := address
@@ -366,9 +380,11 @@ class MmuPlugin(spec : MmuSpec,
         }
 
         CMD(levelId) whenIsActive{
-          load.cmd.valid := True
-          when(load.cmd.ready){
-            goto(RSP(levelId))
+          when(cacheRefill === 0 && cacheRefillAny === False) {
+            load.cmd.valid := True
+            when(load.cmd.ready) {
+              goto(RSP(levelId))
+            }
           }
         }
 
