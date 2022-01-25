@@ -578,7 +578,7 @@ class LsuPlugin(lqSize: Int,
         }
 
         val cancels = for(stageId <- 0 to cache.loadRspLatency){
-          setup.cacheLoad.cancels(stageId) := stages(loadFeedAt + stageId).isValid && rescheduling.valid
+          setup.cacheLoad.cancels(stageId) := stages(loadFeedAt + stageId).isFireing && rescheduling.valid
         }
 
         val checkSqMask = new Area{
@@ -1369,7 +1369,6 @@ class LsuPlugin(lqSize: Int,
       }
       sq.ptr.alloc := sq.ptr.commitNext
       special.enabled := False
-      lq.reservation.valid := False
     }
 
 

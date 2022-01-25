@@ -1292,6 +1292,13 @@ int main(int argc, char** argv, char** env){
                     event();
                 }
             }
+            if(trace_ref && proc.get_log_commits_enabled() != trace_enable){
+                if(trace_enable){
+                    proc.enable_log_commits();
+                } else {
+                    proc.disable_log_commits();
+                }
+            }
 
             #ifdef TRACE
             if(trace){
