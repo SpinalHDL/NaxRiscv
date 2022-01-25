@@ -59,8 +59,13 @@ object Config{
         levels   = List(
           MmuStorageLevel(
             id    = 0,
-            ways  = 1,
-            depth = 8
+            ways  = 4,
+            depth = 32
+          ),
+          MmuStorageLevel(
+            id    = 1,
+            ways  = 2,
+            depth = 32
           )
         ),
         priority = 0
@@ -125,8 +130,13 @@ object Config{
         levels   = List(
           MmuStorageLevel(
             id    = 0,
-            ways  = 1,
-            depth = 8
+            ways  = 4,
+            depth = 32
+          ),
+          MmuStorageLevel(
+            id    = 1,
+            ways  = 2,
+            depth = 32
           )
         ),
         priority = 1

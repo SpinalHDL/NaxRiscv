@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <cstring>
 #include <string.h>
+#include <unistd.h>
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -125,12 +126,28 @@ int mkpath(std::string s,mode_t mode)
 #define CLINT_TIME (CLINT_BASE + 0x0BFF8)
 #define MACHINE_EXTERNAL_INTERRUPT_CTRL (BASE+0x10)
 #define SUPERVISOR_EXTERNAL_INTERRUPT_CTRL (BASE + 0x18)
+#define GETC (BASE + 0x40)
 
 #define MM_FAULT_ADDRESS 0x00001230
 #define IO_FAULT_ADDRESS 0x1FFFFFF0
 
 
 #define CLINT_CMP_ADDR (CLINT_BASE + 0x4000)
+
+
+
+bool stdinNonEmpty(){
+  struct timeval tv;
+  fd_set fds;
+  tv.tv_sec = 0;
+  tv.tv_usec = 0;
+  FD_ZERO(&fds);
+  FD_SET(STDIN_FILENO, &fds);
+  select(STDIN_FILENO+1, &fds, NULL, NULL, &tv);
+  return (FD_ISSET(0, &fds));
+}
+
+
 
 class SimElement{
 public:
@@ -140,7 +157,6 @@ public:
 	virtual void preCycle(){}
 	virtual void postCycle(){}
 };
-
 
 class Soc : public SimElement{
 public:
@@ -180,6 +196,20 @@ public:
 
     virtual int peripheralRead(u64 address, uint32_t length, uint8_t *data){
         switch(address){
+        case GETC:{
+            if(stdinNonEmpty()){
+                char c;
+                auto dummy = read(0, &c, 1);
+                memset(data, 0, length);
+                *data = c;
+            } else
+          /*  if(!customCin.empty()){
+                *data = customCin.front();
+                customCin.pop();
+            } else */{
+                memset(data, 0xFF, length);
+            }
+        } break;
         case CLINT_TIME:{
             u64 time = main_time/2;
             memcpy(data, &time, length);
@@ -947,6 +977,7 @@ enum ARG
 {
     ARG_LOAD_HEX = 1,
     ARG_LOAD_ELF,
+    ARG_LOAD_BIN,
     ARG_START_SYMBOL,
     ARG_PASS_SYMBOL,
     ARG_FAIL_SYMBOL,
@@ -976,6 +1007,7 @@ static const struct option long_options[] =
     { "help", no_argument, 0, ARG_HELP },
     { "load-hex", required_argument, 0, ARG_LOAD_HEX },
     { "load-elf", required_argument, 0, ARG_LOAD_ELF },
+    { "load-bin", required_argument, 0, ARG_LOAD_BIN },
     { "start-symbol", required_argument, 0, ARG_START_SYMBOL },
     { "pass-symbol", required_argument, 0, ARG_PASS_SYMBOL },
     { "fail-symbol", required_argument, 0, ARG_FAIL_SYMBOL },
@@ -1087,6 +1119,7 @@ int main(int argc, char** argv, char** env){
             case ARG_SPIKE_DEBUG: spike_debug = true; break;
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
+            case ARG_LOAD_BIN:
             case ARG_START_SYMBOL:
             case ARG_PASS_SYMBOL:
             case ARG_FAIL_SYMBOL:
@@ -1163,6 +1196,17 @@ int main(int argc, char** argv, char** env){
                     wrap.memory.write(address, 1, &data);
                     soc->memory.write(address, 1, &data);
                 });
+            }break;
+            case ARG_LOAD_BIN: {
+                u64 address;
+                char path[201];
+                if(sscanf(optarg, "%[^','],%lx", path, &address) == EOF) {
+                    cout << "Bad load bin formating" << endl;
+                    failure()
+                }
+
+                wrap.memory.loadBin(string(path), address);
+                soc->memory.loadBin(string(path), address);
             }break;
             case ARG_START_SYMBOL: startPc = elf->getSymbolAddress(optarg); break;
             case ARG_PASS_SYMBOL: {

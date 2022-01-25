@@ -26,7 +26,9 @@ case class MmuStorageParameter(levels : Seq[MmuStorageLevel],
 case class MmuPortParameter(readAt : Int,
                             hitsAt : Int,
                             ctrlAt : Int,
-                            rspAt : Int)
+                            rspAt : Int){
+  assert(readAt == ctrlAt, "For now, would need refill hazard detection to avoid refilling a page twice")
+}
 
 
 case class MmuSpec(levels : Seq[MmuLevel],
@@ -202,7 +204,7 @@ class MmuPlugin(spec : MmuSpec,
         val allocId = Counter(slp.ways)
 
         val keys = new Area {
-          setName("MMU")
+          setName(s"MMU_L${e.id}")
           val ENTRIES = Stageable(Vec.fill(slp.ways)(newEntry()))
           val HITS = Stageable(Bits(slp.ways bits))
         }
@@ -288,8 +290,8 @@ class MmuPlugin(spec : MmuSpec,
       val portsOh       = OHMasking.first(portsRequests)
       val portsAddress  = OhMux.or(portsOh, ports.map(_.ctrl.needRefillAddress))
 
-      val cacheRefill = Reg(Bits(setup.cache.refillCount bits))
-      val cacheRefillAny = Reg(Bool())
+      val cacheRefill = Reg(Bits(setup.cache.refillCount bits)) init(0)
+      val cacheRefillAny = Reg(Bool()) init(False)
 
       val cacheRefillSet = cacheRefill.getZero
       val cacheRefillAnySet = False

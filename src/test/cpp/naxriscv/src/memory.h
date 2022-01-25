@@ -69,11 +69,7 @@ public:
     	if(fp == 0){
     		cout << path << " not found" << endl;
     	}
-    	//Preload 0x0 <-> 0x80000000 jumps
-//    	((uint32_t*)mem->get(0))[0] = 0x800000b7;
-//    	((uint32_t*)mem->get(0))[1] = 0x000080e7;
-//    	((uint32_t*)mem->get(0x80000000))[0] = 0x00000097;
-//
+
     	fseek(fp, 0, SEEK_END);
     	uint32_t size = ftell(fp);
     	fseek(fp, 0, SEEK_SET);
@@ -123,7 +119,7 @@ public:
     	delete [] content;
     }
 
-    void loadBin(string path, uint32_t offset) {
+    void loadBin(string path, uint64_t offset) {
     	FILE *fp = fopen(&path[0], "r");
     	if(fp == 0){
     		cout << path << " not found" << endl;
@@ -133,7 +129,7 @@ public:
     	uint32_t size = ftell(fp);
     	fseek(fp, 0, SEEK_SET);
     	char* content = new char[size];
-    	fread(content, 1, size, fp);
+    	auto miaou = fread(content, 1, size, fp);
     	fclose(fp);
 
     	for(int byteId = 0; byteId < size;byteId++){
