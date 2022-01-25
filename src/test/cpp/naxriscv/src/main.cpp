@@ -21,6 +21,13 @@
 #include <map>
 #include <filesystem>
 #include <chrono>
+
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <arpa/inet.h>
+
 #include "disasm.h"
 
 using namespace std;
@@ -55,6 +62,9 @@ using namespace std;
 #define MAP_INIT(prefix, count, postfix) CALL(count, prefix, postfix)
 
 vluint64_t main_time = 0;
+
+#define SIM_MASTER_PORT 18654
+#define SA struct sockaddr
 
 class successException : public std::exception { };
 #define failure() throw std::exception();
@@ -181,8 +191,8 @@ public:
 
     virtual int peripheralWrite(u64 address, uint32_t length, uint8_t *data){
         switch(address){
-        case PUTC: printf("%c", *data); break;
-        case PUT_HEX: printf("%lx", *((u64*)data)); break;
+        case PUTC: printf("%c", *data); fflush(stdout); break;
+        case PUT_HEX: printf("%lx", *((u64*)data)); fflush(stdout); break;
         case MACHINE_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_machine_external = *data & 1;  break;
         #if SUPERVISOR == 1
         case SUPERVISOR_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_supervisor_external = *data & 1;  break;
@@ -973,6 +983,11 @@ public:
 
 #endif
 
+
+
+int syncSockfd, syncConnfd;
+
+
 //http://www.mario-konrad.ch/blog/programming/getopt.html
 enum ARG
 {
@@ -999,6 +1014,8 @@ enum ARG
     ARG_STATS_TOGGLE_SYMBOL,
     ARG_TRACE_GEM5,
     ARG_SPIKE_DEBUG,
+    ARG_SIM_MASTER,
+    ARG_SIM_SLAVE,
     ARG_HELP,
 };
 
@@ -1029,6 +1046,8 @@ static const struct option long_options[] =
     { "stats-toggle-symbol", required_argument, 0, ARG_STATS_TOGGLE_SYMBOL },
     { "trace-gem5", no_argument, 0, ARG_TRACE_GEM5 },
     { "spike-debug", no_argument, 0, ARG_SPIKE_DEBUG },
+    { "sim-master", no_argument, 0, ARG_SIM_MASTER },
+    { "sim-slave", no_argument, 0, ARG_SIM_SLAVE },
     0
 };
 
@@ -1057,6 +1076,9 @@ string helpString = R"(
 --stats-stop-symbol=SYM : Specify at which elf symbol the stats should stop capturing
 --stats-toggle-symbol=S : Specify at which elf symbol the stats should change its capture state
 --trace-gem5            : Enable capture of the pipeline timings as a gem5 trace, readable with github konata
+--sim-master            : The simulation will wait a sim-slave to connect and then run until pass/fail
+--sim-slave             : The simulation will connect to a sim-master and then run behind it
+                          When the sim-master fail, then the sim-slave will run to that point with trace enabled
 )";
 
 u64 startPc = 0x80000000l;
@@ -1071,23 +1093,54 @@ void addTimeEvent(u64 time, function<void()> func){
     if(timeToEvent.count(time) == 0) timeToEvent[time] = vector<function<void()>>();
     timeToEvent[time].push_back(func);
 }
+bool traceWave = false;
+bool trace_ref = false;
+vluint64_t timeout = -1;
+string simName = "???";
+string outputDir = "output";
+double progressPeriod = 0.0;
+bool statsPrint = false;
+bool statsPrintHist = false;
+bool traceGem5 = false;
+bool spike_debug = false;
+bool simMaster = false;
+bool simSlave = false;
 
-int main(int argc, char** argv, char** env){
-    bool trace = false;
-    bool trace_ref = false;
-    vluint64_t timeout = -1;
-    string name = "???";
-    string outputDir = "output";
-    double progressPeriod = 0.0;
-    bool statsPrint = false;
-    bool statsPrintHist = false;
-    bool traceGem5 = false;
-    bool spike_debug = false;
+bool trace_enable = true;
+float trace_sporadic_factor = 0.0f;
+u64 trace_sporadic_period = 100000;
+u64 trace_sporadic_trigger;
+processor_t *proc;
+sim_wrap *wrap;
+state_t *state;
+FILE *fptr;
+VNaxRiscv *top;
+Soc *soc;
+NaxWhitebox *whitebox;
+vector<SimElement*> simElements;
 
-    bool trace_enable = true;
-    float trace_sporadic_factor = 0.0f;
-    u64 trace_sporadic_period = 100000;
+u64 statsStartAt = -1;
+u64 statsStopAt = -1;
+u64 statsToggleAt = -1;
 
+#ifdef TRACE
+VerilatedFstC* tfp;
+#endif
+
+VNaxRiscv_NaxRiscv *topInternal;
+u64 traps_since_commit = 0;
+u64 commits = 0;
+u64 last_commit_pc;
+int robIdChecked = 0;
+int cycleSinceLastCommit = 0;
+std::chrono::high_resolution_clock::time_point progressLast;
+vluint64_t progressMainTimeLast = 0;
+
+u64 simSlaveTraceDuration = 50000;
+u64 simMasterTime = 0;
+
+
+void parseArgFirst(int argc, char** argv){
     while (1) {
         int index = -1;
         struct option * opt = 0;
@@ -1100,7 +1153,7 @@ int main(int argc, char** argv, char** env){
             } break;
 
             case ARG_TRACE: {
-                trace = true;
+                traceWave = true;
 #ifndef TRACE
                 printf("You need to recompile with TRACE=yes to enable tracing"); failure();
 #endif
@@ -1109,7 +1162,7 @@ int main(int argc, char** argv, char** env){
             case ARG_TRACE_STOP_TIME: trace_enable = false; addTimeEvent(stol(optarg), [&](){ trace_enable = false;}); break;
             case ARG_TRACE_SPORADIC: trace_enable = false; trace_sporadic_factor = stof(optarg); break;
             case ARG_TRACE_REF: trace_ref = true; break;
-            case ARG_NAME: name = optarg; break;
+            case ARG_NAME: simName = optarg; break;
             case ARG_OUTPUT_DIR: outputDir = optarg; break;
             case ARG_TIMEOUT: timeout = stoi(optarg); break;
             case ARG_PROGRESS: progressPeriod = stod(optarg); break;
@@ -1118,6 +1171,8 @@ int main(int argc, char** argv, char** env){
             case ARG_TRACE_GEM5: traceGem5 = true; break;
             case ARG_HELP: cout << helpString; exit(0); break;
             case ARG_SPIKE_DEBUG: spike_debug = true; break;
+            case ARG_SIM_MASTER: simMaster = true; break;
+            case ARG_SIM_SLAVE: simSlave = true; break;
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_LOAD_BIN:
@@ -1135,54 +1190,13 @@ int main(int argc, char** argv, char** env){
         }
     }
 
-    u64 trace_sporadic_trigger = trace_sporadic_period * trace_sporadic_factor;
-
-    Verilated::debug(0);
-    Verilated::randReset(2);
-    Verilated::traceEverOn(true);
-    Verilated::commandArgs(argc, argv);
-    Verilated::mkdir("logs");
-
+    trace_sporadic_trigger = trace_sporadic_period * trace_sporadic_factor;
     mkpath(outputDir, 0777);
+}
 
-    FILE *fptr;
-    fptr = trace_ref ? fopen((outputDir + "/spike.log").c_str(),"w") : NULL;
-    std::ofstream outfile ("/dev/null",std::ofstream::binary);
-    sim_wrap wrap;
-
-    processor_t proc("RV32IMA", "MSU", "", &wrap, 0, false, fptr, outfile);
-    if(trace_ref) proc.enable_log_commits();
-    if(spike_debug) proc.debug = true;
-    proc.wfi_as_nop = true;
-
-
-    VNaxRiscv* top = new VNaxRiscv;  // Or use a const unique_ptr, or the VL_UNIQUE_PTR wrapper
-
-    NaxWhitebox whitebox(top->NaxRiscv);
-    whitebox.traceGem5(traceGem5);
-    if(traceGem5) whitebox.gem5 = ofstream(outputDir + "/trace.gem5o3",std::ofstream::binary);
-
-    Soc *soc;
-    soc = new Soc(top);
-	vector<SimElement*> simElements;
-	simElements.push_back(soc);
-    simElements.push_back(new FetchCached(top, soc, true));
-    simElements.push_back(new DataCached(top, soc, true));
-    simElements.push_back(new LsuPeripheral(top, soc, &wrap.mmioDut, true));
-    simElements.push_back(&whitebox);
-#ifdef ALLOCATOR_CHECKS
-    simElements.push_back(new NaxAllocatorChecker(top->NaxRiscv));
-#endif
-
-
-
-
-    u64 statsStartAt = -1;
-    u64 statsStopAt = -1;
-    u64 statsToggleAt = -1;
-
-	u32 nop32 = 0x13;
-	u8 *nop = (u8 *)&nop32;
+void parseArgsSecond(int argc, char** argv){
+    u32 nop32 = 0x13;
+    u8 *nop = (u8 *)&nop32;
     Elf *elf = NULL;
     optind = 1;
     while (1) {
@@ -1191,11 +1205,11 @@ int main(int argc, char** argv, char** env){
         int result = getopt_long(argc, argv,"abc:d", long_options, &index);
         if (result == -1) break;
         switch (result) {
-            case ARG_LOAD_HEX: wrap.memory.loadHex(string(optarg)); soc->memory.loadHex(string(optarg)); break;
+            case ARG_LOAD_HEX: wrap->memory.loadHex(string(optarg)); soc->memory.loadHex(string(optarg)); break;
             case ARG_LOAD_ELF: {
                 elf = new Elf(optarg);
                 elf->visitBytes([&](u8 data, u64 address) {
-                    wrap.memory.write(address, 1, &data);
+                    wrap->memory.write(address, 1, &data);
                     soc->memory.write(address, 1, &data);
                 });
             }break;
@@ -1207,14 +1221,14 @@ int main(int argc, char** argv, char** env){
                     failure()
                 }
 
-                wrap.memory.loadBin(string(path), address);
+                wrap->memory.loadBin(string(path), address);
                 soc->memory.loadBin(string(path), address);
             }break;
             case ARG_START_SYMBOL: startPc = elf->getSymbolAddress(optarg); break;
             case ARG_PASS_SYMBOL: {
                 u64 addr = elf->getSymbolAddress(optarg);
                 addPcEvent(addr, [&](RvData pc){ success();});
-                wrap.memory.write(addr, 4, nop);
+                wrap->memory.write(addr, 4, nop);
                 soc->memory.write(addr, 4, nop);
             }break;
             case ARG_FAIL_SYMBOL:  {
@@ -1223,11 +1237,11 @@ int main(int argc, char** argv, char** env){
                   printf("Failure due to fail symbol encounter\n");
                   failure();
                 });
-                wrap.memory.write(addr, 4, nop);
+                wrap->memory.write(addr, 4, nop);
                 soc->memory.write(addr, 4, nop);
             }break;
-            case ARG_STATS_TOGGLE_SYMBOL: statsToggleAt = elf->getSymbolAddress(optarg); whitebox.statsCaptureEnable = false; break;
-            case ARG_STATS_START_SYMBOL: statsStartAt = elf->getSymbolAddress(optarg); whitebox.statsCaptureEnable = false; break;
+            case ARG_STATS_TOGGLE_SYMBOL: statsToggleAt = elf->getSymbolAddress(optarg); whitebox->statsCaptureEnable = false; break;
+            case ARG_STATS_START_SYMBOL: statsStartAt = elf->getSymbolAddress(optarg); whitebox->statsCaptureEnable = false; break;
             case ARG_STATS_STOP_SYMBOL: statsStopAt = elf->getSymbolAddress(optarg); break;
             default:  break;
         }
@@ -1239,50 +1253,152 @@ int main(int argc, char** argv, char** env){
     }
 
 
-	#ifdef TRACE
-	VerilatedFstC* tfp;
-	if(trace){
-	    tfp = new VerilatedFstC;
-	    top->trace(tfp, 99);
-	    tfp->open((outputDir + "/wave.fst").c_str());
-	}
+    #ifdef TRACE
+    if(traceWave){
+        tfp = new VerilatedFstC;
+        top->trace(tfp, 99);
+        tfp->open((outputDir + "/wave.fst").c_str());
+    }
     #endif
 
 
-	proc.set_pmp_num(0);
-
-    state_t *state = proc.get_state();
     state->pc = startPc;
+    progressLast = std::chrono::high_resolution_clock::now();
+}
+
+void verilatorInit(int argc, char** argv){
+    Verilated::debug(0);
+    Verilated::randReset(2);
+    Verilated::traceEverOn(true);
+    Verilated::commandArgs(argc, argv);
+    Verilated::mkdir("logs");
+}
+
+void spikeInit(){
+    fptr = trace_ref ? fopen((outputDir + "/spike.log").c_str(),"w") : NULL;
+    std::ofstream outfile ("/dev/null",std::ofstream::binary);
+    wrap = new sim_wrap();
+
+    proc = new processor_t("RV32IMA", "MSU", "", wrap, 0, false, fptr, outfile);
+    if(trace_ref) proc->enable_log_commits();
+    if(spike_debug) proc->debug = true;
+    proc->wfi_as_nop = true;
+    proc->set_pmp_num(0);
+    state = proc->get_state();
+}
+
+void rtlInit(){
+    top = new VNaxRiscv;  // Or use a const unique_ptr, or the VL_UNIQUE_PTR wrapper
+    topInternal = top->NaxRiscv;
+
+    whitebox = new NaxWhitebox(top->NaxRiscv);
+    whitebox->traceGem5(traceGem5);
+    if(traceGem5) whitebox->gem5 = ofstream(outputDir + "/trace.gem5o3",std::ofstream::binary);
+
+    soc = new Soc(top);
+    simElements.push_back(soc);
+    simElements.push_back(new FetchCached(top, soc, true));
+    simElements.push_back(new DataCached(top, soc, true));
+    simElements.push_back(new LsuPeripheral(top, soc, &wrap->mmioDut, true));
+    simElements.push_back(whitebox);
+#ifdef ALLOCATOR_CHECKS
+    simElements.push_back(new NaxAllocatorChecker(top->NaxRiscv));
+#endif
+}
+
+void simMasterSlaveInit(){
+    //https://www.geeksforgeeks.org/tcp-server-client-implementation-in-c/   <3
+
+    if(simMaster){
+        struct sockaddr_in servaddr, cli;
+        socklen_t len;
+
+        // socket create and verification
+        syncSockfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (syncSockfd == -1) {
+            printf("socket creation failed...\n");
+            exit(0);
+        }
+        else
+            printf("Socket successfully created..\n");
+        bzero(&servaddr, sizeof(servaddr));
+
+        // assign IP, PORT
+        servaddr.sin_family = AF_INET;
+        servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+        servaddr.sin_port = htons(SIM_MASTER_PORT);
+
+        // Binding newly created socket to given IP and verification
+        if ((bind(syncSockfd, (SA*)&servaddr, sizeof(servaddr))) != 0) {
+            printf("socket bind failed...\n");
+            exit(0);
+        }
+        else
+            printf("Socket successfully binded..\n");
+
+        // Now server is ready to listen and verification
+        if ((listen(syncSockfd, 5)) != 0) {
+            printf("Listen failed...\n");
+            exit(0);
+        }
+        else
+            printf("Server listening..\n");
+        len = sizeof(cli);
+
+        // Accept the data packet from client and verification
+        syncConnfd = accept(syncSockfd, (SA*)&cli, &len);
+        if (syncConnfd < 0) {
+            printf("server accept failed...\n");
+            exit(0);
+        }
+        else
+            printf("server accept the client...\n");
+    }
+
+    if(simSlave){
+        struct sockaddr_in servaddr, cli;
+        socklen_t len;
+
+        // socket create and varification
+        syncSockfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (syncSockfd == -1) {
+            printf("socket creation failed...\n");
+            exit(0);
+        }
+        else
+            printf("Socket successfully created..\n");
+        bzero(&servaddr, sizeof(servaddr));
+
+        // assign IP, PORT
+        servaddr.sin_family = AF_INET;
+        servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+        servaddr.sin_port = htons(SIM_MASTER_PORT);
+
+        // connect the client socket to server socket
+        if (connect(syncSockfd, (SA*)&servaddr, sizeof(servaddr)) != 0) {
+            printf("connection with the server failed...\n");
+            exit(0);
+        }
+        else
+            printf("connected to the server..\n");
+    }
+
+}
 
 
-    auto internal = top->NaxRiscv;
-
-
-
-
-//    for(int i = 0;i < 30;i++){
-//        if(i == 20){
-//            state->mip->write_with_mask(1 << 11, 1 << 11);
-//        }
-//        proc.step(1);
-//        printf("%d PC= %lx\n", i,  state->pc);
-//    }
-
-
-    u64 traps_since_commit = 0;
-    u64 commits = 0;
-    u64 last_commit_pc;
-    int robIdChecked = 0;
-    int cycleSinceLastCommit = 0;
-    auto progressLast = std::chrono::high_resolution_clock::now();
-    vluint64_t progressMainTimeLast = 0;
-
+void simLoop(){
     try {
         top->clk = 0;
 
         for(SimElement* simElement : simElements) simElement->onReset();
         while (!Verilated::gotFinish()) {
+
+
             ++main_time;
+    //            while(main_time + simSlaveTraceDuration >= simMasterTime){
+    //
+    //            }
+
             if(main_time == timeout){
                 printf("simulation timeout\n");
                 failure();
@@ -1292,16 +1408,16 @@ int main(int argc, char** argv, char** env){
                     event();
                 }
             }
-            if(trace_ref && proc.get_log_commits_enabled() != trace_enable){
+            if(trace_ref && proc->get_log_commits_enabled() != trace_enable){
                 if(trace_enable){
-                    proc.enable_log_commits();
+                    proc->enable_log_commits();
                 } else {
-                    proc.disable_log_commits();
+                    proc->disable_log_commits();
                 }
             }
 
             #ifdef TRACE
-            if(trace){
+            if(traceWave){
                 if(trace_enable || (main_time % trace_sporadic_period) < trace_sporadic_trigger) tfp->dump(main_time);
                 if(main_time % 100000 == 0) tfp->flush();
             }
@@ -1332,14 +1448,14 @@ int main(int argc, char** argv, char** env){
                 cycleSinceLastCommit += 1;
 
                 for(int i = 0;i < COMMIT_COUNT;i++){
-                    if(CHECK_BIT(internal->commit_mask, i)){
+                    if(CHECK_BIT(topInternal->commit_mask, i)){
                         cycleSinceLastCommit = 0;
-                        int robId = internal->commit_robId + i;
-                        auto &robCtx = whitebox.robCtx[robId];
+                        int robId = topInternal->commit_robId + i;
+                        auto &robCtx = whitebox->robCtx[robId];
                         robIdChecked = robId;
                         commits += 1;
                         traps_since_commit = 0;
-//                        printf("Commit %d %x\n", robId, whitebox.robCtx[robId].pc);
+    //                        printf("Commit %d %x\n", robId, whitebox->robCtx[robId].pc);
 
                         //Sync some CSR
                         state->mip->unlogged_write_with_mask(-1, 0);
@@ -1352,7 +1468,7 @@ int main(int argc, char** argv, char** env){
                                 backup = state->mie->read();
                                 state->mip->unlogged_write_with_mask(-1, robCtx.csrReadData);
                                 state->mie->unlogged_write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, 0);
-//                                cout << main_time << " " << hex << robCtx.csrReadData << " " << state->mip->read()  << " " << state->csrmap[robCtx.csrAddress]->read() << dec << endl;
+    //                                cout << main_time << " " << hex << robCtx.csrReadData << " " << state->mip->read()  << " " << state->csrmap[robCtx.csrAddress]->read() << dec << endl;
                                 break;
                             case CSR_MCYCLE:
                                 backup = state->minstret->read();
@@ -1374,7 +1490,7 @@ int main(int argc, char** argv, char** env){
                         auto spike_commit_count = state->commit_count;
                         int credit = 10;
                         do{
-                            proc.step(1);
+                            proc->step(1);
                             if(credit == 0){
                                 printf("Spike execution isn't progressing ??\n");
                                 failure();
@@ -1399,10 +1515,10 @@ int main(int argc, char** argv, char** env){
                             }
                         }
 
-//                        cout << state->minstret.get()->read() << endl;
+    //                        cout << state->minstret.get()->read() << endl;
                         RvData pc = state->last_inst_pc;
                         last_commit_pc = pc;
-                        assertEq("MISSMATCH PC", whitebox.robCtx[robId].pc,  pc);
+                        assertEq("MISSMATCH PC", whitebox->robCtx[robId].pc,  pc);
                         for (auto item : state->log_reg_write) {
                             if (item.first == 0)
                               continue;
@@ -1410,8 +1526,8 @@ int main(int argc, char** argv, char** env){
                             int rd = item.first >> 4;
                             switch (item.first & 0xf) {
                             case 0: { //integer
-                                assertTrue("INTEGER WRITE MISSING", whitebox.robCtx[robId].integerWriteValid);
-                                assertEq("INTEGER WRITE DATA", whitebox.robCtx[robId].integerWriteData, item.second.v[0]);
+                                assertTrue("INTEGER WRITE MISSING", whitebox->robCtx[robId].integerWriteValid);
+                                assertEq("INTEGER WRITE DATA", whitebox->robCtx[robId].integerWriteData, item.second.v[0]);
                             } break;
                             case 4:{ //CSR
                                 u64 inst = state->last_inst.bits();
@@ -1421,9 +1537,9 @@ int main(int argc, char** argv, char** env){
                                 case 0x00200073: //URET
                                     break;
                                 default:
-                                    assertTrue("CSR WRITE MISSING", whitebox.robCtx[robId].csrWriteDone);
-                                    assertEq("CSR WRITE ADDRESS", whitebox.robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
-//                                    assertEq("CSR WRITE DATA", whitebox.robCtx[robId].csrWriteData, item.second.v[0]);
+                                    assertTrue("CSR WRITE MISSING", whitebox->robCtx[robId].csrWriteDone);
+                                    assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
+    //                                    assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
                                     break;
                                 }
                             } break;
@@ -1441,12 +1557,12 @@ int main(int argc, char** argv, char** env){
                         }
 
                         if(pc == statsToggleAt) {
-                            whitebox.statsCaptureEnable = !whitebox.statsCaptureEnable;
-                            cout << "Stats capture " << whitebox.statsCaptureEnable << " at " << main_time << endl;
+                            whitebox->statsCaptureEnable = !whitebox->statsCaptureEnable;
+                            cout << "Stats capture " << whitebox->statsCaptureEnable << " at " << main_time << endl;
                         }
-                        if(pc == statsStartAt) whitebox.statsCaptureEnable = true;
-                        if(pc == statsStopAt) whitebox.statsCaptureEnable = false;
-                        whitebox.robCtx[robId].clear();
+                        if(pc == statsStartAt) whitebox->statsCaptureEnable = true;
+                        if(pc == statsStopAt) whitebox->statsCaptureEnable = false;
+                        whitebox->robCtx[robId].clear();
                     }
                 }
 
@@ -1454,9 +1570,9 @@ int main(int argc, char** argv, char** env){
                     bool interrupt = top->NaxRiscv->trap_interrupt;
                     int code = top->NaxRiscv->trap_code;
                     int mask = 1 << code;
-//                    cout << "DUT TRAP " << interrupt << " " << code << endl;
+    //                    cout << "DUT TRAP " << interrupt << " " << code << endl;
                     if(interrupt) state->mip->write_with_mask(mask, mask);
-                    proc.step(1);
+                    proc->step(1);
                     if(interrupt) state->mip->write_with_mask(mask, 0);
 
                     traps_since_commit += 1;
@@ -1471,14 +1587,14 @@ int main(int argc, char** argv, char** env){
             }
         }
     }catch (const successException e) {
-        printf("SUCCESS %s\n", name.c_str());
+        printf("SUCCESS %s\n", simName.c_str());
         remove((outputDir + "/FAIL").c_str());
         auto f = fopen((outputDir + "/PASS").c_str(),"w");
         fclose(f);
     } catch (const std::exception& e) {
         ++main_time;
         #ifdef TRACE
-        if(trace){
+        if(traceWave){
         tfp->dump(main_time);
         if(main_time % 100000 == 0) tfp->flush();
         }
@@ -1487,25 +1603,25 @@ int main(int argc, char** argv, char** env){
         printf("LAST PC COMMIT=%lx\n", last_commit_pc);
         printf("INCOMING SPIKE PC=%lx\n", state->pc);
         printf("ROB_ID=x%x\n", robIdChecked);
-        printf("FAILURE %s\n", name.c_str());
+        printf("FAILURE %s\n", simName.c_str());
         remove((outputDir + "/PASS").c_str());
         auto f = fopen((outputDir + "/FAIL").c_str(),"w");
         fclose(f);
     }
 
     if(statsPrint){
-        printf("STATS :\n%s", whitebox.stats.report("  ", statsPrintHist).c_str());
+        printf("STATS :\n%s", whitebox->stats.report("  ", statsPrintHist).c_str());
     }
+}
+
+void cleanup(){
     if(fptr) {
         fflush(fptr);
         fclose(fptr);
     }
 
-//    printf("Commits=%ld\n", commits);
-//    printf("Time=%ld\n", main_time);
-//    printf("Cycles=%ld\n", main_time/2);
     #ifdef TRACE
-    if(trace){
+    if(traceWave){
         tfp->flush();
         tfp->close();
     }
@@ -1513,7 +1629,19 @@ int main(int argc, char** argv, char** env){
     top->final();
 
     delete top;
+    if(proc) delete proc;
     top = NULL;
     exit(0);
+}
+
+int main(int argc, char** argv, char** env){
+    parseArgFirst(argc, argv);
+    verilatorInit(argc, argv);
+    spikeInit();
+    rtlInit();
+    parseArgsSecond(argc, argv);
+    simMasterSlaveInit();
+    simLoop();
+    cleanup();
     return 0;
 }

@@ -360,68 +360,17 @@ obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/p
 obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/freertosDemo/integer/rv32im/freertosDemo.elf --start-symbol _start --pass-symbol c_pass --fail-symbol c_fail --stats-print-all
 
 
-SUCCESS dhrystone
-STATS :
-  commits           73612 => 368
-  reschedules       8803  => 44
-  trap              0
-  missprediction    8803
-  storeToLoadHazard 0
+LAST PC COMMIT=c002be98
 
-SUCCESS dhrystone
-STATS :
-  commits           73612
-  reschedules       2641
-  trap              0
-  missprediction    2641
-  storeToLoadHazard 0
-  missprediction from :
-    800002b4 1
-    800002e4 1
-    80000318 1
-    80000330 1
-    8000033c 400
-    80000370 2
-    8000091c 1
-    80000cb8 600
-    80000d28 1
-    80000d34 1
-    80000d3c 400
-    80000d70 1
-    80000d84 1
-    80000da8 1
-    80000db4 1
-    80000dd8 1
-    80000de8 1
-    80000dec 1
-    80000df4 1
-    80000e50 1
-    80000e68 1
-    80000e84 1
-    80000e8c 1
-    80000f44 1
-    80001028 1
-    80001038 1
-    800010dc 1
-    80001100 1
-    80001104 1
-    80001120 1
-    80001124 1
-    80001140 1
-    80001144 1
-    80001160 1
-    80001164 1
-    80001180 1
-    8000118c 1
-    80001198 1
-    800011ac 1
-    800011b0 1
-    80001258 1
-    80001268 400
-    8000126c 1
-    8000131c 1
-    80001334 399
-    80001348 400
-    8000134c 1
+LINUX_IMAGES=/media/data/open/riscv/buildroot/output/images
+ARGS_COMMON="--load-bin $LINUX_IMAGES/fw_jump.bin,0x80000000 \
+             --load-bin $LINUX_IMAGES/linux.dtb,0x80F80000 \
+             --load-bin $LINUX_IMAGES/Image,0x80400000  \
+             --load-bin $LINUX_IMAGES/rootfs.cpio,0x81000000"
+ARGS_MASTER="--sim-master --progress 1.0"
+ARGS_SLAVE="--sim-slave --progress 1.0"
 
+make compile
+./obj_dir/VNaxRiscv $ARGS_COMMON $ARGS_MASTER
+./obj_dir/VNaxRiscv $ARGS_COMMON $ARGS_SLAVE
  */
