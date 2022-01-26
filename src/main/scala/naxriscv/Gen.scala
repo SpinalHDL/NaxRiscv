@@ -362,13 +362,15 @@ obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/freertosDemo/
 
 LAST PC COMMIT=c002be98
 
+ARGS_COMMON="--load-elf /media/data/open/riscv/VexRiscvOoo/ext/NaxSoftware/baremetal/play/build/play.elf"
+
 LINUX_IMAGES=/media/data/open/riscv/buildroot/output/images
 ARGS_COMMON="--load-bin $LINUX_IMAGES/fw_jump.bin,0x80000000 \
              --load-bin $LINUX_IMAGES/linux.dtb,0x80F80000 \
              --load-bin $LINUX_IMAGES/Image,0x80400000  \
              --load-bin $LINUX_IMAGES/rootfs.cpio,0x81000000"
-ARGS_MASTER="--sim-master --progress 1.0"
-ARGS_SLAVE="--sim-slave --progress 1.0"
+ARGS_MASTER="--sim-master"
+ARGS_SLAVE="--sim-slave --trace"
 
 make compile
 ./obj_dir/VNaxRiscv $ARGS_COMMON $ARGS_MASTER

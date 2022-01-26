@@ -144,7 +144,21 @@ int mkpath(std::string s,mode_t mode)
 
 #define CLINT_CMP_ADDR (CLINT_BASE + 0x4000)
 
+bool traceWave = false;
+bool trace_ref = false;
+vluint64_t timeout = -1;
+string simName = "???";
+string outputDir = "output";
+double progressPeriod = 0.0;
+bool statsPrint = false;
+bool statsPrintHist = false;
+bool traceGem5 = false;
+bool spike_debug = false;
+bool simMaster = false;
+bool simSlave = false;
 
+
+void simMasterGetC(char c);
 
 bool stdinNonEmpty(){
   struct timeval tv;
@@ -173,6 +187,7 @@ public:
     Memory memory;
     VNaxRiscv* nax;
     u64 clintCmp = 0;
+    queue <char> customCin;
 
     Soc(VNaxRiscv* nax){
         this->nax = nax;
@@ -208,16 +223,19 @@ public:
     virtual int peripheralRead(u64 address, uint32_t length, uint8_t *data){
         switch(address){
         case GETC:{
-            if(stdinNonEmpty()){
+            if(!simSlave && stdinNonEmpty()){
                 char c;
                 auto dummy = read(0, &c, 1);
                 memset(data, 0, length);
                 *data = c;
-            } else
-          /*  if(!customCin.empty()){
+                if(simMaster){
+                    simMasterGetC(c);
+                }
+            } else if(!customCin.empty()){
+                memset(data, 0, length);
                 *data = customCin.front();
                 customCin.pop();
-            } else */{
+            } else {
                 memset(data, 0xFF, length);
             }
         } break;
@@ -1093,18 +1111,7 @@ void addTimeEvent(u64 time, function<void()> func){
     if(timeToEvent.count(time) == 0) timeToEvent[time] = vector<function<void()>>();
     timeToEvent[time].push_back(func);
 }
-bool traceWave = false;
-bool trace_ref = false;
-vluint64_t timeout = -1;
-string simName = "???";
-string outputDir = "output";
-double progressPeriod = 0.0;
-bool statsPrint = false;
-bool statsPrintHist = false;
-bool traceGem5 = false;
-bool spike_debug = false;
-bool simMaster = false;
-bool simSlave = false;
+
 
 bool trace_enable = true;
 float trace_sporadic_factor = 0.0f;
@@ -1138,6 +1145,7 @@ vluint64_t progressMainTimeLast = 0;
 
 u64 simSlaveTraceDuration = 50000;
 u64 simMasterTime = 0;
+bool simMasterFailed = false;
 
 
 void parseArgFirst(int argc, char** argv){
@@ -1172,7 +1180,7 @@ void parseArgFirst(int argc, char** argv){
             case ARG_HELP: cout << helpString; exit(0); break;
             case ARG_SPIKE_DEBUG: spike_debug = true; break;
             case ARG_SIM_MASTER: simMaster = true; break;
-            case ARG_SIM_SLAVE: simSlave = true; break;
+            case ARG_SIM_SLAVE: simSlave = true; trace_enable = false; break;
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_LOAD_BIN:
@@ -1328,6 +1336,9 @@ void simMasterSlaveInit(){
         servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
         servaddr.sin_port = htons(SIM_MASTER_PORT);
 
+        int one = 1;
+        setsockopt(syncSockfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+
         // Binding newly created socket to given IP and verification
         if ((bind(syncSockfd, (SA*)&servaddr, sizeof(servaddr))) != 0) {
             printf("socket bind failed...\n");
@@ -1385,6 +1396,132 @@ void simMasterSlaveInit(){
 
 }
 
+void spikeStep(RobCtx & robCtx){
+    //Sync some CSR
+    state->mip->unlogged_write_with_mask(-1, 0);
+    u64 backup;
+    if(robCtx.csrReadDone){
+        switch(robCtx.csrAddress){
+        case MIP:
+        case SIP:
+        case UIP:
+            backup = state->mie->read();
+            state->mip->unlogged_write_with_mask(-1, robCtx.csrReadData);
+            state->mie->unlogged_write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, 0);
+//                                cout << main_time << " " << hex << robCtx.csrReadData << " " << state->mip->read()  << " " << state->csrmap[robCtx.csrAddress]->read() << dec << endl;
+            break;
+        case CSR_MCYCLE:
+            backup = state->minstret->read();
+            state->minstret->unlogged_write(robCtx.csrReadData+1); //+1 patch a spike internal workaround XD
+            break;
+        case CSR_MCYCLEH:
+            backup = state->minstret->read();
+            state->minstret->unlogged_write((((u64)robCtx.csrReadData) << 32)+1);
+            break;
+        default:
+            if(robCtx.csrAddress >= CSR_MHPMCOUNTER3 && robCtx.csrAddress <= CSR_MHPMCOUNTER31){
+                state->csrmap[robCtx.csrAddress]->unlogged_write(robCtx.csrReadData);
+            }
+            break;
+        }
+    }
+
+    //Run spike for one instruction
+    auto spike_commit_count = state->commit_count;
+    int credit = 10;
+    do{
+        proc->step(1);
+        if(credit == 0){
+            printf("Spike execution isn't progressing ??\n");
+            failure();
+        }
+        credit--;
+    } while(spike_commit_count == state->commit_count);
+    state->mip->unlogged_write_with_mask(-1, 0);
+
+    //Sync back some CSR
+    if(robCtx.csrReadDone){
+        switch(robCtx.csrAddress){
+        case MIP:
+        case SIP:
+        case UIP:
+            state->mie->unlogged_write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, backup);
+            break;
+        case CSR_MCYCLE:
+        case CSR_MCYCLEH:
+            state->minstret->unlogged_write(backup+2);
+            break;
+            break;
+        }
+    }
+}
+
+#define simMasterWrite(buf) assert(write(syncConnfd, &buf, sizeof(buf)) == sizeof(buf));
+#define simMasterRead(buf) assert(read(syncSockfd, &buf, sizeof(buf)) == sizeof(buf));
+
+enum SIM_MS_ENUM
+{
+    SIM_MS_TIME = 1,
+    SIM_MS_FAIL,
+    SIM_MS_PASS,
+    SIM_MS_GETC,
+};
+
+void simMasterWriteHeader(SIM_MS_ENUM e) {
+    simMasterWrite(e);
+}
+
+void simMasterMainTime(){
+    char buf[1+sizeof(main_time)];
+    buf[0] = SIM_MS_TIME;
+    simMasterWriteHeader(SIM_MS_TIME);
+    simMasterWrite(main_time);
+}
+
+void simMasterGetC(char c){
+    simMasterMainTime();
+    simMasterWriteHeader(SIM_MS_GETC);
+    simMasterWrite(c);
+}
+
+void simSlaveTick(){
+    if(simMasterFailed) {
+        if(main_time > simMasterTime){
+            cout << "ERROR Slave sim is going futher than the master one ?????" << endl;
+            failure();
+        }
+        return;
+    }
+    while(main_time + simSlaveTraceDuration >= simMasterTime){
+        SIM_MS_ENUM header;
+        simMasterRead(header);
+        switch(header){
+            case SIM_MS_TIME:{
+                simMasterRead(simMasterTime);
+            }break;
+            case SIM_MS_FAIL:{
+                simMasterFailed = true;
+                auto time = simMasterTime - simSlaveTraceDuration;
+                if(time > simMasterTime) time = main_time + 1;
+                addTimeEvent(time, [&](){ trace_enable = true;});
+                return;
+            }break;
+            case SIM_MS_PASS:{
+                success();
+            }break;
+            case SIM_MS_GETC:{
+                char c;
+                simMasterRead(c);
+                addTimeEvent(simMasterTime-1, [c](){ soc->customCin.push(c);});
+            }break;
+            default: {
+                cout << "Unknown sim master header" << endl;
+                failure();
+            }break;
+        }
+    }
+}
+
 
 void simLoop(){
     try {
@@ -1392,12 +1529,13 @@ void simLoop(){
 
         for(SimElement* simElement : simElements) simElement->onReset();
         while (!Verilated::gotFinish()) {
-
+            if(simMaster && main_time % 50000 == 0){
+                simMasterMainTime();
+            }
 
             ++main_time;
-    //            while(main_time + simSlaveTraceDuration >= simMasterTime){
-    //
-    //            }
+
+            if(simSlave) simSlaveTick();
 
             if(main_time == timeout){
                 printf("simulation timeout\n");
@@ -1457,63 +1595,7 @@ void simLoop(){
                         traps_since_commit = 0;
     //                        printf("Commit %d %x\n", robId, whitebox->robCtx[robId].pc);
 
-                        //Sync some CSR
-                        state->mip->unlogged_write_with_mask(-1, 0);
-                        u64 backup;
-                        if(robCtx.csrReadDone){
-                            switch(robCtx.csrAddress){
-                            case MIP:
-                            case SIP:
-                            case UIP:
-                                backup = state->mie->read();
-                                state->mip->unlogged_write_with_mask(-1, robCtx.csrReadData);
-                                state->mie->unlogged_write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, 0);
-    //                                cout << main_time << " " << hex << robCtx.csrReadData << " " << state->mip->read()  << " " << state->csrmap[robCtx.csrAddress]->read() << dec << endl;
-                                break;
-                            case CSR_MCYCLE:
-                                backup = state->minstret->read();
-                                state->minstret->unlogged_write(robCtx.csrReadData+1); //+1 patch a spike internal workaround XD
-                                break;
-                            case CSR_MCYCLEH:
-                                backup = state->minstret->read();
-                                state->minstret->unlogged_write((((u64)robCtx.csrReadData) << 32)+1);
-                                break;
-                            default:
-                                if(robCtx.csrAddress >= CSR_MHPMCOUNTER3 && robCtx.csrAddress <= CSR_MHPMCOUNTER31){
-                                    state->csrmap[robCtx.csrAddress]->unlogged_write(robCtx.csrReadData);
-                                }
-                                break;
-                            }
-                        }
-
-                        //Run spike for one instruction
-                        auto spike_commit_count = state->commit_count;
-                        int credit = 10;
-                        do{
-                            proc->step(1);
-                            if(credit == 0){
-                                printf("Spike execution isn't progressing ??\n");
-                                failure();
-                            }
-                            credit--;
-                        } while(spike_commit_count == state->commit_count);
-                        state->mip->unlogged_write_with_mask(-1, 0);
-
-                        //Sync back some CSR
-                        if(robCtx.csrReadDone){
-                            switch(robCtx.csrAddress){
-                            case MIP:
-                            case SIP:
-                            case UIP:
-                                state->mie->unlogged_write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, backup);
-                                break;
-                            case CSR_MCYCLE:
-                            case CSR_MCYCLEH:
-                                state->minstret->unlogged_write(backup+2);
-                                break;
-                                break;
-                            }
-                        }
+                        spikeStep(robCtx);
 
     //                        cout << state->minstret.get()->read() << endl;
                         RvData pc = state->last_inst_pc;
@@ -1591,6 +1673,7 @@ void simLoop(){
         remove((outputDir + "/FAIL").c_str());
         auto f = fopen((outputDir + "/PASS").c_str(),"w");
         fclose(f);
+        if(simMaster) simMasterWriteHeader(SIM_MS_PASS);
     } catch (const std::exception& e) {
         ++main_time;
         #ifdef TRACE
@@ -1607,6 +1690,10 @@ void simLoop(){
         remove((outputDir + "/PASS").c_str());
         auto f = fopen((outputDir + "/FAIL").c_str(),"w");
         fclose(f);
+        if(simMaster) {
+            simMasterMainTime();
+            simMasterWriteHeader(SIM_MS_FAIL);
+        }
     }
 
     if(statsPrint){
