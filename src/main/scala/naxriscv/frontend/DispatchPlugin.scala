@@ -64,7 +64,7 @@ class DispatchPlugin(slotCount : Int = 0,
       import stage._
 
       val todo = Reg(Bits(DECODE_COUNT bits)) init((1 << DECODE_COUNT)-1)
-      val mask = B(stage(0 until Frontend.DECODE_COUNT)(MASK_ALIGNED))
+      val mask = B(stage(0 until Frontend.DECODE_COUNT)(DISPATCH_MASK))
       val remains = mask & todo
       val sparse = mask & remains & B(stage(0 until Frontend.DECODE_COUNT)(SPARSE_ROB_LINE))
       val sparseHit = sparse.orR
