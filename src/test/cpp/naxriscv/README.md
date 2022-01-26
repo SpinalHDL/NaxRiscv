@@ -5,6 +5,7 @@ git clone https://github.com/SpinalHDL/SpinalHDL.git --recursive
 git clone https://github.com/SpinalHDL/NaxRiscv.git --recursive
 cd NaxRiscv
 export NAXRISCV=${PWD}
+(cd ext/NaxSoftware && ./init.sh)
 ```
 
 # Building riscv-isa-sim (spike)
@@ -60,12 +61,16 @@ obj_dir/VNaxRiscv --help
 --trace-stop-time=INT   : Add a time to which the FST should stop capturng
 --trace-sporadic=RATIO  : Specify that periodically the FST capture a bit of the wave
 --trace-ref             : Store the spike execution traces in a file
+--spike-debug           : Enable spike debug mode (more verbose traces)
 --stats-print           : Print some stats about the CPU execution at the end of the sim
 --stats-print-all       : Print all the stats possible (including which branches had miss)
 --stats-start-symbol=SY : Specify at which elf symbol the stats should start capturing
 --stats-stop-symbol=SYM : Specify at which elf symbol the stats should stop capturing
 --stats-toggle-symbol=S : Specify at which elf symbol the stats should change its capture state
 --trace-gem5            : Enable capture of the pipeline timings as a gem5 trace, readable with github konata
+--sim-master            : The simulation will wait a sim-slave to connect and then run until pass/fail
+--sim-slave             : The simulation will connect to a sim-master and then run behind it
+                          When the sim-master fail, then the sim-slave will run to that point with trace enabled
 ```
 
 Here is a konata visualisation of the trace produced by --trace-gem5 when running a simple memory copy loop hitting a cache miss on a dual issue pipeline: 
@@ -98,4 +103,15 @@ cd $NAXRISCV/src/test/cpp/naxriscv
 ./testsGen.py
 make clean compile
 make test-clean && make test-all -j$(nproc); make test-report
+```
+
+# Run linux
+```sh
+cd $NAXRISCV/src/test/cpp/naxriscv
+export LINUX_IMAGES=$NAXRISCV/ext/NaxSoftware/buildroot/images/rv32ima
+./obj_dir/VNaxRiscv \
+    --load-bin $LINUX_IMAGES/fw_jump.bin,0x80000000 \
+    --load-bin $LINUX_IMAGES/linux.dtb,0x80F80000 \
+    --load-bin $LINUX_IMAGES/Image,0x80400000 \
+    --load-bin $LINUX_IMAGES/rootfs.cpio,0x81000000 
 ```
