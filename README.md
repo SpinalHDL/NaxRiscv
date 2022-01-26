@@ -22,7 +22,7 @@ See src/test/cpp/naxriscv/README.md
 
 Linux/Buildroot running in simulation : 
 
-```shell
+```
 ./obj_dir/VNaxRiscv \
     --load-bin $LINUX_IMAGES/fw_jump.bin,0x80000000 \
     --load-bin $LINUX_IMAGES/linux.dtb,0x80F80000 \
