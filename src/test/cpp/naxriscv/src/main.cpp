@@ -1456,6 +1456,24 @@ void spikeStep(RobCtx & robCtx){
     }
 }
 
+void spikeSyncInterrupt(){
+    if(top->NaxRiscv->trap_fire){
+        bool interrupt = top->NaxRiscv->trap_interrupt;
+        int code = top->NaxRiscv->trap_code;
+        int mask = 1 << code;
+//                    cout << "DUT TRAP " << interrupt << " " << code << endl;
+        if(interrupt) state->mip->write_with_mask(mask, mask);
+        proc->step(1);
+        if(interrupt) state->mip->write_with_mask(mask, 0);
+
+        traps_since_commit += 1;
+        if(traps_since_commit > 10){
+            cout << "DUT is blocked in a endless trap cycle of death" << endl;
+            failure();
+        }
+    }
+}
+
 #define simMasterWrite(buf) assert(write(syncConnfd, &buf, sizeof(buf)) == sizeof(buf));
 #define simMasterRead(buf) assert(read(syncSockfd, &buf, sizeof(buf)) == sizeof(buf));
 
@@ -1648,21 +1666,7 @@ void simLoop(){
                     }
                 }
 
-                if(top->NaxRiscv->trap_fire){
-                    bool interrupt = top->NaxRiscv->trap_interrupt;
-                    int code = top->NaxRiscv->trap_code;
-                    int mask = 1 << code;
-    //                    cout << "DUT TRAP " << interrupt << " " << code << endl;
-                    if(interrupt) state->mip->write_with_mask(mask, mask);
-                    proc->step(1);
-                    if(interrupt) state->mip->write_with_mask(mask, 0);
-
-                    traps_since_commit += 1;
-                    if(traps_since_commit > 10){
-                        cout << "DUT is blocked in a endless trap cycle of death" << endl;
-                        failure();
-                    }
-                }
+                spikeSyncInterrupt();
 
                 top->eval();
                 for(SimElement* simElement : simElements) simElement->postCycle();
