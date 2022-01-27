@@ -1104,6 +1104,7 @@ enum ARG
     ARG_SPIKE_DEBUG,
     ARG_SIM_MASTER,
     ARG_SIM_SLAVE,
+    ARG_SIM_SLAVE_DELAY,
     ARG_PUTC,
     ARG_GETC,
     ARG_SUCCESS,
@@ -1139,6 +1140,7 @@ static const struct option long_options[] =
     { "spike-debug", no_argument, 0, ARG_SPIKE_DEBUG },
     { "sim-master", no_argument, 0, ARG_SIM_MASTER },
     { "sim-slave", no_argument, 0, ARG_SIM_SLAVE },
+    { "sim-slave-delay", required_argument, 0, ARG_SIM_SLAVE_DELAY },
     { "putc", required_argument, 0, ARG_PUTC },
     { "getc", required_argument, 0, ARG_GETC },
     { "success", no_argument, 0, ARG_SUCCESS },
@@ -1257,6 +1259,7 @@ void parseArgFirst(int argc, char** argv){
             case ARG_SPIKE_DEBUG: spike_debug = true; break;
             case ARG_SIM_MASTER: simMaster = true; break;
             case ARG_SIM_SLAVE: simSlave = true; trace_enable = false; break;
+            case ARG_SIM_SLAVE_DELAY: simSlaveTraceDuration = stol(optarg); break;
             case ARG_GETC: testScheduleQueue.push(new WaitPutc(string(optarg))); break;
             case ARG_PUTC: testScheduleQueue.push(new DoGetc(string(optarg))); break;
             case ARG_SUCCESS: testScheduleQueue.push(new DoSuccess()); break;
