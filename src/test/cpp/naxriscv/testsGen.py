@@ -310,6 +310,50 @@ with open('tests.mk', 'w') as f:
         f.write(f"\n\n")
 
 
+
+    for i in range(4):
+        outputDir = "output/nax/buildroot/run" + str(i)
+        rule = outputDir +"/PASS"
+        imagePath = "../../../../ext/NaxSoftware/buildroot/images/rv32ima"
+
+        tests.append(rule)
+        ouputs.append(outputDir)
+        f.write(f"{outputDir}/PASS:\n")
+        f.write("\t" + " ".join([
+        f"""./obj_dir/VNaxRiscv \\
+           --seed {i}                  \\
+           --name buildroot_run{i}    \\
+           --output-dir  {outputDir}   \\
+           --load-bin {imagePath}/fw_jump.bin,0x80000000 \\
+           --load-bin {imagePath}/linux.dtb,0x80F80000 \\
+           --load-bin {imagePath}/Image,0x80400000 \\
+           --load-bin {imagePath}/rootfs.cpio,0x81000000 \\
+           --getc "buildroot login" \\
+           --putc "root" \\
+           --getc "#" \\
+           --putc "cat /proc/cpuinfo" \\
+           --getc "#" \\
+           --putc "echo 1+2+3*4 | bc" \\
+           --getc "#" \\
+           --putc "micropython" \\
+           --getc ">>> " \\
+           --putc "import math" \\
+           --getc ">>> " \\
+           --putc "math.sin(math.pi/4)" \\
+           --getc ">>> " \\
+           --putc "from sys import exit" \\
+           --getc ">>> " \\
+           --putc "exit()" \\
+           --getc "#" \\
+           --putc "ls /" \\
+           --getc "#" \\
+           --success \\
+           ${{ARGS}} """
+        ]))
+        f.write(f"\n\n")
+
+
+
     f.write(f"""TESTS_COUNT={len(tests)}\n""")
 
     f.write(f"""test-report:\n""")

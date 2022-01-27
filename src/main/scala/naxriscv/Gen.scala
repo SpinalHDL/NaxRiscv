@@ -375,4 +375,31 @@ ARGS_SLAVE="--sim-slave --trace"
 make compile
 ./obj_dir/VNaxRiscv $ARGS_COMMON $ARGS_MASTER
 ./obj_dir/VNaxRiscv $ARGS_COMMON $ARGS_SLAVE
+
+
+./obj_dir/VNaxRiscv \
+    --load-bin $LINUX_IMAGES/fw_jump.bin,0x80000000 \
+    --load-bin $LINUX_IMAGES/linux.dtb,0x80F80000 \
+    --load-bin $LINUX_IMAGES/Image,0x80400000 \
+    --load-bin $LINUX_IMAGES/rootfs.cpio,0x81000000 \
+    --getc "buildroot login" \
+    --putc "root" \
+    --getc "root@buildroot:~#" \
+    --putc "cat /proc/cpuinfo" \
+    --getc "root@buildroot:~#" \
+    --putc "echo 1+2+3*4 | bc" \
+    --getc "root@buildroot:~#" \
+    --putc "micropython" \
+    --getc ">>> " \
+    --putc "import math" \
+    --getc ">>> " \
+    --putc "math.sin(math.pi/4)" \
+    --getc ">>> " \
+    --putc "from sys import exit" \
+    --getc ">>> " \
+    --putc "exit()" \
+    --getc "root@buildroot:~#" \
+    --putc "ls /" \
+    --getc "root@buildroot:~#" \
+    --success
  */
