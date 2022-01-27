@@ -158,6 +158,29 @@ bool simMaster = false;
 bool simSlave = false;
 
 
+class TestSchedule{
+public:
+    virtual void activate() = 0;
+};
+
+
+queue <TestSchedule*> testScheduleQueue;
+
+void testScheduleQueueNext(){
+    if(testScheduleQueue.empty()) return;
+    auto e = testScheduleQueue.front();
+    testScheduleQueue.pop();
+    e->activate();
+}
+
+
+
+inline bool ends_with(std::string const & value, std::string const & ending)
+{
+    if (ending.size() > value.size()) return false;
+    return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
+}
+
 void simMasterGetC(char c);
 
 bool stdinNonEmpty(){
@@ -188,6 +211,8 @@ public:
     VNaxRiscv* nax;
     u64 clintCmp = 0;
     queue <char> customCin;
+    string putcHistory = "";
+    string *putcTarget = NULL;
 
     Soc(VNaxRiscv* nax){
         this->nax = nax;
@@ -206,7 +231,17 @@ public:
 
     virtual int peripheralWrite(u64 address, uint32_t length, uint8_t *data){
         switch(address){
-        case PUTC: printf("%c", *data); fflush(stdout); break;
+        case PUTC: {
+            printf("%c", *data); fflush(stdout);
+            putcHistory += (char)(*data);
+            if(putcTarget){
+                if(ends_with(putcHistory, *putcTarget)){
+                    testScheduleQueueNext();
+                    putcTarget = NULL;
+                    putcHistory = "";
+                }
+            }
+        }break;
         case PUT_HEX: printf("%lx", *((u64*)data)); fflush(stdout); break;
         case MACHINE_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_machine_external = *data & 1;  break;
         #if SUPERVISOR == 1
@@ -268,6 +303,41 @@ public:
 
     virtual void postCycle(){
         nax->PrivilegedPlugin_io_int_machine_timer = clintCmp < (main_time/2);
+    }
+};
+
+
+Soc *soc;
+
+class WaitPutc : public TestSchedule{
+public:
+    WaitPutc(string putc) : putc(putc){}
+    string putc;
+    void activate() {
+        soc->putcTarget = &putc;
+    }
+};
+
+
+class DoSuccess: public TestSchedule{
+public:
+    void activate() {
+        success();
+    }
+};
+
+
+
+class DoGetc : public TestSchedule{
+public:
+    string getc;
+    DoGetc(string getc) : getc(getc){}
+    void activate() {
+        for(char e : getc){
+            soc->customCin.push(e);
+        }
+        soc->customCin.push('\n');
+        testScheduleQueueNext();
     }
 };
 
@@ -1034,6 +1104,9 @@ enum ARG
     ARG_SPIKE_DEBUG,
     ARG_SIM_MASTER,
     ARG_SIM_SLAVE,
+    ARG_PUTC,
+    ARG_GETC,
+    ARG_SUCCESS,
     ARG_HELP,
 };
 
@@ -1066,6 +1139,9 @@ static const struct option long_options[] =
     { "spike-debug", no_argument, 0, ARG_SPIKE_DEBUG },
     { "sim-master", no_argument, 0, ARG_SIM_MASTER },
     { "sim-slave", no_argument, 0, ARG_SIM_SLAVE },
+    { "putc", required_argument, 0, ARG_PUTC },
+    { "getc", required_argument, 0, ARG_GETC },
+    { "success", no_argument, 0, ARG_SUCCESS },
     0
 };
 
@@ -1122,7 +1198,6 @@ sim_wrap *wrap;
 state_t *state;
 FILE *fptr;
 VNaxRiscv *top;
-Soc *soc;
 NaxWhitebox *whitebox;
 vector<SimElement*> simElements;
 
@@ -1146,6 +1221,7 @@ vluint64_t progressMainTimeLast = 0;
 u64 simSlaveTraceDuration = 50000;
 u64 simMasterTime = 0;
 bool simMasterFailed = false;
+
 
 
 void parseArgFirst(int argc, char** argv){
@@ -1181,6 +1257,9 @@ void parseArgFirst(int argc, char** argv){
             case ARG_SPIKE_DEBUG: spike_debug = true; break;
             case ARG_SIM_MASTER: simMaster = true; break;
             case ARG_SIM_SLAVE: simSlave = true; trace_enable = false; break;
+            case ARG_GETC: testScheduleQueue.push(new WaitPutc(string(optarg))); break;
+            case ARG_PUTC: testScheduleQueue.push(new DoGetc(string(optarg))); break;
+            case ARG_SUCCESS: testScheduleQueue.push(new DoSuccess()); break;
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_LOAD_BIN:
@@ -1546,6 +1625,7 @@ void simLoop(){
         top->clk = 0;
 
         for(SimElement* simElement : simElements) simElement->onReset();
+        testScheduleQueueNext();
         while (!Verilated::gotFinish()) {
             if(simMaster && main_time % 50000 == 0){
                 simMasterMainTime();
