@@ -296,6 +296,8 @@ with open('tests.mk', 'w') as f:
         rule = outputDir +"/PASS"
         tests.append(rule)
         ouputs.append(outputDir)
+        if spec[0] in naxSoftwareRegular:
+            testsFast.append(rule)
         f.write(f"{outputDir}/PASS:\n")
         f.write("\t" + " ".join([
             "obj_dir/VNaxRiscv",
