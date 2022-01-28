@@ -1,6 +1,7 @@
 package naxriscv.riscv
 import naxriscv.Global
 import spinal.core._
+import spinal.lib._
 
 object Const {
   def funct7Range = 31 downto 25
@@ -52,6 +53,8 @@ object CSR {
 
     val INSTRUCTION_ACCESS_FAULT = 1
     val INSTRUCTION_PAGE_FAULT = 12
+
+    def isPageFault(code : UInt) : Bool = List(INSTRUCTION_PAGE_FAULT, LOAD_PAGE_FAULT, STORE_PAGE_FAULT).map(code === U(_)).orR
   }
 
   def misaExt(char: Char) = {

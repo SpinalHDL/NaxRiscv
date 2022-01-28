@@ -328,6 +328,7 @@ with open('tests.mk', 'w') as f:
            --load-bin {imagePath}/linux.dtb,0x80F80000 \\
            --load-bin {imagePath}/Image,0x80400000 \\
            --load-bin {imagePath}/rootfs.cpio,0x81000000 \\
+           --no-stdin                  \\
            --getc "buildroot login" \\
            --putc "root" \\
            --getc "#" \\

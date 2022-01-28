@@ -156,6 +156,7 @@ bool traceGem5 = false;
 bool spike_debug = false;
 bool simMaster = false;
 bool simSlave = false;
+bool noStdIn = false;
 
 
 class TestSchedule{
@@ -236,8 +237,8 @@ public:
             putcHistory += (char)(*data);
             if(putcTarget){
                 if(ends_with(putcHistory, *putcTarget)){
-                    testScheduleQueueNext();
                     putcTarget = NULL;
+                    testScheduleQueueNext();
                     putcHistory = "";
                 }
             }
@@ -258,7 +259,7 @@ public:
     virtual int peripheralRead(u64 address, uint32_t length, uint8_t *data){
         switch(address){
         case GETC:{
-            if(!simSlave && stdinNonEmpty()){
+            if(!simSlave && !noStdIn && stdinNonEmpty()){
                 char c;
                 auto dummy = read(0, &c, 1);
                 memset(data, 0, length);
@@ -631,6 +632,7 @@ public:
 
 
 #include "processor.h"
+#include "mmu.h"
 #include "simif.h"
 
 
@@ -677,7 +679,7 @@ public:
     }
 
     virtual const char* get_symbol(uint64_t addr)  {
-        printf("get_symbol %lx\n", addr);
+//        printf("get_symbol %lx\n", addr);
         return NULL;
     }
 };
@@ -1105,6 +1107,7 @@ enum ARG
     ARG_SIM_MASTER,
     ARG_SIM_SLAVE,
     ARG_SIM_SLAVE_DELAY,
+    ARG_NO_STDIN,
     ARG_PUTC,
     ARG_GETC,
     ARG_SUCCESS,
@@ -1141,6 +1144,7 @@ static const struct option long_options[] =
     { "sim-master", no_argument, 0, ARG_SIM_MASTER },
     { "sim-slave", no_argument, 0, ARG_SIM_SLAVE },
     { "sim-slave-delay", required_argument, 0, ARG_SIM_SLAVE_DELAY },
+    { "no-stdin", no_argument, 0, ARG_NO_STDIN },
     { "putc", required_argument, 0, ARG_PUTC },
     { "getc", required_argument, 0, ARG_GETC },
     { "success", no_argument, 0, ARG_SUCCESS },
@@ -1202,6 +1206,7 @@ FILE *fptr;
 VNaxRiscv *top;
 NaxWhitebox *whitebox;
 vector<SimElement*> simElements;
+//map<RvData, u64> pageFaultSinceFenceVma;
 
 u64 statsStartAt = -1;
 u64 statsStopAt = -1;
@@ -1263,6 +1268,7 @@ void parseArgFirst(int argc, char** argv){
             case ARG_GETC: testScheduleQueue.push(new WaitPutc(string(optarg))); break;
             case ARG_PUTC: testScheduleQueue.push(new DoGetc(string(optarg))); break;
             case ARG_SUCCESS: testScheduleQueue.push(new DoSuccess()); break;
+            case ARG_NO_STDIN: noStdIn = true; break;
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_LOAD_BIN:
@@ -1521,6 +1527,11 @@ void spikeStep(RobCtx & robCtx){
     } while(spike_commit_count == state->commit_count);
     state->mip->unlogged_write_with_mask(-1, 0);
 
+    //SFENCE.VMA
+//    if((state->last_inst.bits() & 0xFE007FFF) == 0x12000073){
+//        pageFaultSinceFenceVma.clear();
+//    }
+
     //Sync back some CSR
     if(robCtx.csrReadDone){
         switch(robCtx.csrAddress){
@@ -1542,11 +1553,31 @@ void spikeSyncInterrupt(){
     if(top->NaxRiscv->trap_fire){
         bool interrupt = top->NaxRiscv->trap_interrupt;
         int code = top->NaxRiscv->trap_code;
+        bool pageFault = !interrupt && (code == 12 || code == 13 || code == 15);
         int mask = 1 << code;
-//                    cout << "DUT TRAP " << interrupt << " " << code << endl;
+
+        if(pageFault){
+//            cout << "Page fault " << main_time << endl;
+//            if(pageFaultSinceFenceVma.count((RvData)top->NaxRiscv->trap_tval)){
+                auto mmu = proc->get_mmu();
+                mmu->flush_tlb();
+                mmu->fault_fetch = code == 12;
+                mmu->fault_load  = code == 13;
+                mmu->fault_store = code == 15;
+                mmu->fault_address = top->NaxRiscv->trap_tval;
+//                cout << "TRICK " << hex << top->NaxRiscv->trap_tval << dec << endl;
+//            }
+        }
         if(interrupt) state->mip->write_with_mask(mask, mask);
         proc->step(1);
         if(interrupt) state->mip->write_with_mask(mask, 0);
+        if(pageFault){
+            auto mmu = proc->get_mmu();
+            mmu->fault_fetch = false;
+            mmu->fault_load  = false;
+            mmu->fault_store = false;
+//            pageFaultSinceFenceVma[(RvData)top->NaxRiscv->trap_tval] = 1;
+        }
 
         traps_since_commit += 1;
         if(traps_since_commit > 10){

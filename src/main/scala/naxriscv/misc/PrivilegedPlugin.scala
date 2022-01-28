@@ -567,6 +567,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         val fire      = Verilator.public(CombInit(fsm.trap.fire     ))
         val code      = Verilator.public(CombInit(fsm.trap.code     ))
         val interrupt = Verilator.public(CombInit(fsm.trap.interrupt))
+        val tval      = Verilator.public(CombInit(reschedule.tval))
       }
     }
 

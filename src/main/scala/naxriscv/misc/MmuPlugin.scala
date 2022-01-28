@@ -229,11 +229,13 @@ class MmuPlugin(spec : MmuSpec,
 
       val ctrl = new Area{
         import ctrlStage._
-        def entriesMux[T <: Data](f : StorageEntry => T) : T = OhMux.or(hits, entries.map(f))
 
         val hits = Cat(storage.sl.map(s => ctrlStage(s.keys.HITS)))
         val entries = storage.sl.flatMap(s => ctrlStage(s.keys.ENTRIES))
         val hit = hits.orR
+        val oh = OHMasking.firstV2(hits)
+
+        def entriesMux[T <: Data](f : StorageEntry => T) : T = OhMux.or(oh, entries.map(f))
         val lineAllowExecute = entriesMux(_.allowExecute)
         val lineAllowRead    = entriesMux(_.allowRead)
         val lineAllowWrite   = entriesMux(_.allowWrite)
