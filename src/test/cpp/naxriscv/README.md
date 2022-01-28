@@ -105,6 +105,8 @@ make clean compile
 make test-clean && make test-all -j$(nproc); make test-report
 ```
 
+This will take about 30mn, as it also run freertos and linux.
+
 # Run linux
 ```sh
 cd $NAXRISCV/src/test/cpp/naxriscv
@@ -115,3 +117,30 @@ export LINUX_IMAGES=$NAXRISCV/ext/NaxSoftware/buildroot/images/rv32ima
     --load-bin $LINUX_IMAGES/Image,0x80400000 \
     --load-bin $LINUX_IMAGES/rootfs.cpio,0x81000000 
 ```
+
+You can also use the regression test to run linux in a automated way : 
+
+```sh
+cd $NAXRISCV/src/test/cpp/naxriscv
+./testsGen.py
+make clean compile
+make output/nax/buildroot/run0/PASS
+```
+
+# Omagad, it crashed in linux
+
+In one terminal do : 
+
+```sh
+make output/nax/buildroot/run0/PASS ARGS="--sim-master"
+```
+
+In another terminal do :
+
+```sh
+make output/nax/buildroot/run0/PASS ARGS="--sim-slave --trace --trace-ref"
+```
+
+This will run the two simulation together, with the slave one a bit delayed, but when the master one crash, the slave one will start recording the traces.
+
+You can specify that delayed with --sim-slave-delay on the slave sim. Default being 500000 (250000 cycles).

@@ -27,7 +27,7 @@ case class MmuPortParameter(readAt : Int,
                             hitsAt : Int,
                             ctrlAt : Int,
                             rspAt : Int){
-  assert(readAt == ctrlAt, "For now, would need refill hazard detection to avoid refilling a page twice")
+
 }
 
 
@@ -136,6 +136,8 @@ class MmuPlugin(spec : MmuSpec,
 
     val priv = getService[PrivilegedPlugin]
 
+    val ALLOW_REFILL = Stageable(Bool())
+
     case class StorageEntry(levelId : Int, depth : Int) extends Bundle {
       val vw = spec.levels.drop(levelId).map(_.virtualWidth).sum
       val pw = spec.levels.drop(levelId).map(_.physicalWidth).sum
@@ -181,6 +183,7 @@ class MmuPlugin(spec : MmuSpec,
 
     assert(storageSpecs.map(_.p.priority).distinct.size == storageSpecs.size, "MMU storages needs different priorities")
     val storages = for(ss <- storageSpecs) yield new Composite(ss, "logic", false){
+      val refillOngoing = False
       val sl = for(e <- ss.p.levels) yield new Area{
         val slp = e
         val level = spec.levels(slp.id)
@@ -218,6 +221,18 @@ class MmuPlugin(spec : MmuSpec,
 
       val storage = storages.find(_.self == ps.ss).get
 
+
+      readStage(ALLOW_REFILL) := True
+      val allowRefillBypass = for(stageId <- pp.readAt to pp.ctrlAt) yield new Area{
+        val stage = ps.stages(stageId)
+        val reg = RegInit(True)
+        stage.overloaded(ALLOW_REFILL) := stage(ALLOW_REFILL) && !storage.refillOngoing && reg
+        reg := stage.overloaded(ALLOW_REFILL)
+        when(stage.isRemoved || !stage.isStuck){
+          reg := True
+        }
+      }
+
       for (sl <- storage.sl) yield new Area {
         val readAddress = readStage(ps.preAddress)(sl.lineRange)
         for ((way, wayId) <- sl.ways.zipWithIndex) {
@@ -245,7 +260,8 @@ class MmuPlugin(spec : MmuSpec,
 
         val requireMmuLockup  = satp.mode === spec.satpMode
         val needRefill        = isValid && !hit && requireMmuLockup
-        val needRefillAddress = ctrlStage(ps.preAddress)
+        val askRefill         = needRefill && overloaded(ALLOW_REFILL)
+        val askRefillAddress = ctrlStage(ps.preAddress)
 
         requireMmuLockup clearWhen(!status.mprv && priv.isMachine())
         when(priv.isMachine()) {
@@ -285,12 +301,16 @@ class MmuPlugin(spec : MmuSpec,
       val busy = !isActive(IDLE)
 
       val portOhReg = Reg(Bits(ports.size bits))
+      when(busy){
+        (ports, portOhReg.asBools).zipped.foreach(_.storage.refillOngoing setWhen(_))
+      }
+
       val virtual = Reg(UInt(preWidth bits))
 
-      val portsRequests = ports.map(_.ctrl.needRefill).asBits()
+      val portsRequests = ports.map(_.ctrl.askRefill).asBits()
       val portsRequest  = portsRequests.orR
       val portsOh       = OHMasking.first(portsRequests)
-      val portsAddress  = OhMux.or(portsOh, ports.map(_.ctrl.needRefillAddress))
+      val portsAddress  = OhMux.or(portsOh, ports.map(_.ctrl.askRefillAddress))
 
       val cacheRefill = Reg(Bits(setup.cache.refillCount bits)) init(0)
       val cacheRefillAny = Reg(Bool()) init(False)
@@ -307,6 +327,7 @@ class MmuPlugin(spec : MmuSpec,
         when(portsRequest) {
           load.address := satp.ppn @@ spec.levels.last.vpn(portsAddress) @@ U(0, log2Up(spec.entryBytes) bits)
           virtual := portsAddress
+//          (ports, portsOh.asBools).zipped.foreach(_.storage.refillOngoing setWhen(_))
           goto(CMD(spec.levels.size - 1))
         }
       }
