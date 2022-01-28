@@ -146,7 +146,7 @@ class MmuPlugin(spec : MmuSpec,
       val physicalAddress = UInt(pw bits)
       val allowRead, allowWrite, allowExecute, allowUser = Bool
 
-      def hit(address : UInt) = valid && virtualAddress === address(spec.levels(levelId).virtualOffset + log2Up(depth), vw - log2Up(depth) bits)
+      def hit(address : UInt) = /*valid && */virtualAddress === address(spec.levels(levelId).virtualOffset + log2Up(depth), vw - log2Up(depth) bits)
       def physicalAddressFrom(address : UInt) = physicalAddress @@ address(0, spec.levels(levelId).physicalOffset bits)
     }
 
@@ -209,6 +209,7 @@ class MmuPlugin(spec : MmuSpec,
         val keys = new Area {
           setName(s"MMU_L${e.id}")
           val ENTRIES = Stageable(Vec.fill(slp.ways)(newEntry()))
+          val HITS_PRE_VALID = Stageable(Bits(slp.ways bits))
           val HITS = Stageable(Bits(slp.ways bits))
         }
       }
@@ -237,7 +238,8 @@ class MmuPlugin(spec : MmuSpec,
         val readAddress = readStage(ps.preAddress)(sl.lineRange)
         for ((way, wayId) <- sl.ways.zipWithIndex) {
           readStage(sl.keys.ENTRIES)(wayId) := way.readAsync(readAddress)
-          hitsStage(sl.keys.HITS)(wayId) := hitsStage(sl.keys.ENTRIES)(wayId).hit(hitsStage(ps.preAddress))
+          hitsStage(sl.keys.HITS_PRE_VALID)(wayId) := hitsStage(sl.keys.ENTRIES)(wayId).hit(hitsStage(ps.preAddress))
+          ctrlStage(sl.keys.HITS)(wayId) := ctrlStage(sl.keys.HITS_PRE_VALID)(wayId) && ctrlStage(sl.keys.ENTRIES)(wayId).valid
         }
       }
 
