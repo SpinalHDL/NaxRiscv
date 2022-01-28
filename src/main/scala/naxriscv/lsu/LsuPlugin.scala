@@ -227,6 +227,7 @@ class LsuPlugin(lqSize: Int,
       val SQCHECK_NO_OLDER = Stageable(Bool())
 
       val AMO, LR, SC = Stageable(Bool())
+      val MISS_ALIGNED = Stageable(Bool())
     }
     import keysLocal._
 
@@ -886,6 +887,13 @@ class LsuPlugin(lqSize: Int,
           LQCHECK_START_ID := mem.lqAlloc.readAsync(sel)
         }
 
+        val misc = new Area {
+          val stage = stages(1)
+          import stage._
+
+          MISS_ALIGNED := (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
+        }
+
         //TODO timings
         val checkLqHits = new Area{
           val stage = stages(1)
@@ -929,7 +937,6 @@ class LsuPlugin(lqSize: Int,
         val completion = new Area{
           val stage = stages(3)
           import stage._
-          val missAligned = (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
           val pageFault = !tpk.ALLOW_WRITE || tpk.PAGE_FAULT //Assumed always ok -> AMO && !tpk.ALLOW_READ
 
           setup.storeCompletion.valid := False
@@ -940,7 +947,7 @@ class LsuPlugin(lqSize: Int,
           lqPredictionPort.address  := lq.index(YOUNGER_LOAD_PC)
           lqPredictionPort.data.tag := lq.hash(YOUNGER_LOAD_PC)
 
-          when(missAligned || pageFault) {
+          when(MISS_ALIGNED || pageFault) {
             setup.storeTrap.valid      := False
             setup.storeTrap.trap       := True
             setup.storeTrap.robId      := ROB.ID
@@ -974,7 +981,7 @@ class LsuPlugin(lqSize: Int,
               whenMasked(regs, SQ_SEL_OH){reg =>
                 reg.waitOn.translationWakeAnySet := True
               }
-            } elsewhen(missAligned) {
+            } elsewhen(stage(MISS_ALIGNED)) {
               setup.storeTrap.valid      := True
               setup.storeTrap.cause      := CSR.MCAUSE_ENUM.STORE_MISALIGNED
             } elsewhen(pageFault) {
