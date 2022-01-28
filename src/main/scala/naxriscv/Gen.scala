@@ -143,7 +143,7 @@ object Config{
       ),
       loadTranslationParameter  = MmuPortParameter(
         readAt = 0,
-        hitsAt = 0,
+        hitsAt = 1,
         ctrlAt = 1,
         rspAt  = 1
       ),
@@ -188,7 +188,7 @@ object Config{
 
     //EXECUTION UNITES
     plugins += new ExecutionUnitBase("EU0")
-    plugins += new SrcPlugin("EU0")
+    plugins += new SrcPlugin("EU0", earlySrc = true)
     plugins += new IntAluPlugin("EU0")
     plugins += new ShiftPlugin("EU0")
 //    plugins += new BranchPlugin("EU0")
@@ -196,7 +196,7 @@ object Config{
 //    plugins += new StorePlugin("EU0")
 
     plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1)
-    plugins += new SrcPlugin("EU1")
+    plugins += new SrcPlugin("EU1", earlySrc = true)
     plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new DivPlugin("EU1", writebackAt = 2)
 //    plugins += new IntAluPlugin("EU1")

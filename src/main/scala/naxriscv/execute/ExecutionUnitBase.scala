@@ -42,7 +42,13 @@ class ExecutionUnitBase(euId : String,
   def getStageable(r : RfResource) : Stageable[Bits] = {
     rfStageables.getOrElseUpdate(r, Stageable(Bits(r.rf.width bits)).setName(s"${r.rf.getName()}_${r.access.getName()}"))
   }
-  def getExecute(id : Int) : Stage = idToexecuteStages.getOrElseUpdate(id, new Stage().setCompositeName(pipeline, s"execute_$id"))
+  def getExecute(id : Int) : Stage = {
+    if(id >= 0){
+      idToexecuteStages.getOrElseUpdate(id, new Stage().setCompositeName(pipeline, s"execute_$id"))
+    } else {
+      setup.fetch.reverse(-id)
+    }
+  }
   def addRobStageable(s : Stageable[_ <: Data]) = robStageable += s
 
   case class WriteBackKey(rf : RegfileSpec, access : RfAccess, stage : Stage)
@@ -115,11 +121,16 @@ class ExecutionUnitBase(euId : String,
     getService[DecoderService].retain()
     getServicesOf[RegfileService].foreach(_.retain())
     getService[RobService].retain()
+    val fetch = List.fill(executeAt + 1)(new Stage())
   }
 
   val pipeline = create late new Pipeline{
     // Define stages
-    val fetch = List.fill(executeAt + 1)(newStage())
+    setup.fetch.foreach{ f =>
+      addStage(f)
+      f.setRefOwner(this)
+    }
+    val fetch = setup.fetch
     for((m,s) <- (fetch.dropRight(1), fetch.drop(1)).zipped){
       connect(m, s)(M2S())
     }

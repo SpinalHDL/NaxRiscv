@@ -43,7 +43,7 @@ object SrcKeys extends AreaObject {
   }
 }
 
-class SrcPlugin(euId : String) extends Plugin{
+class SrcPlugin(euId : String, earlySrc : Boolean = false) extends Plugin{
   withPrefix(euId)
   override def uniqueIds = List(euId)
 
@@ -98,7 +98,7 @@ class SrcPlugin(euId : String) extends Plugin{
     }
 
     val src = new Area{
-      val stage = eu.getExecute(0)
+      val stage = eu.getExecute(0 - earlySrc.toInt)
       import stage._
 
       val imm = new IMM(Frontend.MICRO_OP)
