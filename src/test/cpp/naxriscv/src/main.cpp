@@ -1378,7 +1378,6 @@ void spikeInit(){
     proc = new processor_t("RV32IMA", "MSU", "", wrap, 0, false, fptr, outfile);
     if(trace_ref) proc->enable_log_commits();
     if(spike_debug) proc->debug = true;
-    proc->wfi_as_nop = true;
     proc->set_pmp_num(0);
     state = proc->get_state();
 }
@@ -1514,23 +1513,9 @@ void spikeStep(RobCtx & robCtx){
         }
     }
 
-    //Run spike for one instruction
-    auto spike_commit_count = state->commit_count;
-    int credit = 10;
-    do{
-        proc->step(1);
-        if(credit == 0){
-            printf("Spike execution isn't progressing ??\n");
-            failure();
-        }
-        credit--;
-    } while(spike_commit_count == state->commit_count);
+    //Run spike for one commit or trap
+    proc->step(1);
     state->mip->unlogged_write_with_mask(-1, 0);
-
-    //SFENCE.VMA
-//    if((state->last_inst.bits() & 0xFE007FFF) == 0x12000073){
-//        pageFaultSinceFenceVma.clear();
-//    }
 
     //Sync back some CSR
     if(robCtx.csrReadDone){
@@ -1549,7 +1534,7 @@ void spikeStep(RobCtx & robCtx){
     }
 }
 
-void spikeSyncInterrupt(){
+void spikeSyncTrap(){
     if(top->NaxRiscv->trap_fire){
         bool interrupt = top->NaxRiscv->trap_interrupt;
         int code = top->NaxRiscv->trap_code;
@@ -1557,16 +1542,12 @@ void spikeSyncInterrupt(){
         int mask = 1 << code;
 
         if(pageFault){
-//            cout << "Page fault " << main_time << endl;
-//            if(pageFaultSinceFenceVma.count((RvData)top->NaxRiscv->trap_tval)){
-                auto mmu = proc->get_mmu();
-                mmu->flush_tlb();
-                mmu->fault_fetch = code == 12;
-                mmu->fault_load  = code == 13;
-                mmu->fault_store = code == 15;
-                mmu->fault_address = top->NaxRiscv->trap_tval;
-//                cout << "TRICK " << hex << top->NaxRiscv->trap_tval << dec << endl;
-//            }
+            auto mmu = proc->get_mmu();
+            mmu->flush_tlb();
+            mmu->fault_fetch = code == 12;
+            mmu->fault_load  = code == 13;
+            mmu->fault_store = code == 15;
+            mmu->fault_address = top->NaxRiscv->trap_tval;
         }
         if(interrupt) state->mip->write_with_mask(mask, mask);
         proc->step(1);
@@ -1576,7 +1557,6 @@ void spikeSyncInterrupt(){
             mmu->fault_fetch = false;
             mmu->fault_load  = false;
             mmu->fault_store = false;
-//            pageFaultSinceFenceVma[(RvData)top->NaxRiscv->trap_tval] = 1;
         }
 
         traps_since_commit += 1;
@@ -1727,10 +1707,10 @@ void simLoop(){
                         traps_since_commit = 0;
     //                        printf("Commit %d %x\n", robId, whitebox->robCtx[robId].pc);
 
+                        RvData pc = state->pc;
                         spikeStep(robCtx);
 
     //                        cout << state->minstret.get()->read() << endl;
-                        RvData pc = state->last_inst_pc;
                         last_commit_pc = pc;
                         assertEq("MISSMATCH PC", whitebox->robCtx[robId].pc,  pc);
                         for (auto item : state->log_reg_write) {
@@ -1780,7 +1760,7 @@ void simLoop(){
                     }
                 }
 
-                spikeSyncInterrupt();
+                spikeSyncTrap();
 
                 top->eval();
                 for(SimElement* simElement : simElements) simElement->postCycle();
