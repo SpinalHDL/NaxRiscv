@@ -408,7 +408,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     }
 
     val fsm = new StateMachine{
-      val IDLE, SETUP, EPC_WRITE, TVAL_WRITE, EPC_READ, TVEC_READ, XRET, FLUSH_CALC, FLUSH_JUMP = new State()
+      val IDLE, SETUP, EPC_WRITE, TVAL_WRITE, EPC_READ, TVEC_READ, XRET, FLUSH_CALC, FLUSH_JUMP, TRAP = new State()
       setEntry(IDLE)
 
       val trap = new Area{
@@ -511,31 +511,34 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
           supervisor.epc.getAddress()
         )
         setup.ramWrite.data    := B(reschedule.epc)
-        setup.jump.pc := U(readed) //TODO mask
         when(setup.ramWrite.ready){
-          setup.jump.valid := True
-          trap.fire := True
-          setup.privilege := trap.targetPrivilege
-          switch(trap.targetPrivilege){
-            is(3){
-              machine.mstatus.mie  := False
-              machine.mstatus.mpie := machine.mstatus.mie
-              machine.mstatus.mpp  := setup.privilege
-
-              machine.cause.interrupt := trap.interrupt
-              machine.cause.code      := trap.code
-            }
-            p.withSupervisor generate is(1){
-              supervisor.sstatus.sie  := False
-              supervisor.sstatus.spie := supervisor.sstatus.sie
-              supervisor.sstatus.spp  := setup.privilege(0, 1 bits)
-
-              supervisor.cause.interrupt := trap.interrupt
-              supervisor.cause.code      := trap.code
-            }
-          }
-          goto(IDLE)
+          goto(TRAP)
         }
+      }
+      TRAP.whenIsActive{
+        setup.jump.valid := True
+        setup.jump.pc := U(readed) //TODO mask
+        trap.fire := True
+        setup.privilege := trap.targetPrivilege
+        switch(trap.targetPrivilege){
+          is(3){
+            machine.mstatus.mie  := False
+            machine.mstatus.mpie := machine.mstatus.mie
+            machine.mstatus.mpp  := setup.privilege
+
+            machine.cause.interrupt := trap.interrupt
+            machine.cause.code      := trap.code
+          }
+          p.withSupervisor generate is(1){
+            supervisor.sstatus.sie  := False
+            supervisor.sstatus.spie := supervisor.sstatus.sie
+            supervisor.sstatus.spp  := setup.privilege(0, 1 bits)
+
+            supervisor.cause.interrupt := trap.interrupt
+            supervisor.cause.code      := trap.code
+          }
+        }
+        goto(IDLE)
       }
       XRET.whenIsActive{
         setup.jump.valid := True
