@@ -41,6 +41,7 @@ class FetchCachePlugin(val cacheSize : Int,
                        val bankMuxAt : Int = 2,
                        val controlAt : Int = 2,
                        val injectionAt : Int = 2,
+                       val hitsWithTranslationWays : Boolean = false,
                        val reducedBankWidth : Boolean = false,
                        val refillEventId : Int = PerformanceCounterService.ICACHE_REFILL) extends Plugin with FetchPipelineRequirements {
   override def stagesCountMin = injectionAt + 1
@@ -264,14 +265,23 @@ class FetchCachePlugin(val cacheSize : Int,
       }
 
 
-      for((way, wayId) <- ways.zipWithIndex) yield new Area{
+      val onWays = for((way, wayId) <- ways.zipWithIndex) yield new Area{
         {
           import readStage._
           way.read.cmd.valid := !isStuck
           way.read.cmd.payload := FETCH_PC(lineRange)
         }
 
-        {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === tpk.TRANSLATED(tagRange) }
+        !hitsWithTranslationWays generate {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === tpk.TRANSLATED(tagRange) }
+
+        val hits = hitsWithTranslationWays generate new Area{
+          import hitsStage._
+          assert(translationPort.wayCount > 0)
+          val wayTlbHits = (0 until translationPort.wayCount) map(tlbWayId => WAYS_TAGS(wayId).address === tpk.WAYS_PHYSICAL(tlbWayId)(tagRange) && tpk.WAYS_OH(tlbWayId))
+          val translatedHits = wayTlbHits.orR
+          val bypassHits     = WAYS_TAGS(wayId).address === FETCH_PC(tagRange)
+          WAYS_HITS(wayId) := (tpk.BYPASS_TRANSLATION ? bypassHits | translatedHits) & WAYS_TAGS(wayId).loaded
+        }
       }
 
       {import hitStage._;   WAYS_HIT := B(WAYS_HITS).orR}
