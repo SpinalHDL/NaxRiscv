@@ -209,7 +209,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
         val selOh = OHMasking.first(slotIds.map(stage(NEED_CORRECTION, _)))
         val applySideEffects = isFireing
 
-        setup.decodeJump.valid := applySideEffects && hit
+        setup.decodeJump.valid := isValid && hit  //IsValid instead of applySideEffects to avoid propagating the ready path
         setup.decodeJump.pc := U(MuxOH(selOh, (0 until DECODE_COUNT).map(stage(PC_PREDICTION, _))))
 
         setup.historyPush.flush := setup.decodeJump.valid
@@ -218,7 +218,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
         ras.ptr.popIt     clearWhen(!applySideEffects)
 
 
-        flushIt(setup.decodeJump.valid, root = false)
+        flushIt(setup.decodeJump.valid && isReady, root = false)
 
         //WARNING, overloaded(Frontend.DISPATCH_MASK) may not be reconized by some downstream plugins if you move this futher the decoding stage
         for (slotId <- 0 until Frontend.DECODE_COUNT) {
