@@ -41,7 +41,11 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
     fetch.retain()
     frontend.retain()
 
+    val s2m = fetch.pipeline.newStage()
+    fetch.pipeline.connect(fetch.pipeline.stages.last, s2m)(spinal.lib.pipeline.Connection.S2M())
     val sequenceJump = jump.createJumpInterface(JumpService.Priorities.ALIGNER) //We don't patch the history here, as it is a very sporadic case
+
+    val input = s2m
 
     if(!isServiceAvailable[FetchWordPrediction]){
       val stage = fetch.getStage(inputAt-1)
@@ -56,7 +60,7 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
   val logic = create late new Area {
     val frontend = getService[FrontendPlugin]
     val fetch = getService[FetchPlugin]
-    val input = fetch.getStage(inputAt)
+    val input = setup.input
     val output = setup.frontend.pipeline.aligned
 
     import input._

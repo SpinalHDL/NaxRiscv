@@ -72,4 +72,32 @@ object Connection{
     override def alwasContainsSlaveToken : Boolean = true
   }
 
+  case class S2M() extends ConnectionLogic {
+    def on(m : ConnectionPoint,
+           s : ConnectionPoint,
+           flush : Bool, flushNext : Bool, flushNextHit : Bool) = new Area{
+      assert(s.ready != null)
+
+      val rValid = RegInit(False) setWhen(m.valid) clearWhen(s.ready)
+      val rData = m.payload.map(e => RegNextWhen(e, m.ready).setCompositeName(e, "s2mBuffer"))
+
+      m.ready := !rValid
+
+      s.valid := m.valid || rValid
+      when(rValid){
+        (s.payload, rData).zipped.foreach(_ := _)
+      } otherwise {
+        (s.payload, m.payload).zipped.foreach(_ := _)
+      }
+
+      if(flush != null) when(flush){
+        rValid := False
+      }
+    }
+
+    override def latency = 1
+    override def tokenCapacity = 1
+    override def alwasContainsSlaveToken : Boolean = true
+  }
+
 }
