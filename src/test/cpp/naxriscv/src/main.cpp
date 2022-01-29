@@ -157,6 +157,7 @@ bool spike_debug = false;
 bool simMaster = false;
 bool simSlave = false;
 bool noStdIn = false;
+bool putcFlush = true;
 
 
 class TestSchedule{
@@ -233,7 +234,7 @@ public:
     virtual int peripheralWrite(u64 address, uint32_t length, uint8_t *data){
         switch(address){
         case PUTC: {
-            printf("%c", *data); fflush(stdout);
+            printf("%c", *data); if(putcFlush) fflush(stdout);
             putcHistory += (char)(*data);
             if(putcTarget){
                 if(ends_with(putcHistory, *putcTarget)){
@@ -243,7 +244,7 @@ public:
                 }
             }
         }break;
-        case PUT_HEX: printf("%lx", *((u64*)data)); fflush(stdout); break;
+        case PUT_HEX: printf("%lx", *((u64*)data)); if(putcFlush) fflush(stdout); break;
         case MACHINE_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_machine_external = *data & 1;  break;
         #if SUPERVISOR == 1
         case SUPERVISOR_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_supervisor_external = *data & 1;  break;
@@ -1108,6 +1109,7 @@ enum ARG
     ARG_SIM_SLAVE,
     ARG_SIM_SLAVE_DELAY,
     ARG_NO_STDIN,
+    ARG_NO_PUTC_FLUSH,
     ARG_PUTC,
     ARG_GETC,
     ARG_SUCCESS,
@@ -1145,6 +1147,7 @@ static const struct option long_options[] =
     { "sim-slave", no_argument, 0, ARG_SIM_SLAVE },
     { "sim-slave-delay", required_argument, 0, ARG_SIM_SLAVE_DELAY },
     { "no-stdin", no_argument, 0, ARG_NO_STDIN },
+    { "no-putc-flush", no_argument, 0, ARG_NO_PUTC_FLUSH },
     { "putc", required_argument, 0, ARG_PUTC },
     { "getc", required_argument, 0, ARG_GETC },
     { "success", no_argument, 0, ARG_SUCCESS },
@@ -1265,6 +1268,7 @@ void parseArgFirst(int argc, char** argv){
             case ARG_SIM_MASTER: simMaster = true; break;
             case ARG_SIM_SLAVE: simSlave = true; trace_enable = false; break;
             case ARG_SIM_SLAVE_DELAY: simSlaveTraceDuration = stol(optarg); break;
+            case ARG_NO_PUTC_FLUSH: putcFlush = false;  break;
             case ARG_GETC: testScheduleQueue.push(new WaitPutc(string(optarg))); break;
             case ARG_PUTC: testScheduleQueue.push(new DoGetc(string(optarg))); break;
             case ARG_SUCCESS: testScheduleQueue.push(new DoSuccess()); break;

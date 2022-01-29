@@ -307,6 +307,7 @@ with open('tests.mk', 'w') as f:
             "--start-symbol", "_start",
             "--pass-symbol", "pass",
             "--fail-symbol", "fail",
+            "--no-putc-flush",
            "${ARGS}"
         ]))
         f.write(f"\n\n")
@@ -331,6 +332,7 @@ with open('tests.mk', 'w') as f:
            --load-bin {imagePath}/Image,0x80400000 \\
            --load-bin {imagePath}/rootfs.cpio,0x81000000 \\
            --no-stdin                  \\
+           --no-putc-flush          \\
            --getc "buildroot login" \\
            --putc "root" \\
            --getc "#" \\
