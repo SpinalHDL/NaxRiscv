@@ -228,6 +228,9 @@ class LsuPlugin(lqSize: Int,
 
       val AMO, LR, SC = Stageable(Bool())
       val MISS_ALIGNED = Stageable(Bool())
+      val PAGE_FAULT = Stageable(Bool())
+      val STORE_DO_TRAP = Stageable(Bool())
+      val STORE_TRAP_PORT_ROB_ID = Stageable(ROB.ID)
     }
     import keysLocal._
 
@@ -934,10 +937,18 @@ class LsuPlugin(lqSize: Int,
           //          YOUNGER_LOAD_RESCHEDULE := False
         }
 
+        val preCompletion = new Area {
+          val stage = stages(2)
+          import stage._
+
+          PAGE_FAULT := !tpk.ALLOW_WRITE || tpk.PAGE_FAULT //Assumed always ok -> AMO && !tpk.ALLOW_READ
+          STORE_DO_TRAP := MISS_ALIGNED || PAGE_FAULT
+          STORE_TRAP_PORT_ROB_ID := (STORE_DO_TRAP ?  stage(ROB.ID) | stage(YOUNGER_LOAD_ROB))
+        }
+
         val completion = new Area{
           val stage = stages(3)
           import stage._
-          val pageFault = !tpk.ALLOW_WRITE || tpk.PAGE_FAULT //Assumed always ok -> AMO && !tpk.ALLOW_READ
 
           setup.storeCompletion.valid := False
           setup.storeCompletion.id := ROB.ID
@@ -947,15 +958,14 @@ class LsuPlugin(lqSize: Int,
           lqPredictionPort.address  := lq.index(YOUNGER_LOAD_PC)
           lqPredictionPort.data.tag := lq.hash(YOUNGER_LOAD_PC)
 
-          when(MISS_ALIGNED || pageFault) {
+          setup.storeTrap.robId    := STORE_TRAP_PORT_ROB_ID
+          when(STORE_DO_TRAP) {
             setup.storeTrap.valid      := False
             setup.storeTrap.trap       := True
-            setup.storeTrap.robId      := ROB.ID
             setup.storeTrap.reason     := ScheduleReason.TRAP
           } otherwise {
             setup.storeTrap.valid    := isFireing && YOUNGER_LOAD_RESCHEDULE
             setup.storeTrap.trap     := False
-            setup.storeTrap.robId    := YOUNGER_LOAD_ROB
             setup.storeTrap.reason   := ScheduleReason.STORE_TO_LOAD_HAZARD
           }
           setup.storeTrap.tval       := B(ADDRESS_PRE_TRANSLATION)
@@ -984,7 +994,7 @@ class LsuPlugin(lqSize: Int,
             } elsewhen(stage(MISS_ALIGNED)) {
               setup.storeTrap.valid      := True
               setup.storeTrap.cause      := CSR.MCAUSE_ENUM.STORE_MISALIGNED
-            } elsewhen(pageFault) {
+            } elsewhen(stage(PAGE_FAULT)) {
               setup.storeTrap.valid      := True
               setup.storeTrap.cause      := CSR.MCAUSE_ENUM.STORE_PAGE_FAULT
             } otherwise {
