@@ -55,6 +55,7 @@ object Config{
       injectionAt = 2,
       memDataWidth = Fetch.FETCH_DATA_WIDTH,
       reducedBankWidth = false,
+      hitsWithTranslationWays = true,
       translationStorageParameter = MmuStorageParameter(
         levels   = List(
           MmuStorageLevel(
