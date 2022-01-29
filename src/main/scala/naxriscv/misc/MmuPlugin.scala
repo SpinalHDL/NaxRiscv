@@ -110,7 +110,7 @@ class MmuPlugin(spec : MmuSpec,
         usage         = usage,
         pp = pp,
         ss = ss,
-        rsp           = new AddressTranslationRsp(this, 1, stages(pp.rspAt))
+        rsp           = new AddressTranslationRsp(this, 1, stages(pp.rspAt), ss.p.levels.map(_.ways).sum)
       )
     ).rsp
   }
@@ -291,6 +291,10 @@ class MmuPlugin(spec : MmuSpec,
           ALLOW_WRITE   := True
           PAGE_FAULT    := False
         }
+
+        BYPASS_TRANSLATION := !requireMmuLockup
+        WAYS_OH       := oh
+        (WAYS_PHYSICAL, entries.map(_.physicalAddressFrom(ps.preAddress))).zipped.foreach(_ := _)
       }
       ps.rsp.pipelineLock.release()
     }

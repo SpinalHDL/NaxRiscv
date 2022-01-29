@@ -32,7 +32,7 @@ class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with
                          portSpec: Any,
                          storageSpec: Any): AddressTranslationRsp = {
     val p = portSpec.asInstanceOf[StaticAddressTranslationParameter]
-    specs.addRet(new Spec(stages, preAddress, p, new AddressTranslationRsp(this, 0, stages(p.rspAt)){
+    specs.addRet(new Spec(stages, preAddress, p, new AddressTranslationRsp(this, 0, stages(p.rspAt), wayCount = -1){
       import rspStage._
       import keys._
 
