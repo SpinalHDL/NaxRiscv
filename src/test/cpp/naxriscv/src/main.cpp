@@ -1228,7 +1228,7 @@ int cycleSinceLastCommit = 0;
 std::chrono::high_resolution_clock::time_point progressLast;
 vluint64_t progressMainTimeLast = 0;
 
-u64 simSlaveTraceDuration = 500000;
+u64 simSlaveTraceDuration = 100000;
 u64 simMasterTime = 0;
 bool simMasterFailed = false;
 

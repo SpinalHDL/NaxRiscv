@@ -1,6 +1,6 @@
 package naxriscv
 
-import naxriscv.compatibility.{MemReadDuringWriteHazardPhase, MultiPortReadSymplifier, MultiPortWritesSymplifier}
+import naxriscv.compatibility.{EnforceSyncRamPhase, MemReadDuringWriteHazardPhase, MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
 import naxriscv.frontend._
 import naxriscv.fetch._
@@ -72,7 +72,7 @@ object Config{
         priority = 0
       ),
       translationPortParameter  = MmuPortParameter(
-        readAt = 0,
+        readAt = 1,
         hitsAt = 1,
         ctrlAt = 1,
         rspAt  = 1
@@ -164,7 +164,11 @@ object Config{
       wayCount     = 4,
       refillCount = 2,
       writebackCount = 2,
-      reducedBankWidth = false
+      tagsReadAsync = true,
+      reducedBankWidth = false//,
+//      loadHitAt      = 2,
+//      loadRspAt      = 3,
+//      loadRefillCheckEarly = false
     )
 
     //MISC
@@ -269,6 +273,8 @@ object Gen extends App{
     val spinalConfig = SpinalConfig(inlineRom = true)
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
     spinalConfig.addStandardMemBlackboxing(blackboxByteEnables)
+    spinalConfig.addTransformationPhase(new EnforceSyncRamPhase)
+
     spinalConfig.generateVerilog(wrapper(new Component {
       setDefinitionName("NaxRiscvSynt")
       Config.properties()
