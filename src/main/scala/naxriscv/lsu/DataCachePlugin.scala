@@ -18,7 +18,10 @@ class DataCachePlugin(val memDataWidth : Int,
                       val refillCount : Int,
                       val writebackCount : Int,
                       val lineSize: Int = 64,
-                      val loadReadAt: Int = 0,
+                      val loadRefillCheckEarly : Boolean = true,
+                      val storeRefillCheckEarly : Boolean = true,
+                      val loadReadBanksAt: Int = 0,
+                      val loadReadTagsAt: Int = 1,
                       val loadTranslatedAt : Int = 1,
                       val loadHitsAt: Int = 1,
                       val loadHitAt: Int = 1,
@@ -26,18 +29,20 @@ class DataCachePlugin(val memDataWidth : Int,
                       val loadBankMuxAt: Int = 2,
                       val loadControlAt: Int = 2,
                       val loadRspAt: Int = 2,
-                      val storeReadAt: Int = 0,
+                      val storeReadBanksAt: Int = 0,
+                      val storeReadTagsAt: Int = 1,
                       val storeHitsAt: Int = 1,
                       val storeHitAt: Int = 1,
                       val storeControlAt: Int = 2,
                       val storeRspAt: Int = 2,
+                      val tagsReadAsync : Boolean = true,
                       val reducedBankWidth : Boolean = false
                      ) extends Plugin with LockedImpl{
   def loadRspLatency = loadRspAt
   def storeRspLatency = storeRspAt
 
   def storeRspHazardFreeLatency = (storeControlAt+1)-storeRspAt
-  def loadCmdHazardFreeLatency = (loadReadAt)
+  def loadCmdHazardFreeLatency = (loadReadBanksAt)
 
   val waySize = cacheSize/wayCount
   val linePerWay = waySize/lineSize
@@ -111,19 +116,24 @@ class DataCachePlugin(val memDataWidth : Int,
       preTranslationWidth    = preTranslationWidth,
       postTranslationWidth   = postTranslationWidth,
       lineSize         = lineSize,
+      loadRefillCheckEarly  = loadRefillCheckEarly,
+      storeRefillCheckEarly = storeRefillCheckEarly,
+      loadReadBanksAt  = loadReadBanksAt,
+      loadReadTagsAt   = loadReadTagsAt,
       loadTranslatedAt = loadTranslatedAt,
-      loadReadAt       = loadReadAt,
       loadHitsAt       = loadHitsAt,
       loadHitAt        = loadHitAt,
       loadBankMuxesAt  = loadBankMuxesAt,
       loadBankMuxAt    = loadBankMuxAt,
       loadControlAt    = loadControlAt,
       loadRspAt        = loadRspAt,
-      storeReadAt      = storeReadAt,
+      storeReadBanksAt = storeReadBanksAt,
+      storeReadTagsAt  = storeReadTagsAt,
       storeHitsAt      = storeHitsAt,
       storeHitAt       = storeHitAt,
       storeControlAt   = storeControlAt,
       storeRspAt       = storeRspAt,
+      tagsReadAsync    = tagsReadAsync,
       reducedBankWidth = reducedBankWidth
     )
 

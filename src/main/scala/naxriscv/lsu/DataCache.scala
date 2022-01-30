@@ -155,7 +155,8 @@ class DataCache(val cacheSize: Int,
                 val loadRefillCheckEarly : Boolean = true,
                 val storeRefillCheckEarly : Boolean = true,
                 val lineSize: Int = 64,
-                val loadReadAt: Int = 0,
+                val loadReadBanksAt: Int = 0,
+                val loadReadTagsAt: Int = 1,
                 val loadTranslatedAt : Int = 1,
                 val loadHitsAt: Int = 1,
                 val loadHitAt: Int = 1,
@@ -163,11 +164,13 @@ class DataCache(val cacheSize: Int,
                 val loadBankMuxAt: Int = 2,
                 val loadControlAt: Int = 2,
                 val loadRspAt: Int = 2,
-                val storeReadAt: Int = 0,
+                val storeReadBanksAt: Int = 0,
+                val storeReadTagsAt: Int = 1,
                 val storeHitsAt: Int = 1,
                 val storeHitAt: Int = 1,
                 val storeControlAt: Int = 2,
                 val storeRspAt: Int = 2,
+                val tagsReadAsync : Boolean = true,
                 val reducedBankWidth : Boolean = false
                ) extends Component {
 
@@ -302,12 +305,12 @@ class DataCache(val cacheSize: Int,
     mem.write(waysWrite.address, waysWrite.tag, waysWrite.mask(id))
     val loadRead = new Area{
       val cmd = Flow(mem.addressType)
-      val rsp = mem.readSync(cmd.payload, cmd.valid)
+      val rsp = if(tagsReadAsync) mem.readAsync(cmd.payload) else mem.readSync(cmd.payload, cmd.valid)
       KeepAttribute(rsp)
     }
     val storeRead = new Area{
       val cmd = Flow(mem.addressType)
-      val rsp = mem.readSync(cmd.payload, cmd.valid)
+      val rsp = if(tagsReadAsync) mem.readAsync(cmd.payload) else mem.readSync(cmd.payload, cmd.valid)
       KeepAttribute(rsp)
     }
   }
@@ -647,7 +650,8 @@ class DataCache(val cacheSize: Int,
       }
     }
 
-    val readStage       = pipeline.stages(loadReadAt)
+    val readBanksStage  = pipeline.stages(loadReadBanksAt)
+    val readTagsStage   = pipeline.stages(loadReadTagsAt)
     val translatedStage = pipeline.stages(loadTranslatedAt)
     val hitsStage       = pipeline.stages(loadHitsAt)
     val hitStage        = pipeline.stages(loadHitAt)
@@ -658,7 +662,7 @@ class DataCache(val cacheSize: Int,
     val rspStage        = pipeline.stages(loadRspAt)
 
 
-    waysHazard((loadReadAt+1 to loadReadAt+1).map(pipeline.stages(_)), ADDRESS_PRE_TRANSLATION)
+    waysHazard((loadReadBanksAt+1 to loadReadBanksAt+1).map(pipeline.stages(_)), ADDRESS_PRE_TRANSLATION)
     val start = new Area {
       val stage = pipeline.stages.head
 
@@ -675,7 +679,7 @@ class DataCache(val cacheSize: Int,
     val fetch = new Area {
       for ((bank, bankId) <- banks.zipWithIndex) yield new Area {
         {
-          import readStage._
+          import readBanksStage._
           BANK_BUSY(bankId) := bank.read.usedByWriteBack
           when(!BANK_BUSY(bankId)) { //Not the best way of muxing it
             bank.read.cmd.valid := !isStuck
@@ -685,7 +689,7 @@ class DataCache(val cacheSize: Int,
         }
 
         {
-          val stage = pipeline.stages(loadReadAt + 1)
+          val stage = pipeline.stages(loadReadBanksAt + 1)
           import stage._
           BANKS_WORDS(bankId) := banks(bankId).read.rsp
 
@@ -717,11 +721,11 @@ class DataCache(val cacheSize: Int,
 
       for ((way, wayId) <- ways.zipWithIndex) yield new Area {
         {
-          import readStage._
+          import readTagsStage._
           way.loadRead.cmd.valid := !isStuck
           way.loadRead.cmd.payload := ADDRESS_PRE_TRANSLATION(lineRange)
         }
-        pipeline.stages(loadReadAt + 1)(WAYS_TAGS)(wayId) := ways(wayId).loadRead.rsp;
+        pipeline.stages(loadReadTagsAt + (!tagsReadAsync).toInt)(WAYS_TAGS)(wayId) := ways(wayId).loadRead.rsp;
         {
           import hitsStage._;
           WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === ADDRESS_POST_TRANSLATION(tagRange)
@@ -734,11 +738,11 @@ class DataCache(val cacheSize: Int,
       }
 
 
-      status.loadRead.cmd.valid := !readStage.isStuck
-      status.loadRead.cmd.payload := readStage(ADDRESS_PRE_TRANSLATION)(lineRange)
-      pipeline.stages(loadReadAt + 1)(STATUS) := status.loadRead.rsp
+      status.loadRead.cmd.valid := !readBanksStage.isStuck
+      status.loadRead.cmd.payload := readBanksStage(ADDRESS_PRE_TRANSLATION)(lineRange)
+      pipeline.stages(loadReadBanksAt + 1)(STATUS) := status.loadRead.rsp
 
-      val statusBypassOn = (loadReadAt + 1 until loadControlAt).map(pipeline.stages(_))
+      val statusBypassOn = (loadReadBanksAt + 1 until loadControlAt).map(pipeline.stages(_))
       statusBypassOn.foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION, stage == statusBypassOn.head))
     }
 
@@ -849,7 +853,8 @@ class DataCache(val cacheSize: Int,
       }
     }
 
-    val readStage      = pipeline.stages(storeReadAt)
+    val readBanksStage      = pipeline.stages(storeReadBanksAt)
+    val readTagsStage      = pipeline.stages(storeReadTagsAt)
     val hitsStage      = pipeline.stages(storeHitsAt)
     val hitStage       = pipeline.stages(storeHitAt)
     val controlStage   = pipeline.stages(storeControlAt)
@@ -857,7 +862,7 @@ class DataCache(val cacheSize: Int,
 
     val target = RegInit(False)
 
-    waysHazard((storeReadAt+1 to storeControlAt).map(pipeline.stages(_)), ADDRESS_POST_TRANSLATION)
+    waysHazard((storeReadBanksAt+1 to storeControlAt).map(pipeline.stages(_)), ADDRESS_POST_TRANSLATION)
     val start = new Area {
       val stage = pipeline.stages.head
 
@@ -877,11 +882,11 @@ class DataCache(val cacheSize: Int,
     val fetch = new Area {
       for ((way, wayId) <- ways.zipWithIndex) yield new Area {
         {
-          import readStage._
+          import readTagsStage._
           way.storeRead.cmd.valid := !isStuck
           way.storeRead.cmd.payload := ADDRESS_POST_TRANSLATION(lineRange)
         }
-        pipeline.stages(storeReadAt + 1)(WAYS_TAGS)(wayId) := ways(wayId).storeRead.rsp;
+        pipeline.stages(storeReadTagsAt + (!tagsReadAsync).toInt)(WAYS_TAGS)(wayId) := ways(wayId).storeRead.rsp;
         {
           import hitsStage._;
           WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === ADDRESS_POST_TRANSLATION(tagRange)
@@ -893,12 +898,12 @@ class DataCache(val cacheSize: Int,
         WAYS_HIT := B(WAYS_HITS).orR
       }
 
-      status.storeRead.cmd.valid := !readStage.isStuck
-      status.storeRead.cmd.payload := readStage(ADDRESS_POST_TRANSLATION)(lineRange)
-      pipeline.stages(storeReadAt + 1)(STATUS) := status.storeRead.rsp
+      status.storeRead.cmd.valid := !readBanksStage.isStuck
+      status.storeRead.cmd.payload := readBanksStage(ADDRESS_POST_TRANSLATION)(lineRange)
+      pipeline.stages(storeReadBanksAt + 1)(STATUS) := status.storeRead.rsp
 
 
-      val statusBypassOn = (storeReadAt + 1 until storeControlAt).map(pipeline.stages(_))
+      val statusBypassOn = (storeReadBanksAt + 1 until storeControlAt).map(pipeline.stages(_))
       statusBypassOn.foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION,  stage == statusBypassOn.head))
     }
 
