@@ -208,6 +208,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
         val hit = slotIds.map(stage(NEED_CORRECTION, _)).orR
         val selOh = OHMasking.first(slotIds.map(stage(NEED_CORRECTION, _)))
         val applySideEffects = isFireing
+        val firstCycle = RegInit(True) clearWhen(isValid) setWhen(isReady || isFlushed)
 
         setup.decodeJump.valid := isValid && hit  //IsValid instead of applySideEffects to avoid propagating the ready path
         setup.decodeJump.pc := U(MuxOH(selOh, (0 until DECODE_COUNT).map(stage(PC_PREDICTION, _))))
@@ -228,7 +229,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
         for (slotId <- 0 until Frontend.DECODE_COUNT) {
           val slot = slots(slotId)
           implicit val _ = StageableOffset(slotId)
-          setup.historyPush.mask(slotId) := applySideEffects && IS_BRANCH && Frontend.DECODED_MASK && !stage(0 until slotId)(NEED_CORRECTION).orR
+          setup.historyPush.mask(slotId) := isValid && firstCycle && IS_BRANCH && Frontend.DECODED_MASK && !stage(0 until slotId)(NEED_CORRECTION).orR
           setup.historyPush.taken(slotId) := BRANCHED_PREDICTION
         }
       }
