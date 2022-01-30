@@ -43,6 +43,7 @@ class FetchCachePlugin(val cacheSize : Int,
                        val injectionAt : Int = 2,
                        val hitsWithTranslationWays : Boolean = false,
                        val reducedBankWidth : Boolean = false,
+                       val tagsReadAsync : Boolean = true,
                        val refillEventId : Int = PerformanceCounterService.ICACHE_REFILL) extends Plugin with FetchPipelineRequirements {
   override def stagesCountMin = injectionAt + 1
 
@@ -157,8 +158,8 @@ class FetchCachePlugin(val cacheSize : Int,
       mem.write(waysWrite.address, waysWrite.tag, waysWrite.mask(id))
       val read = new Area{
         val cmd = Flow(mem.addressType)
-        val rsp = mem.readSync(cmd.payload, cmd.valid)
-        setup.pipeline.getStage(readAt+1)(WAYS_TAGS)(id) := rsp
+        val rsp = if(tagsReadAsync) mem.readAsync(cmd.payload) else mem.readSync(cmd.payload, cmd.valid)
+        setup.pipeline.getStage(readAt+(!tagsReadAsync).toInt)(WAYS_TAGS)(id) := rsp
         KeepAttribute(rsp)
       }
     }
