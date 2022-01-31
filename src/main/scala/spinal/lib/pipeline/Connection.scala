@@ -1,6 +1,7 @@
 package spinal.lib.pipeline
 
 import spinal.core._
+import spinal.lib.StreamFifoLowLatency
 
 
 case class ConnectionPoint(valid : Bool, ready : Bool, payload : Seq[Data]) extends Nameable
@@ -93,6 +94,30 @@ object Connection{
       if(flush != null) when(flush){
         rValid := False
       }
+    }
+
+    override def latency = 1
+    override def tokenCapacity = 1
+    override def alwasContainsSlaveToken : Boolean = true
+  }
+
+  case class QueueLowLatency(depth : Int) extends ConnectionLogic {
+    def on(m : ConnectionPoint,
+           s : ConnectionPoint,
+           flush : Bool, flushNext : Bool, flushNextHit : Bool) = new Area{
+      assert(s.ready != null)
+
+      val queue = StreamFifoLowLatency(Bits(s.payload.map(widthOf(_)).sum bits), depth)
+      queue.io.push.valid := m.valid
+      queue.io.push.payload := Cat(m.payload)
+      m.ready := queue.io.push.ready
+
+      val offsets = s.payload.scanLeft(0)(_ + widthOf(_))
+      s.valid := queue.io.pop.valid
+      (s.payload, offsets).zipped.foreach{case (b, o) => b.assignFromBits(queue.io.pop.payload(o, widthOf(b) bits))}
+      queue.io.pop.ready := s.ready
+
+      if(flush != null) queue.io.flush := flush
     }
 
     override def latency = 1

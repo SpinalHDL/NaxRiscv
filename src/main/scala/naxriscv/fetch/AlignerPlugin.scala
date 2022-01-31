@@ -42,7 +42,7 @@ class AlignerPlugin(inputAt : Int) extends Plugin with FetchPipelineRequirements
     frontend.retain()
 
     val s2m = fetch.pipeline.newStage()
-    fetch.pipeline.connect(fetch.pipeline.stages.last, s2m)(spinal.lib.pipeline.Connection.S2M())
+    fetch.pipeline.connect(fetch.pipeline.stages.last, s2m)(spinal.lib.pipeline.Connection.S2M()) //spinal.lib.pipeline.Connection.QueueLowLatency(16)
     val sequenceJump = jump.createJumpInterface(JumpService.Priorities.ALIGNER) //We don't patch the history here, as it is a very sporadic case
 
     val input = s2m
