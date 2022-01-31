@@ -13,11 +13,13 @@ import spinal.lib.pipeline.Stageable
 object DivPlugin extends AreaObject {
   val REM = Stageable(Bool())
   val SIGNED = Stageable(Bool())
+  val DIV_RESULT = Stageable(Bits(XLEN bits))
 }
 
 class DivPlugin(euId : String,
                 writebackAt : Int,
                 cmdAt : Int = 0,
+                rspAt : Int = 1,
                 splitWidthA : Int = 16,
                 splitWidthB : Int = 16) extends ExecutionUnitElementSimple(euId, staticLatency = false) {
   import DivPlugin._
@@ -69,15 +71,21 @@ class DivPlugin(euId : String,
       }
     }
 
-    val rsp = new ExecuteArea(writebackAt){
+    val rsp = new ExecuteArea(rspAt){
       import stage._
 
       div.io.rsp.ready := isReady
       haltIt(isValid && SEL && !div.io.rsp.valid)
 
       val selected = REM ? div.io.rsp.remain otherwise div.io.rsp.result
-      val result = twoComplement(B(selected), DIV_REVERT_RESULT)
-      wb.payload := B(result).resized
+
+      DIV_RESULT := twoComplement(B(selected), DIV_REVERT_RESULT).asBits.resized
+    }
+
+    val writeback = new ExecuteArea(writebackAt){
+      import stage._
+
+      wb.payload := DIV_RESULT
     }
   }
 }
