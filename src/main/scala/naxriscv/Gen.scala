@@ -114,7 +114,7 @@ object Config{
     plugins += new GSharePlugin(
 //      entries = 1 << 24,
       memBytes = 4 KiB,
-      historyWidth = 24,  //24 => 31979 / 32601 / 35356 / 1w => 49389 2w => 53474
+      historyWidth = 24,
       readAt = 0
     )
 
@@ -124,9 +124,9 @@ object Config{
       sqSize = 16,
       loadToCacheBypass = true,
       lqToCachePipelined = true,
-      hazardPedictionEntries = 512*8,
+      hazardPedictionEntries = 512,
       hazardPredictionTagWidth = 16,
-//      storeToLoadBypass = true,
+      hitPedictionEntries = 1024,
       translationStorageParameter = MmuStorageParameter(
         levels   = List(
           MmuStorageLevel(
@@ -165,10 +165,10 @@ object Config{
       refillCount = 2,
       writebackCount = 2,
       tagsReadAsync = true,
-      reducedBankWidth = false//,
-//      loadHitAt      = 2,
+      reducedBankWidth = false,
+      loadHitAt      = 2,
 //      loadRspAt      = 3,
-//      loadRefillCheckEarly = false
+      loadRefillCheckEarly = false
     )
 
     //MISC
@@ -361,7 +361,7 @@ checkLq => 6.8slack 550 LUT (16lq/16sq)
  */
 
 /*
-obj_dir/VNaxRiscv --name dhrystone --output-dir output/nax/dhrystone --load-elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/dhrystone.elf --start-symbol _start --pass-symbol pass --fail-symbol fail --stats-print --stats-toggle-symbol sim-time
+obj_dir/VNaxRiscv --name dhrystone --output-dir output/nax/dhrystone --load-elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/dhrystone.elf --start-symbol _start --pass-symbol pass --fail-symbol fail --stats-print --stats-toggle-symbol sim_time
 obj_dir/VNaxRiscv --name coremark --output-dir output/nax/coremark --load-elf /media/data/open/riscv/coremark/build/coremark_rv32im.elf --start-symbol _start --pass-symbol pass  --stats-print-all --stats-toggle-symbol sim_time
 obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/play/build/play.elf --start-symbol _start --pass-symbol pass --fail-symbol fail --trace --trace-ref --stats-print-all
 obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/freertosDemo/integer/rv32im/freertosDemo.elf --start-symbol _start --pass-symbol c_pass --fail-symbol c_fail --stats-print-all
