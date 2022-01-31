@@ -213,7 +213,7 @@ naxSoftware = [
 ]
 
 naxSoftwareRegular = [
-    "machine", "supervisor", "mmu_sv32", "dhrystone"
+    "machine", "supervisor", "mmu_sv32", "dhrystone", "coremark"
 ]
 
 
@@ -228,7 +228,7 @@ for e in freertos:
     naxSoftware.append(["freertos/" + e, f"baremetal/freertosDemo/build/{e}/{arch}/freertosDemo.elf"])
 
 
-naxSoftware.append(["coremark", f"baremetal/coremark/coremark_{arch}.elf"])
+# naxSoftware.append(["coremark", f"baremetal/coremark/coremark_{arch}.elf"])
 
 tests = []
 testsFast = []
