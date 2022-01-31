@@ -109,7 +109,7 @@ object Config{
       entries = 512,
       readAt = 0,
       hitAt = 1,
-      jumpAt = 2
+      jumpAt = 1
     )
     plugins += new GSharePlugin(
 //      entries = 1 << 24,
@@ -207,7 +207,7 @@ object Config{
 //    plugins += new IntAluPlugin("EU1")
 //    plugins += new ShiftPlugin("EU1")
     plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
-    plugins += new LoadPlugin("EU1")
+//    plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
     plugins += new CsrAccessPlugin("EU1")(
       decodeAt = 0,
@@ -218,6 +218,9 @@ object Config{
     )
     plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
 
+    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
+    plugins += new SrcPlugin("EU2")
+    plugins += new LoadPlugin("EU2")
 
 //    plugins += new ExecutionUnitBase("EU2")
 //    plugins += new MulPlugin("EU2", staticLatency = false)
@@ -235,9 +238,7 @@ object Config{
 //    plugins += new ShiftPlugin("EU3")
 //    plugins += new BranchPlugin("EU3")
 
-//    plugins += new ExecutionUnitBase("EU4", writebackCountMax = 0)
-//    plugins += new SrcPlugin("EU4")
-//    plugins += new LoadPlugin("EU4")
+
 //
 //    plugins += new ExecutionUnitBase("EU5", writebackCountMax = 0)
 //    plugins += new SrcPlugin("EU5")
