@@ -101,7 +101,7 @@ class LsuPlugin(lqSize: Int,
                 lqToCachePipelined : Boolean = true, //Add one additional stage between LQ arbitration and the cache query
                 loadFeedAt : Int = 0, //Stage at which the d$ cmd is sent
                 loadCheckSqAt : Int = 1,
-                loadCtrlAt : Int = 2) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy{
+                loadCtrlAt : Int = 3) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy{
 
   val wordWidth = Global.XLEN.get
   val wordBytes = wordWidth/8
@@ -132,8 +132,8 @@ class LsuPlugin(lqSize: Int,
   }
 
 
-  override def wakeRobs    = List(logic.get.load.pipeline.hitSpeculation.wakeRob, logic.get.load.pipeline.cacheRsp.wakeRob, logic.get.special.wakeRob)
-  override def wakeRegFile = List(logic.get.load.pipeline.hitSpeculation.wakeRf , logic.get.load.pipeline.cacheRsp.wakeRf , logic.get.special.wakeRf)
+  override def wakeRobs    = List(logic.get.load.pipeline.hitSpeculation.wakeRob, logic.get.load.pipeline.ctrl.wakeRob, logic.get.special.wakeRob)
+  override def wakeRegFile = List(logic.get.load.pipeline.hitSpeculation.wakeRf , logic.get.load.pipeline.ctrl.wakeRf , logic.get.special.wakeRf)
   def flushPort = setup.flushPort
 
   val keys = new AreaRoot{
@@ -184,6 +184,7 @@ class LsuPlugin(lqSize: Int,
     val rfWrite = regfile.newWrite(withReady = false, latency = 0)
     val cacheLoad = cache.newLoadPort(priority = 0)
     val cacheStore = cache.newStorePort()
+    val specialCompletion = rob.newRobCompletion()
     val loadCompletion = rob.newRobCompletion()
     val storeCompletion = rob.newRobCompletion()
     val loadTrap = commit.newSchedulePort(canTrap = true, canJump = false)
@@ -225,6 +226,8 @@ class LsuPlugin(lqSize: Int,
       val LOAD_FRESH      = Stageable(Bool())
       val LOAD_FRESH_PC   = Stageable(PC())
       val LOAD_FRESH_WAIT_SQ = Stageable(Bool())
+      val LOAD_WRITE_FAILURE = Stageable(Bool())
+      val LOAD_CACHE_RSP = Stageable(cloneOf(setup.cacheLoad.rsp))
 
       val OLDER_STORE_RESCHEDULE  = Stageable(Bool())
       val OLDER_STORE_ID = Stageable(SQ_ID)
@@ -493,8 +496,6 @@ class LsuPlugin(lqSize: Int,
         }
 
 
-
-
         when(isFireing){
           ptr.alloc := alloc
           for(reg <- regs){
@@ -515,8 +516,10 @@ class LsuPlugin(lqSize: Int,
       }
 
       val pipeline = new Pipeline{
-        val stages = Array.fill(loadFeedAt + cache.loadRspLatency + 1)(newStage())
+        val stages = Array.fill(loadCtrlAt+1)(newStage())
         connect(stages)(List(M2S()))
+
+        assert(loadFeedAt + cache.loadRspLatency <= loadCtrlAt, "Cache response is comming after lsu loadCtrlAt")
 
         stages.last.flushIt(rescheduling.valid, root = false)
 
@@ -539,21 +542,26 @@ class LsuPlugin(lqSize: Int,
             val hits = B(regs.map(reg => reg.ready))
             val hit = hits.orR
 
+            case class Payload() extends Bundle{
+              val selOh = Bits(lqSize bits)
+              val sel   = UInt(log2Up(lqSize) bits)
+            }
             val selOh = OHMasking.roundRobinMasked(hits, ptr.priority)
-            val early = Stream(LQ_SEL_OH)
+            val early = Stream(Payload())
             early.valid := hit
-            early.payload := selOh
+            early.selOh := selOh
+            early.sel   := OHToUInt(selOh)
 
             for(reg <- regs) when(early.fire && selOh(reg.id)){
               reg.waitOn.cacheRsp := True
             }
 
             val output = if(lqToCachePipelined) early.m2sPipe(flush = stages.head.isFlushed) else early.combStage()
-            val outputSel = OHToUInt(output.payload)
+            def outputSel = output.sel //OHToUInt(output.payload)
           }
 
           isValid := arbitration.output.valid
-          LQ_SEL_OH := arbitration.output.payload
+          LQ_SEL_OH := arbitration.output.selOh
           LQ_SEL := arbitration.outputSel
           ADDRESS_PRE_TRANSLATION := mem.addressPre.readAsync(arbitration.outputSel)
           SIZE := regs.map(_.address.size).read(arbitration.outputSel)
@@ -669,10 +677,8 @@ class LsuPlugin(lqSize: Int,
 
 
         val hitSpeculation = new Area{
-          val stage = stages.reverse(2)
+          val stage = stages(loadFeedAt + cache.loadRspLatency - 2)
           import stage._
-
-//          HIT_SPECULATION := ADDRESS_PRE_TRANSLATION.msb
 
           val wakeRob = Flow(WakeRob())
           wakeRob.valid := isFireing && HIT_SPECULATION
@@ -683,17 +689,17 @@ class LsuPlugin(lqSize: Int,
           wakeRf.physical := decoder.PHYS_RD
         }
 
-        val cacheRsp = new Area{
-          val stage = stages.last
+        val cacheRsp = new Area {
+          val stage = stages(loadFeedAt + cache.loadRspLatency)
           import stage._
 
-          val rsp = CombInit(setup.cacheLoad.rsp)
-          val peripheralOverride = False //Allow the peripheral ctrl to cannibalise this data path logic <3
+          def rsp = stage(LOAD_CACHE_RSP)
+          rsp := setup.cacheLoad.rsp
 
-          val rspSize = CombInit(stage(SIZE))
+          val rspSize    = CombInit(stage(SIZE))
           val rspAddress = CombInit(stage(ADDRESS_PRE_TRANSLATION))
-          val rspRaw = rsp.data //CombInit(rsp.data.subdivideIn(wordWidth bits).read(ADDRESS_PRE_TRANSLATION(memToCpuRange)))
-          val rspSplits = rspRaw.subdivideIn(8 bits)
+          val rspRaw     = rsp.data //CombInit(rsp.data.subdivideIn(wordWidth bits).read(ADDRESS_PRE_TRANSLATION(memToCpuRange)))
+          val rspSplits  = rspRaw.subdivideIn(8 bits)
           val rspShifted = Bits(wordWidth bits)
 
           //Generate minimal mux to move from a wide aligned memory read to the register file shifter representation
@@ -714,10 +720,30 @@ class LsuPlugin(lqSize: Int,
             default -> rspShifted //W
           )
 
-          setup.rfWrite.valid   := False
+          setup.rfWrite.valid   := isValid && WRITE_RD
           setup.rfWrite.address := decoder.PHYS_RD
           setup.rfWrite.data    := rspFormated
           setup.rfWrite.robId   := ROB.ID
+
+          val peripheralOverride = False //Allow the peripheral ctrl to cannibalise this data path logic <3
+          LOAD_WRITE_FAILURE := peripheralOverride && !tpk.IO
+        }
+
+        //Bypass load rsp refillSlotxxx
+        for(stageId <- loadFeedAt + cache.loadRspLatency until loadCtrlAt){
+          val stage = stages(stageId)
+          def o = stage.overloaded(LOAD_CACHE_RSP)
+          def i = stage(LOAD_CACHE_RSP)
+          o := i
+          o.refillSlotAny.removeAssignments() := i.refillSlotAny && !cache.refillCompletions.orR
+          o.refillSlot.removeAssignments()    := i.refillSlot     & ~cache.refillCompletions
+        }
+
+        val ctrl = new Area{
+          val stage = stages(loadCtrlAt)
+          import stage._
+
+          def rsp = stage(LOAD_CACHE_RSP)
 
           setup.loadCompletion.valid := False
           setup.loadCompletion.id := ROB.ID
@@ -757,7 +783,7 @@ class LsuPlugin(lqSize: Int,
               data   = tpk.IO
             )
             onRegs(_.waitOn.cacheRsp := False)
-            when(stage(LOAD_FRESH_WAIT_SQ)){
+            when(LOAD_FRESH_WAIT_SQ || LOAD_WRITE_FAILURE){
 
             } elsewhen(stage(OLDER_STORE_RESCHEDULE)){
               onRegs{r =>
@@ -782,15 +808,13 @@ class LsuPlugin(lqSize: Int,
               setup.loadTrap.valid := True
               setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT
             } otherwise {
-              when(tpk.IO || !peripheralOverride) {
-                onRegs(_.waitOn.commit := True)
-              }
+              onRegs(_.waitOn.commit := True)
               //doCompletion
             }
           }
 
           //Critical path extracted to help synthesis
-          val doCompletion = isFireing && !LOAD_FRESH_WAIT_SQ && !OLDER_STORE_RESCHEDULE && !missAligned && !pageFault && !pageFault && !accessFault && !tpk.IO && !peripheralOverride
+          val doCompletion = isFireing && !LOAD_FRESH_WAIT_SQ && !LOAD_WRITE_FAILURE && !OLDER_STORE_RESCHEDULE && !missAligned && !pageFault && !pageFault && !accessFault && !tpk.IO
           KeepAttribute(doCompletion)
           val success = doCompletion && !rsp.redo
           when(success){
@@ -806,9 +830,7 @@ class LsuPlugin(lqSize: Int,
             }
           }
 
-          when(isValid && WRITE_RD) {
-            setup.rfWrite.valid := True
-          }
+
 
           val hitPrediction = new Area{
             def onSuccess = S(-1, hitPredictionCounterWidth bits)
@@ -1304,10 +1326,12 @@ class LsuPlugin(lqSize: Int,
       setup.peripheralTrap.skipCommit := True
       setup.peripheralTrap.reason     := ScheduleReason.TRAP
 
+      setup.specialCompletion.valid := False
+      setup.specialCompletion.id    := robId
+
       when(peripheralBus.rsp.fire) {
         load.pipeline.cacheRsp.peripheralOverride := True
-        setup.loadCompletion.valid := True
-        setup.loadCompletion.id := robId
+        setup.specialCompletion.valid := True
 
         setup.peripheralTrap.valid := peripheralBus.rsp.error
 
@@ -1404,9 +1428,7 @@ class LsuPlugin(lqSize: Int,
         }
 
         COMPLETION whenIsActive{
-          setup.loadCompletion.valid := True
-          setup.loadCompletion.id    := robId
-
+          setup.specialCompletion.valid := True
           wakeRob.valid setWhen(sq.mem.writeRd)
 
           load.pipeline.hitSpeculation.wakeRf.valid setWhen(sq.mem.writeRd)

@@ -165,10 +165,10 @@ object Config{
       refillCount = 2,
       writebackCount = 2,
       tagsReadAsync = true,
-      reducedBankWidth = false,
-      loadHitAt      = 2,
+      reducedBankWidth = false
+//      loadHitAt      = 2
 //      loadRspAt      = 3,
-      loadRefillCheckEarly = false
+//      loadRefillCheckEarly = false
     )
 
     //MISC
