@@ -2,7 +2,7 @@ package naxriscv.misc
 
 import naxriscv.Global._
 import naxriscv.execute.CsrAccessPlugin
-import naxriscv.interfaces.{CommitService, CsrListFilter, LockedImpl, PerformanceCounterService, ScheduleReason}
+import naxriscv.interfaces.{CommitService, CsrListFilter, CsrRamService, LockedImpl, PerformanceCounterService, ScheduleReason}
 import naxriscv.riscv.CSR
 import spinal.core._
 import spinal.lib._
@@ -27,8 +27,8 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
     csr.retain()
 
     val withHigh = XLEN.get == 32
-    val readPort = ram.ramReadPort()
-    val writePort = ram.ramWritePort()
+    val readPort = ram.ramReadPort(CsrRamService.priority.COUNTER)
+    val writePort = ram.ramWritePort(CsrRamService.priority.COUNTER)
     val allocation = ram.ramAllocate(entries = counterCount*(if(withHigh) 2 else 1))
   }
 
@@ -98,7 +98,7 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
     val fsm = new StateMachine{
       val IDLE, READ_LOW, CALC, WRITE_LOW = new State
       val READ_HIGH, WRITE_HIGH = withHigh generate new State
-      val CSR_WRITE = new State
+      val CSR_WRITE, CSR_WRITE_COMPLETION = new State
       setEntry(IDLE)
 
       val csrReadCmd, flusherCmd = Stream(new Bundle {
@@ -162,9 +162,13 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
         }
         ignoreNextCommit setWhen(csrWriteCmd.address === 2) // && (if(withHigh) !csrWriteCmd.high else True)
         when(writePort.ready){
-          csrWriteCmd.ready := True
-          goto(IDLE)
+          goto(CSR_WRITE_COMPLETION)
         }
+      }
+
+      CSR_WRITE_COMPLETION whenIsActive {
+        csrWriteCmd.ready := True
+        goto(IDLE)
       }
 
       READ_LOW.whenIsActive{

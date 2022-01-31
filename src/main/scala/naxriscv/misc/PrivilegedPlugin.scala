@@ -7,7 +7,7 @@ import naxriscv.execute.{CsrAccessPlugin, EnvCallPlugin}
 import naxriscv.fetch.{FetchPlugin, PcPlugin}
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.JumpService.Priorities
-import naxriscv.interfaces.{CommitService, CsrListFilter, DecoderService, PrivilegedService}
+import naxriscv.interfaces.{CommitService, CsrListFilter, CsrRamService, DecoderService, PrivilegedService}
 import naxriscv.riscv.CSR
 import spinal.core._
 import spinal.lib._
@@ -87,8 +87,8 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
     frontend.retain()
 
     val jump = getService[PcPlugin].createJumpInterface(Priorities.COMMIT_TRAP)
-    val ramRead  = ram.ramReadPort()
-    val ramWrite = ram.ramWritePort()
+    val ramRead  = ram.ramReadPort(CsrRamService.priority.TRAP)
+    val ramWrite = ram.ramWritePort(CsrRamService.priority.TRAP)
 
     val privilege = RegInit(U"11")
     val withMachinePrivilege    = privilege >= U"11"

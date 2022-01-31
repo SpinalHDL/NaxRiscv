@@ -462,7 +462,7 @@ class CsrRamAllocation(val entries : Int){
 
   val entriesLog2 = 1 << log2Up(entries)
 }
-case class CsrRamRead(addressWidth : Int, dataWidth : Int) extends Bundle{
+case class CsrRamRead(addressWidth : Int, dataWidth : Int, priority : Int) extends Bundle{
   val valid, ready = Bool()
   val address = UInt(addressWidth bits)
   val data = Bits(dataWidth bits) //One cycle after fired
@@ -470,7 +470,7 @@ case class CsrRamRead(addressWidth : Int, dataWidth : Int) extends Bundle{
   def fire = valid && ready
 }
 
-case class CsrRamWrite(addressWidth : Int, dataWidth : Int) extends Bundle{
+case class CsrRamWrite(addressWidth : Int, dataWidth : Int, priority : Int) extends Bundle{
   val valid, ready = Bool()
   val address = UInt(addressWidth bits)
   val data = Bits(dataWidth bits)
@@ -478,11 +478,21 @@ case class CsrRamWrite(addressWidth : Int, dataWidth : Int) extends Bundle{
   def fire = valid && ready
 }
 
+
+object CsrRamService{
+  //Priorities are arranged in a way to improve ports.ready timings
+  val priority = new {
+    val INIT    = 0
+    val TRAP    = 1
+    val COUNTER = 2
+    val CSR     = 3  //This is the very critical path
+  }
+}
 //usefull for, for instance, mscratch scratch mtvec stvec mepc sepc mtval stval satp pmp stuff
 trait CsrRamService extends Service {
   def ramAllocate(entries : Int) : CsrRamAllocation
-  def ramReadPort() : Handle[CsrRamRead]
-  def ramWritePort() : Handle[CsrRamWrite]
+  def ramReadPort(priority : Int) : Handle[CsrRamRead]
+  def ramWritePort(priority : Int) : Handle[CsrRamWrite]
   val allocationLock = Lock()
   val portLock = Lock()
 }

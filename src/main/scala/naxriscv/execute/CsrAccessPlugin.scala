@@ -111,8 +111,8 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
     val useRamWrite = spec.exists(_.isInstanceOf[CsrRamSpec])
     val useRam = useRamRead || useRamWrite
 
-    val ramReadPort = useRamRead generate ram.ramReadPort()
-    val ramWritePort = useRamWrite generate ram.ramWritePort()
+    val ramReadPort = useRamRead generate ram.ramReadPort(CsrRamService.priority.CSR)
+    val ramWritePort = useRamWrite generate ram.ramWritePort(CsrRamService.priority.CSR)
     if(ram != null) ram.portLock.release()
 
     def filterToName(filter : Any) = filter match{
