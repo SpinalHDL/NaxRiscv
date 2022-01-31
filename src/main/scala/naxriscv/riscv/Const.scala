@@ -49,6 +49,7 @@ object CSR {
     val BREAKPOINT = 3
     val ECALL_USER = 8
     val ECALL_SUPERVISOR = 9
+    val ECALL_HYPERVISOR = 10
     val ECALL_MACHINE = 11
 
     val INSTRUCTION_ACCESS_FAULT = 1

@@ -24,6 +24,7 @@ object EnvCallPlugin extends AreaObject{
 
   val CAUSE_XRET = CSR.MCAUSE_ENUM.ECALL_USER
   val CAUSE_FLUSH = CSR.MCAUSE_ENUM.ECALL_SUPERVISOR
+  val CAUSE_REDO = CSR.MCAUSE_ENUM.ECALL_HYPERVISOR
 }
 
 class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{

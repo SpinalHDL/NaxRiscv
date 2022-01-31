@@ -2,7 +2,7 @@ package naxriscv.misc
 
 import naxriscv.{Fetch, Frontend, Global}
 import naxriscv.Global._
-import naxriscv.execute.EnvCallPlugin.{CAUSE_FLUSH, CAUSE_XRET}
+import naxriscv.execute.EnvCallPlugin.{CAUSE_FLUSH, CAUSE_REDO, CAUSE_XRET}
 import naxriscv.execute.{CsrAccessPlugin, EnvCallPlugin}
 import naxriscv.fetch.{FetchPlugin, PcPlugin}
 import naxriscv.frontend.FrontendPlugin
@@ -446,6 +446,9 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
             is(CAUSE_FLUSH){
               goto(FLUSH_CALC)
             }
+            is(CAUSE_REDO){
+              goto(FLUSH_CALC)
+            }
             is(CAUSE_XRET){
               goto(EPC_READ)
             }
@@ -460,7 +463,7 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       }
 
       FLUSH_CALC whenIsActive{
-        readed := B(reschedule.epc + (reschedule.slices + 1 << Fetch.SLICE_RANGE_LOW))
+        readed := B(reschedule.epc + (reschedule.slices + 1 << Fetch.SLICE_RANGE_LOW).andMask(reschedule.cause =/= CSR.MCAUSE_ENUM.ECALL_HYPERVISOR))
         goto(FLUSH_JUMP)
       }
 
