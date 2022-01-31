@@ -13,6 +13,7 @@ An RISC-V core currently characterised by :
 - The data cache can concurrently refill and writeback multiple lines
 - BTB + GSHARE + RAS branch predictors
 - Hardware refilled MMU
+- Load to use latency of 3 cycles via the speculative cache hit predictor 
 - Implement performance counters
 - Pipeline visualisation via verilator simulation and Konata (gem5 file format)
 
