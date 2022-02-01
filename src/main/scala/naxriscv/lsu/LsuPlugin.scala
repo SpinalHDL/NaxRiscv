@@ -189,7 +189,7 @@ class LsuPlugin(lqSize: Int,
     val storeCompletion = rob.newRobCompletion()
     val loadTrap = commit.newSchedulePort(canTrap = true, canJump = false)
     val storeTrap = commit.newSchedulePort(canTrap = true, canJump = true)
-    val peripheralTrap = commit.newSchedulePort(canTrap = true, canJump = false)
+    val specialTrap = commit.newSchedulePort(canTrap = true, canJump = false)
     val flushPort = PulseHandshake().idle()
 
     decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
@@ -1323,12 +1323,12 @@ class LsuPlugin(lqSize: Int,
       peripheralBus.cmd.data    := storeData
       peripheralBus.cmd.mask    := storeMask
 
-      setup.peripheralTrap.valid      := False
-      setup.peripheralTrap.robId      := robId
-      setup.peripheralTrap.cause      := (isStore ? U(CSR.MCAUSE_ENUM.STORE_ACCESS_FAULT) otherwise U(CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT)).resized
-      setup.peripheralTrap.tval       := B(address)
-      setup.peripheralTrap.skipCommit := True
-      setup.peripheralTrap.reason     := ScheduleReason.TRAP
+      setup.specialTrap.valid      := False
+      setup.specialTrap.robId      := robId
+      setup.specialTrap.cause      := (isStore ? U(CSR.MCAUSE_ENUM.STORE_ACCESS_FAULT) otherwise U(CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT)).resized
+      setup.specialTrap.tval       := B(address)
+      setup.specialTrap.skipCommit := True
+      setup.specialTrap.reason     := ScheduleReason.TRAP
 
       setup.specialCompletion.valid := False
       setup.specialCompletion.id    := robId
@@ -1337,7 +1337,7 @@ class LsuPlugin(lqSize: Int,
         load.pipeline.cacheRsp.peripheralOverride := True
         setup.specialCompletion.valid := True
 
-        setup.peripheralTrap.valid := peripheralBus.rsp.error
+        setup.specialTrap.valid := peripheralBus.rsp.error
 
         setup.rfWrite.valid               := isLoad && loadWriteRd
         setup.rfWrite.address             := loadPhysRd
@@ -1353,7 +1353,7 @@ class LsuPlugin(lqSize: Int,
       }
 
       val atomic = new StateMachine{
-        val IDLE, LOAD_CMD, LOAD_RSP, ALU, COMPLETION, SYNC = new State
+        val IDLE, LOAD_CMD, LOAD_RSP, ALU, COMPLETION, SYNC, TRAP = new State
         setEntry(IDLE)
 
         val readed = Reg(Bits(XLEN bits))
@@ -1418,12 +1418,16 @@ class LsuPlugin(lqSize: Int,
             when(rsp.redo){
               goto(IDLE)
             } elsewhen (rsp.fault) {
-              setup.peripheralTrap.valid := True
-              goto(IDLE)
+              goto(TRAP)
             } otherwise {
               goto(ALU)
             }
           }
+        }
+
+        TRAP whenIsActive{
+          setup.specialTrap.valid := True
+          goto(IDLE)
         }
 
         ALU whenIsActive{
