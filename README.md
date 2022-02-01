@@ -174,7 +174,7 @@ The toplevel of NaxRiscv only contains a framework which can schedule a list plu
 val framework = new Framework(plugins())
 ```
 
-To give an overview of how much the design is splited between plugins, here is the list of them for one functional CPU :
+To give an overview of how much the design is split between plugins, here is the list of them for one functional CPU :
 
 ```
     val plugins = ArrayBuffer[Plugin]()
@@ -329,6 +329,7 @@ To give an overview of how much the design is splited between plugins, here is t
     plugins += new DivPlugin("EU1", writebackAt = 2)
     plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new StorePlugin("EU1")
+    plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
     plugins += new CsrAccessPlugin("EU1")(
       decodeAt = 0,
       readAt = 1,
@@ -336,7 +337,6 @@ To give an overview of how much the design is splited between plugins, here is t
       writebackAt = 2,
       staticLatency = false
     )
-    plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
 
     plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
     plugins += new SrcPlugin("EU2")

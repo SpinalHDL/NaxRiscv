@@ -127,7 +127,11 @@ make clean compile
 make output/nax/buildroot/run0/PASS
 ```
 
-# Omagad, it crashed in linux
+# Omagad / Panic
+
+A compilation about how to handle adversity
+
+## it crashed in linux
 
 In one terminal do : 
 
@@ -144,3 +148,7 @@ make output/nax/buildroot/run0/PASS ARGS="--sim-slave --trace --trace-ref"
 This will run the two simulation together, with the slave one a bit delayed, but when the master one crash, the slave one will start recording the traces.
 
 You can specify that delayed with --sim-slave-delay on the slave sim. Default being 500000 (250000 cycles).
+
+## NO PROGRESS the cpu hasn't commited anything since too long
+
+Take a look to all the .*haltRequest.* signals in the wave

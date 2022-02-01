@@ -210,6 +210,7 @@ object Config{
     plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
 //    plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
+    plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
     plugins += new CsrAccessPlugin("EU1")(
       decodeAt = 0,
       readAt = 1,
@@ -217,7 +218,6 @@ object Config{
       writebackAt = 2,
       staticLatency = false
     )
-    plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
 
     plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
     plugins += new SrcPlugin("EU2")
@@ -415,4 +415,41 @@ make compile
     --putc "ls /" \
     --getc "root@buildroot:~#" \
     --success
+
+
+buildroot/run0 =>
+STATS :
+  IPC               0.564001
+  cycles            227596500
+  commits           128364701
+  reschedules       2737629
+  trap              21189
+  branch miss       1252921
+  jump miss         1228113
+  storeToLoadHazard 6208
+  loadHitMiss       154496
+
+
+STATS :
+  IPC               0.399107
+  cycles            324598890
+  commits           129549688
+  reschedules       2831840
+  trap              25216
+  branch miss       1286238
+  jump miss         1282142
+  storeToLoadHazard 7109
+  loadHitMiss       151680
+
+STATS :
+  IPC               0.461625
+  cycles            281659239
+  commits           130020836
+  reschedules       2787057
+  trap              23349
+  branch miss       1270644
+  jump miss         1252713
+  storeToLoadHazard 7247
+  loadHitMiss       155787
+
  */
