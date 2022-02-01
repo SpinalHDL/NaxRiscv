@@ -19,7 +19,7 @@ class ExecutionUnitBase(euId : String,
                         contextAt : Int = 0,
                         rfReadAt : Int = 0,
                         decodeAt : Int = 0,
-                        executeAt : Int = 1) extends Plugin with ExecuteUnitService with LockedImpl{
+                        executeAt : Int = 1) extends Plugin with ExecuteUnitService with WakeRobService with WakeRegFileService with LockedImpl{
   withPrefix(euId)
 
   override def uniqueIds = List(euId)
@@ -27,6 +27,20 @@ class ExecutionUnitBase(euId : String,
   override def getFixedLatencies = ???
   override def pushPort() = pipeline.push.port
   override def euName() = euId
+  override def wakeRobs = pipeline.wakeRobs.logic.map(_.rob).toSeq
+  override def wakeRegFile = pipeline.wakeRf.logic.map(_.rf).toSeq
+
+  case class WakeRobsSelSpec(stageId : Int, sel : Bool)
+  val wakeRobsSelSpecs = ArrayBuffer[WakeRobsSelSpec]()
+  def newWakeRobsSelAt(stageId : Int) : Bool = {
+    wakeRobsSelSpecs.addRet(WakeRobsSelSpec(stageId, Bool())).sel
+  }
+
+  case class WakeRegFileSelSpec(stageId : Int, sel : Bool)
+  val wakeRegFileSelSpecs = ArrayBuffer[WakeRegFileSelSpec]()
+  def newWakeRegFileSelAt(stageId : Int) = {
+    wakeRegFileSelSpecs.addRet(WakeRegFileSelSpec(stageId, Bool())).sel
+  }
 
   override def staticLatencies() = {
     lock.await()
@@ -274,6 +288,30 @@ class ExecutionUnitBase(euId : String,
       val port = rob.newRobCompletion()
       port.valid := stage.isFireing && stage(spec.sel)
       port.id := stage(ROB.ID)
+    }
+
+    val wakeRobs = new Area{
+      val grouped = wakeRobsSelSpecs.groupByLinked(_.stageId)
+      val logic = for((stageId, group) <- grouped) yield new Area{
+        val stage = executeStages(stageId)
+        val fire = stage.isFireing && group.map(_.sel).orR
+        val rob = Flow(WakeRob())
+
+        rob.valid := fire && stage(decoder.WRITE_RD)
+        rob.robId := stage(ROB.ID)
+      }
+    }
+
+    val wakeRf = new Area{
+      val grouped = wakeRegFileSelSpecs.groupByLinked(_.stageId)
+      val logic = for((stageId, group) <- grouped) yield new Area{
+        val stage = executeStages(stageId)
+        val fire = stage.isFireing && group.map(_.sel).orR
+        val rf = Flow(WakeRegFile(decoder.PHYS_RD, needBypass = false))
+
+        rf.valid := fire && stage(decoder.WRITE_RD)
+        rf.physical := stage(decoder.PHYS_RD)
+      }
     }
 
 

@@ -11,15 +11,12 @@ import spinal.lib.Flow
 import spinal.lib.pipeline.Stageable
 
 //This is a simple skeleton to ease the implementation of simple ExecutionUnit elements. It assume a single writeback and a single completion
-abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean) extends Plugin with WakeRobService with WakeRegFileService { //TODO sharing of non static wakes ?
+abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean) extends Plugin { //TODO sharing of non static wakes ?
   withPrefix(euId)
   val SEL = Stageable(Bool())
 
   def euCompletionAt : Int = euWritebackAt
   def euWritebackAt : Int
-
-  override def wakeRobs = if(!staticLatency) List(logic.wake.rob) else Nil
-  override def wakeRegFile = if(!staticLatency) List(logic.wake.rf) else Nil
 
   class Setup extends Area {
     val eu = getService[ExecutionUnitBase](euId)
@@ -50,16 +47,13 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
     wb.valid := wbStage(SEL)
 
     val wake = !staticLatency generate new Area{
-      val fire = wbStage.isFireing && wbStage(SEL)
-      val rob = Flow(WakeRob())
-      val rf = Flow(WakeRegFile(decode.PHYS_RD, needBypass = false))
+      val wakeRobsSel    = eu.newWakeRobsSelAt(euWritebackAt)
+      val wakeRegFileSel = eu.newWakeRegFileSelAt(euWritebackAt)
 
-      rob.valid := fire && wbStage(decode.WRITE_RD)
-      rob.robId := wbStage(ROB.ID)
-
-      rf.valid := fire && wbStage(decode.WRITE_RD)
-      rf.physical := wbStage(decode.PHYS_RD)
+      wakeRobsSel    := wbStage(SEL)
+      wakeRegFileSel := wbStage(SEL)
     }
+
     override def postInitCallback() = {eu.release() ; this}
 
     class ExecuteArea(id : Int) extends Area{
