@@ -281,6 +281,7 @@ object ScheduleReason{
   val hardType = Stageable(UInt(8 bits))
   val TRAP = 0x01
   val ENV = 0x02
+  val LOAD_HIT_MISS_PREDICTED = 0x03
   val BRANCH = 0x10
   val JUMP = 0x11
   val STORE_TO_LOAD_HAZARD = 0x20

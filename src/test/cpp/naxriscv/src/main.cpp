@@ -760,6 +760,7 @@ public:
     u64 branchMiss = 0;
     u64 jumpMiss = 0;
     u64 storeToLoadHazard = 0;
+    u64 loadHitMissPredicted = 0;
 
     map<RvData, u64> branchMissHist;
     map<RvData, u64> jumpMissHist;
@@ -776,6 +777,7 @@ public:
         ss << tab << "branch miss       " << branchMiss <<  endl;
         ss << tab << "jump miss         " << jumpMiss <<  endl;
         ss << tab << "storeToLoadHazard " << storeToLoadHazard <<  endl;
+        ss << tab << "loadHitMiss       " << loadHitMissPredicted << endl;
         if(hist){
             u64 branchCount = 0;
             ss << tab << "branch miss from :" << endl;
@@ -803,6 +805,7 @@ public:
 };
 
 #define REASON_TRAP 0x01
+#define LOAD_HIT_MISS_PREDICTED 0x03
 #define REASON_BRANCH 0x10
 #define REASON_JUMP 0x11
 #define REASON_STORE_TO_LOAD_HAZARD 0x20
@@ -1029,6 +1032,7 @@ public:
                     stats.jumpMissHist[pc] += 1;
                 } break;
                 case REASON_STORE_TO_LOAD_HAZARD: stats.storeToLoadHazard += 1; break;
+                case LOAD_HIT_MISS_PREDICTED: stats.loadHitMissPredicted += 1; break;
                 }
             }
         }

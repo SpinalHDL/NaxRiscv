@@ -572,7 +572,7 @@ class LsuPlugin(lqSize: Int,
           LOAD_FRESH_WAIT_SQ := False
           HIT_SPECULATION := False //TODO maybe True by default for better perf ?
 
-          if(loadToCacheBypass){
+          val loadBypass = if(loadToCacheBypass) new Area {
             assert(loadPorts.size == 1, "Not suported yet")
             val port = loadPorts.head.port
             val portPush = push.head
@@ -760,8 +760,8 @@ class LsuPlugin(lqSize: Int,
           setup.loadTrap.robId      := ROB.ID
           setup.loadTrap.tval       := B(ADDRESS_PRE_TRANSLATION)
           setup.loadTrap.skipCommit := True
-          setup.loadTrap.cause.assignDontCare()
-          setup.loadTrap.reason := ScheduleReason.TRAP
+          setup.loadTrap.cause      := EnvCallPlugin.CAUSE_REDO
+          setup.loadTrap.reason     := ScheduleReason.LOAD_HIT_MISS_PREDICTED
 
           val missAligned = (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
           val pageFault = !tpk.ALLOW_READ || tpk.PAGE_FAULT
@@ -771,7 +771,6 @@ class LsuPlugin(lqSize: Int,
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(LQ_SEL_OH(reg.id)){ body(reg) }
 
           val hitSpeculationTrap = True
-          setup.loadTrap.cause := EnvCallPlugin.CAUSE_REDO
           when(isFireing) {
             setup.loadTrap.valid := HIT_SPECULATION && hitSpeculationTrap
             mem.addressPost.write(
@@ -801,12 +800,15 @@ class LsuPlugin(lqSize: Int,
             } elsewhen(missAligned) {
               setup.loadTrap.valid := True
               setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_MISALIGNED
+              setup.loadTrap.reason := ScheduleReason.TRAP
             } elsewhen(pageFault) {
               setup.loadTrap.valid := True
+              setup.loadTrap.reason := ScheduleReason.TRAP
               setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_PAGE_FAULT
             } elsewhen(accessFault) {
               setup.loadTrap.valid := True
               setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT
+              setup.loadTrap.reason := ScheduleReason.TRAP
             } otherwise {
               onRegs(_.waitOn.commit := True)
               //doCompletion
@@ -833,12 +835,14 @@ class LsuPlugin(lqSize: Int,
 
 
           val hitPrediction = new Area{
-            def onSuccess = S(-1, hitPredictionCounterWidth bits)
-            def onFailure = S(hitPredictionErrorPenality, hitPredictionCounterWidth bits)
+            def onSuccess = S(-1)
+            def onFailure = S(hitPredictionErrorPenality)
+            val next = HIT_SPECULATION_COUNTER +^ (success ? onSuccess | onFailure)
+
             val writePort = lq.hitPrediction.writePort
             writePort.valid    := isFireing && LOAD_FRESH
             writePort.address  := lq.hitPrediction.index(LOAD_FRESH_PC)
-            writePort.data.counter := (HIT_SPECULATION_COUNTER +^ (success ? onSuccess | onFailure)).sat(1)
+            writePort.data.counter := next.sat(widthOf(next) - hitPredictionCounterWidth bits)
             when(!tpk.REDO && !tpk.PAGE_FAULT && tpk.IO && tpk.ALLOW_READ){
               writePort.data.counter := writePort.data.counter.maxValue
             }
