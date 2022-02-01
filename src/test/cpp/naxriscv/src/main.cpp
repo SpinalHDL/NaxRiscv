@@ -344,10 +344,14 @@ public:
 };
 
 
+class WithMemoryLatency{
+public:
+    virtual void setLatency(int cycles) = 0;
+};
 
 #define FETCH_MEM_DATA_BYTES (FETCH_MEM_DATA_BITS/8)
 
-class FetchCached : public SimElement{
+class FetchCached : public SimElement, public WithMemoryLatency{
 public:
 	bool error_next = false;
 	u64 pendingCount = 0;
@@ -356,6 +360,11 @@ public:
 
     VNaxRiscv* nax;
     Soc *soc;
+
+    u32 readyTrigger = 100;
+    void setLatency(int cycles){
+        readyTrigger = 128.0*(1+FETCH_LINE_BYTES/FETCH_MEM_DATA_BYTES)/cycles;
+    }
 
 	FetchCached(VNaxRiscv* nax, Soc *soc, bool stall){
 		this->nax = nax;
@@ -378,13 +387,13 @@ public:
 
 	virtual void postCycle(){
 		nax->FetchCachePlugin_mem_rsp_valid = 0;
-		if(pendingCount != 0 && (!stall || VL_RANDOM_I_WIDTH(7) < 100)){
+		if(pendingCount != 0 && (!stall || VL_RANDOM_I_WIDTH(7) < readyTrigger)){
 			nax->FetchCachePlugin_mem_rsp_payload_error = soc->memoryRead(address, FETCH_MEM_DATA_BYTES, (u8*)&nax->FetchCachePlugin_mem_rsp_payload_data);
 			pendingCount-=FETCH_MEM_DATA_BYTES;
 			address = address + FETCH_MEM_DATA_BYTES;
 			nax->FetchCachePlugin_mem_rsp_valid = 1;
 		}
-		if(stall) nax->FetchCachePlugin_mem_cmd_ready = VL_RANDOM_I_WIDTH(7) < 100 && pendingCount == 0;
+		if(stall) nax->FetchCachePlugin_mem_cmd_ready = VL_RANDOM_I_WIDTH(7) < readyTrigger && pendingCount == 0;
 	}
 };
 
@@ -414,7 +423,7 @@ public:
 };
 
 
-class DataCached : public SimElement{
+class DataCached : public SimElement, public WithMemoryLatency{
 public:
     vector<DataCachedReadChannel> readChannels;
     DataCachedWriteChannel writeCmdChannel;
@@ -425,6 +434,11 @@ public:
     VNaxRiscv* nax;
     Soc *soc;
     DataCachedReadChannel *chLock = NULL;
+
+    u32 readyTrigger = 100;
+    void setLatency(int cycles){
+        readyTrigger = 128.0*(1+DATA_LINE_BYTES/DATA_MEM_DATA_BYTES)/cycles;
+    }
 
     DataCached(VNaxRiscv* nax, Soc *soc, bool stall){
         this->nax = nax;
@@ -444,6 +458,8 @@ public:
             writeRspChannels.push_back(ch);
         }
     }
+
+
 
     virtual void onReset(){
         nax->DataCachePlugin_mem_read_cmd_ready = 1;
@@ -495,7 +511,7 @@ public:
     virtual void postCycle(){
         // Generate read responses
         nax->DataCachePlugin_mem_read_rsp_valid = 0;
-        if(!stall || VL_RANDOM_I_WIDTH(7) < 100){
+        if(!stall || VL_RANDOM_I_WIDTH(7) < readyTrigger){
             if(chLock == NULL){
                 int id = VL_RANDOM_I_WIDTH(7) % DATA_CACHE_REFILL_COUNT;
                 for(int i = 0;i < DATA_CACHE_REFILL_COUNT; i++){
@@ -520,11 +536,11 @@ public:
                 }
             }
         }
-        if(stall) nax->DataCachePlugin_mem_read_cmd_ready = VL_RANDOM_I_WIDTH(7) < 100;
+        if(stall) nax->DataCachePlugin_mem_read_cmd_ready = VL_RANDOM_I_WIDTH(7) < readyTrigger;
 
         // Generate write responses
         nax->DataCachePlugin_mem_write_rsp_valid = 0;
-        if(!stall || VL_RANDOM_I_WIDTH(7) < 100){
+        if(!stall || VL_RANDOM_I_WIDTH(7) < readyTrigger){
             DataCachedWriteRspChannel *ch = NULL;
             int id = VL_RANDOM_I_WIDTH(7) % DATA_CACHE_WRITEBACK_COUNT;
             for(int i = 0;i < DATA_CACHE_WRITEBACK_COUNT; i++){
@@ -544,7 +560,7 @@ public:
 #endif
             }
         }
-        if(stall) nax->DataCachePlugin_mem_write_cmd_ready = VL_RANDOM_I_WIDTH(7) < 100;
+        if(stall) nax->DataCachePlugin_mem_write_cmd_ready = VL_RANDOM_I_WIDTH(7) < readyTrigger;
     }
 };
 //TODO randomize buses when not valid ^
@@ -1105,6 +1121,7 @@ enum ARG
     ARG_STATS_TOGGLE_SYMBOL,
     ARG_TRACE_GEM5,
     ARG_SPIKE_DEBUG,
+    ARG_MEMORY_LATENCY,
     ARG_SIM_MASTER,
     ARG_SIM_SLAVE,
     ARG_SIM_SLAVE_DELAY,
@@ -1143,6 +1160,7 @@ static const struct option long_options[] =
     { "stats-toggle-symbol", required_argument, 0, ARG_STATS_TOGGLE_SYMBOL },
     { "trace-gem5", no_argument, 0, ARG_TRACE_GEM5 },
     { "spike-debug", no_argument, 0, ARG_SPIKE_DEBUG },
+    { "memory-latency", required_argument, 0, ARG_MEMORY_LATENCY },
     { "sim-master", no_argument, 0, ARG_SIM_MASTER },
     { "sim-slave", no_argument, 0, ARG_SIM_SLAVE },
     { "sim-slave-delay", required_argument, 0, ARG_SIM_SLAVE_DELAY },
@@ -1157,31 +1175,45 @@ static const struct option long_options[] =
 
 string helpString = R"(
 --help                  : Print this
---load-hex              : Load a hex file in the simulation memory
---load-elf              : Load a elf file in the simulation memory
+
+Simulation setup
+--load-bin=FILE,ADDRESS : Load a binary file in the simulation memory at the given hexadecimal address. ex file,80000000
+--load-hex=FILE         : Load a hex file in the simulation memory
+--load-elf=FILE         : Load a elf file in the simulation memory
 --start-symbol=SYMBOL   : Force the CPU to boot at the given elf symbol
 --pass-symbol=SYMBOL    : The simulation will pass when the given elf symbol execute
 --fail-symbol=SYMBOL    : The simulation will fail when the given elf symbol execute
---output-dir=DIR        : Path to where every traces will be written
---name=STRING           : Test name reported when on exit (not very useful XD)
 --timeout=INT           : Simulation time before failure (~number of cycles x 2)
---progress=PERIOD       : Will print the simulation speed each period seconds
 --seed=INT              : Seed used to initialize randomizers
+--memory-latency=CYCLES : Specify the average memory latency from cmd to the last rsp beat
+--no-stdin              : Do not redirect the terminal stdin to the simulated getc
+--no-putc-flush         : The sim will not flush the terminal stdout after each sim putc
+--name=STRING           : Test name reported when on exit (not very useful XD)
+
+Simulation tracing / probing
+--output-dir=DIR        : Path to where every traces will be written
+--progress=PERIOD       : Will print the simulation speed each period seconds
 --trace                 : Enable FST wave capture
 --trace-start-time=INT  : Add a time to which the FST should start capturing
 --trace-stop-time=INT   : Add a time to which the FST should stop capturng
 --trace-sporadic=RATIO  : Specify that periodically the FST capture a bit of the wave
 --trace-ref             : Store the spike execution traces in a file
---spike-debug           : Enable spike debug mode (more verbose traces)
 --stats-print           : Print some stats about the CPU execution at the end of the sim
 --stats-print-all       : Print all the stats possible (including which branches had miss)
 --stats-start-symbol=SY : Specify at which elf symbol the stats should start capturing
 --stats-stop-symbol=SYM : Specify at which elf symbol the stats should stop capturing
 --stats-toggle-symbol=S : Specify at which elf symbol the stats should change its capture state
 --trace-gem5            : Enable capture of the pipeline timings as a gem5 trace, readable with github konata
+--spike-debug           : Enable spike debug mode (more verbose traces)
 --sim-master            : The simulation will wait a sim-slave to connect and then run until pass/fail
 --sim-slave             : The simulation will connect to a sim-master and then run behind it
                           When the sim-master fail, then the sim-slave will run to that point with trace enabled
+--sim-slave-delay=TIME  : For the sim-slave, specify how much behind the sim-master it has to be.
+
+Directed test argument : Used, for instance, to automate the shell interactions in the linux regression
+--putc=STRING          : Send the given string to the sim getc
+--getc=STRING          : Wait the sim to putc the given string
+--success              : Quit the simulation successfully
 )";
 
 u64 startPc = 0x80000000l;
@@ -1273,6 +1305,7 @@ void parseArgFirst(int argc, char** argv){
             case ARG_PUTC: testScheduleQueue.push(new DoGetc(string(optarg))); break;
             case ARG_SUCCESS: testScheduleQueue.push(new DoSuccess()); break;
             case ARG_NO_STDIN: noStdIn = true; break;
+            case ARG_MEMORY_LATENCY:
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_LOAD_BIN:
@@ -1343,6 +1376,13 @@ void parseArgsSecond(int argc, char** argv){
             case ARG_STATS_TOGGLE_SYMBOL: statsToggleAt = elf->getSymbolAddress(optarg); whitebox->statsCaptureEnable = false; break;
             case ARG_STATS_START_SYMBOL: statsStartAt = elf->getSymbolAddress(optarg); whitebox->statsCaptureEnable = false; break;
             case ARG_STATS_STOP_SYMBOL: statsStopAt = elf->getSymbolAddress(optarg); break;
+            case ARG_MEMORY_LATENCY:{
+                for(auto e : simElements){
+                    if(auto v = dynamic_cast<WithMemoryLatency*>(e)) {
+                       v->setLatency(stoi(optarg));
+                    }
+                }
+            }break;
             default:  break;
         }
     }

@@ -33,33 +33,44 @@ make compile
 # How to use the simulator 
 
 ```shell
-obj_dir/VNaxRiscv --help
---help                  : Print this
---load-hex              : Load a hex file in the simulation memory
---load-elf              : Load a elf file in the simulation memory
+Simulation setup
+--load-bin=FILE,ADDRESS : Load a binary file in the simulation memory at the given hexadecimal address. ex file,80000000
+--load-hex=FILE         : Load a hex file in the simulation memory
+--load-elf=FILE         : Load a elf file in the simulation memory
 --start-symbol=SYMBOL   : Force the CPU to boot at the given elf symbol
 --pass-symbol=SYMBOL    : The simulation will pass when the given elf symbol execute
 --fail-symbol=SYMBOL    : The simulation will fail when the given elf symbol execute
---output-dir=DIR        : Path to where every traces will be written
---name=STRING           : Test name reported when on exit (not very useful XD)
 --timeout=INT           : Simulation time before failure (~number of cycles x 2)
---progress=PERIOD       : Will print the simulation speed each period seconds
 --seed=INT              : Seed used to initialize randomizers
+--memory-latency=CYCLES : Specify the average memory latency from cmd to the last rsp beat
+--no-stdin              : Do not redirect the terminal stdin to the simulated getc
+--no-putc-flush         : The sim will not flush the terminal stdout after each sim putc
+--name=STRING           : Test name reported when on exit (not very useful XD)
+
+Simulation tracing / probing
+--output-dir=DIR        : Path to where every traces will be written
+--progress=PERIOD       : Will print the simulation speed each period seconds
 --trace                 : Enable FST wave capture
 --trace-start-time=INT  : Add a time to which the FST should start capturing
 --trace-stop-time=INT   : Add a time to which the FST should stop capturng
 --trace-sporadic=RATIO  : Specify that periodically the FST capture a bit of the wave
 --trace-ref             : Store the spike execution traces in a file
---spike-debug           : Enable spike debug mode (more verbose traces)
 --stats-print           : Print some stats about the CPU execution at the end of the sim
 --stats-print-all       : Print all the stats possible (including which branches had miss)
 --stats-start-symbol=SY : Specify at which elf symbol the stats should start capturing
 --stats-stop-symbol=SYM : Specify at which elf symbol the stats should stop capturing
 --stats-toggle-symbol=S : Specify at which elf symbol the stats should change its capture state
 --trace-gem5            : Enable capture of the pipeline timings as a gem5 trace, readable with github konata
+--spike-debug           : Enable spike debug mode (more verbose traces)
 --sim-master            : The simulation will wait a sim-slave to connect and then run until pass/fail
 --sim-slave             : The simulation will connect to a sim-master and then run behind it
                           When the sim-master fail, then the sim-slave will run to that point with trace enabled
+--sim-slave-delay=TIME  : For the sim-slave, specify how much behind the sim-master it has to be.
+
+Directed test argument : Used, for instance, to automate the shell interactions in the linux regression
+--putc=STRING          : Send the given string to the sim getc
+--getc=STRING          : Wait the sim to putc the given string
+--success              : Quit the simulation successfully
 ```
 
 Here is a konata visualisation of the trace produced by --trace-gem5 when running a simple memory copy loop hitting a cache miss on a dual issue pipeline: 
