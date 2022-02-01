@@ -1,44 +1,33 @@
-# Setup the repos :
+# How to setup things
 
 ```shell
+# Get the repo
 git clone https://github.com/SpinalHDL/SpinalHDL.git --recursive
 git clone https://github.com/SpinalHDL/NaxRiscv.git --recursive
 cd NaxRiscv
 export NAXRISCV=${PWD}
 (cd ext/NaxSoftware && ./init.sh)
-```
 
-# Building riscv-isa-sim (spike)
-
-```shell
+# Building riscv-isa-sim (spike), used as a golden model during the sim to check the dut behaviour (lock-step)
 cd $NAXRISCV/ext/riscv-isa-sim
 mkdir build
 cd build
 ../configure --prefix=$RISCV --enable-commitlog 
 make -j$(nproc)
 g++ --shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/lib  -o package.so spike.o  libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
-```
 
-# Install ELFIO
-
-```
+# Install ELFIO, used to load elf file in the sim 
 git clone https://github.com/serge1/ELFIO.git
 cd ELFIO
 sudo cp -R elfio /usr/include
-```
 
 # Generate NaxRiscv
-
-```shell
 cd $NAXRISCV
 sbt "runMain naxriscv.Gen"
-```
 
 # Compile the simulator
-
-```shell
 cd $NAXRISCV/src/test/cpp/naxriscv
-make compile TRACE=yes
+make compile
 ```
 
 # How to use the simulator 
@@ -77,11 +66,11 @@ Here is a konata visualisation of the trace produced by --trace-gem5 when runnin
 
 ![alt text](assets/konata.png "Konata")
 
-# Run the simulation
+# Run the a application (ex Dhrystone)
 
 ```shell
 cd $NAXRISCV/src/test/cpp/naxriscv
-./obj_dir/VNaxRiscv --timeout 100000 --load-elf ../../../../ext/NaxSoftware/baremetal/play/build/play.elf --pass-symbol=pass
+./obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/rv32im/dhrystone.elf --pass-symbol=pass
 ```
 
 # Run a riscv-test
