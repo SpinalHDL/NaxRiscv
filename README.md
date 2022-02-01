@@ -3,18 +3,16 @@
 An RISC-V core currently characterised by : 
 
 - Out of order execution
-- Superscalar (ex : 2 decode and 2 issue)
+- Superscalar (ex : 2 decode, 3 execution units, 2 retire)
 - RV32IMASU (Linux and freertos works in simulation)
 - Portable HDL, but target FPGA with distributed ram (Xilinx series 7 is the reference used so far)
 - Target a (relatively) low area usage and high fmax (not the best IPC)
-- Decentralized hardware elaboration (No toplevel, composed of plugins)
+- Decentralized hardware elaboration (Empty toplevel parametrized with plugins)
 - Frontend implemented around a pipelining framework to ease customisation
-- Non-blocking data cache
-- The data cache can concurrently refill and writeback multiple lines
+- Non-blocking Data cache with multiple refill and writeback slots
 - BTB + GSHARE + RAS branch predictors
 - Hardware refilled MMU
 - Load to use latency of 3 cycles via the speculative cache hit predictor 
-- Implement performance counters
 - Pipeline visualisation via verilator simulation and Konata (gem5 file format)
 
 # Running Verilator simulation
@@ -181,20 +179,42 @@ To give an overview of how much the design is splited between plugins, here is t
 ```
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
-    plugins += new StaticAddressTranslationPlugin(
+    plugins += new MmuPlugin(
+      spec    = MmuSpec.sv32,
       ioRange = _(31 downto 28) === 0x1
     )
 
     //FETCH
     plugins += new FetchPlugin()
-    plugins += new FetchAddressTranslationPlugin()
     plugins += new PcPlugin()
     plugins += new FetchCachePlugin(
       cacheSize = 4096*4,
       wayCount = 4,
       injectionAt = 2,
       memDataWidth = Fetch.FETCH_DATA_WIDTH,
-      reducedBankWidth = false
+      reducedBankWidth = false,
+      hitsWithTranslationWays = true,
+      translationStorageParameter = MmuStorageParameter(
+        levels   = List(
+          MmuStorageLevel(
+            id    = 0,
+            ways  = 4,
+            depth = 32
+          ),
+          MmuStorageLevel(
+            id    = 1,
+            ways  = 2,
+            depth = 32
+          )
+        ),
+        priority = 0
+      ),
+      translationPortParameter  = MmuPortParameter(
+        readAt = 0,
+        hitsAt = 1,
+        ctrlAt = 1,
+        rspAt  = 1
+      )
     )
     plugins += new AlignerPlugin(inputAt = 2)
 
@@ -216,18 +236,16 @@ To give an overview of how much the design is splited between plugins, here is t
     plugins += new HistoryPlugin(
       historyFetchBypass = true
     )
-    plugins += new DecoderPredictionPlugin(
-      flushOnBranch = false //TODO remove me (DEBUG)
-    )
+    plugins += new DecoderPredictionPlugin()
     plugins += new BtbPlugin(
       entries = 512,
       readAt = 0,
       hitAt = 1,
-      jumpAt = 2
+      jumpAt = 1
     )
     plugins += new GSharePlugin(
       memBytes = 4 KiB,
-      historyWidth = 24,  //24 => 31979 / 32601 / 35356 / 1w => 49389 2w => 53474
+      historyWidth = 24,
       readAt = 0
     )
 
@@ -237,20 +255,46 @@ To give an overview of how much the design is splited between plugins, here is t
       sqSize = 16,
       loadToCacheBypass = true,
       lqToCachePipelined = true,
-      hazardPedictionEntries = 512*8,
+      hazardPedictionEntries = 512,
       hazardPredictionTagWidth = 16,
-      loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
-      storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1),
-      loadFeedAt = 0 //TODO
+      hitPedictionEntries = 1024,
+      translationStorageParameter = MmuStorageParameter(
+        levels   = List(
+          MmuStorageLevel(
+            id    = 0,
+            ways  = 4,
+            depth = 32
+          ),
+          MmuStorageLevel(
+            id    = 1,
+            ways  = 2,
+            depth = 32
+          )
+        ),
+        priority = 1
+      ),
+      loadTranslationParameter  = MmuPortParameter(
+        readAt = 0,
+        hitsAt = 1,
+        ctrlAt = 1,
+        rspAt  = 1
+      ),
+      storeTranslationParameter = MmuPortParameter(
+        readAt = 1,
+        hitsAt = 1,
+        ctrlAt = 1,
+        rspAt  = 1
+      )
     )
     plugins += new DataCachePlugin(
-      memDataWidth = Global.XLEN,
+      memDataWidth = 64,
       cacheSize    = 4096*4,
       wayCount     = 4,
       refillCount = 2,
       writebackCount = 2,
+      tagsReadAsync = true,
       reducedBankWidth = false,
-      loadRspAt = 2 //TODO optimise timings to reduce to 2 again
+      loadRefillCheckEarly = false
     )
 
     //MISC
@@ -268,19 +312,22 @@ To give an overview of how much the design is splited between plugins, here is t
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
     plugins += new CsrRamPlugin()
     plugins += new PrivilegedPlugin(PrivilegedConfig.full)
+    plugins += new PerformanceCounterPlugin(
+      additionalCounterCount = 4,
+      bufferWidth            = 6
+    )
 
     //EXECUTION UNITES
     plugins += new ExecutionUnitBase("EU0")
-    plugins += new SrcPlugin("EU0")
-    plugins += new IntAluPlugin("EU0")
-    plugins += new ShiftPlugin("EU0")
+    plugins += new SrcPlugin("EU0", earlySrc = true)
+    plugins += new IntAluPlugin("EU0", aluStage = 0)
+    plugins += new ShiftPlugin("EU0" , aluStage = 0)
 
     plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1)
-    plugins += new SrcPlugin("EU1")
+    plugins += new SrcPlugin("EU1", earlySrc = true)
     plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new DivPlugin("EU1", writebackAt = 2)
     plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
-    plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
     plugins += new CsrAccessPlugin("EU1")(
       decodeAt = 0,
@@ -290,6 +337,10 @@ To give an overview of how much the design is splited between plugins, here is t
       staticLatency = false
     )
     plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
+
+    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
+    plugins += new SrcPlugin("EU2")
+    plugins += new LoadPlugin("EU2")
 ```
 
 Each of those plugins may :
