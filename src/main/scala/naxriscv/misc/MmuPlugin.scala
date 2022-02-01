@@ -301,7 +301,7 @@ class MmuPlugin(spec : MmuSpec,
 
 
     val refill = new StateMachine{
-      val IDLE = new State
+      val IDLE, INIT = new State
       val CMD, RSP = List.fill(spec.levels.size)(new State)
 
       val busy = !isActive(IDLE)
@@ -331,11 +331,14 @@ class MmuPlugin(spec : MmuSpec,
       IDLE whenIsActive {
         portOhReg := portsOh
         when(portsRequest) {
-          load.address := satp.ppn @@ spec.levels.last.vpn(portsAddress) @@ U(0, log2Up(spec.entryBytes) bits)
           virtual := portsAddress
-//          (ports, portsOh.asBools).zipped.foreach(_.storage.refillOngoing setWhen(_))
-          goto(CMD(spec.levels.size - 1))
+          goto(INIT)
         }
+      }
+
+      INIT whenIsActive{
+        load.address := satp.ppn @@ spec.levels.last.vpn(virtual) @@ U(0, log2Up(spec.entryBytes) bits) //It relax timings to do it there instead than in IDLE
+        goto(CMD(spec.levels.size - 1))
       }
 
       val doWake = isActive(IDLE)
