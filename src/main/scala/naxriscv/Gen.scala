@@ -7,9 +7,10 @@ import naxriscv.fetch._
 import naxriscv.misc.{CommitDebugFilterPlugin, CommitPlugin, CsrRamPlugin, MmuPlugin, MmuPortParameter, MmuSpec, MmuStorageLevel, MmuStorageParameter, PerformanceCounterPlugin, PrivilegedConfig, PrivilegedPlugin, RegFilePlugin, RobPlugin, StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
 import naxriscv.execute._
 import naxriscv.fetch.FetchCachePlugin
-import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
+import naxriscv.lsu.{DataCache, DataCachePlugin, LsuPlugin}
 import naxriscv.prediction.{BranchContextPlugin, BtbPlugin, DecoderPredictionPlugin, GSharePlugin, HistoryPlugin}
 import naxriscv.utilities._
+import spinal.lib.LatencyAnalysis
 import spinal.lib.eda.bench.Rtl
 
 import scala.collection.mutable.ArrayBuffer
@@ -72,7 +73,7 @@ object Config{
         priority = 0
       ),
       translationPortParameter  = MmuPortParameter(
-        readAt = 1,
+        readAt = 0,
         hitsAt = 1,
         ctrlAt = 1,
         rspAt  = 1
@@ -165,10 +166,10 @@ object Config{
       refillCount = 2,
       writebackCount = 2,
       tagsReadAsync = true,
-      reducedBankWidth = false
+      reducedBankWidth = false,
 //      loadHitAt      = 2
 //      loadRspAt      = 3,
-//      loadRefillCheckEarly = false
+      loadRefillCheckEarly = false
     )
 
     //MISC
@@ -194,8 +195,8 @@ object Config{
     //EXECUTION UNITES
     plugins += new ExecutionUnitBase("EU0")
     plugins += new SrcPlugin("EU0", earlySrc = true)
-    plugins += new IntAluPlugin("EU0")
-    plugins += new ShiftPlugin("EU0")
+    plugins += new IntAluPlugin("EU0", aluStage = 0)
+    plugins += new ShiftPlugin("EU0" , aluStage = 0)
 //    plugins += new BranchPlugin("EU0")
 //    plugins += new LoadPlugin("EU0")
 //    plugins += new StorePlugin("EU0")
@@ -265,6 +266,10 @@ object Gen extends App{
     })
     val doc = report.toplevel.framework.getService[DocPlugin]
     doc.genC()
+
+    val nax = report.toplevel
+    val dcache = nax.framework.getService[DataCachePlugin].logic.cache
+//    println("Miaou : " + LatencyAnalysis(dcache.reflectBaseType("load_pipeline_stages_2_REFILL_HITS_EARLY"), nax.reflectBaseType("CommitPlugin_logic_reschedule_cause")))
   }
 
   {
