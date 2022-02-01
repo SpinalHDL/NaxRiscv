@@ -356,14 +356,19 @@ public:
 	bool error_next = false;
 	u64 pendingCount = 0;
 	u64 address;
+	u64 time;
 	bool stall;
 
     VNaxRiscv* nax;
     Soc *soc;
 
     u32 readyTrigger = 100;
+    u32 latency = 2;
     void setLatency(int cycles){
-        readyTrigger = 128.0*(1+FETCH_LINE_BYTES/FETCH_MEM_DATA_BYTES)/cycles;
+        latency = cycles;
+    }
+    void setBandwidth(float ratio){
+        readyTrigger = 128*ratio;
     }
 
 	FetchCached(VNaxRiscv* nax, Soc *soc, bool stall){
@@ -382,12 +387,13 @@ public:
 			assertEq("FETCH MISSALIGNED", nax->FetchCachePlugin_mem_cmd_payload_address & (FETCH_MEM_DATA_BYTES-1),0);
 			pendingCount = FETCH_LINE_BYTES;
 			address = nax->FetchCachePlugin_mem_cmd_payload_address;
+			time = main_time + latency;
 		}
 	}
 
 	virtual void postCycle(){
 		nax->FetchCachePlugin_mem_rsp_valid = 0;
-		if(pendingCount != 0 && (!stall || VL_RANDOM_I_WIDTH(7) < readyTrigger)){
+		if(pendingCount != 0 && (!stall || VL_RANDOM_I_WIDTH(7) < readyTrigger && time <= main_time)){
 			nax->FetchCachePlugin_mem_rsp_payload_error = soc->memoryRead(address, FETCH_MEM_DATA_BYTES, (u8*)&nax->FetchCachePlugin_mem_rsp_payload_data);
 			pendingCount-=FETCH_MEM_DATA_BYTES;
 			address = address + FETCH_MEM_DATA_BYTES;
@@ -404,6 +410,8 @@ public:
     u64 beats;
     u64 address;
     int id;
+
+    u64 time;
 };
 
 class DataCachedWriteChannel{
@@ -420,6 +428,8 @@ public:
     u64 bytes;
     u64 address;
     char data[DATA_LINE_BYTES];
+
+    u64 time;
 };
 
 
@@ -436,8 +446,12 @@ public:
     DataCachedReadChannel *chLock = NULL;
 
     u32 readyTrigger = 100;
+    u32 latency = 2;
     void setLatency(int cycles){
-        readyTrigger = 128.0*(1+DATA_LINE_BYTES/DATA_MEM_DATA_BYTES)/cycles;
+        latency = cycles;
+    }
+    void setBandwidth(float ratio){
+        readyTrigger = 128*ratio;
     }
 
     DataCached(VNaxRiscv* nax, Soc *soc, bool stall){
@@ -476,8 +490,9 @@ public:
             int id = nax->DataCachePlugin_mem_read_cmd_payload_id;
 #endif
             assertEq("CHANNEL BUSY", readChannels[id].beats, 0);
-            readChannels[id].beats = DATA_LINE_BYTES/DATA_MEM_DATA_BYTES;
+            readChannels[id].beats   = DATA_LINE_BYTES/DATA_MEM_DATA_BYTES;
             readChannels[id].address = nax->DataCachePlugin_mem_read_cmd_payload_address;
+            readChannels[id].time    = main_time + latency;
         }
 
         if (nax->DataCachePlugin_mem_write_cmd_valid && nax->DataCachePlugin_mem_write_cmd_ready) {
@@ -500,6 +515,7 @@ public:
             if(writeCmdChannel.bytes == DATA_LINE_BYTES){
                 writeRspChannels[id].address = writeCmdChannel.address;
                 writeRspChannels[id].bytes = writeCmdChannel.bytes;
+                writeRspChannels[id].time = main_time + latency;
                 writeRspChannels[id].valid = true;
                 memcpy(writeRspChannels[id].data, writeCmdChannel.buffer, writeCmdChannel.bytes);
                 writeCmdChannel.bytes = 0;
@@ -515,7 +531,7 @@ public:
             if(chLock == NULL){
                 int id = VL_RANDOM_I_WIDTH(7) % DATA_CACHE_REFILL_COUNT;
                 for(int i = 0;i < DATA_CACHE_REFILL_COUNT; i++){
-                    if(readChannels[id].beats != 0){
+                    if(readChannels[id].beats != 0 && readChannels[id].time <= main_time){
                         chLock = &readChannels[id];
                         break;
                     }
@@ -544,7 +560,7 @@ public:
             DataCachedWriteRspChannel *ch = NULL;
             int id = VL_RANDOM_I_WIDTH(7) % DATA_CACHE_WRITEBACK_COUNT;
             for(int i = 0;i < DATA_CACHE_WRITEBACK_COUNT; i++){
-                if(writeRspChannels[id].valid != 0){
+                if(writeRspChannels[id].valid != 0 && writeRspChannels[id].time <= main_time){
                     ch = &writeRspChannels[id];
                     break;
                 }
@@ -1189,7 +1205,7 @@ Simulation setup
 --fail-symbol=SYMBOL    : The simulation will fail when the given elf symbol execute
 --timeout=INT           : Simulation time before failure (~number of cycles x 2)
 --seed=INT              : Seed used to initialize randomizers
---memory-latency=CYCLES : Specify the average memory latency from cmd to the last rsp beat
+--memory-latency=CYCLES : Specify the minimal memory latency from cmd to the first rsp beat
 --no-stdin              : Do not redirect the terminal stdin to the simulated getc
 --no-putc-flush         : The sim will not flush the terminal stdout after each sim putc
 --name=STRING           : Test name reported when on exit (not very useful XD)
@@ -1739,7 +1755,7 @@ void simLoop(){
             } else {
                 for(SimElement* simElement : simElements) simElement->preCycle();
 
-                if(cycleSinceLastCommit == 2000){
+                if(cycleSinceLastCommit == 10000){
                     printf("NO PROGRESS the cpu hasn't commited anything since too long\n");
                     failure();
                 }
