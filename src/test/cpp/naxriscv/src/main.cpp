@@ -137,6 +137,9 @@ int mkpath(std::string s,mode_t mode)
 #define MACHINE_EXTERNAL_INTERRUPT_CTRL (BASE+0x10)
 #define SUPERVISOR_EXTERNAL_INTERRUPT_CTRL (BASE + 0x18)
 #define GETC (BASE + 0x40)
+#define STATS_CAPTURE_ENABLE (BASE + 0x50)
+#define PUT_DEC (BASE + 0x60)
+
 
 #define MM_FAULT_ADDRESS 0x00001230
 #define IO_FAULT_ADDRESS 0x1FFFFFF0
@@ -245,6 +248,7 @@ public:
             }
         }break;
         case PUT_HEX: printf("%lx", *((u64*)data)); if(putcFlush) fflush(stdout); break;
+        case PUT_DEC: printf("%ld", *((u64*)data)); if(putcFlush) fflush(stdout); break;
         case MACHINE_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_machine_external = *data & 1;  break;
         #if SUPERVISOR == 1
         case SUPERVISOR_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_supervisor_external = *data & 1;  break;
@@ -252,6 +256,7 @@ public:
         case CLINT_BASE: nax->PrivilegedPlugin_io_int_machine_software = *data & 1;  break;
         case CLINT_CMP_ADDR: memcpy(&clintCmp, data, length); /*printf("CMPA=%lx\n", clintCmp);*/ break;
         case CLINT_CMP_ADDR+4: memcpy(((char*)&clintCmp)+4, data, length); /*printf("CMPB=%lx\n", clintCmp);*/  break;
+//        case STATS_CAPTURE_ENABLE: whitebox->statsCaptureEnable = *data & 1; break;
         default: return 1; break;
         }
         return 0;
