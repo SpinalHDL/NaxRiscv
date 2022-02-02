@@ -2,7 +2,7 @@ package naxriscv.lsu
 
 import naxriscv.Frontend.{DECODE_COUNT, DISPATCH_COUNT, DISPATCH_MASK}
 import naxriscv.{Fetch, Frontend, Global, ROB}
-import naxriscv.frontend.{DispatchPlugin, FrontendPlugin}
+import naxriscv.frontend.{DispatchPlugin, FrontendPlugin, RfDependencyPlugin}
 import naxriscv.interfaces._
 import naxriscv.riscv.{AtomicAlu, CSR, Rvi}
 import naxriscv.utilities.{AddressToMask, DocPlugin, Plugin}
@@ -43,7 +43,6 @@ case class LsuStorePort(sqSize : Int, wordWidth : Int, physicalRdWidth : Int) ex
   val robId = ROB.ID()
   val sqId = UInt(log2Up(sqSize) bits)
   val address = UInt(Global.XLEN bits)
-  val data = Bits(wordWidth bits)
   val size = UInt(log2Up(log2Up(wordWidth/8)+1) bits)
 
   //Atomic stuff
@@ -181,6 +180,7 @@ class LsuPlugin(lqSize: Int,
     dispatch.fenceYounger(Rvi.SC)
     dispatch.fenceOlder  (Rvi.SC)
 
+    val rfRead = regfile.newRead(withReady = false, forceNoBypass = true)
     val rfWrite = regfile.newWrite(withReady = false, latency = 0)
     val cacheLoad = cache.newLoadPort(priority = 0)
     val cacheStore = cache.newStorePort()
@@ -354,22 +354,36 @@ class LsuPlugin(lqSize: Int,
           val pageOffset  = Reg(UInt(pageOffsetWidth bits))
           val size = Reg(SIZE())
           val mask = Reg(DATA_MASK)
+          val translated  = Reg(Bool())
+          val regular = Reg(Bool())
         }
 
         val waitOn = new Area {
           val address = Reg(Bool())
           val translationRsp  = Reg(Bool())
           val translationWakeAny = Reg(Bool)
-          val writeback  = Reg(Bool())
           val translationWakeAnySet = False
           val translationWakeAnyClear = Bool()
 
           translationWakeAny := (translationWakeAny | translationWakeAnySet) & !translationWakeAnyClear
         }
 
+        val data = new Area{
+          val loaded = Reg(Bool())
+          val requested = Reg(Bool())
+          val inRf  = Reg(Bool())
+          val physical = Reg(decoder.PHYS_RS(1))
+
+          val inRfDelay  = RegNext(inRf)
+
+          val request = valid && inRfDelay && !requested
+          val wake = Bool()
+          inRf setWhen(wake)
+        }
+
         val allLqIsYounger = Reg(Bool())
 
-        val ready = valid && !waitOn.address && !waitOn.translationRsp && !waitOn.writeback && !waitOn.translationWakeAny
+        val ready = valid && !waitOn.address && !waitOn.translationRsp && !address.translated && !waitOn.translationWakeAny
       }
 
       val mem = new Area{
@@ -381,6 +395,8 @@ class LsuPlugin(lqSize: Int,
         val io = Mem.fill(sqSize)(Bool())
         val amo = Mem.fill(sqSize)(Bool())
         val sc = Mem.fill(sqSize)(Bool())
+        val dataRfAddress = Mem.fill(sqSize)(decoder.PHYS_RS(1))
+
         //Only one AMO/SC can be schedule at once, so we can store things in simple registers
         val swap = Reg(Bool())
         val op  = Reg(Bits(3 bits))
@@ -405,6 +421,11 @@ class LsuPlugin(lqSize: Int,
 
         setup.postCommitBusy setWhen(commit =/= free)
       }
+
+      val rfWake = Handle(new Area{
+        val ports = getServicesOf[WakeRegFileService].flatMap(_.wakeRegFile).map(_.stage())
+        for(reg <- regs) reg.data.wake := ports.map(w => w.valid && w.physical === reg.data.physical).orR
+      })
     }
 
     val load = new Area{
@@ -898,7 +919,6 @@ class LsuPlugin(lqSize: Int,
         }
 
         writeMem(mem.addressPre, port.address)
-        writeMem(mem.word, port.data)
         writeMem(mem.robId, port.robId)
         writeMem(mem.amo, port.amo)
         writeMem(mem.sc, port.sc)
@@ -938,6 +958,10 @@ class LsuPlugin(lqSize: Int,
                 address = SQ_ID,
                 data = U(LQ_ID_CARRY ## allocStage(LQ_ID, slotId))
               )
+              mem.dataRfAddress.write(
+                address = SQ_ID,
+                data = allocStage(decoder.PHYS_RS(1), slotId)
+              )
             }
             when(ptr.isFull(alloc)){
               full := True
@@ -957,8 +981,15 @@ class LsuPlugin(lqSize: Int,
               reg.allLqIsYounger := False
               reg.waitOn.address := True
               reg.waitOn.translationRsp := False
-              reg.waitOn.writeback := False
+              reg.address.translated := False
               reg.waitOn.translationWakeAny := False
+              reg.data.loaded := False
+              reg.data.requested := False
+
+              val rsWait = getService[RfDependencyPlugin].getRsWait(1)
+              reg.data.inRf  := !OhMux.or(hits, apply(0 until Frontend.DISPATCH_COUNT)(rsWait.ENABLE_UNSKIPED))
+              reg.data.physical :=  OhMux.or(hits, apply(0 until Frontend.DISPATCH_COUNT)(decoder.PHYS_RS(1)))
+              reg.data.inRfDelay := False
             }
           }
         }
@@ -1067,9 +1098,6 @@ class LsuPlugin(lqSize: Int,
           val stage = stages(3)
           import stage._
 
-          setup.storeCompletion.valid := False
-          setup.storeCompletion.id := ROB.ID
-
           val lqPredictionPort = lq.hazardPrediction.mem.writePort
           lqPredictionPort.valid    := isFireing && YOUNGER_LOAD_RESCHEDULE
           lqPredictionPort.address  := lq.hazardPrediction.index(YOUNGER_LOAD_PC)
@@ -1090,6 +1118,7 @@ class LsuPlugin(lqSize: Int,
           setup.storeTrap.cause.assignDontCare()
           setup.storeTrap.pcTarget   := YOUNGER_LOAD_PC
 
+          val regular = !tpk.IO && !AMO && !SC
 
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(SQ_SEL_OH(reg.id)){ body(reg) }
           when(isFireing) {
@@ -1115,9 +1144,9 @@ class LsuPlugin(lqSize: Int,
               setup.storeTrap.valid      := True
               setup.storeTrap.cause      := CSR.MCAUSE_ENUM.STORE_PAGE_FAULT
             } otherwise {
-              onRegs(_.waitOn.writeback := True)
-              when(!tpk.IO && !AMO && !SC) {
-                setup.storeCompletion.valid := True
+              onRegs(_.address.translated := True)
+              whenMasked(regs, SQ_SEL_OH){reg =>
+                reg.address.regular := regular
               }
             }
           }
@@ -1127,6 +1156,83 @@ class LsuPlugin(lqSize: Int,
           translationPort.pipelineLock.await()
           build()
         }
+      }
+
+      val readData = new Pipeline{
+        val stages = List.fill(2)(newStage())
+        connect(stages)(List(M2S()))
+
+        val arbitration = new Area{
+          val stage = stages(0)
+          import stage._
+
+          val hits = B(regs.map(_.data.request ))
+          val hit = hits.orR
+          val selOh = OHMasking.roundRobinMasked(hits, ptr.priority)
+          val sel = OHToUInt(selOh)
+
+          SQ_SEL_OH := selOh
+          SQ_SEL := sel
+
+          valid := hit
+          whenMasked(regs, selOh){ reg =>
+            reg.data.requested := True
+          }
+        }
+
+        val read = new Area{
+          val stage = stages(1)
+          import stage._
+
+          val rfAddress = mem.dataRfAddress.readAsync(SQ_SEL)
+          setup.rfRead.valid   := isValid
+          setup.rfRead.address := rfAddress
+
+          val writePort = mem.word.writePort
+          writePort.valid   := isFireing
+          writePort.address := SQ_SEL
+          writePort.data    := setup.rfRead.data
+          whenMasked(regs, SQ_SEL_OH){ reg =>
+            reg.data.loaded := True
+          }
+        }
+
+        build()
+      }
+
+      val completion = new Pipeline{
+        val stages = List.fill(2)(newStage())
+        connect(stages)(List(M2S()))
+
+        val arbitration = new Area{
+          val stage = stages(0)
+          import stage._
+
+          val hits = B(regs.map(reg => reg.data.loaded && reg.address.translated && reg.address.regular))
+          val hit = hits.orR
+          val selOh = OHMasking.roundRobinMasked(hits, ptr.priority)
+          val sel = OHToUInt(selOh)
+
+          SQ_SEL_OH := selOh
+          SQ_SEL := sel
+
+          valid := hit
+          whenMasked(regs, selOh){ reg =>
+            reg.address.regular := False
+          }
+        }
+
+        val read = new Area{
+          val stage = stages(1)
+          import stage._
+
+          ROB.ID := mem.robId.readAsync(SQ_SEL)
+
+          setup.storeCompletion.valid := isValid
+          setup.storeCompletion.id := ROB.ID
+        }
+
+        build()
       }
 
       val onCommit = new Area{
@@ -1290,7 +1396,7 @@ class LsuPlugin(lqSize: Int,
       val hitStoreIo  = sq.mem.io.readAsync(sq.ptr.commitReal)
       val hitStoreAmo = sq.mem.amo.readAsync(sq.ptr.commitReal)
       val hitStoreSc  = sq.mem.sc.readAsync(sq.ptr.commitReal)
-      val storeHit = sqOnTop && storeWriteBackUsable && sq.regs.map(reg => reg.valid && reg.waitOn.writeback).read(sq.ptr.commitReal) && (hitStoreIo || hitStoreAmo || hitStoreSc)
+      val storeHit = sqOnTop && storeWriteBackUsable && sq.regs.map(reg => reg.valid && reg.address.translated && reg.data.loaded).read(sq.ptr.commitReal) && (hitStoreIo || hitStoreAmo || hitStoreSc)
       val loadHit = lqOnTop && lq.regs.map(reg => reg.valid && reg.waitOn.commit).read(lq.ptr.freeReal) && lq.mem.io.readAsync(lq.ptr.freeReal)
       val hit = storeHit || loadHit
 

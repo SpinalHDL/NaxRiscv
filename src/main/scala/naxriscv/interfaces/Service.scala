@@ -129,7 +129,7 @@ case class RegFileWrite(addressWidth : Int, dataWidth : Int, withReady : Boolean
   }
 }
 
-case class RegFileRead(addressWidth : Int, dataWidth : Int, withReady : Boolean, latency : Int) extends Bundle with IMasterSlave{
+case class RegFileRead(addressWidth : Int, dataWidth : Int, withReady : Boolean, latency : Int, forceNoBypass : Boolean) extends Bundle with IMasterSlave{
   val valid = Bool()
   val ready = withReady generate Bool()
   val address = UInt(addressWidth bits)
@@ -154,7 +154,7 @@ case class RegFileBypass(addressWidth : Int, dataWidth : Int) extends Bundle wit
 trait RegfileService extends Service{
   def getPhysicalDepth : Int
 
-  def newRead(withReady : Boolean) : RegFileRead
+  def newRead(withReady : Boolean, forceNoBypass : Boolean = false) : RegFileRead
   def newWrite(withReady : Boolean, latency : Int) : RegFileWrite
   def newBypass() : RegFileBypass
 
@@ -307,6 +307,7 @@ case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int, caus
 case class RobWait() extends Area with OverridedEqualsHashCode {
   val ID = Stageable(ROB.ID)
   val ENABLE = Stageable(Bool())
+  val ENABLE_UNSKIPED = Stageable(Bool())
 }
 
 trait IssueService extends Service with LockedService {

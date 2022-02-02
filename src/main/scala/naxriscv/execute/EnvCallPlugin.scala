@@ -158,6 +158,8 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
           goto(IDLE)
         }
       }
+
+      build()
     }
 
     fetch.release()

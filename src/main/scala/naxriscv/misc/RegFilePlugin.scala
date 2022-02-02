@@ -10,7 +10,7 @@ import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
 
 import scala.collection.mutable.ArrayBuffer
 
-case class RegFileReadParameter(withReady : Boolean)
+case class RegFileReadParameter(withReady : Boolean, forceNoBypass : Boolean)
 case class RegFileWriteParameter(withReady : Boolean)
 
 
@@ -24,7 +24,7 @@ class RegFileAsync(addressWidth    : Int,
                    headZero        : Boolean) extends Component {
   val io = new Bundle {
     val writes = Vec(writesParameter.map(p => slave(RegFileWrite(addressWidth, dataWidth, p.withReady))))
-    val reads = Vec(readsParameter.map(p => slave(RegFileRead(addressWidth, dataWidth, p.withReady, 0))))
+    val reads = Vec(readsParameter.map(p => slave(RegFileRead(addressWidth, dataWidth, p.withReady, 0, p.forceNoBypass))))
     val bypasses = Vec.fill(bypasseCount)(slave(RegFileBypass(addressWidth, dataWidth)))
   }
 
@@ -56,7 +56,7 @@ class RegFileAsync(addressWidth    : Int,
       r.data := port.data
     }
 
-    val bypass = new Area{
+    val bypass = !r.forceNoBypass generate new Area{
       val hits = io.bypasses.map(b => b.valid && b.address === r.address)
       val hitsValue = MuxOH.or(hits, io.bypasses.map(_.data))
       when(hits.orR){
@@ -74,7 +74,6 @@ class RegFileAsync(addressWidth    : Int,
       port.address := 0
       port.data := 0
     }
-
   }
 }
 
@@ -89,7 +88,7 @@ object RegFileAsyncSynth extends App{
     addressWidth    = 6,
     dataWidth       = 32,
     bankCount       = 1,
-    readsParameter  = Seq.fill(4)(RegFileReadParameter(withReady = false)),
+    readsParameter  = Seq.fill(4)(RegFileReadParameter(withReady = false, forceNoBypass = false)),
     writesParameter = Seq.fill(1)(RegFileWriteParameter(withReady = false)),
     bypasseCount    = 0,
     headZero        = true
@@ -130,7 +129,7 @@ class RegFilePlugin(spec : RegfileSpec,
   val writes = ArrayBuffer[RegFileWrite]()
   val bypasses = ArrayBuffer[RegFileBypass]()
 
-  override def newRead(withReady : Boolean) = reads.addRet(RegFileRead(addressWidth, dataWidth, withReady, 0))
+  override def newRead(withReady : Boolean, forceNoBypass : Boolean) = reads.addRet(RegFileRead(addressWidth, dataWidth, withReady, 0, forceNoBypass))
   override def newWrite(withReady : Boolean, latency : Int) = writes.addRet(RegFileWrite(addressWidth, dataWidth, withReady, latency))
   override def newBypass() : RegFileBypass = bypasses.addRet(RegFileBypass(addressWidth, dataWidth))
 
@@ -154,7 +153,7 @@ class RegFilePlugin(spec : RegfileSpec,
       addressWidth    = addressWidth,
       dataWidth       = dataWidth,
       bankCount       = bankCount,
-      readsParameter  = reads.map(e => RegFileReadParameter(withReady = e.withReady)),
+      readsParameter  = reads.map(e => RegFileReadParameter(withReady = e.withReady, e.forceNoBypass)),
       writesParameter = writes.map(e => RegFileWriteParameter(withReady = e.withReady)),
       bypasseCount    = bypasses.size,
       headZero        = spec.x0AlwaysZero

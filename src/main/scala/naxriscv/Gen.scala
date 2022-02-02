@@ -14,6 +14,7 @@ import spinal.lib.LatencyAnalysis
 import spinal.lib.eda.bench.Rtl
 
 import scala.collection.mutable.ArrayBuffer
+import scala.sys.exit
 
 object Config{
   def properties() = {
@@ -269,7 +270,10 @@ object Gen extends App{
 
     val nax = report.toplevel
     val dcache = nax.framework.getService[DataCachePlugin].logic.cache
+//    println("Miaou : " + LatencyAnalysis(nax.reflectBaseType("CommitPlugin_logic_ptr_alloc"), nax.reflectBaseType("FetchCachePlugin_logic_banks_3_read_cmd_payload")))
+//    println("Miaou : " + LatencyAnalysis(nax.reflectBaseType("FrontendPlugin_serialized_ready"), nax.reflectBaseType("FetchCachePlugin_logic_banks_3_read_cmd_payload")))
 //    println("Miaou : " + LatencyAnalysis(dcache.reflectBaseType("load_pipeline_stages_2_REFILL_HITS_EARLY"), nax.reflectBaseType("CommitPlugin_logic_reschedule_cause")))
+//    exit(0);
   }
 
   {
@@ -451,5 +455,68 @@ STATS :
   jump miss         1252713
   storeToLoadHazard 7247
   loadHitMiss       155787
+
+
+Against cortex M4
+Benchmark           Speed
+---------           -----
+aha-mont64           0.89
+crc32                0.92
+cubic                0.49
+edn                  1.80
+huffbench            1.62
+matmult-int          1.65
+md5sum               1.87
+minver               0.85
+nbody                0.96
+nettle-aes           1.10
+nettle-sha256        1.10
+nsichneu             1.29
+picojpeg             1.24
+primecount           1.87
+qrduino              1.51
+sglib-combined       1.10
+slre                 1.81
+st                   1.21
+statemate            2.14
+tarfind              1.07
+ud                   1.18
+wikisort             1.65
+---------           -----
+Geometric mean       1.26
+Geometric SD         1.40
+Geometric range      0.87
+
+Against ri5cy
+Benchmark           Speed
+---------           -----
+aha-mont64           1.19
+crc32                1.04
+cubic                1.04
+edn                  1.93
+huffbench            1.45
+matmult-int          1.63
+md5sum               1.87
+minver               1.46
+nbody                1.29
+nettle-aes           1.29
+nettle-sha256        1.34
+nsichneu             1.17
+picojpeg             1.34
+primecount           1.87
+qrduino              1.27
+sglib-combined       0.98
+slre                 1.51
+st                   1.47
+statemate            1.12
+tarfind              1.07
+ud                   1.48
+wikisort             1.25
+---------           -----
+Geometric mean       1.34
+Geometric SD         1.21
+Geometric range      0.51
+
+
 
  */
