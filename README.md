@@ -176,7 +176,7 @@ val framework = new Framework(plugins())
 
 To give an overview of how much the design is split between plugins, here is the list of them for one functional CPU :
 
-```
+```scala
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
     plugins += new MmuPlugin(
@@ -375,7 +375,7 @@ Note that create early and create late will execute their code into a new thread
 
 For instance, the JumpService, allowing other plugins to order jumps, is defined as following : 
 
-```
+```scala
 trait JumpService extends Service{
   def createJumpInterface(priority : Int) : Flow[JumpCmd] 
 }
