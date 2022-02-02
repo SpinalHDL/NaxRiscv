@@ -449,7 +449,15 @@ class LsuPlugin(lqSize: Int,
           val read = lq.hitPrediction.mem.readSyncPort
           read.cmd.valid := port.earlySample
           read.cmd.payload := lq.hitPrediction.index(port.earlyPc)
-          read.bypass(lq.hitPrediction.writeLast)
+
+
+          def write = lq.hitPrediction.writePort
+
+          val bypassHit = RegNext(read.cmd.payload === write.address && write.valid)
+          val bypassData = RegNext(write.data)
+          when(bypassHit){
+            read.rsp := bypassData
+          }
 
           val likelyToHit = read.rsp.counter.msb
         }
