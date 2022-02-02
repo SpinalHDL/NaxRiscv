@@ -52,12 +52,15 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
 
     val ptr = new Area {
       val alloc, commit, free = Reg(UInt(ROB.ID_WIDTH + 1 bits)) init (0)
-      val full = (alloc ^ free) === ROB.SIZE.get
-      val empty = alloc === commit
-      val canFree = free =/= commit
       val commitRow = commit >> log2Up(ROB.COLS)
       val commitNext = CombInit(commit)
+      val allocNext = UInt(ROB.ID_WIDTH + 1 bits)
       commit := commitNext
+      alloc := allocNext
+
+      val full = (alloc ^ free) === ROB.SIZE.get
+      val empty = RegNext(allocNext === commitNext) init(True) //Retimed to relieve that critical path
+      val canFree = free =/= commit
 
       val robLineMaskRsp = Bits(ROB.COLS bits)
       ptrCommitRetimed match {
@@ -72,16 +75,13 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
         }
       }
 
-
       //Manage frontend ROB id allocation
       val frontend = getService[FrontendPlugin]
       val stage = frontend.pipeline.allocated
       stage(ROB.ID) := alloc.resized
       stage.haltIt(full)
 
-      val allocNext = alloc + (stage.isFireing ? U(ROB.COLS) | U(0))
-      alloc := allocNext
-
+      allocNext := alloc + (stage.isFireing ? U(ROB.COLS) | U(0))
       setup.isRobEmpty := empty
     }
 
