@@ -234,6 +234,7 @@ class LsuPlugin(lqSize: Int,
       val OLDER_STORE_HIT  = Stageable(Bool())
       val OLDER_STORE_ID = Stageable(SQ_ID)
       val OLDER_STORE_COMPLETED = Stageable(Bool()) //Used to avoid LQ waiting on SQ which just fired
+      val OLDER_STORE_OH = Stageable(Bits(sqSize bits))
 
       val LQCHECK_START_ID = Stageable(UInt(log2Up(lqSize) + 1 bits))
       val LQCHECK_HITS_EARLY = Stageable(Bits(lqSize bits))
@@ -243,6 +244,8 @@ class LsuPlugin(lqSize: Int,
       val SQCHECK_END_ID = Stageable(UInt(log2Up(sqSize) + 1 bits))
       val SQCHECK_HITS = Stageable(Bits(sqSize bits))
       val SQCHECK_NO_OLDER = Stageable(Bool())
+      val SQ_YOUNGER_MASK = Stageable(UInt(sqSize bits))
+      val SQ_YOUNGER_MASK_EMPTY = Stageable(Bool())
 
       val AMO, LR, SC = Stageable(Bool())
       val MISS_ALIGNED = Stageable(Bool())
@@ -644,6 +647,19 @@ class LsuPlugin(lqSize: Int,
 
           DATA_MASK       := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
           SQCHECK_END_ID  := mem.sqAlloc.readAsync(LQ_SEL)
+
+
+          val sqCheck = new Area {
+            val startId = CombInit(sq.ptr.free)
+            val startMask = U(UIntToOh(U(startId.dropHigh(1)))) - 1
+            val endMask = U(UIntToOh(U(SQCHECK_END_ID.dropHigh(1)))) - 1
+            val loopback = endMask <= startMask
+            val youngerMask = loopback ? ~(endMask ^ startMask) otherwise (endMask & ~startMask)
+            val olderMaskEmpty = startId === SQCHECK_END_ID
+
+            SQ_YOUNGER_MASK := youngerMask
+            SQCHECK_NO_OLDER := olderMaskEmpty
+          }
         }
 
         val feedCache = new Area{
@@ -684,27 +700,14 @@ class LsuPlugin(lqSize: Int,
           val stage = stages(loadCheckSqAt) //WARNING, SQ delay between writeback and entry.valid := False should not be smaller than the delay of reading the cache and checkSq !!
           import stage._
 
-          val startId = CombInit(sq.ptr.free)
-          val startMask = U(UIntToOh(U(startId.dropHigh(1))))-1
-          val endMask   = U(UIntToOh(U(SQCHECK_END_ID.dropHigh(1))))-1
-          val loopback = endMask <= startMask
-          val youngerMask = loopback ? ~(endMask ^ startMask) otherwise (endMask & ~startMask)
-          val olderMaskEmpty = startId === SQCHECK_END_ID
-
           val hits = Bits(sqSize bits)
           val entries = for(sqReg <- sq.regs) yield new Area {
             val pageHit = sqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
             val wordHit = (sqReg.address.mask & DATA_MASK) =/= 0
-            hits(sqReg.id) := sqReg.valid && !sqReg.waitOn.address && pageHit && wordHit && youngerMask(sqReg.id)
+            hits(sqReg.id) := sqReg.valid && !sqReg.waitOn.address && pageHit && wordHit && SQ_YOUNGER_MASK(sqReg.id)
           }
 
           SQCHECK_HITS := hits
-          SQCHECK_NO_OLDER := olderMaskEmpty
-        }
-
-        val checkSqArbi = new Area{
-          val stage = stages(loadCheckSqAt + 1) //Warning, if you remove the +1 remove some of the OLDER_STORE_COMPLETED bypass
-          import stage._
 
           val olderHit = !SQCHECK_NO_OLDER && SQCHECK_HITS =/= 0
           val olderOh   = if(sqSize == 1) B(1) else OHMasking.roundRobinMaskedInvert(stage(SQCHECK_HITS), sq.ptr.priorityLast)
@@ -712,6 +715,16 @@ class LsuPlugin(lqSize: Int,
 
           OLDER_STORE_HIT := olderHit
           OLDER_STORE_ID := olderSel
+          OLDER_STORE_OH := olderOh
+        }
+
+        val checkSqArbi = new Area{
+          val stage = stages(loadCheckSqAt + 1) //Warning, if you remove the +1 remove some of the OLDER_STORE_COMPLETED bypass
+          import stage._
+
+
+
+
           OLDER_STORE_COMPLETED := sq.ptr.onFreeLast.valid && sq.ptr.onFreeLast.payload === OLDER_STORE_ID
           for(s <- stages.dropWhile(_ != stage)){
             s.overloaded(OLDER_STORE_COMPLETED) := s(OLDER_STORE_COMPLETED) || sq.ptr.onFree.valid && sq.ptr.onFree.payload === s(OLDER_STORE_ID)
@@ -719,8 +732,8 @@ class LsuPlugin(lqSize: Int,
 
           val bypass = new Area{
             val addressMatch = sq.mem.addressPost.readAsync(OLDER_STORE_ID) === tpk.TRANSLATED
-            val regsMatch = sq.regs.map(reg => olderOh(reg.id) && reg.address.size === SIZE && !reg.data.doNotBypass).orR
-            val maybeLater = sq.regs.map(reg => olderOh(reg.id) && (!reg.address.translated || !reg.data.loaded)).orR
+            val regsMatch = sq.regs.map(reg => OLDER_STORE_OH(reg.id) && reg.address.size === SIZE && !reg.data.doNotBypass).orR
+            val maybeLater = sq.regs.map(reg => OLDER_STORE_OH(reg.id) && (!reg.address.translated || !reg.data.loaded)).orR
             val data = sq.mem.word.readAsync(OLDER_STORE_ID)
 
             OLDER_STORE_BYPASS_SUCCESS := !maybeLater && regsMatch && addressMatch
