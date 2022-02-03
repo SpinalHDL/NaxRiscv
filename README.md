@@ -34,9 +34,9 @@ For the following configuration :
 - BTB 1 way/512 entries, GSHARE 1 way/4KB, RAS 32 entries
 
 Performance : 
-- Dhrystone   : 2.51 DMIPS/Mhz
-- Coremark    : 4.13 Coremark/Mhz
-- Embench-iot : 1.33 baseline
+- Dhrystone   : 2.51 DMIPS/Mhz    (-O3 -fno-common -fno-inline)
+- Coremark    : 4.13 Coremark/Mhz (-O3 and so many more random flags)
+- Embench-iot : 1.33 baseline     (-O2 -ffunction-sections)
 
 On Artix 7 speed grade 3 :
 - 13.0 KLUT, 9.3 KFF, 13 BRAM, 4 DSP
