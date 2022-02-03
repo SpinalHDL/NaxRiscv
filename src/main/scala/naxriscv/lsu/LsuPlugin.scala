@@ -653,7 +653,7 @@ class LsuPlugin(lqSize: Int,
             val startId = CombInit(sq.ptr.free)
             val startMask = U(UIntToOh(U(startId.dropHigh(1)))) - 1
             val endMask = U(UIntToOh(U(SQCHECK_END_ID.dropHigh(1)))) - 1
-            val loopback = endMask <= startMask
+            val loopback = startId.msb =/= SQCHECK_END_ID.msb
             val youngerMask = loopback ? ~(endMask ^ startMask) otherwise (endMask & ~startMask)
             val olderMaskEmpty = startId === SQCHECK_END_ID
 
@@ -1096,7 +1096,7 @@ class LsuPlugin(lqSize: Int,
           val endId = CombInit(lq.ptr.alloc)
           val startMask = U(UIntToOh(U(LQCHECK_START_ID.dropHigh(1))))-1
           val endMask   = U(UIntToOh(U(endId.dropHigh(1))))-1
-          val loopback = endMask <= startMask
+          val loopback = LQCHECK_START_ID.msb =/= endId.msb
           val youngerMask = loopback ? ~(endMask ^ startMask) otherwise (endMask & ~startMask)
           val youngerMaskEmpty = LQCHECK_START_ID === endId
           val allLqIsYounger = regs.map(_.allLqIsYounger).read(SQ_SEL)
