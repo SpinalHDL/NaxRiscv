@@ -32,7 +32,7 @@ For the following configuration :
 - LSU with 16 load queue, 16 store queue
 - Load hit predictor (3 cycles load to use delay)
 - Store to load bypass / hazard free predictor
-- I$ 16Kb/4W, D$ 16Kb/4W 2 refill 2 writeback slots
+- I$ 16KB/4W, D$ 16KB/4W 2 refill 2 writeback slots
 - MMU with ITLB 6 way/192 entries, DTLB 6 way/192 entries
 - BTB 1 way/512 entries, GSHARE 1 way/4KB, RAS 32 entries
 
