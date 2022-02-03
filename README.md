@@ -27,6 +27,7 @@ A few things to keep in mind :
 For the following configuration : 
 - RV32IMASU, dual issue,OoO, linux compatible
 - 64 bits fetch, 2 decode, 2 issue, 2 retire
+- Shared issue queue with 32 entries
 - 2 execution unit (1\*Int/Shift, 1\*Branch/load/store/mul/div/csr/env)
 - LSU with 16 load queue, 16 store queue
 - Load hit predictor (3 cycles load to use delay)
