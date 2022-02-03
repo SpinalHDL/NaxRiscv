@@ -15,6 +15,8 @@ An RISC-V core currently characterised by :
 - Load to use latency of 3 cycles via the speculative cache hit predictor 
 - Pipeline visualisation via verilator simulation and Konata (gem5 file format)
 
+To test the project, see the "Running Verilator simulation" section
+
 # Performance / Area
 
 A few things to keep in mind : 
@@ -25,7 +27,7 @@ A few things to keep in mind :
 For the following configuration : 
 - RV32IMASU, dual issue,OoO, linux compatible
 - 64 bits fetch, 2 decode, 2 issue, 2 retire
-- 2 execution unit (1*Int/Shift, 1*Branch/load/store/mul/div/csr/env)
+- 2 execution unit (1\*Int/Shift, 1\*Branch/load/store/mul/div/csr/env)
 - LSU with 16 load queue, 16 store queue
 - Load hit predictor (3 cycles load to use delay)
 - Store to load bypass / hazard free predictor
