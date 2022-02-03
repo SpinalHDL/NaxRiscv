@@ -1091,8 +1091,7 @@ class LsuPlugin(lqSize: Int,
           val entries = for(lqReg <- lq.regs) yield new Area {
             val pageHit = lqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
             val wordHit = (lqReg.address.mask & DATA_MASK) =/= 0
-            val sqWaited = lqReg.waitOn.sq && lqReg.waitOn.sqId === SQ_SEL || lqReg.waitOn.sqPredicted //TODO ??? remove sqPredicted ?
-            LQCHECK_HITS_EARLY(lqReg.id) := lqReg.valid && !sqWaited && pageHit && wordHit && (youngerMask(lqReg.id) || allLqIsYounger)
+            LQCHECK_HITS_EARLY(lqReg.id) := lqReg.valid && pageHit && wordHit && (youngerMask(lqReg.id) || allLqIsYounger)
           }
 
           LQCHECK_NO_YOUNGER := youngerMaskEmpty
