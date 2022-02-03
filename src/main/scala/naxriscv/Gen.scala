@@ -209,7 +209,7 @@ object Config{
 //    plugins += new IntAluPlugin("EU1")
 //    plugins += new ShiftPlugin("EU1")
     plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
-//    plugins += new LoadPlugin("EU1")
+    plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
     plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
     plugins += new CsrAccessPlugin("EU1")(
@@ -220,9 +220,9 @@ object Config{
       staticLatency = false
     )
 
-    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
-    plugins += new SrcPlugin("EU2")
-    plugins += new LoadPlugin("EU2")
+//    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
+//    plugins += new SrcPlugin("EU2")
+//    plugins += new LoadPlugin("EU2")
 
 
 //    plugins += new ExecutionUnitBase("EU3", writebackCountMax = 0)
