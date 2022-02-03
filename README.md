@@ -15,6 +15,33 @@ An RISC-V core currently characterised by :
 - Load to use latency of 3 cycles via the speculative cache hit predictor 
 - Pipeline visualisation via verilator simulation and Konata (gem5 file format)
 
+# Performance / Area
+
+A few things to keep in mind : 
+- it is still WIP
+- You can trade FMax IPC Area
+- There is better IPC nor FMAX nor Area configs  
+
+For the following configuration : 
+- RV32IMASU, dual issue,OoO, linux compatible
+- 64 bits fetch, 2 decode, 2 issue, 2 retire
+- 2 execution unit (1*Int/Shift, 1*Branch/load/store/mul/div/csr/env)
+- LSU with 16 load queue, 16 store queue
+- Load hit predictor (3 cycles load to use delay)
+- Store to load bypass / hazard free predictor
+- I$ 16Kb/4W, D$ 16Kb/4W 2 refill 2 writeback slots
+- MMU with ITLB 6 way/192 entries, DTLB 6 way/192 entries
+- BTB 1 way/512 entries, GSHARE 1 way/4KB, RAS 32 entries
+
+Performance : 
+- Dhrystone   : 2.51 DMIPS/Mhz
+- Coremark    : 4.13 Coremark/Mhz
+- Embench-iot : 1.33 baseline
+
+On Artix 7 speed grade 3 :
+- 13.0 KLUT, 9.3 KFF, 13 BRAM, 4 DSP
+- 143 Mhz
+
 # Running Verilator simulation
 
 See src/test/cpp/naxriscv/README.md
