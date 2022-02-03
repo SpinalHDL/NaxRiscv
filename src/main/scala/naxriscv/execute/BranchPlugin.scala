@@ -26,6 +26,9 @@ object BranchPlugin extends AreaObject {
   val BRANCH_CTRL = new Stageable(BranchCtrlEnum())
   val VMA_INVALIDATE = Stageable(Bool())
   val FETCH_INVALIDATE = Stageable(Bool())
+  val MISSPREDICTED = Stageable(Bool())
+  val MISSALIGNED = Stageable(Bool())
+  val BAD_EARLY_TARGET = Stageable(Bool())
 }
 
 class BranchPlugin(euId : String,
@@ -109,6 +112,8 @@ class BranchPlugin(euId : String,
       KeepAttribute(stage(PC, "FALSE"))
 
       if(setup.withBranchContext) stage(BRANCH_EARLY) := branchContext.readEarly(BRANCH_ID)
+
+      BAD_EARLY_TARGET := (if(setup.withBranchContext) BRANCH_EARLY.pc    =/= stage(PC, "TRUE") else False)
     }
 
     val writeback = new ExecuteArea(writebackAt){
@@ -120,24 +125,22 @@ class BranchPlugin(euId : String,
     val branch = new ExecuteArea(branchAt){
       import stage._
 
-      //TODO pipeline badEarly
-      val badEarlyTarget = if(setup.withBranchContext) BRANCH_EARLY.pc    =/= stage(PC, "TRUE") else False
       val badEarlyTaken  = if(setup.withBranchContext) BRANCH_EARLY.taken =/= COND              else CombInit(stage(COND))
-      val misspredicted = badEarlyTaken || COND && badEarlyTarget
+      MISSPREDICTED := badEarlyTaken || COND && BAD_EARLY_TARGET
 
       def target = if(setup.withBranchContext)  stage(PC, "TARGET") else stage(PC, "TRUE")
 
-      val missaligned = if(Fetch.RVC) False else target(0, sliceShift bits) =/= 0 && COND
+      MISSALIGNED := (if(Fetch.RVC) False else target(0, sliceShift bits) =/= 0 && COND)
 
-      setup.reschedule.valid := isFireing && SEL && (misspredicted || missaligned)
+      setup.reschedule.valid := isFireing && SEL && (MISSPREDICTED || MISSALIGNED)
       setup.reschedule.robId := ROB.ID
       setup.reschedule.cause := 0
       setup.reschedule.tval := 0
       setup.reschedule.pcTarget := target
       setup.reschedule.reason  := ((BRANCH_CTRL === BranchCtrlEnum.B) ? U(ScheduleReason.BRANCH) otherwise U(ScheduleReason.JUMP)).resized
 
-      setup.reschedule.trap := missaligned
-      setup.reschedule.skipCommit := missaligned
+      setup.reschedule.trap := MISSALIGNED
+      setup.reschedule.skipCommit := MISSALIGNED
 
       val finalBranch = setup.withBranchContext generate branchContext.writeFinal()
       if(setup.withBranchContext) {
