@@ -135,14 +135,17 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       val imm = IMM(MICRO_OP)
       val immZero = imm.z === 0
       val srcZero = CSR_IMM ? immZero otherwise MICRO_OP(Const.rs1Range) === 0
-      CSR_WRITE := !(CSR_MASK && srcZero)
-      CSR_READ := !(!CSR_MASK && !decoder.WRITE_RD)
+      val csrWrite = !(CSR_MASK && srcZero)
+      val csrRead  = !(!CSR_MASK && !decoder.WRITE_RD)
       CSR_IMPLEMENTED := sels.values.map(stage(_)).toSeq.orR
 
-      setup.onDecodeRead := CSR_READ
-      setup.onDecodeWrite := CSR_WRITE
+      setup.onDecodeWrite := csrWrite
+      setup.onDecodeRead  := csrRead
       CSR_TRAP := !CSR_IMPLEMENTED || setup.onDecodeTrap
       CSR_FLUSH_PIPELINE := setup.onDecodeFlushPipeline
+
+      CSR_WRITE := SEL && !CSR_TRAP && csrWrite
+      CSR_READ  := SEL && !CSR_TRAP && csrRead
 
       setup.onDecodeAddress := U(MICRO_OP)(Const.csrRange)
 
@@ -181,8 +184,8 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       import stage._
 
       setup.onReadAddress := U(MICRO_OP)(Const.csrRange)
-      val onReadsDo = isValid && SEL && !CSR_TRAP && CSR_READ
-      val onReadsFireDo = isFireing && SEL && !CSR_TRAP && CSR_READ
+      val onReadsDo = isValid && CSR_READ
+      val onReadsFireDo = isFireing && CSR_READ
       setup.onReadMovingOff := stage.isReady || stage.isFlushed
 
       haltIt(setup.onReadHalt)
@@ -246,8 +249,8 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       setup.onWriteBits := ALU_RESULT
       setup.onWriteAddress := U(MICRO_OP)(Const.csrRange)
 
-      val onWritesDo = isValid && SEL && !CSR_TRAP && CSR_WRITE
-      val onWritesFireDo = isFireing && SEL && !CSR_TRAP && CSR_WRITE
+      val onWritesDo     = isValid   && CSR_WRITE
+      val onWritesFireDo = isFireing && CSR_WRITE
 
       haltIt(setup.onWriteHalt)
 
