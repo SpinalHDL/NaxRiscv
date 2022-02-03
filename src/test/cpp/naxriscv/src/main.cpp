@@ -139,6 +139,7 @@ int mkpath(std::string s,mode_t mode)
 #define GETC (BASE + 0x40)
 #define STATS_CAPTURE_ENABLE (BASE + 0x50)
 #define PUT_DEC (BASE + 0x60)
+#define INCR_COUNTER (BASE + 0x70)
 
 
 #define MM_FAULT_ADDRESS 0x00001230
@@ -218,6 +219,7 @@ public:
     queue <char> customCin;
     string putcHistory = "";
     string *putcTarget = NULL;
+    RvData incrValue = 0;
 
     Soc(VNaxRiscv* nax){
         this->nax = nax;
@@ -256,6 +258,7 @@ public:
         case CLINT_BASE: nax->PrivilegedPlugin_io_int_machine_software = *data & 1;  break;
         case CLINT_CMP_ADDR: memcpy(&clintCmp, data, length); /*printf("CMPA=%lx\n", clintCmp);*/ break;
         case CLINT_CMP_ADDR+4: memcpy(((char*)&clintCmp)+4, data, length); /*printf("CMPB=%lx\n", clintCmp);*/  break;
+        case INCR_COUNTER: incrValue += *((RvData*) data);break;
 //        case STATS_CAPTURE_ENABLE: whitebox->statsCaptureEnable = *data & 1; break;
         default: return 1; break;
         }
@@ -291,6 +294,7 @@ public:
         } break;
         case CLINT_CMP_ADDR:  memcpy(data, &clintCmp, length); break;
         case CLINT_CMP_ADDR+4:memcpy(data, ((char*)&clintCmp) + 4, length); break;
+        case INCR_COUNTER: memcpy(data, ((char*)&incrValue), length); break;
         default: return 1; break;
         }
         return 0;

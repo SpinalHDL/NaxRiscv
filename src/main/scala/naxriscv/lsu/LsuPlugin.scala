@@ -225,15 +225,18 @@ class LsuPlugin(lqSize: Int,
       val HIT_SPECULATION_COUNTER = Stageable(SInt(hitPredictionCounterWidth bits))
       val LOAD_FRESH      = Stageable(Bool())
       val LOAD_FRESH_PC   = Stageable(PC())
-      val LOAD_FRESH_WAIT_SQ = Stageable(Bool())
+      val LOAD_FRESH_WAIT_SQ = Stageable(Bool()) //Used to deflect
       val LOAD_WRITE_FAILURE = Stageable(Bool())
       val LOAD_CACHE_RSP = Stageable(cloneOf(setup.cacheLoad.rsp))
 
-      val OLDER_STORE_RESCHEDULE  = Stageable(Bool())
+      val OLDER_STORE_MAY_BYPASS  = Stageable(Bool())
+      val OLDER_STORE_BYPASS_SUCCESS  = Stageable(Bool())
+      val OLDER_STORE_HIT  = Stageable(Bool())
       val OLDER_STORE_ID = Stageable(SQ_ID)
       val OLDER_STORE_COMPLETED = Stageable(Bool()) //Used to avoid LQ waiting on SQ which just fired
 
       val LQCHECK_START_ID = Stageable(UInt(log2Up(lqSize) + 1 bits))
+      val LQCHECK_HITS_EARLY = Stageable(Bits(lqSize bits))
       val LQCHECK_HITS = Stageable(Bits(lqSize bits))
       val LQCHECK_NO_YOUNGER = Stageable(Bool())
 
@@ -339,6 +342,7 @@ class LsuPlugin(lqSize: Int,
         val freeReal = U(free.dropHigh(1))
         def isFull(ptr : UInt) = (ptr ^ free) === lqSize
         val priority = Reg(Bits(lqSize-1 bits)) init(0) //TODO check it work properly
+        val priorityLast = RegNext(priority)
       }
     }
 
@@ -369,6 +373,7 @@ class LsuPlugin(lqSize: Int,
         }
 
         val data = new Area{
+          val doNotBypass = Reg(Bool())
           val loaded = Reg(Bool())
           val requested = Reg(Bool())
           val inRf  = Reg(Bool())
@@ -413,6 +418,7 @@ class LsuPlugin(lqSize: Int,
         val commitNext = cloneOf(commit)
         commit := commitNext
         val priority = Reg(Bits(sqSize-1 bits)) init(0) //TODO check it work properly
+        val priorityLast = RegNext(priority)
         def isFull(ptr : UInt) = (ptr ^ free) === sqSize
         def isFree(ptr : UInt) = (free - ptr) < sqSize
 
@@ -431,8 +437,16 @@ class LsuPlugin(lqSize: Int,
     val load = new Area{
       import lq._
 
-      for(reg <- regs) when(sq.ptr.onFree.valid && sq.ptr.onFree.payload === reg.waitOn.sqId){
-        reg.waitOn.sq := False
+      val sqWakes = new Area{
+        val hits = sq.regs.map(r => r.address.translated && r.data.loaded) //This is a bit pessimistic as it assume that bypass is required (no alias) (r.data.loaded)
+        for(reg <- regs) {
+          //        when(sq.ptr.onFree.valid && sq.ptr.onFree.payload === reg.waitOn.sqId){
+          //          reg.waitOn.sq := False
+          //        }
+          when(hits(reg.waitOn.sqId)){
+            reg.waitOn.sq := False
+          }
+        }
       }
 
       val push = for(s <- loadPorts) yield new Area{
@@ -463,7 +477,7 @@ class LsuPlugin(lqSize: Int,
           val sqId = (sqAlloc - 1).resize(log2Up(sqSize))
           val freeAlready  = sq.ptr.isFree(sqAlloc)
           val freeDetected = sq.ptr.onFree.valid && sq.ptr.onFree.payload === sqId.resized
-          val waitSq = hit && !freeDetected && !freeAlready
+          val waitSq = hit && !freeDetected && !freeAlready //TODO
         }
 
         val hitPrediction = new Area{
@@ -693,14 +707,24 @@ class LsuPlugin(lqSize: Int,
           import stage._
 
           val olderHit = !SQCHECK_NO_OLDER && SQCHECK_HITS =/= 0
-          val olderOh   = if(sqSize == 1) B(1) else OHMasking.roundRobinMaskedFull(SQCHECK_HITS.reversed, ~((sq.ptr.priority ## !sq.ptr.priority.msb).reversed)).reversed //reverted priority, imprecise would be ok
+          val olderOh   = if(sqSize == 1) B(1) else OHMasking.roundRobinMaskedInvert(stage(SQCHECK_HITS), sq.ptr.priorityLast)
           val olderSel  = OHToUInt(olderOh)
 
-          OLDER_STORE_RESCHEDULE := olderHit
+          OLDER_STORE_HIT := olderHit
           OLDER_STORE_ID := olderSel
           OLDER_STORE_COMPLETED := sq.ptr.onFreeLast.valid && sq.ptr.onFreeLast.payload === OLDER_STORE_ID
           for(s <- stages.dropWhile(_ != stage)){
             s.overloaded(OLDER_STORE_COMPLETED) := s(OLDER_STORE_COMPLETED) || sq.ptr.onFree.valid && sq.ptr.onFree.payload === s(OLDER_STORE_ID)
+          }
+
+          val bypass = new Area{
+            val addressMatch = sq.mem.addressPost.readAsync(OLDER_STORE_ID) === tpk.TRANSLATED
+            val regsMatch = sq.regs.map(reg => olderOh(reg.id) && reg.address.size === SIZE && !reg.data.doNotBypass).orR
+            val maybeLater = sq.regs.map(reg => olderOh(reg.id) && (!reg.address.translated || !reg.data.loaded)).orR
+            val data = sq.mem.word.readAsync(OLDER_STORE_ID)
+
+            OLDER_STORE_BYPASS_SUCCESS := !maybeLater && regsMatch && addressMatch
+            OLDER_STORE_MAY_BYPASS := maybeLater || regsMatch && addressMatch
           }
         }
 
@@ -722,6 +746,8 @@ class LsuPlugin(lqSize: Int,
           val stage = stages(loadFeedAt + cache.loadRspLatency)
           import stage._
 
+          val specialOverride = False //Allow the peripheral ctrl to cannibalise this data path logic <3
+
           def rsp = stage(LOAD_CACHE_RSP)
           rsp := setup.cacheLoad.rsp
 
@@ -742,6 +768,11 @@ class LsuPlugin(lqSize: Int,
             rspShifted(i*8, 8 bits) := src.read(sel)
           }
 
+          assert(checkSqArbi.stage == stage)
+          when(!specialOverride && OLDER_STORE_HIT){
+            rspShifted := checkSqArbi.bypass.data
+          }
+
           assert(Global.XLEN.get == 32)
           val rspFormated = rspSize.mux(
             0 -> B((31 downto 8) -> (rspShifted(7) && !UNSIGNED),(7 downto 0) -> rspShifted(7 downto 0)),
@@ -754,8 +785,7 @@ class LsuPlugin(lqSize: Int,
           setup.rfWrite.data    := rspFormated
           setup.rfWrite.robId   := ROB.ID
 
-          val peripheralOverride = False //Allow the peripheral ctrl to cannibalise this data path logic <3
-          LOAD_WRITE_FAILURE := peripheralOverride && !tpk.IO
+          LOAD_WRITE_FAILURE := specialOverride && !tpk.IO
         }
 
         //Bypass load rsp refillSlotxxx
@@ -796,7 +826,6 @@ class LsuPlugin(lqSize: Int,
           val pageFault = !tpk.ALLOW_READ || tpk.PAGE_FAULT
           val accessFault = CombInit(rsp.fault)
 
-
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(LQ_SEL_OH(reg.id)){ body(reg) }
 
           val hitSpeculationTrap = True
@@ -813,7 +842,7 @@ class LsuPlugin(lqSize: Int,
             onRegs(_.waitOn.cacheRsp := False)
             when(LOAD_FRESH_WAIT_SQ || LOAD_WRITE_FAILURE){
 
-            } elsewhen(stage(OLDER_STORE_RESCHEDULE)){
+            } elsewhen(stage(OLDER_STORE_HIT) && !stage(OLDER_STORE_BYPASS_SUCCESS)){
               onRegs{r =>
                 r.waitOn.sq setWhen(!stage.resulting(OLDER_STORE_COMPLETED))
                 r.waitOn.sqId := OLDER_STORE_ID
@@ -845,7 +874,7 @@ class LsuPlugin(lqSize: Int,
           }
 
           //Critical path extracted to help synthesis
-          val doCompletion = isFireing && !LOAD_FRESH_WAIT_SQ && !LOAD_WRITE_FAILURE && !OLDER_STORE_RESCHEDULE && !missAligned && !pageFault && !pageFault && !accessFault && !tpk.IO
+          val doCompletion = isFireing && !LOAD_FRESH_WAIT_SQ && !LOAD_WRITE_FAILURE && (!OLDER_STORE_HIT || stage(OLDER_STORE_BYPASS_SUCCESS)) && !missAligned && !pageFault && !pageFault && !accessFault && !tpk.IO
           KeepAttribute(doCompletion)
           val success = doCompletion && !rsp.redo
           when(success){
@@ -935,6 +964,7 @@ class LsuPlugin(lqSize: Int,
             entry.address.pageOffset := port.address(pageOffsetRange)
             entry.address.size := port.size
             entry.address.mask := AddressToMask(port.address, port.size, wordBytes)
+            entry.data.doNotBypass := port.amo || port.sc
           }
         }
       }
@@ -1061,8 +1091,8 @@ class LsuPlugin(lqSize: Int,
           val entries = for(lqReg <- lq.regs) yield new Area {
             val pageHit = lqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
             val wordHit = (lqReg.address.mask & DATA_MASK) =/= 0
-            val sqWaited = lqReg.waitOn.sq && lqReg.waitOn.sqId === SQ_SEL || lqReg.waitOn.sqPredicted
-            LQCHECK_HITS(lqReg.id) := lqReg.valid && !lqReg.waitOn.address && !sqWaited && pageHit && wordHit && (youngerMask(lqReg.id) || allLqIsYounger)
+            val sqWaited = lqReg.waitOn.sq && lqReg.waitOn.sqId === SQ_SEL || lqReg.waitOn.sqPredicted //TODO ??? remove sqPredicted ?
+            LQCHECK_HITS_EARLY(lqReg.id) := lqReg.valid && !sqWaited && pageHit && wordHit && (youngerMask(lqReg.id) || allLqIsYounger)
           }
 
           LQCHECK_NO_YOUNGER := youngerMaskEmpty
@@ -1071,18 +1101,14 @@ class LsuPlugin(lqSize: Int,
         val checkLqPrio = new Area{
           val stage = stages(2)
           import stage._
-
+          LQCHECK_HITS   := LQCHECK_HITS_EARLY & lq.regs.map(_.waitOn.commit).asBits() //The commit flag is delayed to not miss the load commit just happening
           val youngerHit  = LQCHECK_HITS =/= 0 && !LQCHECK_NO_YOUNGER
-          val youngerOh   = OHMasking.roundRobinMasked(stage(LQCHECK_HITS), lq.ptr.priority)
+          val youngerOh   = OHMasking.roundRobinMasked(stage(LQCHECK_HITS), lq.ptr.priorityLast)
           val youngerSel  = OHToUInt(youngerOh)
 
           YOUNGER_LOAD_PC := lq.mem.pc(youngerSel)
           YOUNGER_LOAD_ROB := lq.mem.robId.readAsync(youngerSel)
           YOUNGER_LOAD_RESCHEDULE := youngerHit
-
-          //          YOUNGER_LOAD_PC := 0
-          //          YOUNGER_LOAD_ROB := 0
-          //          YOUNGER_LOAD_RESCHEDULE := False
         }
 
         val preCompletion = new Area {
@@ -1448,7 +1474,7 @@ class LsuPlugin(lqSize: Int,
       setup.specialCompletion.id    := robId
 
       when(peripheralBus.rsp.fire) {
-        load.pipeline.cacheRsp.peripheralOverride := True
+        load.pipeline.cacheRsp.specialOverride := True
         setup.specialCompletion.valid := True
 
         setup.specialTrap.valid := peripheralBus.rsp.error
@@ -1517,9 +1543,10 @@ class LsuPlugin(lqSize: Int,
           }
         }
 
-        //TODO lock the cache line !
+        //TODO lock the cache line ! (think that's already done ?)
         LOAD_RSP whenIsActive{
           val rsp = setup.cacheLoad.rsp
+          load.pipeline.cacheRsp.specialOverride := True
           readed := load.pipeline.cacheRsp.rspFormated
           when(rsp.fire){
             setup.rfWrite.valid        setWhen(sq.mem.writeRd)
