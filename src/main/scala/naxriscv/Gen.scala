@@ -301,7 +301,7 @@ object Gen extends App{
 
 //CMD
 /*
-make clean compile  test_clean output/nax/dhrystone/PASS ARGS="--stats_print_all --stats_toggle_symbol sim_time"
+make test-clean output/nax/dhrystone/PASS output/nax/coremark/PASS ARGS="--stats-print --stats-toggle-symbol sim_time"
 
  */
 //object GenSim extends App{
