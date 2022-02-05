@@ -46,7 +46,7 @@ class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) exten
       val pcLoad = Flow(JumpCmd(pcWidth = widthOf(PC)))
       pcLoad.valid := jumpsSpec.map(_.interface.valid).orR
       if(valids.nonEmpty) {
-        pcLoad.payload := MuxOH(OHMasking.first(valids.asBits), cmds)
+        pcLoad.payload := MuxOH.or(OHMasking.firstV2(valids.asBits), cmds)
       } else {
         pcLoad.payload.assignDontCare()
       }

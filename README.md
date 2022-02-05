@@ -38,12 +38,12 @@ For the following configuration :
 
 Performance : 
 - Dhrystone   : 2.51 DMIPS/Mhz    (-O3 -fno-common -fno-inline)
-- Coremark    : 4.13 Coremark/Mhz (-O3 and so many more random flags)
+- Coremark    : 4.22 Coremark/Mhz (-O3 and so many more random flags)
 - Embench-iot : 1.33 baseline     (-O2 -ffunction-sections)
 
 On Artix 7 speed grade 3 :
-- 13.0 KLUT, 9.3 KFF, 13 BRAM, 4 DSP
-- 143 Mhz
+- 13.1 KLUT, 9.3 KFF, 13 BRAM, 4 DSP
+- 145 Mhz
 
 # Running Verilator simulation
 
