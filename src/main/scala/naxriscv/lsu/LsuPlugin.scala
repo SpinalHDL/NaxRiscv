@@ -722,9 +722,6 @@ class LsuPlugin(lqSize: Int,
           val stage = stages(loadCheckSqAt + 1) //Warning, if you remove the +1 remove some of the OLDER_STORE_COMPLETED bypass
           import stage._
 
-
-
-
           OLDER_STORE_COMPLETED := sq.ptr.onFreeLast.valid && sq.ptr.onFreeLast.payload === OLDER_STORE_ID
           for(s <- stages.dropWhile(_ != stage)){
             s.overloaded(OLDER_STORE_COMPLETED) := s(OLDER_STORE_COMPLETED) || sq.ptr.onFree.valid && sq.ptr.onFree.payload === s(OLDER_STORE_ID)
@@ -1113,6 +1110,10 @@ class LsuPlugin(lqSize: Int,
         val checkLqPrio = new Area{
           val stage = stages(2)
           import stage._
+          val storeAddressToCheckSq = 2+1
+          val loadCheckBlindGap     = loadCtrlAt - loadCheckSqAt
+
+          assert(storeAddressToCheckSq > loadCheckBlindGap, "Store check lq will likely miss some loads")
           LQCHECK_HITS   := LQCHECK_HITS_EARLY & lq.regs.map(_.waitOn.commit).asBits() //The commit flag is delayed to not miss the load commit just happening
           val youngerHit  = LQCHECK_HITS =/= 0 && !LQCHECK_NO_YOUNGER
           val youngerOh   = OHMasking.roundRobinMasked(stage(LQCHECK_HITS), lq.ptr.priorityLast)
