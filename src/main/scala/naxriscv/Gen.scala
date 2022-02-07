@@ -7,11 +7,15 @@ import naxriscv.fetch._
 import naxriscv.misc.{CommitDebugFilterPlugin, CommitPlugin, CsrRamPlugin, MmuPlugin, MmuPortParameter, MmuSpec, MmuStorageLevel, MmuStorageParameter, PerformanceCounterPlugin, PrivilegedConfig, PrivilegedPlugin, RegFilePlugin, RobPlugin, StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
 import naxriscv.execute._
 import naxriscv.fetch.FetchCachePlugin
-import naxriscv.lsu.{DataCache, DataCachePlugin, LsuPlugin}
+import naxriscv.lsu.{DataCache, DataCacheAxi4, DataCachePlugin, LsuPeripheralAxiLite4, LsuPlugin}
 import naxriscv.prediction.{BranchContextPlugin, BtbPlugin, DecoderPredictionPlugin, GSharePlugin, HistoryPlugin}
 import naxriscv.utilities._
 import spinal.lib.LatencyAnalysis
+import spinal.lib.bus.amba4.axi.Axi4SpecRenamer
+import spinal.lib.bus.amba4.axilite.AxiLite4SpecRenamer
 import spinal.lib.eda.bench.Rtl
+import spinal.lib.misc.WishboneClint
+import spinal.lib.misc.plic.WishbonePlic
 
 import scala.collection.mutable.ArrayBuffer
 import scala.sys.exit
@@ -37,7 +41,7 @@ object Config{
 //    ROB.SIZE.set(64)
   }
 
-  def plugins(): Seq[Plugin] ={
+  def plugins(): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
 //    plugins += new StaticAddressTranslationPlugin(
@@ -293,10 +297,12 @@ object Gen extends App{
     spinalConfig.generateVerilog(wrapper(new Component {
       setDefinitionName("NaxRiscvSynt")
       Config.properties()
-      val framework = new Framework(Config.plugins())
+      val plugins = Config.plugins()
+      val framework = new Framework(plugins)
     }))
   }
 }
+
 
 
 //CMD
