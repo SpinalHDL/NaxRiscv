@@ -8,9 +8,12 @@ import spinal.lib.pipeline.Stageable
 import naxriscv.Frontend._
 import naxriscv.Fetch._
 import naxriscv.prediction.HistoryPlugin
+import spinal.lib.bus.amba4.axi.{Axi4Config, Axi4ReadOnly}
+import spinal.lib.bus.amba4.axilite.{AxiLite4Config, AxiLite4ReadOnly}
 
 case class FetchL1Cmd(p : FetchCachePlugin, physicalWidth : Int) extends Bundle{
   val address = UInt(physicalWidth bits)
+  val io      = Bool()
 }
 
 case class FetchL1Rsp(p : FetchCachePlugin) extends Bundle{
@@ -26,6 +29,82 @@ case class FetchL1Bus(p : FetchCachePlugin, physicalWidth : Int) extends Bundle 
     master(cmd)
     slave(rsp)
   }
+
+  def ioSplit() : (FetchL1Bus, FetchL1Bus) = new Composite(this, "ioSplit"){
+    val io, ram = cloneOf(self)
+    val selIo = RegNextWhen(cmd.io, cmd.fire)
+
+    io.cmd.valid := cmd.valid && cmd.io
+    ram.cmd.valid := cmd.valid && !cmd.io
+
+    io.cmd.payload  := cmd.payload
+    ram.cmd.payload := cmd.payload
+
+    cmd.ready := cmd.io ? io.cmd.ready | ram.cmd.ready
+
+    rsp.valid := io.rsp.valid || ram.rsp.valid
+    rsp.payload := selIo ? io.rsp.payload | ram.rsp.payload
+
+    val ret = (io, ram)
+  }.ret
+
+  def toAxi4(): Axi4ReadOnly = new Composite(this, "toAxi4"){
+    val axiConfig = Axi4Config(
+      addressWidth = physicalWidth,
+      dataWidth    = p.memDataWidth,
+      idWidth      = 0,
+      useId        = true,
+      useRegion    = false,
+      useBurst     = true,
+      useLock      = false,
+      useCache     = false,
+      useSize      = true,
+      useQos       = false,
+      useLen       = true,
+      useLast      = true,
+      useResp      = true,
+      useProt      = false,
+      useStrb      = false
+    )
+
+    val axi = Axi4ReadOnly(axiConfig)
+    axi.ar.valid := cmd.valid
+    axi.ar.addr  := cmd.address
+    axi.ar.id    := 0
+    axi.ar.len   := p.lineSize*8/p.memDataWidth-1
+    axi.ar.size  := log2Up(p.memDataWidth/8)
+    axi.ar.setBurstINCR()
+    cmd.ready := axi.ar.ready
+
+    rsp.valid := axi.r.valid
+    rsp.data  := axi.r.data
+    rsp.error := !axi.r.isOKAY()
+    axi.r.ready := True
+  }.axi
+
+  def toAxiLite4(): AxiLite4ReadOnly = new Composite(this, "toAxi4"){
+    val axiConfig = AxiLite4Config(
+      addressWidth = physicalWidth,
+      dataWidth    = p.memDataWidth
+    )
+
+    val counter = Reg(UInt(log2Up(p.lineSize*8/p.memDataWidth) bits)) init(0)
+    val last = counter.andR
+
+    val axi = AxiLite4ReadOnly(axiConfig)
+    axi.ar.valid := cmd.valid
+    axi.ar.addr  := cmd.address | (counter << log2Up(p.memDataWidth/8)).resized
+    axi.ar.setUnprivileged
+    cmd.ready := axi.ar.ready && last
+    when(axi.ar.fire){
+      counter := counter + 1
+    }
+
+    rsp.valid := axi.r.valid
+    rsp.data  := axi.r.data
+    rsp.error := !axi.r.isOKAY()
+    axi.r.ready := True
+  }.axi
 }
 
 class FetchCachePlugin(val cacheSize : Int,
@@ -198,6 +277,7 @@ class FetchCachePlugin(val cacheSize : Int,
       val fire = False
       val valid = RegInit(False) clearWhen (fire)
       val address = KeepAttribute(Reg(UInt(preTranslationWidth bits)))
+      val isIo = Reg(Bool())
       val hadError = RegInit(False)
 
       invalidate.canStart clearWhen(valid)
@@ -205,6 +285,7 @@ class FetchCachePlugin(val cacheSize : Int,
       val cmdSent = RegInit(False) setWhen (mem.cmd.fire) clearWhen (fire)
       mem.cmd.valid := valid && !cmdSent
       mem.cmd.address := address(tagRange.high downto lineRange.low) @@ U(0, lineRange.low bit)
+      mem.cmd.io := isIo
 
       val wayToAllocate = Counter(wayCount, !valid)
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
@@ -307,9 +388,10 @@ class FetchCachePlugin(val cacheSize : Int,
           when(tpk.REDO){
             redoIt := True
           } elsewhen(!WORD_FAULT_PAGE && !WAYS_HIT) {
-            redoIt := True
-            refill.valid := True
+            redoIt         := True
+            refill.valid   := True
             refill.address := tpk.TRANSLATED
+            refill.isIo    := tpk.IO
           }
         }
 

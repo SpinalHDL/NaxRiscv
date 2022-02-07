@@ -508,17 +508,17 @@ public:
 #if DATA_CACHE_WRITEBACK_COUNT == 1
             int id = 0;
 #else
-            int id = nax->DataCachePlugin_mem_write_cmd_payload_id;
+            int id = nax->DataCachePlugin_mem_write_cmd_payload_fragment_id;
 #endif
             if(!writeCmdChannel.bytes){
                 writeCmdChannel.id = id;
-                writeCmdChannel.address = nax->DataCachePlugin_mem_write_cmd_payload_address;
+                writeCmdChannel.address = nax->DataCachePlugin_mem_write_cmd_payload_fragment_address;
             }
             assert(id == writeCmdChannel.id);
-            assert(writeCmdChannel.address == nax->DataCachePlugin_mem_write_cmd_payload_address);
-            assert(nax->DataCachePlugin_mem_write_cmd_payload_mask == (1 << DATA_MEM_DATA_BYTES)-1);
+            assert(writeCmdChannel.address == nax->DataCachePlugin_mem_write_cmd_payload_fragment_address);
+            assert(nax->DataCachePlugin_mem_write_cmd_payload_fragment_mask == (1 << DATA_MEM_DATA_BYTES)-1);
 
-            memcpy(writeCmdChannel.buffer + writeCmdChannel.bytes, &nax->DataCachePlugin_mem_write_cmd_payload_data, DATA_MEM_DATA_BYTES);
+            memcpy(writeCmdChannel.buffer + writeCmdChannel.bytes, &nax->DataCachePlugin_mem_write_cmd_payload_fragment_data, DATA_MEM_DATA_BYTES);
 
             writeCmdChannel.bytes += DATA_MEM_DATA_BYTES;
             if(writeCmdChannel.bytes == DATA_LINE_BYTES){

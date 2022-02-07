@@ -18,6 +18,8 @@ import naxriscv.fetch.FetchPlugin
 import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
 import naxriscv.misc.RobPlugin
 import spinal.core.fiber.Handle
+import spinal.lib.bus.amba4.axi.{Axi4, Axi4Config}
+import spinal.lib.bus.amba4.axilite.{AxiLite4, AxiLite4Config}
 import spinal.lib.fsm._
 
 object LsuUtils{
@@ -82,6 +84,43 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
     master(cmd)
     slave(rsp)
   }
+
+  def toAxiLite4(): AxiLite4 = new Composite(this, "toAxiLite4"){
+    val axiConfig = AxiLite4Config(
+      addressWidth = p.addressWidth,
+      dataWidth    = p.dataWidth
+    )
+
+    val axi = AxiLite4(axiConfig)
+    val (a, wRaw) = StreamFork2(cmd)
+    val w = wRaw.throwWhen(!wRaw.write)
+    val writeSel = RegNextWhen(cmd.write, cmd.fire)
+
+    a.ready := (a.write ? axi.aw.ready | axi.ar.ready)
+
+    //AR
+    axi.ar.valid := a.valid && !a.write
+    axi.ar.addr  := a.address
+    axi.ar.setUnprivileged
+
+    //AW
+    axi.aw.valid := a.valid && a.write
+    axi.aw.addr  := a.address
+    axi.aw.setUnprivileged
+
+    //W
+    axi.w.valid := w.valid
+    axi.w.data  := w.data
+    axi.w.strb  := w.mask
+    w.ready := axi.w.ready
+
+    //R/B
+    rsp.valid := axi.r.valid || axi.b.valid
+    rsp.data  := axi.r.data
+    rsp.error := !(writeSel ? axi.b.isOKAY() | axi.r.isOKAY())
+    axi.b.ready    := True
+    axi.r.ready    := True
+  }.axi
 }
 
 

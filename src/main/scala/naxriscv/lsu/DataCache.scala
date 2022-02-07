@@ -3,6 +3,7 @@ package naxriscv.lsu
 import naxriscv.utilities.{AddressToMask, Reservation}
 import spinal.core._
 import spinal.lib._
+import spinal.lib.bus.amba4.axi.{Axi4, Axi4Config}
 import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline.{Pipeline, Stage, Stageable, StageableOffsetNone}
 
@@ -88,7 +89,8 @@ case class DataStoreRsp(dataWidth : Int, refillCount : Int) extends Bundle {
 case class DataMemBusParameter( addressWidth: Int,
                                 dataWidth: Int,
                                 readIdWidth: Int,
-                                writeIdWidth: Int)
+                                writeIdWidth: Int,
+                                lineSize: Int)
 
 case class DataMemReadCmd(p : DataMemBusParameter) extends Bundle {
   val id = UInt(p.readIdWidth bits)
@@ -124,7 +126,7 @@ case class DataMemWriteRsp(p : DataMemBusParameter) extends Bundle {
 }
 
 case class DataMemWriteBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
-  val cmd = Stream(DataMemWriteCmd(p))
+  val cmd = Stream(Fragment(DataMemWriteCmd(p)))
   val rsp = Flow(DataMemWriteRsp(p))
 
   override def asMaster() = {
@@ -141,6 +143,69 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
   override def asMaster() = {
     master(read, write)
   }
+
+
+  def toAxi4(): Axi4 = new Composite(this, "toAxi4"){
+    val idWidth = p.readIdWidth max p.writeIdWidth
+
+    val axiConfig = Axi4Config(
+      addressWidth = p.addressWidth,
+      dataWidth    = p.dataWidth,
+      idWidth      = idWidth,
+      useId        = true,
+      useRegion    = false,
+      useBurst     = true,
+      useLock      = false,
+      useCache     = false,
+      useSize      = true,
+      useQos       = false,
+      useLen       = true,
+      useLast      = true,
+      useResp      = true,
+      useProt      = false,
+      useStrb      = true
+    )
+
+    val axi = Axi4(axiConfig)
+
+    //READ
+    axi.ar.valid := read.cmd.valid
+    axi.ar.addr  := read.cmd.address
+    axi.ar.id    := read.cmd.id
+    axi.ar.len   := p.lineSize*8/p.dataWidth-1
+    axi.ar.size  := log2Up(p.dataWidth/8)
+    axi.ar.setBurstINCR()
+    read.cmd.ready := axi.ar.ready
+
+    read.rsp.valid := axi.r.valid
+    read.rsp.data  := axi.r.data
+    read.rsp.id    := axi.r.id
+    read.rsp.error := !axi.r.isOKAY()
+    axi.r.ready    := True
+
+    //WRITE
+    val (awRaw, w) = StreamFork2(write.cmd)
+    val aw = awRaw.throwWhen(!awRaw.first)
+    axi.aw.valid := aw.valid
+    axi.aw.addr  := aw.address
+    axi.aw.id    := aw.id
+    axi.aw.len   := p.lineSize*8/p.dataWidth-1
+    axi.aw.size  := log2Up(p.dataWidth/8)
+    axi.aw.setBurstINCR()
+    aw.ready := axi.aw.ready
+
+    axi.w.valid := w.valid
+    axi.w.data  := w.data
+    axi.w.strb  := w.mask
+    axi.w.last  := w.last
+    w.ready := axi.w.ready
+
+    write.rsp.valid :=  axi.b.valid
+    write.rsp.id    :=  axi.b.id
+    write.rsp.error := !axi.b.isOKAY()
+    axi.b.ready     :=  True
+  }.axi
+
 }
 
 
@@ -178,7 +243,8 @@ class DataCache(val cacheSize: Int,
     addressWidth  = postTranslationWidth,
     dataWidth     = memDataWidth,
     readIdWidth   = log2Up(refillCount),
-    writeIdWidth  = log2Up(writebackCount)
+    writeIdWidth  = log2Up(writebackCount),
+    lineSize      = lineSize
   )
 
   val io = new Bundle {
@@ -602,6 +668,7 @@ class DataCache(val cacheSize: Int,
     val write = new Area{
       val arbiter = new PriorityArea(slots.map(s => (s.valid && s.victimBufferReady && !s.writeCmdDone, s.priority)))
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
+      val last = wordIndex === wordIndex.maxValue
 
       val bufferRead = Stream(new Bundle {
         val id = UInt(log2Up(writebackCount) bits)
@@ -611,7 +678,7 @@ class DataCache(val cacheSize: Int,
       bufferRead.id := arbiter.sel
       bufferRead.address := slots.map(_.address).read(arbiter.sel)
       wordIndex := wordIndex + U(bufferRead.fire)
-      when(bufferRead.fire && wordIndex === wordIndex.maxValue){
+      when(bufferRead.fire && last){
         whenMasked(slots, arbiter.oh)(_.writeCmdDone := True)
         arbiter.lock := 0
       }
@@ -623,6 +690,7 @@ class DataCache(val cacheSize: Int,
       io.mem.write.cmd.data := word
       io.mem.write.cmd.mask.setAll()
       io.mem.write.cmd.id := cmd.id
+      io.mem.write.cmd.last := last
 
       when(io.mem.write.rsp.valid){
         whenIndexed(slots, io.mem.write.rsp.id)(_.fire := True)
