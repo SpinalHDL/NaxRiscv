@@ -120,7 +120,7 @@ class RobPlugin(completionWithReg : Boolean = false) extends Plugin with RobServ
       val keys = mutable.LinkedHashSet[Stageable[Data]]()
       keys ++= readAsyncs.map(_.key)
       val e = for(key <- keys; if widthOf(key) != 0) yield new Area{
-        if(key.isNamed) this.setPartialName(key.getName())
+        val k = key
         val wl = writes.filter(_.key == key)
         val ral = readAsyncs.filter(_.key == key)
         if(wl.isEmpty) SpinalError(s"RobPlugin has not writes for ${key}")
@@ -174,6 +174,12 @@ class RobPlugin(completionWithReg : Boolean = false) extends Plugin with RobServ
             val sliceRange = log2Up(writeSizeMax) - 1 downto log2Up(e.size*e.skipFactor)
             e.rsp.assignFromBits(cat.subdivideIn(widthOf(e.rsp) bits).read(e.robId(sliceRange)))
           }
+        }
+      }
+
+      for(x <- e) {
+        if(x.k.isNamed) {
+          x.setPartialName(x.k.getName())
         }
       }
     }
