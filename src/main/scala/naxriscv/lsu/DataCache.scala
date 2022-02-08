@@ -90,7 +90,8 @@ case class DataMemBusParameter( addressWidth: Int,
                                 dataWidth: Int,
                                 readIdWidth: Int,
                                 writeIdWidth: Int,
-                                lineSize: Int)
+                                lineSize: Int,
+                                withReducedBandwidth : Boolean)
 
 case class DataMemReadCmd(p : DataMemBusParameter) extends Bundle {
   val id = UInt(p.readIdWidth bits)
@@ -105,18 +106,42 @@ case class DataMemReadRsp(p : DataMemBusParameter) extends Bundle {
 
 case class DataMemReadBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
   val cmd = Stream(DataMemReadCmd(p))
-  val rsp = Flow(DataMemReadRsp(p))
+  val rsp = Stream(DataMemReadRsp(p))
 
   override def asMaster() = {
     master(cmd)
     slave(rsp)
   }
+
+  def <<(m : DataMemReadBus): Unit ={
+    m.cmd >> this.cmd
+    m.rsp << this.rsp
+  }
+
+  def resizer(newDataWidth : Int) : DataMemReadBus = new Composite(this, "resizer"){
+    val ret = DataMemReadBus(
+      p = p.copy(
+        dataWidth = newDataWidth,
+        withReducedBandwidth = p.withReducedBandwidth || newDataWidth > p.dataWidth
+      )
+    )
+
+    ret.cmd << self.cmd
+
+    val rspOutputStream = Stream(Bits(p.dataWidth bits))
+    StreamWidthAdapter(ret.rsp.translateWith(ret.rsp.data), rspOutputStream)
+
+    rsp.valid := rspOutputStream.valid
+    rsp.data  := rspOutputStream.payload
+    rsp.id    := ret.rsp.id
+    rsp.error := ret.rsp.error
+    rspOutputStream.ready :=  (if(p.withReducedBandwidth) rspOutputStream.ready else True)
+  }.ret
 }
 
 case class DataMemWriteCmd(p : DataMemBusParameter) extends Bundle {
   val address = UInt(p.addressWidth bits)
   val data    = Bits(p.dataWidth bits)
-  val mask    = Bits(p.dataWidth/8 bits)
   val id = UInt(p.writeIdWidth bits)
 }
 
@@ -133,19 +158,58 @@ case class DataMemWriteBus(p : DataMemBusParameter) extends Bundle with IMasterS
     master(cmd)
     slave(rsp)
   }
+
+
+  def <<(m : DataMemWriteBus): Unit ={
+    m.cmd >> this.cmd
+    m.rsp << this.rsp
+  }
+
+  def resizer(newDataWidth : Int) : DataMemWriteBus = new Composite(this, "resizer"){
+    val ret = DataMemWriteBus(
+      p = p.copy(
+        dataWidth = newDataWidth,
+        withReducedBandwidth = p.withReducedBandwidth || newDataWidth > p.dataWidth
+      )
+    )
+
+    val cmdOutputStream = Stream(Fragment(Bits(newDataWidth bits)))
+    StreamFragmentWidthAdapter(cmd.translateWith(cmd.data).addFragmentLast(cmd.last), cmdOutputStream)
+
+    ret.cmd.arbitrationFrom(cmdOutputStream)
+    ret.cmd.id      := self.cmd.id
+    ret.cmd.address := self.cmd.address
+    ret.cmd.data    := cmdOutputStream.fragment
+    ret.cmd.last    := cmdOutputStream.last
+
+    self.rsp << ret.rsp
+  }.ret
 }
 
 
 case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
-  val read = master(DataMemReadBus(p))
-  val write = master(DataMemWriteBus(p))
+  val read = DataMemReadBus(p)
+  val write = DataMemWriteBus(p)
 
   override def asMaster() = {
     master(read, write)
   }
 
+  def resizer(newDataWidth : Int) : DataMemBus = new Composite(this, "resizer") {
+    val ret = DataMemBus(
+      p = p.copy(
+        dataWidth = newDataWidth,
+        withReducedBandwidth = p.withReducedBandwidth || newDataWidth > p.dataWidth
+      )
+    )
 
-  def toAxi4(): Axi4 = new Composite(this, "toAxi4"){
+    ret.read << read.resizer(newDataWidth)
+    ret.write << write.resizer(newDataWidth)
+
+  }.ret
+
+
+    def toAxi4(): Axi4 = new Composite(this, "toAxi4"){
     val idWidth = p.readIdWidth max p.writeIdWidth
 
     val axiConfig = Axi4Config(
@@ -181,7 +245,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
     read.rsp.data  := axi.r.data
     read.rsp.id    := axi.r.id
     read.rsp.error := !axi.r.isOKAY()
-    axi.r.ready    := True
+    axi.r.ready    := (if(p.withReducedBandwidth) read.rsp.ready else True)
 
     //WRITE
     val (awRaw, w) = StreamFork2(write.cmd)
@@ -196,7 +260,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
 
     axi.w.valid := w.valid
     axi.w.data  := w.data
-    axi.w.strb  := w.mask
+    axi.w.strb.setAll()
     axi.w.last  := w.last
     w.ready := axi.w.ready
 
@@ -244,7 +308,8 @@ class DataCache(val cacheSize: Int,
     dataWidth     = memDataWidth,
     readIdWidth   = log2Up(refillCount),
     writeIdWidth  = log2Up(writebackCount),
-    lineSize      = lineSize
+    lineSize      = lineSize,
+    withReducedBandwidth = false
   )
 
   val io = new Bundle {
@@ -530,6 +595,7 @@ class DataCache(val cacheSize: Int,
       val faulty = hadError || io.mem.read.rsp.error
 
       io.refillCompletions := 0
+      io.mem.read.rsp.ready := True
       when(io.mem.read.rsp.valid) {
         wordIndex := wordIndex + 1
         when(wordIndex === wordIndex.maxValue) {
@@ -688,7 +754,6 @@ class DataCache(val cacheSize: Int,
       io.mem.write.cmd.arbitrationFrom(cmd)
       io.mem.write.cmd.address := cmd.address
       io.mem.write.cmd.data := word
-      io.mem.write.cmd.mask.setAll()
       io.mem.write.cmd.id := cmd.id
       io.mem.write.cmd.last := last
 

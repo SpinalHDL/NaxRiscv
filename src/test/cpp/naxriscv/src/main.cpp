@@ -516,7 +516,6 @@ public:
             }
             assert(id == writeCmdChannel.id);
             assert(writeCmdChannel.address == nax->DataCachePlugin_mem_write_cmd_payload_fragment_address);
-            assert(nax->DataCachePlugin_mem_write_cmd_payload_fragment_mask == (1 << DATA_MEM_DATA_BYTES)-1);
 
             memcpy(writeCmdChannel.buffer + writeCmdChannel.bytes, &nax->DataCachePlugin_mem_write_cmd_payload_fragment_data, DATA_MEM_DATA_BYTES);
 

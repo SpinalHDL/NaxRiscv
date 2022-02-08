@@ -11,20 +11,24 @@ import naxriscv.prediction.HistoryPlugin
 import spinal.lib.bus.amba4.axi.{Axi4Config, Axi4ReadOnly}
 import spinal.lib.bus.amba4.axilite.{AxiLite4Config, AxiLite4ReadOnly}
 
-case class FetchL1Cmd(p : FetchCachePlugin, physicalWidth : Int) extends Bundle{
+case class FetchL1Cmd(physicalWidth : Int) extends Bundle{
   val address = UInt(physicalWidth bits)
   val io      = Bool()
 }
 
-case class FetchL1Rsp(p : FetchCachePlugin) extends Bundle{
-  val data = Bits(p.memDataWidth bit)
+case class FetchL1Rsp(dataWidth : Int) extends Bundle{
+  val data = Bits(dataWidth bits)
   val error = Bool()
 }
 
-case class FetchL1Bus(p : FetchCachePlugin, physicalWidth : Int) extends Bundle with IMasterSlave {
-  val cmd = Stream(FetchL1Cmd(p, physicalWidth))
-  val rsp = Flow(FetchL1Rsp(p))
+case class FetchL1Bus(physicalWidth : Int,
+                      dataWidth : Int,
+                      lineSize : Int,
+                      withBackPresure : Boolean) extends Bundle with IMasterSlave {
+  val cmd = Stream(FetchL1Cmd(physicalWidth))
+  val rsp = Stream(FetchL1Rsp(dataWidth))
 
+  def beatCount = lineSize*8/dataWidth
   override def asMaster() = {
     master(cmd)
     slave(rsp)
@@ -48,10 +52,30 @@ case class FetchL1Bus(p : FetchCachePlugin, physicalWidth : Int) extends Bundle 
     val ret = (io, ram)
   }.ret
 
+
+  def resizer(newDataWidth : Int) : FetchL1Bus = new Composite(this, "resizer"){
+    val ret = FetchL1Bus(
+      physicalWidth   = physicalWidth,
+      dataWidth       = newDataWidth,
+      lineSize        = lineSize,
+      withBackPresure = withBackPresure || newDataWidth > dataWidth
+    )
+
+    ret.cmd << self.cmd
+
+    val rspOutputStream = Stream(Bits(dataWidth bits))
+    StreamWidthAdapter(ret.rsp.translateWith(ret.rsp.data), rspOutputStream)
+
+    rsp.valid := rspOutputStream.valid
+    rsp.data  := rspOutputStream.payload
+    rsp.error := ret.rsp.error
+    rspOutputStream.ready :=  (if(withBackPresure) rspOutputStream.ready else True)
+  }.ret
+
   def toAxi4(): Axi4ReadOnly = new Composite(this, "toAxi4"){
     val axiConfig = Axi4Config(
       addressWidth = physicalWidth,
-      dataWidth    = p.memDataWidth,
+      dataWidth    = dataWidth,
       idWidth      = 0,
       useId        = true,
       useRegion    = false,
@@ -71,29 +95,29 @@ case class FetchL1Bus(p : FetchCachePlugin, physicalWidth : Int) extends Bundle 
     axi.ar.valid := cmd.valid
     axi.ar.addr  := cmd.address
     axi.ar.id    := 0
-    axi.ar.len   := p.lineSize*8/p.memDataWidth-1
-    axi.ar.size  := log2Up(p.memDataWidth/8)
+    axi.ar.len   := lineSize*8/dataWidth-1
+    axi.ar.size  := log2Up(dataWidth/8)
     axi.ar.setBurstINCR()
     cmd.ready := axi.ar.ready
 
     rsp.valid := axi.r.valid
     rsp.data  := axi.r.data
     rsp.error := !axi.r.isOKAY()
-    axi.r.ready := True
+    axi.r.ready := (if(withBackPresure) rsp.ready else True)
   }.axi
 
   def toAxiLite4(): AxiLite4ReadOnly = new Composite(this, "toAxi4"){
     val axiConfig = AxiLite4Config(
       addressWidth = physicalWidth,
-      dataWidth    = p.memDataWidth
+      dataWidth    = dataWidth
     )
 
-    val counter = Reg(UInt(log2Up(p.lineSize*8/p.memDataWidth) bits)) init(0)
+    val counter = Reg(UInt(log2Up(lineSize*8/dataWidth) bits)) init(0)
     val last = counter.andR
 
     val axi = AxiLite4ReadOnly(axiConfig)
     axi.ar.valid := cmd.valid
-    axi.ar.addr  := cmd.address | (counter << log2Up(p.memDataWidth/8)).resized
+    axi.ar.addr  := cmd.address | (counter << log2Up(dataWidth/8)).resized
     axi.ar.setUnprivileged
     cmd.ready := axi.ar.ready && last
     when(axi.ar.fire){
@@ -105,6 +129,7 @@ case class FetchL1Bus(p : FetchCachePlugin, physicalWidth : Int) extends Bundle 
     rsp.error := !axi.r.isOKAY()
     axi.r.ready := True
   }.axi
+
 }
 
 class FetchCachePlugin(val cacheSize : Int,
@@ -126,7 +151,12 @@ class FetchCachePlugin(val cacheSize : Int,
                        val refillEventId : Int = PerformanceCounterService.ICACHE_REFILL) extends Plugin with FetchPipelineRequirements {
   override def stagesCountMin = injectionAt + 1
 
-  val mem = create early master(FetchL1Bus(this, getService[AddressTranslationService].postWidth))
+  val mem = create early master(FetchL1Bus(
+    physicalWidth = getService[AddressTranslationService].postWidth,
+    dataWidth     = memDataWidth,
+    lineSize      = lineSize,
+    withBackPresure = false
+  ))
   def invalidatePort = setup.invalidatePort
 
   val setup = create early new Area{

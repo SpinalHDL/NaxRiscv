@@ -17,10 +17,17 @@ import spinal.lib.misc.plic.WishbonePlic
 class NaxRiscvLitex extends Component{
   val cpu = new Component {
     Config.properties()
+    val ramDataWidth = 128
+    val ioDataWidth  =  32
     val plugins = Config.plugins()
-    plugins += new FetchAxi4
-    plugins += new DataCacheAxi4
-    plugins += new LsuPeripheralAxiLite4
+    plugins += new FetchAxi4(
+      ramDataWidth = ramDataWidth,
+      ioDataWidth  =  ioDataWidth
+    )
+    plugins += new DataCacheAxi4(
+      dataWidth = ramDataWidth
+    )
+    plugins += new LsuPeripheralAxiLite4()
     val framework = new Framework(plugins)
   }
 
