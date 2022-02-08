@@ -739,9 +739,11 @@ class DataCache(val cacheSize: Int,
       val bufferRead = Stream(new Bundle {
         val id = UInt(log2Up(writebackCount) bits)
         val address = UInt(postTranslationWidth bits)
+        val last = Bool()
       })
       bufferRead.valid := arbiter.hit
       bufferRead.id := arbiter.sel
+      bufferRead.last := last
       bufferRead.address := slots.map(_.address).read(arbiter.sel)
       wordIndex := wordIndex + U(bufferRead.fire)
       when(bufferRead.fire && last){
@@ -755,7 +757,7 @@ class DataCache(val cacheSize: Int,
       io.mem.write.cmd.address := cmd.address
       io.mem.write.cmd.data := word
       io.mem.write.cmd.id := cmd.id
-      io.mem.write.cmd.last := last
+      io.mem.write.cmd.last := cmd.last
 
       when(io.mem.write.rsp.valid){
         whenIndexed(slots, io.mem.write.rsp.id)(_.fire := True)

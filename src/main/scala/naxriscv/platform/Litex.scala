@@ -19,7 +19,10 @@ class NaxRiscvLitex extends Component{
     Config.properties()
     val ramDataWidth = 128
     val ioDataWidth  =  32
-    val plugins = Config.plugins()
+    val plugins = Config.plugins(
+      resetVector = 0,
+      ioRange = _(30, 2 bits) =/= U"01"
+    )
     plugins += new FetchAxi4(
       ramDataWidth = ramDataWidth,
       ioDataWidth  =  ioDataWidth

@@ -94,7 +94,7 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
     val axi = AxiLite4(axiConfig)
     val (a, wRaw) = StreamFork2(cmd)
     val w = wRaw.throwWhen(!wRaw.write)
-    val writeSel = RegNextWhen(cmd.write, cmd.fire)
+    val writeSel = RegNextWhen(cmd.write, cmd.valid)
 
     a.ready := (a.write ? axi.aw.ready | axi.ar.ready)
 

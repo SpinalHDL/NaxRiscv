@@ -36,7 +36,7 @@ case class FetchL1Bus(physicalWidth : Int,
 
   def ioSplit() : (FetchL1Bus, FetchL1Bus) = new Composite(this, "ioSplit"){
     val io, ram = cloneOf(self)
-    val selIo = RegNextWhen(cmd.io, cmd.fire)
+    val selIo = RegNextWhen(cmd.io, cmd.valid)
 
     io.cmd.valid := cmd.valid && cmd.io
     ram.cmd.valid := cmd.valid && !cmd.io
