@@ -21,7 +21,7 @@ class BtbPlugin(entries : Int,
     val jump = getService[JumpService]
     val branchContext = getService[BranchContextPlugin]
     val priority = JumpService.Priorities.FETCH_WORD(jumpAt, true)
-    val btbJump = jump.createJumpInterface(priority)
+    val btbJump = jump.createJumpInterface(priority, aggregationPriority = (jumpAt < 2).toInt)
     val historyPush = getService[HistoryPlugin].createPushPort(priority, 1)
     val aligned = getService[AlignerPlugin]
 
