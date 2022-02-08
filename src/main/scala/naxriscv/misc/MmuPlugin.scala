@@ -126,7 +126,7 @@ class MmuPlugin(spec : MmuSpec,
     fetch.retain()
 
     val cacheLoad = cache.newLoadPort(priority = 1)
-    val invalidatePort = PulseHandshake().idle()
+    val invalidatePort = PulseHandshake(NoData).idle()
   }
 
   val logic = create late new Area{

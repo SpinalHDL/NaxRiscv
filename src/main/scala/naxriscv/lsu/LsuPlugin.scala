@@ -123,6 +123,9 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
   }.axi
 }
 
+case class LsuFlushPayload() extends Bundle{
+  val withFree = Bool()
+}
 
 class LsuPlugin(lqSize: Int,
                 sqSize : Int,
@@ -229,7 +232,7 @@ class LsuPlugin(lqSize: Int,
     val loadTrap = commit.newSchedulePort(canTrap = true, canJump = false)
     val storeTrap = commit.newSchedulePort(canTrap = true, canJump = true)
     val specialTrap = commit.newSchedulePort(canTrap = true, canJump = false)
-    val flushPort = PulseHandshake().idle()
+    val flushPort = PulseHandshake(LsuFlushPayload()).idle()
 
     decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
     decoder.addResourceDecoding(naxriscv.interfaces.SQ, SQ_ALLOC)
@@ -1426,6 +1429,7 @@ class LsuPlugin(lqSize: Int,
     val flush = new Area{
       val busy = RegInit(False)
       val doit = RegInit(False)
+      val withFree = Reg(Bool())
       val cmdPtr, rspPtr = Reg(UInt(cache.lineRange.size+1 bits))
       def cmd = setup.cacheStore.cmd
       def rsp = setup.cacheStore.rsp
@@ -1436,6 +1440,7 @@ class LsuPlugin(lqSize: Int,
         rspPtr := 0
         busy   := True
         doit   := False
+        withFree := setup.flushPort.payload.withFree
       }
 
       when(busy){
@@ -1443,6 +1448,7 @@ class LsuPlugin(lqSize: Int,
       }
 
       cmd.flush := False
+      cmd.flushFree := withFree
       when(busy && doit){
         cmd.valid := !cmdPtr.msb
         cmd.flush := True

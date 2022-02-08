@@ -371,7 +371,7 @@ trait AddressTranslationService extends Service with LockedImpl {
                          storageSpec: Any): AddressTranslationRsp
 
   def withTranslation : Boolean
-  def invalidatePort : PulseHandshake
+  def invalidatePort : PulseHandshake[NoData]
 }
 
 class CsrSpec(val csrFilter : Any){
@@ -531,13 +531,15 @@ trait PerformanceCounterService extends Service with LockedImpl{
   def createEventPort(id : Int) : Bool
 }
 
-case class PulseHandshake() extends Bundle{
+case class PulseHandshake[T <: Data](payloadType : HardType[T]) extends Bundle{
   val request = Bool()
   val served  = Bool()
+  val payload = payloadType()
 
   def idle(): this.type ={
     request := False
     served := False
+    payload.assignDontCare()
     this
   }
 }

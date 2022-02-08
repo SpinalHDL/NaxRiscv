@@ -74,6 +74,7 @@ case class DataStoreCmd(postTranslationWidth: Int,
   val generation  = Bool()
   val io = Bool()
   val flush = Bool() //Flush all the ways for the given address's line. May also set rsp.redo
+  val flushFree = Bool()
 }
 
 case class DataStoreRsp(dataWidth : Int, refillCount : Int) extends Bundle {
@@ -399,6 +400,7 @@ class DataCache(val cacheSize: Int,
   val REFILL_SLOT_FULL = Stageable(Bool())
   val GENERATION, GENERATION_OK = Stageable(Bool())
   val FLUSH = Stageable(Bool())
+  val FLUSH_FREE = Stageable(Bool())
 
   val BANKS_MUXES = Stageable(Vec.fill(bankCount)(Bits(cpuWordWidth bits)))
 
@@ -1014,6 +1016,7 @@ class DataCache(val cacheSize: Int,
       CPU_MASK := io.store.cmd.mask
       IO := io.store.cmd.io && !io.store.cmd.flush
       FLUSH := io.store.cmd.flush
+      FLUSH_FREE := io.store.cmd.flushFree
 
       GENERATION := io.store.cmd.generation
       WAYS_HAZARD := 0
@@ -1157,6 +1160,11 @@ class DataCache(val cacheSize: Int,
       }
       when(startFlush){
         whenMasked(status.write.data, needFlushOh)(_.dirty := False)
+        when(FLUSH_FREE) {
+          whenMasked(waysWrite.mask.asBools, needFlushOh)(_ := True)
+        }
+        waysWrite.address := ADDRESS_POST_TRANSLATION(lineRange)
+        waysWrite.tag.loaded := False
       }
 
       when(isValid && REDO && GENERATION_OK){

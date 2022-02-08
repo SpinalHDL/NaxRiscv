@@ -21,6 +21,7 @@ object EnvCallPlugin extends AreaObject{
   val FENCE = Stageable(Bool())
   val FENCE_I = Stageable(Bool())
   val FENCE_VMA = Stageable(Bool())
+  val FLUSH_DATA = Stageable(Bool())
 
   val CAUSE_XRET = CSR.MCAUSE_ENUM.ECALL_USER
   val CAUSE_FLUSH = CSR.MCAUSE_ENUM.ECALL_SUPERVISOR
@@ -47,7 +48,7 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
       eu.setStaticCompletion(microOp, rescheduleAt)
     }
 
-    List(ECALL, EBREAK, XRET, WFI, FENCE, FENCE_I, FENCE_VMA).foreach(eu.setDecodingDefault(_, False))
+    List(ECALL, EBREAK, XRET, WFI, FENCE, FENCE_I, FENCE_VMA, FLUSH_DATA).foreach(eu.setDecodingDefault(_, False))
     add(Rvi.WFI   , DecodeList(WFI    -> True))
     add(Rvi.ECALL , DecodeList(ECALL  -> True))
     add(Rvi.EBREAK, DecodeList(EBREAK -> True))
@@ -61,6 +62,10 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
     dispatch.fenceOlder(Rvi.FENCE_I)   //Ensure we do not generate uncommitted flushes
     dispatch.fenceOlder(Rvi.SFENCE_VMA)
 
+
+    add(Rvi.FLUSH_DATA  , DecodeList(FLUSH_DATA   -> True))
+    dispatch.fenceOlder(Rvi.FLUSH_DATA)
+
     eu.addRobStageable(PC) //Used by ebreak
   }
 
@@ -72,7 +77,7 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
     import stage._
     import s._
 
-    setup.reschedule.valid      := isValid && (EBREAK || ECALL || XRET || FENCE_I || FENCE_VMA)
+    setup.reschedule.valid      := isValid && (EBREAK || ECALL || XRET || FENCE_I || FLUSH_DATA || FENCE_VMA)
     setup.reschedule.robId      := ROB.ID
     setup.reschedule.tval       := B(PC).andMask(EBREAK) //That's what spike do
     setup.reschedule.skipCommit := EBREAK || ECALL
@@ -96,7 +101,7 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
       setup.reschedule.cause      := CSR.MCAUSE_ENUM.ECALL_MACHINE //the reschedule cause isn't the final value which will end up into XCAUSE csr
     }
 
-    when(FENCE_I || FENCE_VMA){
+    when(FENCE_I || FENCE_VMA || FLUSH_DATA){
       setup.reschedule.cause      := CAUSE_FLUSH
     }
 
@@ -111,18 +116,20 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
       val fetchPort = getService[FetchCachePlugin].invalidatePort
       val lsuPort   = getService[LsuPlugin].flushPort
 
-      val vmaInv, fetchInv = Reg(Bool())
-
-      //Enforce pipeline availability for the delayed build of the FSM
-      stage(FENCE_I)
-      stage(FENCE_VMA)
+      val vmaInv, fetchInv, flushData = Reg(Bool())
 
       IDLE whenIsActive{
-        when(isValid && (FENCE_I || FENCE_VMA)){
-          vmaInv   := FENCE_VMA
+        when(isValid) {
+          vmaInv := FENCE_VMA
           fetchInv := FENCE_I
-          when(isReady){
-            goto(RESCHEDULE)
+          flushData := FLUSH_DATA
+          when(isReady) {
+            when(FENCE_I || FENCE_VMA) {
+              goto(RESCHEDULE)
+            }
+            when(FLUSH_DATA) {
+              goto(LSU_FLUSH)
+            }
           }
         }
       }
@@ -150,6 +157,7 @@ class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
 
       LSU_FLUSH whenIsActive{
         lsuPort.request   := True
+        lsuPort.payload.withFree := flushData
         goto(WAIT_LSU)
       }
 

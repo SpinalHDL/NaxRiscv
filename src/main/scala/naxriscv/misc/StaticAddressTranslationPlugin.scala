@@ -48,7 +48,7 @@ class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with
   }
 
   val setup = create early new Area{
-    val invalidatePort = PulseHandshake()
+    val invalidatePort = PulseHandshake(NoData)
     invalidatePort.served := RegNext(invalidatePort.request) init(False)
   }
 
