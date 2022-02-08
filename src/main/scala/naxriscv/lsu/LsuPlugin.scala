@@ -276,7 +276,7 @@ class LsuPlugin(lqSize: Int,
       val OLDER_STORE_OH = Stageable(Bits(sqSize bits))
 
       val LQCHECK_START_ID = Stageable(UInt(log2Up(lqSize) + 1 bits))
-      val LQCHECK_HITS_EARLY = Stageable(Bits(lqSize bits))
+//      val LQCHECK_HITS_EARLY = Stageable(Bits(lqSize bits))
       val LQCHECK_HITS = Stageable(Bits(lqSize bits))
       val LQCHECK_NO_YOUNGER = Stageable(Bool())
 
@@ -316,7 +316,8 @@ class LsuPlugin(lqSize: Int,
           val sq     = Reg(Bool())
           val sqId   = Reg(SQ_ID)
           val sqPredicted = Reg(Bool())
-          val commit = Reg(Bool())
+          val commitSet = False //Readed by store lqcheck to save one cycle of hazard
+          val commit = Reg(Bool()) setWhen(commitSet)
 
           val cacheRefillSet = cacheRefill.getZero
           val cacheRefillAnySet = False
@@ -917,7 +918,7 @@ class LsuPlugin(lqSize: Int,
               setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT
               setup.loadTrap.reason := ScheduleReason.TRAP
             } otherwise {
-              onRegs(_.waitOn.commit := True)
+              onRegs(_.waitOn.commitSet := True)
               //doCompletion
             }
           }
@@ -1140,7 +1141,7 @@ class LsuPlugin(lqSize: Int,
           val entries = for(lqReg <- lq.regs) yield new Area {
             val pageHit = lqReg.address.pageOffset === ADDRESS_PRE_TRANSLATION(pageOffsetRange)
             val wordHit = (lqReg.address.mask & DATA_MASK) =/= 0
-            LQCHECK_HITS_EARLY(lqReg.id) := lqReg.valid && pageHit && wordHit && (youngerMask(lqReg.id) || allLqIsYounger)
+            LQCHECK_HITS(lqReg.id) := lqReg.valid && pageHit && wordHit && (youngerMask(lqReg.id) || allLqIsYounger) && (lqReg.waitOn.commit || lqReg.waitOn.commitSet)
           }
 
           LQCHECK_NO_YOUNGER := youngerMaskEmpty
@@ -1153,7 +1154,6 @@ class LsuPlugin(lqSize: Int,
           val loadCheckBlindGap     = loadCtrlAt - loadCheckSqAt
 
           assert(storeAddressToCheckSq > loadCheckBlindGap, "Store check lq will likely miss some loads")
-          LQCHECK_HITS   := LQCHECK_HITS_EARLY & lq.regs.map(_.waitOn.commit).asBits() //The commit flag is delayed to not miss the load commit just happening
           val youngerHit  = LQCHECK_HITS =/= 0 && !LQCHECK_NO_YOUNGER
           val youngerOh   = OHMasking.roundRobinMasked(stage(LQCHECK_HITS), lq.ptr.priorityLast)
           val youngerSel  = OHToUInt(youngerOh)
@@ -1488,7 +1488,7 @@ class LsuPlugin(lqSize: Int,
       val loadPhysRd = RegNext(lq.mem.physRd.readAsync(lq.ptr.freeReal))
       val loadAddress = RegNext(lq.mem.addressPost.readAsync(lq.ptr.freeReal))
       val loadSize = RegNext(lq.regs.map(_.address.size).read(lq.ptr.freeReal))
-      val loadWriteRd = RegNext(lq.mem.writeRd.readAsync(lq.ptr.freeReal))
+      val loadWriteRd = RegNext(isLoad && lq.mem.writeRd.readAsync(lq.ptr.freeReal))
       val storeAddress = RegNextWhen(setup.cacheStore.cmd.address, hit)
       val storeSize = RegNextWhen(store.writeback.feed.size, hit)
       val storeData = RegNextWhen(setup.cacheStore.cmd.data, hit)
@@ -1531,14 +1531,14 @@ class LsuPlugin(lqSize: Int,
 
         setup.specialTrap.valid := peripheralBus.rsp.error
 
-        setup.rfWrite.valid               := isLoad && loadWriteRd
+        setup.rfWrite.valid               := loadWriteRd
         setup.rfWrite.address             := loadPhysRd
         setup.rfWrite.robId               := robId
         load.pipeline.cacheRsp.rspAddress := loadAddress
         load.pipeline.cacheRsp.rspSize    := loadSize
         load.pipeline.cacheRsp.rspRaw     := peripheralBus.rsp.data
 
-        when(isLoad && loadWriteRd) {
+        when(loadWriteRd) {
           wakeRob.valid := True
           wakeRf.valid  := True
         }
@@ -1600,14 +1600,15 @@ class LsuPlugin(lqSize: Int,
           val rsp = setup.cacheLoad.rsp
           load.pipeline.cacheRsp.specialOverride := True
           readed := load.pipeline.cacheRsp.rspFormated
+
+          setup.rfWrite.address      := sq.mem.physRd
+          setup.rfWrite.robId        := robId
+
+          load.pipeline.cacheRsp.rspAddress := storeAddress
+          load.pipeline.cacheRsp.rspSize    := storeSize
+
           when(rsp.fire){
             setup.rfWrite.valid        setWhen(sq.mem.writeRd)
-            setup.rfWrite.address      := sq.mem.physRd
-            setup.rfWrite.robId        := robId
-
-            load.pipeline.cacheRsp.rspAddress := storeAddress
-            load.pipeline.cacheRsp.rspSize    := storeSize
-
             when(rsp.redo){
               goto(IDLE)
             } elsewhen (rsp.fault) {
@@ -1635,14 +1636,11 @@ class LsuPlugin(lqSize: Int,
           load.pipeline.hitSpeculation.wakeRf.valid setWhen(sq.mem.writeRd)
           load.pipeline.hitSpeculation.wakeRf.physical := sq.mem.physRd
 
-          when(storeSc){
-            setup.rfWrite.valid      setWhen(sq.mem.writeRd)
-            setup.rfWrite.address := sq.mem.physRd
-            setup.rfWrite.robId   := robId
-            setup.rfWrite.data    := 0
-            setup.rfWrite.data(0) := !reservationHit
-          }
-
+          setup.rfWrite.valid      setWhen(storeSc && sq.mem.writeRd)
+          setup.rfWrite.address := sq.mem.physRd
+          setup.rfWrite.robId   := robId
+          setup.rfWrite.data    := 0
+          setup.rfWrite.data(0) := !reservationHit
           goto(SYNC)
         }
 

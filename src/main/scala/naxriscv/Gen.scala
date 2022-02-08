@@ -78,7 +78,7 @@ object Config{
         priority = 0
       ),
       translationPortParameter  = MmuPortParameter(
-        readAt = 0,
+        readAt = 1,
         hitsAt = 1,
         ctrlAt = 1,
         rspAt  = 1
