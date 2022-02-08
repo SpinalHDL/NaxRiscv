@@ -30,7 +30,7 @@ case class JumpCmd(pcWidth : Int) extends Bundle{
   val pc = UInt(pcWidth bits)
 }
 trait JumpService extends Service{
-  def createJumpInterface(priority : Int) : Flow[JumpCmd] //High priority win
+  def createJumpInterface(priority : Int, aggregationPriority : Int = 0) : Flow[JumpCmd] //High priority win
 }
 
 trait InitCycles extends Service{

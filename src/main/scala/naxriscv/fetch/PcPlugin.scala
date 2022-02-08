@@ -16,12 +16,10 @@ import Frontend._
 
 
 class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) extends Plugin with JumpService{
-  assert(XLEN.get == 32)
-
-  case class JumpSpec(interface :  Flow[JumpCmd], priority : Int)
+  case class JumpSpec(interface :  Flow[JumpCmd], priority : Int, aggregationPriority : Int)
   val jumpsSpec = ArrayBuffer[JumpSpec]()
-  override def createJumpInterface(priority : Int): Flow[JumpCmd] = {
-    jumpsSpec.addRet(JumpSpec(Flow(JumpCmd(PC_WIDTH)), priority)).interface
+  override def createJumpInterface(priority : Int, aggregationPriority : Int = 0): Flow[JumpCmd] = {
+    jumpsSpec.addRet(JumpSpec(Flow(JumpCmd(PC_WIDTH)), priority, aggregationPriority)).interface
   }
 
 
@@ -42,14 +40,23 @@ class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) exten
       val sortedByStage = jumpsSpec.sortWith(_.priority > _.priority)
       val valids = sortedByStage.map(_.interface.valid)
       val cmds = sortedByStage.map(_.interface.payload)
+      val oh = OHMasking.firstV2(valids.asBits)
+
+      val grouped = sortedByStage.groupByLinked(_.aggregationPriority).toList.sortBy(_._1).map(_._2)
+      var target = PC()
+      for(group <- grouped){
+        val indexes = group.map(e => sortedByStage.indexOf(e))
+        val goh = indexes.map(i => oh(i))
+        val mux = OhMux.or(goh, group.map(_.interface.pc))
+        if(group == grouped.head) target := mux else when(goh.orR){
+          KeepAttribute(target)
+          target \= mux
+        }
+      }
 
       val pcLoad = Flow(JumpCmd(pcWidth = widthOf(PC)))
-      pcLoad.valid := jumpsSpec.map(_.interface.valid).orR
-      if(valids.nonEmpty) {
-        pcLoad.payload := MuxOH.or(OHMasking.firstV2(valids.asBits), cmds)
-      } else {
-        pcLoad.payload.assignDontCare()
-      }
+      pcLoad.valid   := jumpsSpec.map(_.interface.valid).orR
+      pcLoad.pc := target
     }
 
     val init = new Area{
@@ -62,8 +69,8 @@ class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) exten
 
     val fetchPc = new Area{
       //PC calculation without Jump
-      val output = Stream(UInt(32 bits))
-      val pcReg = Reg(UInt(32 bits)) init(resetVector) addAttribute(Verilator.public)
+      val output = Stream(PC)
+      val pcReg = Reg(PC) init(resetVector) addAttribute(Verilator.public)
       val correction = False
       val correctionReg = RegInit(False) setWhen(correction) clearWhen(output.fire)
       val corrected = correction || correctionReg
