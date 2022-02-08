@@ -841,10 +841,15 @@ class DataCache(val cacheSize: Int,
         }
       }
 
-      val bankMux = new Area {
+      val bankMuxStd = !reducedBankWidth generate new Area {
+        import bankMuxStage._
+        CPU_WORD := OhMux.or(WAYS_HITS, BANKS_MUXES)
+      }
+
+      val bankMuxReduced = reducedBankWidth generate new Area {
         import bankMuxStage._
         val wayId = OHToUInt(WAYS_HITS)
-        val bankId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
+        val bankId = (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
         CPU_WORD := BANKS_MUXES.read(bankId) //MuxOH(WAYS_HITS, BANKS_MUXES)
       }
 

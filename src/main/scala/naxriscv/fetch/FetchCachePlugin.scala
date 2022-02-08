@@ -369,10 +369,15 @@ class FetchCachePlugin(val cacheSize : Int,
         {import bankMuxesStage._; BANKS_MUXES(bankId) := BANKS_WORDS(bankId).subdivideIn(cpuWordWidth bits).read(FETCH_PC(bankWordToCpuWordRange)) }
       }
 
-      val bankMux = new Area {
+      val bankMuxStd = !reducedBankWidth generate new Area {
+        import bankMuxStage._
+        WORD := OhMux.or(WAYS_HITS, BANKS_MUXES)
+      }
+
+      val bankMux = reducedBankWidth generate new Area {
         import bankMuxStage._
         val wayId = OHToUInt(WAYS_HITS)
-        val bankId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (FETCH_PC(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
+        val bankId = (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (FETCH_PC(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
         WORD := BANKS_MUXES.read(bankId) //MuxOH(WAYS_HITS, BANKS_MUXES)
       }
 
