@@ -98,14 +98,16 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
 
     a.ready := (a.write ? axi.aw.ready | axi.ar.ready)
 
+    val addr = U(a.address.dropLow(log2Up(XLEN/8)) << log2Up(XLEN/8))
+
     //AR
     axi.ar.valid := a.valid && !a.write
-    axi.ar.addr  := a.address
+    axi.ar.addr  := addr
     axi.ar.setUnprivileged
 
     //AW
     axi.aw.valid := a.valid && a.write
-    axi.aw.addr  := a.address
+    axi.aw.addr  := addr
     axi.aw.setUnprivileged
 
     //W
@@ -806,6 +808,7 @@ class LsuPlugin(lqSize: Int,
 
           val rspSize    = CombInit(stage(SIZE))
           val rspAddress = CombInit(stage(ADDRESS_PRE_TRANSLATION))
+          val rspUnsigned = CombInit(stage(UNSIGNED))
           val rspRaw     = rsp.data //CombInit(rsp.data.subdivideIn(wordWidth bits).read(ADDRESS_PRE_TRANSLATION(memToCpuRange)))
           val rspSplits  = rspRaw.subdivideIn(8 bits)
           val rspShifted = Bits(wordWidth bits)
@@ -828,8 +831,8 @@ class LsuPlugin(lqSize: Int,
 
           assert(Global.XLEN.get == 32)
           val rspFormated = rspSize.mux(
-            0 -> B((31 downto 8) -> (rspShifted(7) && !UNSIGNED),(7 downto 0) -> rspShifted(7 downto 0)),
-            1 -> B((31 downto 16) -> (rspShifted(15) && !UNSIGNED),(15 downto 0) -> rspShifted(15 downto 0)),
+            0 -> B((31 downto 8) -> (rspShifted(7) && !rspUnsigned),(7 downto 0) -> rspShifted(7 downto 0)),
+            1 -> B((31 downto 16) -> (rspShifted(15) && !rspUnsigned),(15 downto 0) -> rspShifted(15 downto 0)),
             default -> rspShifted //W
           )
 
@@ -1494,6 +1497,7 @@ class LsuPlugin(lqSize: Int,
       val loadPhysRd = RegNext(lq.mem.physRd.readAsync(lq.ptr.freeReal))
       val loadAddress = RegNext(lq.mem.addressPost.readAsync(lq.ptr.freeReal))
       val loadSize = RegNext(lq.regs.map(_.address.size).read(lq.ptr.freeReal))
+      val loadUnsigned = RegNext(lq.regs.map(_.address.unsigned).read(lq.ptr.freeReal))
       val loadWriteRd = RegNext(isLoad && lq.mem.writeRd.readAsync(lq.ptr.freeReal))
       val storeAddress = RegNextWhen(setup.cacheStore.cmd.address, hit)
       val storeSize = RegNextWhen(store.writeback.feed.size, hit)
@@ -1537,12 +1541,13 @@ class LsuPlugin(lqSize: Int,
 
         setup.specialTrap.valid := peripheralBus.rsp.error
 
-        setup.rfWrite.valid               := loadWriteRd
-        setup.rfWrite.address             := loadPhysRd
-        setup.rfWrite.robId               := robId
-        load.pipeline.cacheRsp.rspAddress := loadAddress
-        load.pipeline.cacheRsp.rspSize    := loadSize
-        load.pipeline.cacheRsp.rspRaw     := peripheralBus.rsp.data
+        setup.rfWrite.valid                := loadWriteRd
+        setup.rfWrite.address              := loadPhysRd
+        setup.rfWrite.robId                := robId
+        load.pipeline.cacheRsp.rspAddress  := loadAddress
+        load.pipeline.cacheRsp.rspSize     := loadSize
+        load.pipeline.cacheRsp.rspRaw      := peripheralBus.rsp.data
+        load.pipeline.cacheRsp.rspUnsigned := loadUnsigned
 
         when(loadWriteRd) {
           wakeRob.valid := True
