@@ -77,7 +77,7 @@ object LitexGen extends App{
 }
 
 /*
-python3 -m litex_boards.targets.digilent_arty --cpu-type=naxriscv --build --with-ethernet --eth-ip 192.168.178.43
+python3 -m litex_boards.targets.digilent_arty --cpu-type=naxriscv --with-ethernet --eth-ip 192.168.178.43 --eth-dynamic-ip  --load
 litex_sim --cpu-type=naxriscv --with-sdram --sdram-module=MT41K128M16 --sdram-data-width=16  --sdram-init images/sim.json --trace --trace-fst --trace-start 2000000000000
 eth_local_ip 192.168.178.43
 eth_remote_ip 192.168.178.32
