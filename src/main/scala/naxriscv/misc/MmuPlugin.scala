@@ -63,7 +63,8 @@ object MmuSpec{
 }
 
 class MmuPlugin(spec : MmuSpec,
-                ioRange : UInt => Bool) extends Plugin with AddressTranslationService{
+                ioRange : UInt => Bool,
+                fetchRange : UInt => Bool) extends Plugin with AddressTranslationService{
   override def preWidth  = spec.preWidth
   override def postWidth = spec.postWidth
   override def withTranslation = true
@@ -291,6 +292,8 @@ class MmuPlugin(spec : MmuSpec,
           ALLOW_WRITE   := True
           PAGE_FAULT    := False
         }
+
+        ALLOW_EXECUTE clearWhen(!fetchRange(TRANSLATED))
 
         BYPASS_TRANSLATION := !requireMmuLockup
         WAYS_OH       := oh

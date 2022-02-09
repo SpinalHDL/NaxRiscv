@@ -42,7 +42,8 @@ object Config{
   }
 
   def plugins(resetVector : BigInt = 0x80000000l,
-              ioRange : UInt => Bool = _(31 downto 28) === 0x1): ArrayBuffer[Plugin] ={
+              ioRange    : UInt => Bool = _(31 downto 28) === 0x1,
+              fetchRange : UInt => Bool = _(31 downto 28) =/= 0x1): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
 //    plugins += new StaticAddressTranslationPlugin(
@@ -50,7 +51,8 @@ object Config{
 //    )
     plugins += new MmuPlugin(
       spec    = MmuSpec.sv32,
-      ioRange = ioRange
+      ioRange = ioRange,
+      fetchRange = fetchRange
     )
 
     //FETCH
