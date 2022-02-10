@@ -42,6 +42,7 @@ object Config{
   }
 
   def plugins(resetVector : BigInt = 0x80000000l,
+              withRdTime : Boolean = true,
               ioRange    : UInt => Bool = _(31 downto 28) === 0x1,
               fetchRange : UInt => Bool = _(31 downto 28) =/= 0x1): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
@@ -194,7 +195,7 @@ object Config{
     )
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
     plugins += new CsrRamPlugin()
-    plugins += new PrivilegedPlugin(PrivilegedConfig.full)
+    plugins += new PrivilegedPlugin(PrivilegedConfig.full.copy(withRdTime = withRdTime))
     plugins += new PerformanceCounterPlugin(
       additionalCounterCount = 4,
       bufferWidth            = 6
@@ -275,7 +276,7 @@ object Gen extends App{
     val report = spinalConfig.generateVerilog(new Component {
       setDefinitionName("NaxRiscv")
       Config.properties()
-      val framework = new Framework(Config.plugins())
+      val framework = new Framework(Config.plugins(withRdTime = false))
     })
     val doc = report.toplevel.framework.getService[DocPlugin]
     doc.genC()

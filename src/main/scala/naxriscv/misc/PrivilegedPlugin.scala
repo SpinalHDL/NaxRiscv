@@ -23,6 +23,7 @@ object PrivilegedConfig{
     withSupervisor = true,
     withUser       = true,
     withUserTrap   = false,
+    withRdTime     = true,
     vendorId       = 0,
     archId         = 0,
     impId          = 0,
@@ -33,6 +34,7 @@ object PrivilegedConfig{
 case class PrivilegedConfig(withSupervisor : Boolean,
                             withUser: Boolean,
                             withUserTrap: Boolean,
+                            withRdTime : Boolean,
                             vendorId: Int,
                             archId: Int,
                             impId: Int,
@@ -72,6 +74,8 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
         val external = in Bool()
       }
     }
+
+    val rdtime = in UInt(64 bits)
   }
 
   val setup = create early new Area{
@@ -254,6 +258,12 @@ class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedServi
       val tval    = csr.readWriteRam(CSR.UTVAL)
       val epc     = csr.readWriteRam(CSR.UEPC)
       val scratch = csr.readWriteRam(CSR.USCRATCH)
+    }
+
+    if(p.withRdTime) {
+      assert(XLEN.get == 32)
+      csr.read(io.rdtime(31 downto 0), CSR.UTIME)
+      csr.read(io.rdtime(63 downto 32), CSR.UTIMEH)
     }
 
     csr.release()
