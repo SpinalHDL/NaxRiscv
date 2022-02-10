@@ -97,6 +97,11 @@ cp build/platform/litex/vexriscv/firmware/fw_jump.elf ../../litex_naxriscv_test/
 
 bus_timeout 1000000
 
+
+nax after rdtime impl =>
+[    1.765916] Run /init as init process
+Saving random seed: [    2.659508] random: dd: uninitialized urandom read (512 bytes read)
+
 Nax =>
 [    0.395393] Unpacking initramfs...
 [    1.005972] Initramfs unpacking failed: invalid magic at start of compressed archive
