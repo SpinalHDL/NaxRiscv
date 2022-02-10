@@ -6,7 +6,7 @@ import naxriscv.fetch.{AlignerPlugin, FetchPlugin}
 import naxriscv.interfaces.JumpService
 import naxriscv.prediction.Prediction._
 import naxriscv.utilities.Plugin
-import spinal.core._
+import spinal.core.{ReadUnderWritePolicy, _}
 import spinal.lib._
 import spinal.lib.pipeline.Stageable
 
@@ -77,7 +77,7 @@ class BtbPlugin(entries : Int,
     val readRsp = new Area{
       val stage = fetch.getStage(readAt+1)
       import stage._
-      stage(ENTRY) := mem.readSync(readCmd.entryAddress, readCmd.stage.isReady)
+      stage(ENTRY) := mem.readSync(readCmd.entryAddress, readCmd.stage.isReady, readUnderWrite = readFirst)
       KeepAttribute(stage(ENTRY))
     }
 

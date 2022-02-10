@@ -179,7 +179,7 @@ class MultiPortReadSymplifier extends PhaseMemBlackboxing{
 class MemReadDuringWriteHazardPhase extends PhaseMemBlackboxing{
   override def doBlackboxing(pc: PhaseContext, typo: MemTopology) = {
     import typo._
-    for(read <- typo.readsSync){
+    for(read <- typo.readsSync if read.readUnderWrite == dontCare){
       val ctx = List(mem.parentScope.push(), read.clockDomain.push())
 
       val readed = Bits(read.getWidth bits)
@@ -187,7 +187,7 @@ class MemReadDuringWriteHazardPhase extends PhaseMemBlackboxing{
       wrapConsumers(typo, read, readed)
 
       for(write <- typo.writes){
-        assert(read.width == write.width && read.readUnderWrite == dontCare && read.clockDomain == write.clockDomain)
+        assert(read.width == write.width && read.clockDomain == write.clockDomain)
         val hazard = RegInit(False)
         val mask = (write.mask != null) generate Reg(Bits(write.mask.getWidth bits))
         when(read.readEnable.asInstanceOf[Bool]){
