@@ -60,6 +60,10 @@ On Artix 7 speed grade 3 :
 
 To go further, increasing the GSHARE storage or implementing something as TAGE should help.
 
+Here are a pipeline representation of the two above configurations : 
+
+![alt text](assets/pipeline.png "pipeline")
+
 # Project developpement and status
 
 - This project is free and open source
