@@ -11,8 +11,8 @@ import spinal.lib._
 import spinal.lib.bus.amba4.axi.Axi4SpecRenamer
 import spinal.lib.bus.amba4.axilite.AxiLite4SpecRenamer
 import spinal.lib.bus.misc.SizeMapping
-import spinal.lib.misc.WishboneClint
-import spinal.lib.misc.plic.WishbonePlic
+import spinal.lib.misc.{AxiLite4Clint, WishboneClint}
+import spinal.lib.misc.plic.{AxiLite4Plic, WishbonePlic}
 
 
 class NaxRiscvLitex extends Component{
@@ -49,8 +49,8 @@ class NaxRiscvLitex extends Component{
     AxiLite4SpecRenamer(ibus)
     AxiLite4SpecRenamer(dbus)
 
-    val clintCtrl = new WishboneClint(1)
-    val plicCtrl = new WishbonePlic(
+    val clintCtrl = new AxiLite4Clint(1)
+    val plicCtrl = new AxiLite4Plic(
       sourceCount = 32,
       targetCount = 2
     )
@@ -58,6 +58,9 @@ class NaxRiscvLitex extends Component{
     val clint = clintCtrl.io.bus.toIo()
     val plic = plicCtrl.io.bus.toIo()
     val interrupt = plicCtrl.io.sources.toIo()
+
+    AxiLite4SpecRenamer(clint)
+    AxiLite4SpecRenamer(plic)
 
     val priv = cpu.framework.getService[PrivilegedPlugin].io
     priv.int.machine.timer       := clintCtrl.io.timerInterrupt(0)

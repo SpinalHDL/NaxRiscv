@@ -227,7 +227,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
       useLen       = true,
       useLast      = true,
       useResp      = true,
-      useProt      = false,
+      useProt      = true,
       useStrb      = true
     )
 
@@ -237,6 +237,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
     axi.ar.valid := read.cmd.valid
     axi.ar.addr  := read.cmd.address
     axi.ar.id    := read.cmd.id
+    axi.ar.prot  := B"010"
     axi.ar.len   := p.lineSize*8/p.dataWidth-1
     axi.ar.size  := log2Up(p.dataWidth/8)
     axi.ar.setBurstINCR()
@@ -254,6 +255,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
     axi.aw.valid := aw.valid
     axi.aw.addr  := aw.address
     axi.aw.id    := aw.id
+    axi.aw.prot  := B"010"
     axi.aw.len   := p.lineSize*8/p.dataWidth-1
     axi.aw.size  := log2Up(p.dataWidth/8)
     axi.aw.setBurstINCR()

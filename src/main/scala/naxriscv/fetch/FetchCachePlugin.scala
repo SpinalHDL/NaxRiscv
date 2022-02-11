@@ -87,7 +87,7 @@ case class FetchL1Bus(physicalWidth : Int,
       useLen       = true,
       useLast      = true,
       useResp      = true,
-      useProt      = false,
+      useProt      = true,
       useStrb      = false
     )
 
@@ -95,6 +95,7 @@ case class FetchL1Bus(physicalWidth : Int,
     axi.ar.valid := cmd.valid
     axi.ar.addr  := cmd.address
     axi.ar.id    := 0
+    axi.ar.prot  := B"110"
     axi.ar.len   := lineSize*8/dataWidth-1
     axi.ar.size  := log2Up(dataWidth/8)
     axi.ar.setBurstINCR()
