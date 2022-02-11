@@ -46,6 +46,20 @@ On Artix 7 speed grade 3 :
 - 13.1 KLUT, 9.3 KFF, 13 BRAM, 4 DSP
 - 145 Mhz
 
+An alternative configuration to get more performance is 
+- 3 execution unit (2\*Int/Shift/Branch, 1\*load/store/mul/div/csr/env) :
+
+Performance :
+- Dhrystone   : 2.59 DMIPS/Mhz    (-O3 -fno-common -fno-inline)
+- Coremark    : 4.70 Coremark/Mhz (-O3 and so many more random flags)
+- Embench-iot : 1.55 baseline     (-O2 -ffunction-sections)
+
+On Artix 7 speed grade 3 :
+- 15.0 KLUT, 9.5 KFF, 13 BRAM, 4 DSP
+- 145 Mhz
+
+To go further, increasing the GSHARE storage or implementing something as TAGE should help.
+
 # Project developpement and status
 
 - This project is free and open source
