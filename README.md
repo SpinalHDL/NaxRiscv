@@ -46,6 +46,14 @@ On Artix 7 speed grade 3 :
 - 13.1 KLUT, 9.3 KFF, 13 BRAM, 4 DSP
 - 145 Mhz
 
+# Project developpement and status
+
+- This project is free and open source
+- It can run upstream buildroot/linux on hardware (ArtyA7-35T / Litex)
+- It started in October 2021 without any funding
+- Currently looking for funding to implement more features (RV64, FPU, SMP, ...)
+- Unfortunately the project started with a single crew (not by wish), contribution are welcome.
+
 # Running Verilator simulation
 
 See src/test/cpp/naxriscv/README.md
