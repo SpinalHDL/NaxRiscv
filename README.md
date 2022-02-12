@@ -50,9 +50,9 @@ An alternative configuration to get more performance is
 - 3 execution unit (2\*Int/Shift/Branch, 1\*load/store/mul/div/csr/env) :
 
 Performance :
-- Dhrystone   : 2.59 DMIPS/Mhz    (-O3 -fno-common -fno-inline)
-- Coremark    : 4.70 Coremark/Mhz (-O3 and so many more random flags)
-- Embench-iot : 1.55 baseline     (-O2 -ffunction-sections)
+- Dhrystone   : 2.59 DMIPS/Mhz    1.42 IPC (-O3 -fno-common -fno-inline)
+- Coremark    : 4.70 Coremark/Mhz 1.19 IPC (-O3 and so many more random flags)
+- Embench-iot : 1.55 baseline     1.32 IPC (-O2 -ffunction-sections)
 
 On Artix 7 speed grade 3 :
 - 15.0 KLUT, 9.5 KFF, 13 BRAM, 4 DSP
