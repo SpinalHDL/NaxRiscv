@@ -134,8 +134,6 @@ object Config{
       sqSize = 16,
       loadToCacheBypass = true,
       lqToCachePipelined = true,
-      hazardPedictionEntries = 512,
-      hazardPredictionTagWidth = 16,
       hitPedictionEntries = 1024,
       translationStorageParameter = MmuStorageParameter(
         levels   = List(
@@ -206,7 +204,7 @@ object Config{
     plugins += new SrcPlugin("EU0", earlySrc = true)
     plugins += new IntAluPlugin("EU0", aluStage = 0)
     plugins += new ShiftPlugin("EU0" , aluStage = 0)
-//    plugins += new BranchPlugin("EU0")
+    plugins += new BranchPlugin("EU0")
 //    plugins += new LoadPlugin("EU0")
 //    plugins += new StorePlugin("EU0")
 
@@ -216,7 +214,7 @@ object Config{
     plugins += new DivPlugin("EU1", writebackAt = 2)
 //    plugins += new IntAluPlugin("EU1")
 //    plugins += new ShiftPlugin("EU1")
-    plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
+//    plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
     plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
@@ -231,8 +229,8 @@ object Config{
 //    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
 //    plugins += new SrcPlugin("EU2")
 //    plugins += new LoadPlugin("EU2")
-
-
+//
+//
 //    plugins += new ExecutionUnitBase("EU3", writebackCountMax = 0)
 //    plugins += new SrcPlugin("EU3")
 //    plugins += new StorePlugin("EU3")
@@ -247,17 +245,29 @@ object Config{
 //    plugins += new LoadPlugin("EU2")
 //    plugins += new StorePlugin("EU2")
 
-//    plugins += new ExecutionUnitBase("EU3")
-//    plugins += new SrcPlugin("EU3")
-//    plugins += new IntAluPlugin("EU3")
-//    plugins += new ShiftPlugin("EU3")
-//    plugins += new BranchPlugin("EU3")
+    plugins += new ExecutionUnitBase("EU4")
+    plugins += new SrcPlugin("EU4")
+    plugins += new IntAluPlugin("EU4")
+    plugins += new ShiftPlugin("EU4")
+    plugins += new BranchPlugin("EU4")
 
 
 //
 //    plugins += new ExecutionUnitBase("EU5", writebackCountMax = 0)
 //    plugins += new SrcPlugin("EU5")
 //    plugins += new StorePlugin("EU5")
+
+//    plugins += new ExecutionUnitBase("EU5", writebackCountMax = 1)
+//    plugins += new MulPlugin("EU5", writebackAt = 2, staticLatency = false)
+//    plugins += new DivPlugin("EU5", writebackAt = 2)
+//    plugins += new EnvCallPlugin("EU5")(rescheduleAt = 2)
+//    plugins += new CsrAccessPlugin("EU5")(
+//      decodeAt = 0,
+//      readAt = 1,
+//      writeAt = 2,
+//      writebackAt = 2,
+//      staticLatency = false
+//    )
 
     plugins
   }
@@ -533,5 +543,6 @@ Geometric SD         1.21
 Geometric range      0.51
 
 
+1.63065 + 1.24106 + 1.67444 + 1.28898 + 1.31207 + 1.89032 + 1.27391 + 1.11954 + 1.8445 + 1.5426 + 1.36446 + 1.45095 + 1.35236 + 1.30745 + 1.11382 + 0.723316 + 0.907167 + 1.55149 + 1.1772 + 1.04995 + 1.3341 + 1.07459
 
  */

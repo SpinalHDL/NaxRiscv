@@ -135,17 +135,18 @@ class LsuPlugin(lqSize: Int,
                 translationStorageParameter : Any,
                 loadTranslationParameter : Any,
                 storeTranslationParameter : Any,
-                hazardPedictionEntries : Int,
-                hazardPredictionTagWidth : Int,
                 hitPedictionEntries : Int,
                 hitPredictionCounterWidth : Int = 6,
                 hitPredictionErrorPenality : Int = 20,
+                hazardPedictionEntries : Int = 0,    //Seems to reduce performance to have it enable XD
+                hazardPredictionTagWidth : Int = 16,
                 loadToCacheBypass : Boolean = true,  //Reduce the load latency by one cycle. When the LoadPlugin calculate the address it directly start the query the cache
                 lqToCachePipelined : Boolean = true, //Add one additional stage between LQ arbitration and the cache query
                 loadFeedAt : Int = 0, //Stage at which the d$ cmd is sent
                 loadCheckSqAt : Int = 1,
                 loadCtrlAt : Int = 3) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy{
 
+  val withHazardPrediction = hazardPedictionEntries != 0
   val wordWidth = Global.XLEN.get
   val wordBytes = wordWidth/8
   val wordSizeWidth = LsuUtils.sizeWidth(wordWidth)
@@ -320,7 +321,7 @@ class LsuPlugin(lqSize: Int,
           val cacheRefillAny = Reg(Bool())
           val sq     = Reg(Bool())
           val sqId   = Reg(SQ_ID)
-          val sqPredicted = Reg(Bool())
+          val sqPredicted = withHazardPrediction generate Reg(Bool())
           val commitSet = False //Readed by store lqcheck to save one cycle of hazard
           val commit = Reg(Bool()) setWhen(commitSet)
 
@@ -363,7 +364,7 @@ class LsuPlugin(lqSize: Int,
         val address = Reg(UInt(postWidth bits))
       }
 
-      val hazardPrediction = new Area{
+      val hazardPrediction = withHazardPrediction generate new Area{
         def hash(pc : UInt)  : Bits = pc(Fetch.SLICE_RANGE_LOW + log2Up(hazardPedictionEntries), hazardPredictionTagWidth bits).asBits
         def index(pc : UInt) : UInt = pc(Fetch.SLICE_RANGE_LOW, log2Up(hazardPedictionEntries) bits)
         case class HazardPredictionEntry() extends Bundle {
@@ -514,7 +515,7 @@ class LsuPlugin(lqSize: Int,
         writeMem(mem.writeRd, port.writeRd)
         writeMem(mem.lr, port.lr)
 
-        val hazardPrediction = new Area{
+        val hazardPrediction = withHazardPrediction generate new Area{
           val read = lq.hazardPrediction.mem.readSyncPort
           read.cmd.valid := port.earlySample
           read.cmd.payload := lq.hazardPrediction.index(port.earlyPc)
@@ -553,9 +554,16 @@ class LsuPlugin(lqSize: Int,
             entry.address.size := port.size
             entry.address.unsigned := port.unsigned
             entry.address.mask := AddressToMask(port.address, port.size, wordBytes)
-            entry.waitOn.sq   := hazardPrediction.waitSq
-            entry.waitOn.sqId := hazardPrediction.sqId
-            entry.waitOn.sqPredicted := hazardPrediction.waitSq
+            withHazardPrediction match {
+              case true => {
+                entry.waitOn.sq := hazardPrediction.waitSq
+                entry.waitOn.sqId := hazardPrediction.sqId
+                entry.waitOn.sqPredicted := hazardPrediction.waitSq
+              }
+              case false => {
+                entry.waitOn.sq := False
+              }
+            }
           }
         }
       }
@@ -667,7 +675,7 @@ class LsuPlugin(lqSize: Int,
             assert(loadPorts.size == 1, "Not suported yet")
             val port = loadPorts.head.port
             val portPush = push.head
-            isValid setWhen(port.valid) // && !portPush.hazardPrediction.waitSq   removed to help timings
+            isValid setWhen(port.valid)
             when(!arbitration.output.valid){
               LQ_SEL                  := port.lqId
               LQ_SEL_OH               := portPush.oh
@@ -676,7 +684,10 @@ class LsuPlugin(lqSize: Int,
               ROB.ID                  := port.robId
               decoder.PHYS_RD         := port.physicalRd
               LOAD_FRESH := True
-              LOAD_FRESH_WAIT_SQ := portPush.hazardPrediction.waitSq
+              LOAD_FRESH_WAIT_SQ := (withHazardPrediction match {
+                case true  => portPush.hazardPrediction.waitSq
+                case false => False
+              })
 
               HIT_SPECULATION := portPush.hitPrediction.likelyToHit
               when(port.valid && isFireing){
@@ -1182,10 +1193,12 @@ class LsuPlugin(lqSize: Int,
           val stage = stages(3)
           import stage._
 
-          val lqPredictionPort = lq.hazardPrediction.mem.writePort
-          lqPredictionPort.valid    := isFireing && YOUNGER_LOAD_RESCHEDULE
-          lqPredictionPort.address  := lq.hazardPrediction.index(YOUNGER_LOAD_PC)
-          lqPredictionPort.data.tag := lq.hazardPrediction.hash(YOUNGER_LOAD_PC)
+          val hazardPrediction = withHazardPrediction generate new Area {
+            val writePort = lq.hazardPrediction.mem.writePort
+            writePort.valid := isFireing && YOUNGER_LOAD_RESCHEDULE
+            writePort.address := lq.hazardPrediction.index(YOUNGER_LOAD_PC)
+            writePort.data.tag := lq.hazardPrediction.hash(YOUNGER_LOAD_PC)
+          }
 
           setup.storeTrap.robId    := STORE_TRAP_PORT_ROB_ID
           when(STORE_DO_TRAP) {
