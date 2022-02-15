@@ -1824,7 +1824,7 @@ void simLoop(){
 
                         if(pc == statsToggleAt) {
                             whitebox->statsCaptureEnable = !whitebox->statsCaptureEnable;
-                            cout << "Stats capture " << whitebox->statsCaptureEnable << " at " << main_time << endl;
+                            //cout << "Stats capture " << whitebox->statsCaptureEnable << " at " << main_time << endl;
                         }
                         if(pc == statsStartAt) whitebox->statsCaptureEnable = true;
                         if(pc == statsStopAt) whitebox->statsCaptureEnable = false;

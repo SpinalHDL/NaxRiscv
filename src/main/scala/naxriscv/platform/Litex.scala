@@ -94,11 +94,35 @@ boot 0x40f00000
 dtc -O dtb -o rv32.dtb arty_a7.dts
 py3tftp -p 69
 
+picocom -b 115200 /dev/ttyUSB1 --imap lfcrlf
+
+python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet  --build --load
+
+export DISPLAY=:0
+twm &
+xinit Xorg
+
+chocolate-doom -1 -timedemo demo1.lmp
+Nax : timed 5026 gametics in 4958 realtics (35.480034 fps)
+    : timed 5026 gametics in 4866 realtics (36.150841 fps)
+Vex : timed 5026 gametics in 5606 realtics (31.378880 fps)
+
+chocolate-doom -1 -timedemo demo1.lmp  -noblit
+Nax : timed 5026 gametics in 2040 realtics (86.230392 fps)
+      timed 5026 gametics in 1965 realtics (89.521629 fps)
+Vex : timed 5026 gametics in 3851 realtics (45.679043 fps)
+
+no draw no blit :
+Nax : timed 5026 gametics in 277 realtics (635.054138 fps
+
+
+
 make CROSS_COMPILE=riscv-none-embed- PLATFORM=litex/vexriscv
 cp build/platform/litex/vexriscv/firmware/fw_jump.bin ../../litex_naxriscv_test/images/opensbi.bin
 cp build/platform/litex/vexriscv/firmware/fw_jump.elf ../../litex_naxriscv_test/images/opensbi.elf
 
-bus_timeout 1000000
+SDL_VIDEODRIVER=fbcon chocolate-doom
+SDL_VIDEODRIVER=directfb chocolate-doom
 
 
 nax after rdtime impl =>
