@@ -65,7 +65,7 @@ class BranchPlugin(euId : String,
     val fetch = getService[FetchPlugin]
     val commit = getService[CommitService]
     val rob = getService[RobService]
-    val sliceShift = if(Fetch.RVC) 1 else 2
+    val sliceShift = if(Global.RVC) 1 else 2
     val branchContext = setup.withBranchContext generate getService[BranchContextPlugin]
     val bck = setup.withBranchContext generate branchContext.keys.get
     import bck._
@@ -130,7 +130,7 @@ class BranchPlugin(euId : String,
 
       def target = if(setup.withBranchContext)  stage(PC, "TARGET") else stage(PC, "TRUE")
 
-      MISSALIGNED := (if(Fetch.RVC) False else target(0, sliceShift bits) =/= 0 && COND)
+      MISSALIGNED := (if(Global.RVC) False else target(0, sliceShift bits) =/= 0 && COND)
 
       setup.reschedule.valid := isFireing && SEL && (MISSPREDICTED || MISSALIGNED)
       setup.reschedule.robId := ROB.ID

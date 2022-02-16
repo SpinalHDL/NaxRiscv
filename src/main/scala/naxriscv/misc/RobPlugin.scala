@@ -13,8 +13,9 @@ import spinal.lib.pipeline.Stageable
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-class RobPlugin(completionWithReg : Boolean = false) extends Plugin with RobService{
-
+class RobPlugin(robSize : Int,
+                completionWithReg : Boolean = false) extends Plugin with RobService{
+  ROB.SIZE.set(robSize)
 //  override val ROB_DEPENDENCY = Stageable(UInt(robDepth bits))
 //  override def robDepth = depth
   case class Completion(bus : Flow[RobCompletion])

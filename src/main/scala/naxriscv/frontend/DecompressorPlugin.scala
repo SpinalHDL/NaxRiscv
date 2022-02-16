@@ -11,6 +11,8 @@ import naxriscv.Frontend._
 
 
 class DecompressorPlugin() extends Plugin{
+  Global.RVC.set(false)
+
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     frontend.retain()

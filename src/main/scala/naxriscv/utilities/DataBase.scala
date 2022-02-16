@@ -1,5 +1,6 @@
 package naxriscv.utilities
 
+import naxriscv.Global
 import spinal.core.{BitCount, ScopeProperty}
 
 import scala.collection.mutable
@@ -23,17 +24,19 @@ object NaxThing{
 }
 
 class NaxThing[T] extends Thing[T]{
-  def get() : T = NaxDataBase.get.apply(this)
-  def set(value : T) = NaxDataBase.update(this, value)
+  def get() : T = NaxScope.get.apply(this)
+  def set(value : T) = NaxScope.update(this, value)
 }
 
 object NaxParameter {
   def apply[T] = new NaxThing[T]
 }
 
-object NaxDataBase extends ScopeProperty[DataBase]{
-  def create() = {
+object NaxScope extends ScopeProperty[DataBase]{
+  def create(xlen : Int) : DataBase = {
     this.set(new DataBase)
+    Global.XLEN.set(xlen)
+    this.get
   }
 }
 

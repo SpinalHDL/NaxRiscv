@@ -20,27 +20,12 @@ import spinal.lib.misc.plic.WishbonePlic
 import scala.collection.mutable.ArrayBuffer
 import scala.sys.exit
 
+
+class NaxRiscv(plugins : Seq[Plugin]) extends Component{
+  val framework = new Framework(plugins)
+}
+
 object Config{
-  def properties() = {
-    NaxDataBase.create()
-
-    Fetch.RVC.set(false)
-    Fetch.FETCH_DATA_WIDTH.set(64)
-    Fetch.INSTRUCTION_WIDTH.set(32)
-    Frontend.DECODE_COUNT.set(2)
-    Global.COMMIT_COUNT.set(2)
-    Global.XLEN.set(32)
-    ROB.SIZE.set(64)
-
-//    Fetch.RVC.set(false)
-//    Fetch.FETCH_DATA_WIDTH.set(32)
-//    Fetch.INSTRUCTION_WIDTH.set(32)
-//    Frontend.DECODE_COUNT.set(1)
-//    Global.COMMIT_COUNT.set(1)
-//    Global.XLEN.set(32)
-//    ROB.SIZE.set(64)
-  }
-
   def plugins(resetVector : BigInt = 0x80000000l,
               withRdTime : Boolean = true,
               ioRange    : UInt => Bool = _(31 downto 28) === 0x1,
@@ -63,7 +48,8 @@ object Config{
       cacheSize = 4096*4,
       wayCount = 4,
       injectionAt = 2,
-      memDataWidth = Fetch.FETCH_DATA_WIDTH,
+      fetchDataWidth = 64,
+      memDataWidth = 64,
       reducedBankWidth = false,
       hitsWithTranslationWays = true,
       translationStorageParameter = MmuStorageParameter(
@@ -90,7 +76,10 @@ object Config{
       //      translationStorageParameter = null,
       //      translationPortParameter  = StaticAddressTranslationParameter(rspAt = 1),
     )
-    plugins += new AlignerPlugin(inputAt = 2)
+    plugins += new AlignerPlugin(
+      decodeCount = 2,
+      inputAt = 2
+    )
 
     //FRONTEND
     plugins += new FrontendPlugin()
@@ -181,9 +170,11 @@ object Config{
 
     //MISC
     plugins += new RobPlugin(
+      robSize = 64,
       completionWithReg = false
     )
     plugins += new CommitPlugin(
+      commitCount = 2,
       ptrCommitRetimed = true
     )
     plugins += new RegFilePlugin(
@@ -283,11 +274,12 @@ object Gen extends App{
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
     //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
 
-    val report = spinalConfig.generateVerilog(new Component {
-      setDefinitionName("NaxRiscv")
-      Config.properties()
-      val framework = new Framework(Config.plugins(withRdTime = false))
-    })
+    def plugins = {
+      NaxScope.create(xlen = 32)
+      Config.plugins(withRdTime = false)
+    }
+
+    val report = spinalConfig.generateVerilog(new NaxRiscv(plugins))
     val doc = report.toplevel.framework.getService[DocPlugin]
     doc.genC()
 
@@ -310,7 +302,7 @@ object Gen extends App{
 
     spinalConfig.generateVerilog(wrapper(new Component {
       setDefinitionName("NaxRiscvSynt")
-      Config.properties()
+      NaxScope.create(xlen = 32)
       val plugins = Config.plugins()
       val framework = new Framework(plugins)
     }))

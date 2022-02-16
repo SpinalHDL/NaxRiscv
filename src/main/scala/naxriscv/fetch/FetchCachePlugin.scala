@@ -1,5 +1,6 @@
 package naxriscv.fetch
 
+import naxriscv.Fetch
 import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationService, JumpService, PerformanceCounterService, PulseHandshake}
 import naxriscv.utilities._
 import spinal.core._
@@ -136,6 +137,7 @@ case class FetchL1Bus(physicalWidth : Int,
 class FetchCachePlugin(val cacheSize : Int,
                        val wayCount : Int,
                        val memDataWidth : Int,
+                       val fetchDataWidth : Int,
                        val translationStorageParameter : Any,
                        val translationPortParameter : Any,
                        val lineSize : Int = 64,
@@ -150,6 +152,7 @@ class FetchCachePlugin(val cacheSize : Int,
                        val reducedBankWidth : Boolean = false,
                        val tagsReadAsync : Boolean = true,
                        val refillEventId : Int = PerformanceCounterService.ICACHE_REFILL) extends Plugin with FetchPipelineRequirements {
+  Fetch.FETCH_DATA_WIDTH.set(fetchDataWidth)
   override def stagesCountMin = injectionAt + 1
 
   val mem = create early master(FetchL1Bus(

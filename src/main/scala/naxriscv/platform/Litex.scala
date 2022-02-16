@@ -1,14 +1,14 @@
 package naxriscv.platform
 
-import naxriscv.Config
+import naxriscv.{Config, NaxRiscv}
 import naxriscv.compatibility.{EnforceSyncRamPhase, MultiPortWritesSymplifier}
 import naxriscv.fetch.FetchAxi4
 import naxriscv.lsu.{DataCacheAxi4, LsuPeripheralAxiLite4}
 import naxriscv.misc.PrivilegedPlugin
-import naxriscv.utilities.Framework
+import naxriscv.utilities.{Framework, NaxScope}
 import spinal.core._
 import spinal.lib._
-import spinal.lib.bus.amba4.axi.Axi4SpecRenamer
+import spinal.lib.bus.amba4.axi.{Axi4, Axi4ReadOnlyArbiter, Axi4SpecRenamer}
 import spinal.lib.bus.amba4.axilite.AxiLite4SpecRenamer
 import spinal.lib.bus.misc.SizeMapping
 import spinal.lib.misc.{AxiLite4Clint, WishboneClint}
@@ -16,31 +16,44 @@ import spinal.lib.misc.plic.{AxiLite4Plic, WishbonePlic}
 
 
 class NaxRiscvLitex extends Component{
-  val cpu = new Component {
-    Config.properties()
-    val ramDataWidth = 128
-    val ioDataWidth  =  32
-    val plugins = Config.plugins(
-      resetVector = 0,
-      ioRange    = _(30, 2 bits) =/= U"01",
-      fetchRange = a => SizeMapping(0x40000000, 0x10000000).hit(a) || SizeMapping(0, 0x00020000).hit(a)
-    )
-    plugins += new FetchAxi4(
-      ramDataWidth = ramDataWidth,
-      ioDataWidth  =  ioDataWidth
-    )
-    plugins += new DataCacheAxi4(
-      dataWidth = ramDataWidth
-    )
-    plugins += new LsuPeripheralAxiLite4()
-    val framework = new Framework(plugins)
-  }
+
+  NaxScope.create(xlen = 32)
+  val ramDataWidth = 128
+  val ioDataWidth  =  32
+  val plugins = Config.plugins(
+    resetVector = 0,
+    ioRange    = _(30, 2 bits) =/= U"01",
+    fetchRange = a => SizeMapping(0x40000000, 0x10000000).hit(a) || SizeMapping(0, 0x00020000).hit(a)
+  )
+  plugins += new FetchAxi4(
+    ramDataWidth = ramDataWidth,
+    ioDataWidth  = ioDataWidth
+  )
+  plugins += new DataCacheAxi4(
+    dataWidth = ramDataWidth
+  )
+  plugins += new LsuPeripheralAxiLite4()
+
+  val cpu = new NaxRiscv(plugins)
 
   val ram = new Area{
     val ibus = cpu.framework.getService[FetchAxi4].logic.axiRam.toIo()
     val dbus = cpu.framework.getService[DataCacheAxi4].logic.axi.toIo()
     Axi4SpecRenamer(ibus)
     Axi4SpecRenamer(dbus)
+
+//    val ibus = cpu.framework.getService[FetchAxi4].logic.axiRam
+//    val dbus = cpu.framework.getService[DataCacheAxi4].logic.axi
+//
+//    val arbiter = Axi4ReadOnlyArbiter(dbus.config.copy(idWidth = (dbus.config.idWidth max ibus.config.idWidth) + 1), inputsCount = 2)
+//    arbiter.io.inputs(0) << ibus
+//    arbiter.io.inputs(1) << dbus.toReadOnly()
+//
+//    val bus = master(Axi4(arbiter.outputConfig))
+//    bus << arbiter.io.output
+//    bus << dbus.toWriteOnly()
+//
+//    Axi4SpecRenamer(bus)
   }
 
   val peripheral = new Area{
@@ -80,6 +93,43 @@ object LitexGen extends App{
   spinalConfig.generateVerilog(new NaxRiscvLitex)
 }
 
+object Miaou extends App{
+  import scala.tools.nsc.Settings
+  import scala.tools.nsc.interpreter.IMain
+  var global = 0
+
+  def evaluate() = {
+    val clazz = prepareClass
+    val settings = new Settings
+    settings.usejavacp.value = true
+    settings.deprecation.value = true
+
+    val aaa = 32
+    val eval = new IMain(settings)
+    val evaluated = eval.interpret(clazz)
+    val res = eval.valueOfTerm("res0").get.asInstanceOf[Int]
+    println(res) //yields 9
+    println(global) //yields 9
+  }
+
+  private def prepareClass: String = {
+    s"""
+       |import spinal.core._
+       |import spinal.lib._
+       |import spinal.lib.bus.misc.SizeMapping
+       |import naxriscv.platform._
+       |val z = SizeMapping(0x40000000, 0x10000000)
+       |val x = 4
+       |val y = 5
+       |Miaou.global += 1
+       |x + y
+       |""".stripMargin
+  }
+
+  evaluate()
+}
+
+
 /*
 python3 -m litex_boards.targets.digilent_arty --cpu-type=naxriscv --with-ethernet --eth-ip 192.168.178.43 --eth-dynamic-ip  --load
 litex_sim --cpu-type=naxriscv --with-sdram --sdram-module=MT41K128M16 --sdram-data-width=16  --sdram-init images/sim.json --trace --trace-fst --trace-start 2000000000000
@@ -102,18 +152,58 @@ export DISPLAY=:0
 twm &
 xinit Xorg
 
-chocolate-doom -1 -timedemo demo1.lmp
+
+chocolate-doom -2 &
+sleep 3
+WID=$(xdotool getwindowfocus)
+xdotool windowmove $WID 100 0
+
+chocolate-doom -1 &
+sleep 3
+WID=$(xdotool getwindowfocus)
+xdotool windowmove $WID 100 100
+
+chocolate-doom -1 &
+sleep 3
+WID=$(xdotool getwindowfocus)
+xdotool windowmove $WID 100 300
+
+chocolate-doom -2 -timedemo demo1.lmp
 Nax : timed 5026 gametics in 4958 realtics (35.480034 fps)
-    : timed 5026 gametics in 4866 realtics (36.150841 fps)
+      timed 5026 gametics in 4866 realtics (36.150841 fps)
+      timed 5026 gametics in 4219 realtics (41.694714 fps)
+      timed 5026 gametics in 3692 realtics (47.646263 fps)
+      timed 5026 gametics in 3444 realtics (51.077236 fps) (no more memcpy for doom flush)
+      timed 5026 gametics in 2369 realtics (74.254959 fps) (-1)
 Vex : timed 5026 gametics in 5606 realtics (31.378880 fps)
 
-chocolate-doom -1 -timedemo demo1.lmp  -noblit
+chocolate-doom -2 -timedemo demo1.lmp  -noblit
 Nax : timed 5026 gametics in 2040 realtics (86.230392 fps)
       timed 5026 gametics in 1965 realtics (89.521629 fps)
+      timed 5026 gametics in 1926 realtics (91.334373 fps)
+      timed 5026 gametics in 1789 realtics (98.328674 fps)
+      timed 5026 gametics in 1781 realtics (98.770355 fps)
 Vex : timed 5026 gametics in 3851 realtics (45.679043 fps)
 
 no draw no blit :
 Nax : timed 5026 gametics in 277 realtics (635.054138 fps
+
+
+root@buildroot:~# ramspeed -b 1 -g  1
+RAMspeed (GENERIC) v2.6.0 by Rhett M. Hollander and Paul V. Bolotoff, 2002-09
+
+1Gb per pass mode
+
+INTEGER & WRITING         1 Kb block: 378.26 MB/s
+INTEGER & WRITING         2 Kb block: 382.95 MB/s
+INTEGER & WRITING         4 Kb block: 379.85 MB/s
+INTEGER & WRITING         8 Kb block: 382.67 MB/s
+INTEGER & WRITING        16 Kb block: 367.09 MB/s
+INTEGER & WRITING        32 Kb block: 140.12 MB/s
+INTEGER & WRITING        64 Kb block: 124.59 MB/s
+INTEGER & WRITING       128 Kb block: 124.20 MB/s
+INTEGER & WRITING       256 Kb block: 121.18 MB/s
+INTEGER & WRITING       512 Kb block: 122.01 MB/s
 
 
 
