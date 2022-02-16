@@ -71,19 +71,22 @@ case class DataStoreCmd(postTranslationWidth: Int,
   val address = UInt(postTranslationWidth bits)
   val data = Bits(dataWidth bits)
   val mask = Bits(dataWidth/8 bits)
-  val generation  = Bool()
+  val generation = Bool()
   val io = Bool()
   val flush = Bool() //Flush all the ways for the given address's line. May also set rsp.redo
   val flushFree = Bool()
+  val prefetch = Bool()
 }
 
-case class DataStoreRsp(dataWidth : Int, refillCount : Int) extends Bundle {
+case class DataStoreRsp(addressWidth : Int, refillCount : Int) extends Bundle {
   val fault = Bool()
   val redo = Bool()
   val refillSlot = Bits(refillCount bits) //Zero when refillSlotAny
   val refillSlotAny = Bool() //Not valid if !miss
   val generationKo = Bool() //Ignore everything else if this is set
   val flush = Bool()
+  val prefetch = Bool()
+  val address = UInt(addressWidth bits)
 }
 
 
@@ -250,8 +253,9 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
     axi.r.ready    := (if(p.withReducedBandwidth) read.rsp.ready else True)
 
     //WRITE
-    val (awRaw, w) = StreamFork2(write.cmd)
-    val aw = awRaw.throwWhen(!awRaw.first)
+    val (awRaw, wRaw) = StreamFork2(write.cmd)
+    val awFiltred = awRaw.throwWhen(!awRaw.first)
+    val aw = awFiltred.stage()
     axi.aw.valid := aw.valid
     axi.aw.addr  := aw.address
     axi.aw.id    := aw.id
@@ -261,6 +265,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
     axi.aw.setBurstINCR()
     aw.ready := axi.aw.ready
 
+    val w = wRaw.haltWhen(awFiltred.valid)
     axi.w.valid := w.valid
     axi.w.data  := w.data
     axi.w.strb.setAll()
@@ -401,6 +406,7 @@ class DataCache(val cacheSize: Int,
   val REFILL_SLOT = Stageable(Bits(refillCount bits))
   val REFILL_SLOT_FULL = Stageable(Bool())
   val GENERATION, GENERATION_OK = Stageable(Bool())
+  val PREFETCH = Stageable(Bool())
   val FLUSH = Stageable(Bool())
   val FLUSH_FREE = Stageable(Bool())
 
@@ -533,7 +539,6 @@ class DataCache(val cacheSize: Int,
     val free = B(OHMasking.first(slots.map(!_.valid)))
     val full = slots.map(_.valid).andR
 
-    val banksWrite = CombInit(io.mem.read.rsp.valid)
     val push = Flow(new Bundle{
       val address = UInt(postTranslationWidth bits)
       val way = UInt(log2Up(wayCount) bits)
@@ -577,16 +582,20 @@ class DataCache(val cacheSize: Int,
       val way = slots.map(_.way).read(io.mem.read.rsp.id)
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
 
+
+      val bankWriteNotif = B(0, bankCount bits)
       for ((bank, bankId) <- banks.zipWithIndex) {
         if (!reducedBankWidth) {
-          bank.write.valid := io.mem.read.rsp.valid && way=== bankId
+          bankWriteNotif(bankId) := io.mem.read.rsp.valid && way === bankId
+          bank.write.valid := bankWriteNotif(bankId)
           bank.write.address := rspAddress(lineRange) @@ wordIndex
           bank.write.data := io.mem.read.rsp.data
         } else {
           val sel = U(bankId) - way
           val groupSel = way(log2Up(bankCount) - 1 downto log2Up(bankCount / memToBankRatio))
           val subSel = sel(log2Up(bankCount / memToBankRatio) - 1 downto 0)
-          bank.write.valid := io.mem.read.rsp.valid && groupSel === (bankId >> log2Up(bankCount / memToBankRatio))
+          bankWriteNotif(bankId) := io.mem.read.rsp.valid && groupSel === (bankId >> log2Up(bankCount / memToBankRatio))
+          bank.write.valid := bankWriteNotif(bankId)
           bank.write.address := rspAddress(lineRange) @@ wordIndex @@ (subSel)
           bank.write.data := io.mem.read.rsp.data.subdivideIn(bankCount / memToBankRatio slices)(subSel)
         }
@@ -645,7 +654,6 @@ class DataCache(val cacheSize: Int,
     val free = B(OHMasking.first(slots.map(!_.valid)))
     val full = slots.map(_.valid).andR
 
-    val banksWrite = CombInit(io.mem.read.rsp.valid)
     val push = Flow(new Bundle{
       val address = UInt(postTranslationWidth bits)
       val way = UInt(log2Up(wayCount) bits)
@@ -1019,6 +1027,7 @@ class DataCache(val cacheSize: Int,
       IO := io.store.cmd.io && !io.store.cmd.flush
       FLUSH := io.store.cmd.flush
       FLUSH_FREE := io.store.cmd.flushFree
+      PREFETCH := io.store.cmd.prefetch
 
       GENERATION := io.store.cmd.generation
       WAYS_HAZARD := 0
@@ -1073,7 +1082,7 @@ class DataCache(val cacheSize: Int,
     val ctrl = new Area {
       import controlStage._
 
-      GENERATION_OK := GENERATION === target
+      GENERATION_OK := GENERATION === target || PREFETCH
 
       val reservation = tagsOrStatusWriteArbitration.create(3)
       val refillWay = CombInit(wayRandom.value)
@@ -1082,8 +1091,9 @@ class DataCache(val cacheSize: Int,
       val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, refillWay)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
       val wasClean = !(B(STATUS.map(_.dirty)) & WAYS_HITS).orR
+      val bankBusy = !FLUSH && !PREFETCH && (WAYS_HITS & refill.read.bankWriteNotif).orR
 
-      REDO := MISS || waysHitHazard || refill.banksWrite || refillHit || (wasClean && !reservation.win)
+      REDO := MISS || waysHitHazard || bankBusy || refillHit || (wasClean && !reservation.win)
       MISS := !WAYS_HIT && !waysHitHazard && !refillHit
 
       val canRefill = !refill.full && !lineBusy && !load.ctrl.startRefill && reservation.win && !(refillWayNeedWriteback && writeback.full)
@@ -1093,7 +1103,7 @@ class DataCache(val cacheSize: Int,
       REFILL_SLOT_FULL := MISS && !refillHit && refill.full
       REFILL_SLOT := refill.free.andMask(askRefill)
 
-      val writeCache = isValid && GENERATION_OK && !REDO
+      val writeCache = isValid && GENERATION_OK && !REDO && !PREFETCH
       val setDirty = writeCache && wasClean
       val wayId = OHToUInt(WAYS_HITS)
       val bankHitId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_POST_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
@@ -1149,7 +1159,7 @@ class DataCache(val cacheSize: Int,
       }
 
       when(writeCache){
-        for((bank, bankId) <- banks.zipWithIndex){ //TODO fine bank write port usage
+        for((bank, bankId) <- banks.zipWithIndex) when(WAYS_HITS(bankId)){
           bank.write.valid := bankId === bankHitId
           bank.write.address := ADDRESS_POST_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
           bank.write.data.subdivideIn(cpuWordWidth bits).foreach(_ := CPU_WORD)
@@ -1169,7 +1179,7 @@ class DataCache(val cacheSize: Int,
         waysWrite.tag.loaded := False
       }
 
-      when(isValid && REDO && GENERATION_OK){
+      when(isValid && REDO && GENERATION_OK && !PREFETCH){
         target := !target
       }
     }
@@ -1185,6 +1195,8 @@ class DataCache(val cacheSize: Int,
       io.store.rsp.refillSlotAny := REFILL_SLOT_FULL
       io.store.rsp.refillSlot := REFILL_SLOT
       io.store.rsp.flush := FLUSH
+      io.store.rsp.prefetch := PREFETCH
+      io.store.rsp.address := ADDRESS_POST_TRANSLATION
     }
     pipeline.build()
   }

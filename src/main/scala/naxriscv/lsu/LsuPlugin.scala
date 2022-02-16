@@ -1345,12 +1345,17 @@ class LsuPlugin(lqSize: Int,
         ptr.commitNext := commitComb
       }
 
+
+      val prefetch = new Area{
+        val predictor = new PrefetchPredictor(
+          lineSize = cache.lineSize,
+          addressWidth = postWidth
+        )
+//        predictor.io.prediction.ready := True //TODO
+      }
+
       val writeback = new Area{
         val generation = RegInit(False)
-        //        val pipeline = new Pipeline {
-        //          val stages = Array.fill(3)(newStage()) //TODO
-        //          connect(stages)(List(M2S()))
-        //        }
 
         val waitOn = new Area{
           val refillSlot    = Reg(Bits(cache.refillCount bits)) init(0) //Zero when refillSlotAny
@@ -1366,12 +1371,16 @@ class LsuPlugin(lqSize: Int,
         }
 
         val feed = new Area{
+          val holdPrefetch = False
+          val prediction = prefetch.predictor.io.prediction.cmd.stage().haltWhen(holdPrefetch).toFlow
+//          prediction.valid clearWhen(True) //TODO remove
+
           //WARNING, setupCacheStore is also used by the peripheral controller to know what to do
           val io = sq.mem.io.readAsync(ptr.writeBackReal)
           val size = regs.map(_.address.size).read(ptr.writeBackReal)
           val data = mem.word.readAsync(ptr.writeBackReal)
           val skip = False //Used for store conditional
-          val doit = ptr.writeBack =/= ptr.commit && waitOn.ready
+          val doit = ptr.writeBack =/= ptr.commit && waitOn.ready && !prediction.valid
           val fire = CombInit(doit)
 
           setup.cacheStore.cmd.valid := doit
@@ -1380,12 +1389,22 @@ class LsuPlugin(lqSize: Int,
           setup.cacheStore.cmd.generation := generation
           setup.cacheStore.cmd.data.assignDontCare()
           setup.cacheStore.cmd.io := io
+          setup.cacheStore.cmd.prefetch := False
           switch(size){
             for(s <- 0 to log2Up(widthOf(setup.cacheStore.cmd.data)/8)) is(s){
               val w = (1 << s)*8
               setup.cacheStore.cmd.data.subdivideIn(w bits).foreach(_ := data(0, w bits))
             }
           }
+
+          when(prediction.valid){
+            setup.cacheStore.cmd.valid := True
+            setup.cacheStore.cmd.address := prediction.payload
+            setup.cacheStore.cmd.io := False
+            setup.cacheStore.cmd.prefetch := True
+          }
+
+
 
           ptr.writeBack := ptr.writeBack + U(fire)
         }
@@ -1408,17 +1427,26 @@ class LsuPlugin(lqSize: Int,
           sq.ptr.onFree.valid := False
           sq.ptr.onFree.payload := ptr.freeReal
 
-          when(delayed.last.valid && !delayed.last.generationKo && !delayed.last.flush){
+          prefetch.predictor.io.learn.valid := False
+          prefetch.predictor.io.learn.allocate := False
+          prefetch.predictor.io.learn.physical := delayed.last.address
+          when(delayed.last.valid && !delayed.last.generationKo && !delayed.last.flush && !delayed.last.prefetch){
+            prefetch.predictor.io.learn.valid := True
             when(delayed.last.redo) {
               waitOn.refillSlotSet := delayed.last.refillSlot
               waitOn.refillSlotAnySet := delayed.last.refillSlotAny
               generation := !generation
               ptr.writeBack := ptr.free
+              prefetch.predictor.io.learn.allocate := True
             } otherwise {
               sq.ptr.onFree.valid := True
             }
           }
+
+          prefetch.predictor.io.prediction.rsp.valid   := delayed.last.valid && delayed.last.prefetch
+          prefetch.predictor.io.prediction.rsp.payload := delayed.last.refillSlot.orR
         }
+
 
         when(feed.doit && feed.skip){
           setup.cacheStore.cmd.valid := False
@@ -1719,6 +1747,8 @@ class LsuPlugin(lqSize: Int,
       special.enabled := False
     }
 
+    store.writeback.feed.holdPrefetch setWhen(flush.busy)
+    store.writeback.feed.holdPrefetch setWhen(special.enabled)
 
     val whitebox = new AreaRoot{
       val stage = frontend.pipeline.dispatch
