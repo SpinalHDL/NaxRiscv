@@ -146,14 +146,14 @@ class LsuPlugin(lqSize: Int,
                 loadCheckSqAt : Int = 1,
                 loadCtrlAt : Int = 3) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy{
 
-  val withHazardPrediction = hazardPedictionEntries != 0
-  val wordWidth = Global.XLEN.get
-  val wordBytes = wordWidth/8
-  val wordSizeWidth = LsuUtils.sizeWidth(wordWidth)
-  val pageOffsetRange = 11 downto log2Up(wordBytes)
-  val pageNumberRange = Global.XLEN.get-1 downto 12
-  val pageOffsetWidth = pageOffsetRange.size
-  val pageNumberWidth = pageNumberRange.size
+  def withHazardPrediction = hazardPedictionEntries != 0
+  def wordWidth = Global.XLEN.get
+  def wordBytes = wordWidth/8
+  def wordSizeWidth = LsuUtils.sizeWidth(wordWidth)
+  def pageOffsetRange = 11 downto log2Up(wordBytes)
+  def pageNumberRange = Global.XLEN.get-1 downto 12
+  def pageOffsetWidth = pageOffsetRange.size
+  def pageNumberWidth = pageNumberRange.size
   override def postCommitBusy = setup.postCommitBusy
 
   val peripheralBus = create late master(LsuPeripheralBus(postWidth, wordWidth))

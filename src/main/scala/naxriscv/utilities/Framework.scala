@@ -16,12 +16,27 @@ trait Plugin extends Area with Service{
   def withPrefix(prefix : String) = setName(prefix + "_" + getName())
 
   val framework = Handle[Framework]()
+  val configsHandles = ArrayBuffer[Handle[_]]()
 
   def create = new {
+    def config[T](body : => T) : Handle[T] = {
+      val h = Handle{
+        framework.buildLock.retain()
+        val ret = framework.rework {
+          framework.configLock.await()
+          body
+        }
+        framework.buildLock.release()
+        ret
+      }
+      configsHandles += h
+      h
+    }
     def early[T](body : => T) : Handle[T] = {
       Handle{
         framework.buildLock.retain()
         val ret = framework.rework {
+          framework.earlyLock.await()
           body
         }
         framework.buildLock.release()
@@ -56,12 +71,19 @@ class FrameworkConfig(){
 }
 
 class Framework(val plugins : Seq[Plugin]) extends Area{
+  val configLock = Lock()
+  val earlyLock = Lock()
   val lateLock = Lock()
   val buildLock = Lock()
 
+  configLock.retain()
+  earlyLock.retain()
   lateLock.retain()
 
   plugins.foreach(_.framework.load(this)) // Will schedule all plugins early tasks
+  configLock.release()
+  plugins.foreach(_.configsHandles.foreach(_.await()))
+  earlyLock.release()
 
   val lateUnlocker = Handle{
     //Will run after all plugins early tasks spawned

@@ -152,7 +152,12 @@ class FetchCachePlugin(val cacheSize : Int,
                        val reducedBankWidth : Boolean = false,
                        val tagsReadAsync : Boolean = true,
                        val refillEventId : Int = PerformanceCounterService.ICACHE_REFILL) extends Plugin with FetchPipelineRequirements {
-  Fetch.FETCH_DATA_WIDTH.set(fetchDataWidth)
+
+
+  create config {
+    Fetch.FETCH_DATA_WIDTH.set(fetchDataWidth)
+  }
+
   override def stagesCountMin = injectionAt + 1
 
   val mem = create early master(FetchL1Bus(

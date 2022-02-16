@@ -71,10 +71,10 @@ class MmuPlugin(spec : MmuSpec,
   override def invalidatePort = setup.invalidatePort
 
 
-  Global.PC_WIDTH.set(preWidth)
-  Global.PC_TRANSLATED_WIDTH.set(postWidth)
-
-
+  create config {
+    Global.PC_WIDTH.set(preWidth)
+    Global.PC_TRANSLATED_WIDTH.set(postWidth)
+  }
 
   case class PortSpec(stages: Seq[Stage],
                       preAddress: Stageable[UInt],

@@ -123,8 +123,8 @@ class RegFilePlugin(spec : RegfileSpec,
   assert(isPow2(bankCount))
 
   val lock = Lock()
-  val addressWidth = log2Up(physicalDepth)
-  val dataWidth = spec.width
+  def addressWidth = log2Up(physicalDepth)
+  def dataWidth = spec.width
   val reads = ArrayBuffer[RegFileRead]()
   val writes = ArrayBuffer[RegFileWrite]()
   val bypasses = ArrayBuffer[RegFileBypass]()

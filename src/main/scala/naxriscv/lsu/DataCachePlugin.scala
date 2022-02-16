@@ -44,11 +44,11 @@ class DataCachePlugin(val memDataWidth : Int,
   def storeRspHazardFreeLatency = (storeControlAt+1)-storeRspAt
   def loadCmdHazardFreeLatency = (loadReadBanksAt)
 
-  val waySize = cacheSize/wayCount
-  val linePerWay = waySize/lineSize
+  def waySize = cacheSize/wayCount
+  def linePerWay = waySize/lineSize
   def lineRange = log2Up(linePerWay*lineSize) -1 downto log2Up(lineSize)
 
-  val cpuDataWidth = XLEN.get
+  def cpuDataWidth = XLEN.get
   def preTranslationWidth : Int = getService[AddressTranslationService].preWidth
   def postTranslationWidth : Int = getService[AddressTranslationService].postWidth
 

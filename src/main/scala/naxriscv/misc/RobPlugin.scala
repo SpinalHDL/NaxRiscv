@@ -15,9 +15,12 @@ import scala.collection.mutable.ArrayBuffer
 
 class RobPlugin(robSize : Int,
                 completionWithReg : Boolean = false) extends Plugin with RobService{
-  ROB.SIZE.set(robSize)
-//  override val ROB_DEPENDENCY = Stageable(UInt(robDepth bits))
-//  override def robDepth = depth
+
+  create config {
+    ROB.SIZE.set(robSize)
+  }
+
+
   case class Completion(bus : Flow[RobCompletion])
   val completions = ArrayBuffer[Completion]()
 

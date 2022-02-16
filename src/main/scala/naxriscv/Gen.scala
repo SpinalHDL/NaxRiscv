@@ -21,7 +21,9 @@ import scala.collection.mutable.ArrayBuffer
 import scala.sys.exit
 
 
-class NaxRiscv(plugins : Seq[Plugin]) extends Component{
+class NaxRiscv(xlen : Int,
+               plugins : Seq[Plugin]) extends Component{
+  NaxScope.create(xlen = xlen)
   val framework = new Framework(plugins)
 }
 
@@ -267,6 +269,10 @@ object Config{
 // ramstyle = "MLAB, no_rw_check"
 object Gen extends App{
   LutInputs.set(6)
+  def plugins = {
+    NaxScope.create(xlen = 32)
+    Config.plugins(withRdTime = false)
+  }
 
   {
     val spinalConfig = SpinalConfig(inlineRom = true)
@@ -274,12 +280,8 @@ object Gen extends App{
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
     //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
 
-    def plugins = {
-      NaxScope.create(xlen = 32)
-      Config.plugins(withRdTime = false)
-    }
 
-    val report = spinalConfig.generateVerilog(new NaxRiscv(plugins))
+    val report = spinalConfig.generateVerilog(new NaxRiscv(xlen = 32, plugins))
     val doc = report.toplevel.framework.getService[DocPlugin]
     doc.genC()
 
@@ -300,12 +302,7 @@ object Gen extends App{
     spinalConfig.addStandardMemBlackboxing(blackboxByteEnables)
     spinalConfig.addTransformationPhase(new EnforceSyncRamPhase)
 
-    spinalConfig.generateVerilog(wrapper(new Component {
-      setDefinitionName("NaxRiscvSynt")
-      NaxScope.create(xlen = 32)
-      val plugins = Config.plugins()
-      val framework = new Framework(plugins)
-    }))
+    spinalConfig.generateVerilog(wrapper(new NaxRiscv(xlen = 32, plugins).setDefinitionName("NaxRiscvSynt")))
   }
 }
 

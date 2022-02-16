@@ -14,7 +14,10 @@ import scala.collection.mutable.ArrayBuffer
 
 class CommitPlugin(commitCount : Int,
                    ptrCommitRetimed : Boolean = true) extends Plugin with CommitService{
-  Global.COMMIT_COUNT.set(commitCount)
+
+  create config {
+    Global.COMMIT_COUNT.set(commitCount)
+  }
 
   override def onCommit() : CommitEvent = logic.commit.event
 //  override def onCommitLine() =  logic.commit.lineEvent

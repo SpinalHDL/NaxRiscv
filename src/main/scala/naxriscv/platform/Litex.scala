@@ -17,7 +17,6 @@ import spinal.lib.misc.plic.{AxiLite4Plic, WishbonePlic}
 
 class NaxRiscvLitex extends Component{
 
-  NaxScope.create(xlen = 32)
   val ramDataWidth = 128
   val ioDataWidth  =  32
   val plugins = Config.plugins(
@@ -34,7 +33,10 @@ class NaxRiscvLitex extends Component{
   )
   plugins += new LsuPeripheralAxiLite4()
 
-  val cpu = new NaxRiscv(plugins)
+  val cpu = new NaxRiscv(
+    xlen = 32,
+    plugins
+  )
 
   val ram = new Area{
     val ibus = cpu.framework.getService[FetchAxi4].logic.axiRam.toIo()

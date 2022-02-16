@@ -24,8 +24,12 @@ import scala.collection.mutable
 
 class AlignerPlugin(decodeCount : Int,
                     inputAt : Int) extends Plugin with FetchPipelineRequirements{
-  Frontend.DECODE_COUNT.set(decodeCount)
-  Fetch.INSTRUCTION_WIDTH.set(32)
+
+
+  create config {
+    Frontend.DECODE_COUNT.set(decodeCount)
+    Fetch.INSTRUCTION_WIDTH.set(32)
+  }
 
   override def stagesCountMin = inputAt + 1
 
