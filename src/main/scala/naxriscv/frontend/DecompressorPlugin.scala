@@ -9,7 +9,7 @@ import naxriscv.Global._
 import naxriscv.Frontend._
 
 
-
+//Pass through for now (not implemented)
 class DecompressorPlugin() extends Plugin{
   create config {
     Global.RVC.set(false)
@@ -18,7 +18,7 @@ class DecompressorPlugin() extends Plugin{
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     frontend.retain()
-    frontend.pipeline.connect(frontend.pipeline.aligned, frontend.pipeline.decompressed)(DIRECT()) //TODO optional
+    frontend.pipeline.connect(frontend.pipeline.aligned, frontend.pipeline.decompressed)(DIRECT()) 
   }
 
   val logic = create late new Area{

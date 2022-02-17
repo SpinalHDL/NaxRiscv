@@ -270,7 +270,6 @@ object Config{
 object Gen extends App{
   LutInputs.set(6)
   def plugins = {
-    NaxScope.create(xlen = 32)
     Config.plugins(withRdTime = false)
   }
 
