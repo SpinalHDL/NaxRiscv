@@ -1,11 +1,12 @@
 package naxriscv.platform
 
-import naxriscv.{Config, NaxRiscv}
+import naxriscv._
+import naxriscv.fetch._
+import naxriscv.lsu._
+import naxriscv.misc._
+import naxriscv.utilities._
 import naxriscv.compatibility.{EnforceSyncRamPhase, MultiPortWritesSymplifier}
-import naxriscv.fetch.FetchAxi4
-import naxriscv.lsu.{DataCacheAxi4, LsuPeripheralAxiLite4}
-import naxriscv.misc.PrivilegedPlugin
-import naxriscv.utilities.{Framework, NaxScope}
+import naxriscv.platform.ScalaInterpreter.evaluate
 import spinal.core._
 import spinal.lib._
 import spinal.lib.bus.amba4.axi.{Axi4, Axi4ReadOnlyArbiter, Axi4SpecRenamer}
@@ -14,16 +15,13 @@ import spinal.lib.bus.misc.SizeMapping
 import spinal.lib.misc.{AxiLite4Clint, WishboneClint}
 import spinal.lib.misc.plic.{AxiLite4Plic, WishbonePlic}
 
+import scala.collection.mutable.ArrayBuffer
 
-class NaxRiscvLitex extends Component{
+
+class NaxRiscvLitex(plugins : ArrayBuffer[Plugin]) extends Component{
 
   val ramDataWidth = 128
   val ioDataWidth  =  32
-  val plugins = Config.plugins(
-    resetVector = 0,
-    ioRange    = _(30, 2 bits) =/= U"01",
-    fetchRange = a => SizeMapping(0x40000000, 0x10000000).hit(a) || SizeMapping(0, 0x00020000).hit(a)
-  )
   plugins += new FetchAxi4(
     ramDataWidth = ramDataWidth,
     ioDataWidth  = ioDataWidth
@@ -92,16 +90,31 @@ object LitexGen extends App{
   spinalConfig.addStandardMemBlackboxing(blackboxByteEnables)
   spinalConfig.addTransformationPhase(new EnforceSyncRamPhase)
 
-  spinalConfig.generateVerilog(new NaxRiscvLitex)
+  spinalConfig.generateVerilog {
+    val files = List("misc.scala", "eu_2alu_1share.scala")
+    val paths = files.map("/media/data/open/riscv/litex/litex_naxriscv_test/vexriscv/configs/" + _)
+    val codes = ArrayBuffer[String]()
+    codes +=
+      s"""
+         |import scala.collection.mutable.ArrayBuffer
+         |import naxriscv.utilities.Plugin
+         |import spinal.lib.bus.misc.SizeMapping
+         |val plugins = ArrayBuffer[Plugin]()
+         |""".stripMargin
+    codes ++= paths.map(scala.io.Source.fromFile(_).mkString)
+    codes += "plugins\n"
+    val code = codes.mkString("\n")
+    val plugins = ScalaInterpreter.evaluate[ArrayBuffer[Plugin]](code)
+    new NaxRiscvLitex(plugins)
+  }
 }
 
-object Miaou extends App{
-  import scala.tools.nsc.Settings
-  import scala.tools.nsc.interpreter.IMain
-  var global = 0
+object ScalaInterpreter extends App{
 
-  def evaluate() = {
-    val clazz = prepareClass
+  def evaluate[T](clazz : String) = {
+    import scala.tools.nsc.Settings
+    import scala.tools.nsc.interpreter.IMain
+
     val settings = new Settings
     settings.usejavacp.value = true
     settings.deprecation.value = true
@@ -109,26 +122,9 @@ object Miaou extends App{
     val aaa = 32
     val eval = new IMain(settings)
     val evaluated = eval.interpret(clazz)
-    val res = eval.valueOfTerm("res0").get.asInstanceOf[Int]
-    println(res) //yields 9
-    println(global) //yields 9
+    val res = eval.valueOfTerm("res0").get.asInstanceOf[T]
+    res
   }
-
-  private def prepareClass: String = {
-    s"""
-       |import spinal.core._
-       |import spinal.lib._
-       |import spinal.lib.bus.misc.SizeMapping
-       |import naxriscv.platform._
-       |val z = SizeMapping(0x40000000, 0x10000000)
-       |val x = 4
-       |val y = 5
-       |Miaou.global += 1
-       |x + y
-       |""".stripMargin
-  }
-
-  evaluate()
 }
 
 
@@ -139,6 +135,8 @@ eth_local_ip 192.168.178.43
 eth_remote_ip 192.168.178.32
 eth_local_ip  10.42.0.2
 eth_remote_ip 10.42.0.1
+
+litex_sim --cpu-type=naxriscv --with-sdram --sdram-module=MT41K128M16 --sdram-data-width=16  --trace --trace-fst --trace-start 2000000000000
 
 netboot
 boot 0x40f00000

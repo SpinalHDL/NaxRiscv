@@ -1,14 +1,14 @@
 package naxriscv
 
-import naxriscv.compatibility.{EnforceSyncRamPhase, MemReadDuringWriteHazardPhase, MultiPortReadSymplifier, MultiPortWritesSymplifier}
 import spinal.core._
+import naxriscv.compatibility._
 import naxriscv.frontend._
 import naxriscv.fetch._
-import naxriscv.misc.{CommitDebugFilterPlugin, CommitPlugin, CsrRamPlugin, MmuPlugin, MmuPortParameter, MmuSpec, MmuStorageLevel, MmuStorageParameter, PerformanceCounterPlugin, PrivilegedConfig, PrivilegedPlugin, RegFilePlugin, RobPlugin, StaticAddressTranslationParameter, StaticAddressTranslationPlugin}
+import naxriscv.misc._
 import naxriscv.execute._
-import naxriscv.fetch.FetchCachePlugin
-import naxriscv.lsu.{DataCache, DataCacheAxi4, DataCachePlugin, LsuPeripheralAxiLite4, LsuPlugin}
-import naxriscv.prediction.{BranchContextPlugin, BtbPlugin, DecoderPredictionPlugin, GSharePlugin, HistoryPlugin}
+import naxriscv.fetch._
+import naxriscv.lsu._
+import naxriscv.prediction._
 import naxriscv.utilities._
 import spinal.lib.LatencyAnalysis
 import spinal.lib.bus.amba4.axi.Axi4SpecRenamer
