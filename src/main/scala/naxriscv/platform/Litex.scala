@@ -85,14 +85,25 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin]) extends Component{
 }
 
 object LitexGen extends App{
-  val spinalConfig = SpinalConfig(inlineRom = true)
+
+  var netlistDirectory = "."
+  var netlistName = "NaxRiscvLitex"
+  val files = ArrayBuffer[String]()
+  assert(new scopt.OptionParser[Unit]("NaxRiscv") {
+    help("help").text("prints this usage text")
+    opt[String]("netlist-directory") action { (v, c) => netlistDirectory = v }
+    opt[String]("netlist-name") action { (v, c) => netlistName = v }
+    opt[String]("scala-file") unbounded() action  { (v, c) => files += v }
+  }.parse(args))
+
+  val spinalConfig = SpinalConfig(inlineRom = true, targetDirectory = netlistDirectory)
   spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
   spinalConfig.addStandardMemBlackboxing(blackboxByteEnables)
   spinalConfig.addTransformationPhase(new EnforceSyncRamPhase)
 
   spinalConfig.generateVerilog {
-    val files = List("misc.scala", "eu_2alu_1share.scala")
-    val paths = files.map("/media/data/open/riscv/litex/litex_naxriscv_test/vexriscv/configs/" + _)
+
+
     val codes = ArrayBuffer[String]()
     codes +=
       s"""
@@ -101,11 +112,11 @@ object LitexGen extends App{
          |import spinal.lib.bus.misc.SizeMapping
          |val plugins = ArrayBuffer[Plugin]()
          |""".stripMargin
-    codes ++= paths.map(scala.io.Source.fromFile(_).mkString)
+    codes ++= files.map(scala.io.Source.fromFile(_).mkString)
     codes += "plugins\n"
     val code = codes.mkString("\n")
     val plugins = ScalaInterpreter.evaluate[ArrayBuffer[Plugin]](code)
-    new NaxRiscvLitex(plugins)
+    new NaxRiscvLitex(plugins).setDefinitionName(netlistName)
   }
 }
 
