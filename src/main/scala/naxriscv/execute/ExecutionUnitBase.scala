@@ -14,12 +14,12 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import naxriscv.Global._
 
-class ExecutionUnitBase(euId : String,
-                        writebackCountMax : Int = Int.MaxValue,
-                        contextAt : Int = 0,
-                        rfReadAt : Int = 0,
-                        decodeAt : Int = 0,
-                        executeAt : Int = 1) extends Plugin with ExecuteUnitService with WakeRobService with WakeRegFileService with LockedImpl{
+class ExecutionUnitBase(val euId : String,
+                        var writebackCountMax : Int = Int.MaxValue,
+                        var contextAt : Int = 0,
+                        var rfReadAt : Int = 0,
+                        var decodeAt : Int = 0,
+                        var executeAt : Int = 1) extends Plugin with ExecuteUnitService with WakeRobService with WakeRegFileService with LockedImpl{
   withPrefix(euId)
 
   override def uniqueIds = List(euId)

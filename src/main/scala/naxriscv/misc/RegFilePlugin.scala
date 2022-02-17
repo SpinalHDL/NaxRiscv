@@ -114,13 +114,12 @@ Artix 7 -> 538 Mhz 176 LUT 585 FF
 
 
 
-class RegFilePlugin(spec : RegfileSpec,
-                    physicalDepth : Int,
-                    bankCount : Int) extends Plugin with RegfileService{
+class RegFilePlugin(var spec : RegfileSpec,
+                    var physicalDepth : Int,
+                    var bankCount : Int) extends Plugin with RegfileService{
   override def uniqueIds = List(spec)
   override def getPhysicalDepth = physicalDepth
 
-  assert(isPow2(bankCount))
 
   val lock = Lock()
   def addressWidth = log2Up(physicalDepth)
@@ -141,6 +140,7 @@ class RegFilePlugin(spec : RegfileSpec,
 
   val logic = create late new Area{
     lock.await()
+    assert(isPow2(bankCount))
 
     val writeBypasses = for(write <- writes; if write.latency == 0) yield new Area{
       val port = newBypass()

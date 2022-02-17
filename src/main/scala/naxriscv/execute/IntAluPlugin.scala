@@ -20,7 +20,9 @@ object IntAluPlugin extends AreaObject {
  val ALU_CTRL = Stageable(AluCtrlEnum())
 }
 
-class IntAluPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int = 0) extends ExecutionUnitElementSimple(euId, staticLatency)  {
+class IntAluPlugin(val euId : String,
+                   var staticLatency : Boolean = true,
+                   var aluStage : Int = 0) extends ExecutionUnitElementSimple(euId, staticLatency)  {
   import IntAluPlugin._
 
   override def euWritebackAt = aluStage

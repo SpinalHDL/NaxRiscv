@@ -31,11 +31,11 @@ object CsrAccessPlugin extends AreaObject{
   val CSR_FLUSH_PIPELINE = Stageable(Bool())
 }
 
-class CsrAccessPlugin(euId: String)(decodeAt: Int,
-                                    readAt: Int,
-                                    writeAt: Int,
-                                    writebackAt: Int,
-                                    staticLatency: Boolean) extends ExecutionUnitElementSimple(euId, staticLatency) with CsrService{
+class CsrAccessPlugin(val euId: String)(var decodeAt: Int,
+                                        var readAt: Int,
+                                        var writeAt: Int,
+                                        var writebackAt: Int,
+                                        var staticLatency: Boolean) extends ExecutionUnitElementSimple(euId, staticLatency) with CsrService{
   override def euWritebackAt = writebackAt
 
   override def onReadHalt()   = setup.onReadHalt   := True

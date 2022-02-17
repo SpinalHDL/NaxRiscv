@@ -16,12 +16,12 @@ object DivPlugin extends AreaObject {
   val DIV_RESULT = Stageable(Bits(XLEN bits))
 }
 
-class DivPlugin(euId : String,
-                writebackAt : Int,
-                cmdAt : Int = 0,
-                rspAt : Int = 1,
-                splitWidthA : Int = 16,
-                splitWidthB : Int = 16) extends ExecutionUnitElementSimple(euId, staticLatency = false) {
+class DivPlugin(val euId : String,
+                var writebackAt : Int,
+                var cmdAt : Int = 0,
+                var rspAt : Int = 1,
+                var splitWidthA : Int = 16,
+                var splitWidthB : Int = 16) extends ExecutionUnitElementSimple(euId, staticLatency = false) {
   import DivPlugin._
 
   override def euWritebackAt = writebackAt

@@ -62,9 +62,9 @@ object MmuSpec{
   )
 }
 
-class MmuPlugin(spec : MmuSpec,
-                ioRange : UInt => Bool,
-                fetchRange : UInt => Bool) extends Plugin with AddressTranslationService{
+class MmuPlugin(var spec : MmuSpec,
+                var ioRange : UInt => Bool,
+                var fetchRange : UInt => Bool) extends Plugin with AddressTranslationService{
   override def preWidth  = spec.preWidth
   override def postWidth = spec.postWidth
   override def withTranslation = true

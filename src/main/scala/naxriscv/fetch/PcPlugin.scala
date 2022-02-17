@@ -15,7 +15,7 @@ import scala.collection.mutable.ArrayBuffer
 import Frontend._
 
 
-class PcPlugin(resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) extends Plugin with JumpService{
+class PcPlugin(var resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) extends Plugin with JumpService{
   case class JumpSpec(interface :  Flow[JumpCmd], priority : Int, aggregationPriority : Int)
   val jumpsSpec = ArrayBuffer[JumpSpec]()
   override def createJumpInterface(priority : Int, aggregationPriority : Int = 0): Flow[JumpCmd] = {

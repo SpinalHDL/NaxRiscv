@@ -22,13 +22,13 @@ object DispatchPlugin extends AreaObject{
   val SPARSE_ROB_LINE = Stageable(Bool())
 }
 
-class DispatchPlugin(slotCount : Int = 0,
-                     uintAt : Int = 0,
-                     staticHitAt : Int = 0,
-                     robIdAt : Int = 1,
-                     physRdAt : Int = 1,
-                     euAt : Int = 1,
-                     readContextLayer0Factor : Int = LutInputs.get/2) extends Plugin with IssueService with LockedImpl with WakeRegFileService with InitCycles{
+class DispatchPlugin(var slotCount : Int = 0,
+                     var uintAt : Int = 0,
+                     var staticHitAt : Int = 0,
+                     var robIdAt : Int = 1,
+                     var physRdAt : Int = 1,
+                     var euAt : Int = 1,
+                     var readContextLayer0Factor : Int = LutInputs.get/2) extends Plugin with IssueService with LockedImpl with WakeRegFileService with InitCycles{
   import DispatchPlugin._
   val robWaits = ArrayBuffer[RobWait]()
   override def newRobDependency() = robWaits.addRet(RobWait())

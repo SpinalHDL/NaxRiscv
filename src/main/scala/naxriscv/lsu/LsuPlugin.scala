@@ -129,22 +129,21 @@ case class LsuFlushPayload() extends Bundle{
   val withFree = Bool()
 }
 
-class LsuPlugin(lqSize: Int,
-                sqSize : Int,
-                //                storeToLoadBypass : Boolean,
-                translationStorageParameter : Any,
-                loadTranslationParameter : Any,
-                storeTranslationParameter : Any,
-                hitPedictionEntries : Int,
-                hitPredictionCounterWidth : Int = 6,
-                hitPredictionErrorPenality : Int = 20,
-                hazardPedictionEntries : Int = 0,    //Seems to reduce performance to have it enable XD
-                hazardPredictionTagWidth : Int = 16,
-                loadToCacheBypass : Boolean = true,  //Reduce the load latency by one cycle. When the LoadPlugin calculate the address it directly start the query the cache
-                lqToCachePipelined : Boolean = true, //Add one additional stage between LQ arbitration and the cache query
-                loadFeedAt : Int = 0, //Stage at which the d$ cmd is sent
-                loadCheckSqAt : Int = 1,
-                loadCtrlAt : Int = 3) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy{
+class LsuPlugin(var lqSize: Int,
+                var sqSize : Int,
+                var translationStorageParameter : Any,
+                var loadTranslationParameter : Any,
+                var storeTranslationParameter : Any,
+                var hitPedictionEntries : Int,
+                var hitPredictionCounterWidth : Int = 6,
+                var hitPredictionErrorPenality : Int = 20,
+                var hazardPedictionEntries : Int = 0,    //Seems to reduce performance to have it enable XD
+                var hazardPredictionTagWidth : Int = 16,
+                var loadToCacheBypass : Boolean = true,  //Reduce the load latency by one cycle. When the LoadPlugin calculate the address it directly start the query the cache
+                var lqToCachePipelined : Boolean = true, //Add one additional stage between LQ arbitration and the cache query
+                var loadFeedAt : Int = 0, //Stage at which the d$ cmd is sent
+                var loadCheckSqAt : Int = 1,
+                var loadCtrlAt : Int = 3) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy{
 
   def withHazardPrediction = hazardPedictionEntries != 0
   def wordWidth = Global.XLEN.get

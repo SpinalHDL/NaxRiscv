@@ -12,8 +12,8 @@ import spinal.lib._
 
 import scala.collection.mutable.ArrayBuffer
 
-class CommitPlugin(commitCount : Int,
-                   ptrCommitRetimed : Boolean = true) extends Plugin with CommitService{
+class CommitPlugin(var commitCount : Int,
+                   var ptrCommitRetimed : Boolean = true) extends Plugin with CommitService{
 
   create config {
     Global.COMMIT_COUNT.set(commitCount)

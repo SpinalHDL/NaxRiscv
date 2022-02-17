@@ -13,8 +13,8 @@ import spinal.lib.pipeline.Stageable
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-class RobPlugin(robSize : Int,
-                completionWithReg : Boolean = false) extends Plugin with RobService{
+class RobPlugin(var robSize : Int,
+                var completionWithReg : Boolean = false) extends Plugin with RobService{
 
   create config {
     ROB.SIZE.set(robSize)

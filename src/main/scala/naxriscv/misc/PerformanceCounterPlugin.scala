@@ -12,9 +12,9 @@ import spinal.lib.fsm._
 import scala.collection.mutable.ArrayBuffer
 
 
-class PerformanceCounterPlugin(additionalCounterCount : Int,
-                               bufferWidth : Int = 7) extends Plugin with PerformanceCounterService{
-  val counterCount = 2 + (if(additionalCounterCount != 0) additionalCounterCount + 1 else 0)
+class PerformanceCounterPlugin(var additionalCounterCount : Int,
+                               var bufferWidth : Int = 7) extends Plugin with PerformanceCounterService{
+  def counterCount = 2 + (if(additionalCounterCount != 0) additionalCounterCount + 1 else 0)
 
   case class Spec(id : Int, event : Bool)
   val specs = ArrayBuffer[Spec]()

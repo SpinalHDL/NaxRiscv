@@ -22,8 +22,8 @@ import scala.collection.mutable
 
 
 
-class AlignerPlugin(decodeCount : Int,
-                    inputAt : Int) extends Plugin with FetchPipelineRequirements{
+class AlignerPlugin(var decodeCount : Int,
+                    var inputAt : Int) extends Plugin with FetchPipelineRequirements{
 
 
   create config {

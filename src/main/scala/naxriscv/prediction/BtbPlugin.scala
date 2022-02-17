@@ -10,11 +10,11 @@ import spinal.core.{ReadUnderWritePolicy, _}
 import spinal.lib._
 import spinal.lib.pipeline.Stageable
 
-class BtbPlugin(entries : Int,
-                hashWidth : Int = 16,
-                readAt : Int = 0,
-                hitAt : Int = 1,
-                jumpAt : Int = 2) extends Plugin with FetchWordPrediction{
+class BtbPlugin(var entries : Int,
+                var hashWidth : Int = 16,
+                var readAt : Int = 0,
+                var hitAt : Int = 1,
+                var jumpAt : Int = 2) extends Plugin with FetchWordPrediction{
 
   val setup = create early new Area{
     val fetch = getService[FetchPlugin]

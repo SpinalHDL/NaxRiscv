@@ -31,8 +31,8 @@ case class BranchLearn(pcWidth : Int, branchCount : Int) extends Bundle{
 }
 
 
-class BranchContextPlugin(val branchCount : Int,
-                          val pessimisticFull : Boolean = true) extends Plugin with LockedImpl {
+class BranchContextPlugin(var branchCount : Int,
+                          var pessimisticFull : Boolean = true) extends Plugin with LockedImpl {
   assert(isPow2(branchCount))
 
   def readEarly(address : UInt) = logic.mem.earlyBranch.readAsync(address)

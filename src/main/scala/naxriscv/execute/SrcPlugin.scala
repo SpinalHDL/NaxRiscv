@@ -43,7 +43,8 @@ object SrcKeys extends AreaObject {
   }
 }
 
-class SrcPlugin(euId : String, earlySrc : Boolean = false) extends Plugin{
+class SrcPlugin(val euId : String,
+                var earlySrc : Boolean = false) extends Plugin{
   withPrefix(euId)
   override def uniqueIds = List(euId)
 

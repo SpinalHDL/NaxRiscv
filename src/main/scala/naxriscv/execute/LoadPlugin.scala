@@ -15,7 +15,7 @@ object LoadPlugin extends AreaObject{
   val LR       = Stageable(Bool())
 }
 
-class LoadPlugin(euId : String) extends Plugin{
+class LoadPlugin(val euId : String) extends Plugin{
   import LoadPlugin._
   val setup = create early new Area {
     val eu = getService[ExecutionUnitBase](euId)

@@ -44,7 +44,7 @@ case class PrivilegedConfig(withSupervisor : Boolean,
 
 
 
-class PrivilegedPlugin(p : PrivilegedConfig) extends Plugin with PrivilegedService{
+class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedService{
   override def hasMachinePriv = setup.withMachinePrivilege
   override def hasSupervisorPriv = setup.withSupervisorPrivilege
   override def getPrivilege() = setup.privilege

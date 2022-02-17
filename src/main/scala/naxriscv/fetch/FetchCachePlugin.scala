@@ -134,24 +134,24 @@ case class FetchL1Bus(physicalWidth : Int,
 
 }
 
-class FetchCachePlugin(val cacheSize : Int,
-                       val wayCount : Int,
-                       val memDataWidth : Int,
-                       val fetchDataWidth : Int,
-                       val translationStorageParameter : Any,
-                       val translationPortParameter : Any,
-                       val lineSize : Int = 64,
-                       val readAt : Int = 0,
-                       val hitsAt : Int = 1,
-                       val hitAt : Int = 1,
-                       val bankMuxesAt : Int = 1,
-                       val bankMuxAt : Int = 2,
-                       val controlAt : Int = 2,
-                       val injectionAt : Int = 2,
-                       val hitsWithTranslationWays : Boolean = false,
-                       val reducedBankWidth : Boolean = false,
-                       val tagsReadAsync : Boolean = true,
-                       val refillEventId : Int = PerformanceCounterService.ICACHE_REFILL) extends Plugin with FetchPipelineRequirements {
+class FetchCachePlugin(var cacheSize : Int,
+                       var wayCount : Int,
+                       var memDataWidth : Int,
+                       var fetchDataWidth : Int,
+                       var translationStorageParameter : Any,
+                       var translationPortParameter : Any,
+                       var lineSize : Int = 64,
+                       var readAt : Int = 0,
+                       var hitsAt : Int = 1,
+                       var hitAt : Int = 1,
+                       var bankMuxesAt : Int = 1,
+                       var bankMuxAt : Int = 2,
+                       var controlAt : Int = 2,
+                       var injectionAt : Int = 2,
+                       var hitsWithTranslationWays : Boolean = false,
+                       var reducedBankWidth : Boolean = false,
+                       var tagsReadAsync : Boolean = true,
+                       var refillEventId : Int = PerformanceCounterService.ICACHE_REFILL) extends Plugin with FetchPipelineRequirements {
 
 
   create config {

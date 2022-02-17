@@ -18,15 +18,15 @@ object MulPlugin extends AreaObject {
   val RS2_SIGNED = Stageable(Bool())
 }
 
-class MulPlugin(euId : String,
-                srcAt : Int = 0,
-                mulAt : Int = 0,
-                sum1At : Int = 1,
-                sum2At : Int = 2,
-                writebackAt : Int = 2,
-                splitWidthA : Int = 16,
-                splitWidthB : Int = 16,
-                staticLatency : Boolean = true) extends ExecutionUnitElementSimple(euId, staticLatency) {
+class MulPlugin(val euId : String,
+                var srcAt : Int = 0,
+                var mulAt : Int = 0,
+                var sum1At : Int = 1,
+                var sum2At : Int = 2,
+                var writebackAt : Int = 2,
+                var splitWidthA : Int = 16,
+                var splitWidthB : Int = 16,
+                var staticLatency : Boolean = true) extends ExecutionUnitElementSimple(euId, staticLatency) {
   import MulPlugin._
 
   override def euWritebackAt = writebackAt

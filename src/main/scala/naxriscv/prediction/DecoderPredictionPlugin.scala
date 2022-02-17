@@ -17,11 +17,11 @@ import spinal.lib.pipeline.{Stage, Stageable, StageableOffset}
 
 
 //flushOnBranch can be used to ensure correctness of the branch history used by predictors (usefull for debug) at the cost of flushes
-class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.decoded,
-                               pcAddAt: FrontendPlugin => Stage = _.pipeline.decoded,
-                               pcPredictionAt: FrontendPlugin => Stage = _.pipeline.decoded,
-                               applyAt : FrontendPlugin => Stage = _.pipeline.serialized,
-                               flushOnBranch : Boolean = false) extends Plugin with DecoderPrediction{
+class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipeline.decoded,
+                               var pcAddAt: FrontendPlugin => Stage = _.pipeline.decoded,
+                               var pcPredictionAt: FrontendPlugin => Stage = _.pipeline.decoded,
+                               var applyAt : FrontendPlugin => Stage = _.pipeline.serialized,
+                               var flushOnBranch : Boolean = false) extends Plugin with DecoderPrediction{
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     val fetch = getService[FetchPlugin]

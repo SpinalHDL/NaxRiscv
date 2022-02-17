@@ -11,13 +11,12 @@ import spinal.lib.pipeline.StageableOffset
 import scala.collection.mutable.ArrayBuffer
 
 
-class RfAllocationPlugin(rf : RegfileSpec,
-                         pessimisticReady : Boolean = true) extends Plugin with RfAllocationService with InitCycles {
+class RfAllocationPlugin(var rf : RegfileSpec,
+                         var pessimisticReady : Boolean = true) extends Plugin with RfAllocationService with InitCycles {
   override def initCycles = logic.entryCount
 
   override def getAllocPort() = logic.allocator.io.pop
   override def getFreePort() = ??? //logic.push.external
-  var freePorts = ArrayBuffer
 
   val setup = create early new Area{
     getService[FrontendPlugin].retain()

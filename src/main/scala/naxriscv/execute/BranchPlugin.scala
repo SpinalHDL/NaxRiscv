@@ -31,10 +31,10 @@ object BranchPlugin extends AreaObject {
   val BAD_EARLY_TARGET = Stageable(Bool())
 }
 
-class BranchPlugin(euId : String,
-                   staticLatency : Boolean = true,
-                   writebackAt : Int = 0,
-                   branchAt : Int = 1) extends ExecutionUnitElementSimple(euId, staticLatency)  {
+class BranchPlugin(val euId : String,
+                   var staticLatency : Boolean = true,
+                   var writebackAt : Int = 0,
+                   var branchAt : Int = 1) extends ExecutionUnitElementSimple(euId, staticLatency)  {
   import BranchPlugin._
 
 

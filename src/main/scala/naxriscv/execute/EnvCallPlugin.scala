@@ -28,7 +28,7 @@ object EnvCallPlugin extends AreaObject{
   val CAUSE_REDO = CSR.MCAUSE_ENUM.ECALL_HYPERVISOR
 }
 
-class EnvCallPlugin(euId : String)(rescheduleAt : Int = 0) extends Plugin{
+class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugin{
   import EnvCallPlugin._
 
   val setup = create early new Area {

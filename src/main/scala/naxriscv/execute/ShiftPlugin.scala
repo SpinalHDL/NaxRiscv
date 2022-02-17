@@ -15,7 +15,9 @@ object ShiftPlugin extends AreaObject {
   val LEFT = Stageable(Bool())
 }
 
-class ShiftPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int = 0) extends ExecutionUnitElementSimple(euId, staticLatency) {
+class ShiftPlugin(val euId : String,
+                  var staticLatency : Boolean = true,
+                  var aluStage : Int = 0) extends ExecutionUnitElementSimple(euId, staticLatency) {
   import ShiftPlugin._
 
   override def euWritebackAt = aluStage
