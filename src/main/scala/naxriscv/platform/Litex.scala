@@ -20,7 +20,7 @@ import scala.collection.mutable.ArrayBuffer
 
 class NaxRiscvLitex(plugins : ArrayBuffer[Plugin]) extends Component{
 
-  val ramDataWidth = 128
+  val ramDataWidth = 64
   val ioDataWidth  =  32
   plugins += new FetchAxi4(
     ramDataWidth = ramDataWidth,
