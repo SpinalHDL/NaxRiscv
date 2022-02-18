@@ -46,8 +46,6 @@ object SrcKeys extends AreaObject {
 class SrcPlugin(val euId : String,
                 var earlySrc : Boolean = false) extends Plugin{
   withPrefix(euId)
-  override def uniqueIds = List(euId)
-
 
   val spec = mutable.LinkedHashMap[MicroOp, mutable.LinkedHashSet[SrcKeys]]()
   def specify(microOp: MicroOp, keys: List[SrcKeys]) = {
@@ -59,12 +57,12 @@ class SrcPlugin(val euId : String,
   }
 
   val setup = create early new Area{
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = getServicesOf[ExecutionUnitBase].find(_.euId == euId).get
     eu.retain()
   }
 
   val logic = create late new Area{
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = getServicesOf[ExecutionUnitBase].find(_.euId == euId).get
     val ss = SrcStageables
     val sk = SrcKeys
 

@@ -31,7 +31,7 @@ class RfAllocationPlugin(var rf : RegfileSpec,
     val stage = frontend.pipeline.allocated
     import stage._
 
-    val entryCount = getService[RegfileService](rf).getPhysicalDepth
+    val entryCount = findService[RegfileService](_.rfSpec == rf).getPhysicalDepth
     val entryIdWidth = log2Up(entryCount)
     val entryType = HardType(UInt(entryIdWidth bits))
 

@@ -117,9 +117,8 @@ Artix 7 -> 538 Mhz 176 LUT 585 FF
 class RegFilePlugin(var spec : RegfileSpec,
                     var physicalDepth : Int,
                     var bankCount : Int) extends Plugin with RegfileService{
-  override def uniqueIds = List(spec)
   override def getPhysicalDepth = physicalDepth
-
+  override def rfSpec = spec
 
   val lock = Lock()
   def addressWidth = log2Up(physicalDepth)

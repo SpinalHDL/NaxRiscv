@@ -36,7 +36,7 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
     val commit = getService[CommitService]
     val priv = getService[PrivilegedPlugin]
     val fetch = getService[FetchPlugin]
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = findService[ExecutionUnitBase](_.euId == euId)
     eu.retain()
     fetch.retain()
 

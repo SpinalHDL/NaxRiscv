@@ -22,7 +22,6 @@ class ExecutionUnitBase(val euId : String,
                         var executeAt : Int = 1) extends Plugin with ExecuteUnitService with WakeRobService with WakeRegFileService with LockedImpl{
   withPrefix(euId)
 
-  override def uniqueIds = List(euId)
   override def hasFixedLatency = ???
   override def getFixedLatencies = ???
   override def pushPort() = pipeline.push.port
@@ -187,7 +186,7 @@ class ExecutionUnitBase(val euId : String,
     var implementRd = false
     ressources.foreach {
       case r : RfResource if r.access.isInstanceOf[RfRead] => {
-        val port = getService[RegfileService](r.rf).newRead(withReady)
+        val port = findService[RegfileService](_.rfSpec == r.rf).newRead(withReady)
         val name = s"${r.rf.getName()}_${r.access.getName()}"
         port.setCompositeName(this, s"rfReads_${name}")
         rfReadPorts(r) = port
@@ -268,7 +267,7 @@ class ExecutionUnitBase(val euId : String,
 
     assert(writeBacksSpec.size <= writebackCountMax, s"$euId writeback count exceeded (${writeBacksSpec.size}) the limit set by the user (writebackCoutnMax=$writebackCountMax). At ${writeBacksSpec.map(_._1.stage).mkString(" ")}")
     val writeBack = for((key, spec) <- writeBacksSpec) yield new Area{
-      val rfService = getService[RegfileService](key.rf)
+      val rfService = findService[RegfileService](_.rfSpec == key.rf)
       val write = rfService.newWrite(withReady, spec.latency)
       write.valid := key.stage.isFireing && key.stage(decoder.WRITE_RD) && spec.ports.map(_.valid).orR
       write.robId := key.stage(ROB.ID)

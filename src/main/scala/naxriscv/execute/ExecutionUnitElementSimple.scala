@@ -19,7 +19,7 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
   def euWritebackAt : Int
 
   class Setup extends Area {
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = findService[ExecutionUnitBase](_.euId == euId)
     eu.retain()
 
     def add(microOp: MicroOp, srcKeys: List[SrcKeys], decoding: DecodeListType) = {
@@ -31,7 +31,7 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
       }) eu.setStaticWake(microOp, euWritebackAt)
       eu.addDecoding(microOp, decoding :+ (SEL -> True))
       if (srcKeys.nonEmpty) {
-        getService[SrcPlugin](euId).specify(microOp, srcKeys)
+        findService[SrcPlugin](_.euId == euId).specify(microOp, srcKeys)
       }
     }
 
@@ -39,7 +39,7 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
   }
 
   class Logic extends Area with PostInitCallback{
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = findService[ExecutionUnitBase](_.euId == euId)
     val decode = getService[DecoderService]
 
     val wbStage = eu.getExecute(euWritebackAt)

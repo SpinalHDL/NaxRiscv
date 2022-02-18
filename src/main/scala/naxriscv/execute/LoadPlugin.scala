@@ -18,7 +18,7 @@ object LoadPlugin extends AreaObject{
 class LoadPlugin(val euId : String) extends Plugin{
   import LoadPlugin._
   val setup = create early new Area {
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = findService[ExecutionUnitBase](_.euId == euId)
     val lsu = getService[LsuPlugin]
     eu.retain()
 
@@ -30,7 +30,7 @@ class LoadPlugin(val euId : String) extends Plugin{
       eu.addMicroOp(microOp)
       eu.addDecoding(microOp, decoding :+ (SEL -> True))
       if (srcKeys.nonEmpty) {
-        getService[SrcPlugin](euId).specify(microOp, srcKeys)
+        findService[SrcPlugin](_.euId == euId).specify(microOp, srcKeys)
       }
     }
 
@@ -64,7 +64,7 @@ class LoadPlugin(val euId : String) extends Plugin{
   }
 
   val earlyPc = create late new Area{
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = findService[ExecutionUnitBase](_.euId == euId)
     val stage = eu.pipeline.fetch(eu.pipeline.fetch.size-2)
     setup.port.earlySample := stage.isReady
     setup.port.earlyPc := stage(PC)

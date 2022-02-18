@@ -18,7 +18,7 @@ object StorePlugin extends AreaObject{
 class StorePlugin(val euId : String) extends Plugin{
   import StorePlugin._
   val setup = create early new Area {
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = findService[ExecutionUnitBase](_.euId == euId)
     val lsu = getService[LsuPlugin]
     val rfDep = getService[RfDependencyPlugin]
     eu.retain()
@@ -31,7 +31,7 @@ class StorePlugin(val euId : String) extends Plugin{
       eu.addMicroOp(microOp)
       eu.addDecoding(microOp, decoding :+ (SEL -> True))
       if (srcKeys.nonEmpty) {
-        getService[SrcPlugin](euId).specify(microOp, srcKeys)
+        findService[SrcPlugin](_.euId == euId).specify(microOp, srcKeys)
       }
     }
 

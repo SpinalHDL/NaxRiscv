@@ -8,7 +8,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.reflect.{ClassTag, classTag}
 
 trait Service{
-  def uniqueIds : Seq[Any] = Nil
+
 }
 
 trait Plugin extends Area with Service{
@@ -61,9 +61,10 @@ trait Plugin extends Area with Service{
 
   def isServiceAvailable[T <: Service : ClassTag] : Boolean = framework.getServicesOf[T].nonEmpty
   def getService[T <: Service : ClassTag] : T = framework.getService[T]
-  def getService[T <: Service : ClassTag](id : Any) : T = framework.getService[T](id)
+//  def getService[T <: Service : ClassTag](id : Any) : T = framework.getService[T](id)
   def getServicesOf[T <: Service : ClassTag] : Seq[T] = framework.getServicesOf[T]
   def getServiceOption[T <: Service : ClassTag] : Option[T] = if(isServiceAvailable[T]) Some(framework.getService[T]) else None
+  def findService[T <: Service : ClassTag](filter : T => Boolean) = getServicesOf[T].find(filter).get
 }
 
 class FrameworkConfig(){
@@ -105,7 +106,6 @@ class Framework(val plugins : Seq[Plugin]) extends Area{
       case _ => throw new Exception(s"Found multiple instances of ${classTag[T].runtimeClass.getName}")
     }
   }
-  def getService[T <: Service : ClassTag](id : Any) : T = getServiceWhere[T](_.uniqueIds.contains(id))
 
   def getServiceWhere[T: ClassTag](filter : T => Boolean) : T = {
     val clazz = (classTag[T].runtimeClass)

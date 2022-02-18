@@ -152,6 +152,7 @@ case class RegFileBypass(addressWidth : Int, dataWidth : Int) extends Bundle wit
 }
 
 trait RegfileService extends Service{
+  def rfSpec : RegfileSpec
   def getPhysicalDepth : Int
 
   def newRead(withReady : Boolean, forceNoBypass : Boolean = false) : RegFileRead

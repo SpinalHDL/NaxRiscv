@@ -10,12 +10,9 @@ import naxriscv.Global._
 
 class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin with ExecuteUnitService with WakeRobService with WakeRegFileService with LockedImpl {
   setName(euId)
-  override def uniqueIds = List(euId)
 
   override def hasFixedLatency = ???
-
   override def getFixedLatencies = ???
-
   override def pushPort() = logic.pushPort
 
   override def euName() = euId
