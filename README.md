@@ -74,13 +74,16 @@ Here are a pipeline representation of the two above configurations :
 
 # Running on hardware
 
-NaxRiscv is currently integrated into [Litex](https://github.com/enjoy-digital/litex). For instance to run it on the Nexys video board, you can : 
+NaxRiscv is currently integrated into https://github.com/enjoy-digital/litex. For instance to run it on the Nexys video board, you can : 
 
 ```shell
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv --with-video-framebuffer --with-sdcard --build --load
 ```` 
 
-Also, note that if you want to run linux on it, it is image compatible with [linux-on-litex-vexriscv](https://github.com/litex-hub/linux-on-litex-vexriscv), you will have to adapte the dts/dtb (removing peripherals).
+Also, note that if you want to run linux on it, it is image compatible with https://github.com/litex-hub/linux-on-litex-vexriscv, you will have to adapte the dts/dtb (removing peripherals).
+
+Here is Doom running in linux :
+https://twitter.com/enjoy_digital/status/1493996880593887235?s=20&t=VR734wYewBFsT2Fgvm339Q
 
 # Running Verilator simulation
 
