@@ -72,6 +72,16 @@ Here are a pipeline representation of the two above configurations :
 - Currently looking for funding to implement more features (RV64, FPU, SMP, ...)
 - Unfortunately the project started with a single crew (not by wish), contribution are welcome.
 
+# Running on hardware
+
+NaxRiscv is currently integrated into [Litex](https://github.com/enjoy-digital/litex). For instance to run it on the Nexys video board, you can : 
+
+```shell
+python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv --with-video-framebuffer --with-sdcard --build --load
+```` 
+
+Also, note that if you want to run linux on it, it is image compatible with [linux-on-litex-vexriscv](https://github.com/litex-hub/linux-on-litex-vexriscv), you will have to adapte the dts/dtb (removing peripherals).
+
 # Running Verilator simulation
 
 See src/test/cpp/naxriscv/README.md
