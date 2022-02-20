@@ -22,7 +22,7 @@ To test the project, see the "Running Verilator simulation" section
 A few things to keep in mind : 
 - it is still WIP
 - You can trade FMax IPC Area
-- There is better IPC nor FMAX nor Area configs  
+- There is better IPC xor FMAX xor Area configs  
 
 For the following configuration : 
 - RV32IMASU, dual issue,OoO, linux compatible
