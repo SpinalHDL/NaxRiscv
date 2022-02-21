@@ -21,7 +21,8 @@ class RegFileAsync(addressWidth    : Int,
                    readsParameter  : Seq[RegFileReadParameter],
                    writesParameter : Seq[RegFileWriteParameter],
                    bypasseCount    : Int,
-                   headZero        : Boolean) extends Component {
+                   headZero        : Boolean,
+                   asyncReadBySyncReadRevertedClk : Boolean = false) extends Component {
   val io = new Bundle {
     val writes = Vec(writesParameter.map(p => slave(RegFileWrite(addressWidth, dataWidth, p.withReady))))
     val reads = Vec(readsParameter.map(p => slave(RegFileRead(addressWidth, dataWidth, p.withReady, 0, p.forceNoBypass))))
@@ -33,8 +34,9 @@ class RegFileAsync(addressWidth    : Int,
   val readPortCount  = io.reads.count(!_.withReady)
   val banks = for(bankId <- 0 until bankCount) yield new Area{
     val ram = Mem.fill((1 << addressWidth)/bankCount)(Bits(dataWidth bits))
+    def asyncRead = if(asyncReadBySyncReadRevertedClk) ram.readAsyncPortBySyncReadRevertedClk else ram.readAsyncPort
     val writePort = Seq.fill(writePortCount)(ram.writePort)
-    val readPort = Seq.fill(readPortCount)(ram.readAsyncPort)
+    val readPort = Seq.fill(readPortCount)(asyncRead)
   }
   io.reads.foreach(e => assert(!e.withReady))
   io.writes.foreach(e => assert(!e.withReady))
