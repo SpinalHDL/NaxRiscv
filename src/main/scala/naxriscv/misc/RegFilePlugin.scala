@@ -118,7 +118,8 @@ Artix 7 -> 538 Mhz 176 LUT 585 FF
 
 class RegFilePlugin(var spec : RegfileSpec,
                     var physicalDepth : Int,
-                    var bankCount : Int) extends Plugin with RegfileService{
+                    var bankCount : Int,
+                    var asyncReadBySyncReadRevertedClk : Boolean = false) extends Plugin with RegfileService{
   override def getPhysicalDepth = physicalDepth
   override def rfSpec = spec
 
@@ -157,7 +158,8 @@ class RegFilePlugin(var spec : RegfileSpec,
       readsParameter  = reads.map(e => RegFileReadParameter(withReady = e.withReady, e.forceNoBypass)),
       writesParameter = writes.map(e => RegFileWriteParameter(withReady = e.withReady)),
       bypasseCount    = bypasses.size,
-      headZero        = spec.x0AlwaysZero
+      headZero        = spec.x0AlwaysZero,
+      asyncReadBySyncReadRevertedClk = asyncReadBySyncReadRevertedClk
     )
 
     (regfile.io.reads, reads).zipped.foreach(_ <> _)
