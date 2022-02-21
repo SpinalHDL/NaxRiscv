@@ -23,7 +23,7 @@ case class MemRead[T <: Data](payloadType : HardType[T], depth : Int) extends Bu
   }
 }
 
-case class RamMwXor[T <: Data](payloadType : HardType[T], depth : Int, writePorts : Int, readPorts : Int) extends Component {
+case class RamAsyncMwXor[T <: Data](payloadType : HardType[T], depth : Int, writePorts : Int, readPorts : Int) extends Component {
   val io = new Bundle {
     val writes = Vec.fill(writePorts)(slave(Flow(MemWriteCmd(payloadType, depth))))
     val read = Vec.fill(readPorts)(slave(MemRead(payloadType, depth)))
@@ -44,6 +44,32 @@ case class RamMwXor[T <: Data](payloadType : HardType[T], depth : Int, writePort
 
   val reads = for(port <- io.read) yield new Area{
     val values = ram.map(_.readAsync(port.cmd.payload))
+    val xored = values.reduceBalancedTree(_ ^ _)
+    port.rsp := xored.as(payloadType)
+  }
+}
+
+case class RamSyncMwXor[T <: Data](payloadType : HardType[T], depth : Int, writePorts : Int, readPorts : Int) extends Component {
+  val io = new Bundle {
+    val writes = Vec.fill(writePorts)(slave(Flow(MemWriteCmd(payloadType, depth))))
+    val read = Vec.fill(readPorts)(slave(MemRead(payloadType, depth)))
+  }
+  val rawBits = payloadType.getBitsWidth
+  val rawType = HardType(Bits(rawBits bits))
+  val ram = List.fill(writePorts)(Mem.fill(depth)(rawType))
+
+  val writes = for((port, storage) <- (io.writes, ram).zipped) yield new Area{
+    val values = ram.filter(_ != storage).map(_.readAsync(port.address))
+    val xored = (port.data.asBits :: values).reduceBalancedTree(_ ^ _)
+    storage.write(
+      enable = port.valid,
+      address = port.address,
+      data = xored
+    )
+  }
+
+  val reads = for(port <- io.read) yield new Area{
+    val values = ram.map(_.readSync(port.cmd.payload, port.cmd.valid))
     val xored = values.reduceBalancedTree(_ ^ _)
     port.rsp := xored.as(payloadType)
   }
@@ -74,14 +100,14 @@ object RamMwXorSynth extends App{
   spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
 
   val rtls = ArrayBuffer[Rtl]()
-  rtls += Rtl(spinalConfig.generateVerilog(Rtl.ffIo(new RamMwXor(
+  rtls += Rtl(spinalConfig.generateVerilog(Rtl.ffIo(new RamAsyncMwXor(
     payloadType = UInt(1 bits),
     depth       = 32,
     writePorts  = 2,
     readPorts   = 2
   ).setDefinitionName("P1"))))
 
-  rtls += Rtl(spinalConfig.generateVerilog(Rtl.ffIo(new RamMwXor(
+  rtls += Rtl(spinalConfig.generateVerilog(Rtl.ffIo(new RamAsyncMwXor(
     payloadType = UInt(6 bits),
     depth       = 32,
     writePorts  = 2,
@@ -113,7 +139,7 @@ class MultiPortWritesSymplifier extends PhaseMemBlackboxing{
 
       val ctx = List(mem.parentScope.push(), cd.push())
 
-      val c = RamMwXor(
+      val c = RamAsyncMwXor(
         payloadType = Bits(mem.width bits),
         depth       = mem.wordCount,
         writePorts  = writes.size,
@@ -128,6 +154,41 @@ class MultiPortWritesSymplifier extends PhaseMemBlackboxing{
 
 
       for((reworked, old) <- (c.io.read, readsAsync).zipped){
+        reworked.cmd.payload.assignFrom(old.address)
+        wrapConsumers(typo, old, reworked.rsp)
+      }
+
+      mem.removeStatement()
+      mem.foreachStatements(s => s.removeStatement())
+
+      ctx.foreach(_.restore())
+    }
+
+    if(typo.writes.size > 1 && typo.readsAsync.size == 0){
+      typo.writes.foreach(w => assert(w.mask == null))
+      typo.writes.foreach(w => assert(w.clockDomain == typo.writes.head.clockDomain))
+      val cd = typo.writes.head.clockDomain
+
+      import typo._
+
+      val ctx = List(mem.parentScope.push(), cd.push())
+
+      val c = RamSyncMwXor(
+        payloadType = Bits(mem.width bits),
+        depth       = mem.wordCount,
+        writePorts  = writes.size,
+        readPorts   = readsSync.size
+      ).setCompositeName(mem)
+
+      for((dst, src) <- (c.io.writes, writes).zipped){
+        dst.valid.assignFrom(src.writeEnable)
+        dst.address.assignFrom(src.address)
+        dst.data.assignFrom(src.data)
+      }
+
+
+      for((reworked, old) <- (c.io.read, readsSync).zipped){
+        reworked.cmd.valid.assignFrom(old.readEnable)
         reworked.cmd.payload.assignFrom(old.address)
         wrapConsumers(typo, old, reworked.rsp)
       }
