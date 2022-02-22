@@ -2,7 +2,7 @@
 
 An RISC-V core currently characterised by : 
 
-- Out of order execution
+- Out of order execution with register renaming
 - Superscalar (ex : 2 decode, 3 execution units, 2 retire)
 - RV32IMASU (Linux and freertos works in simulation)
 - Portable HDL, but target FPGA with distributed ram (Xilinx series 7 is the reference used so far)

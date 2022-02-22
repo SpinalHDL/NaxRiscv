@@ -88,12 +88,14 @@ object LitexGen extends App{
 
   var netlistDirectory = "."
   var netlistName = "NaxRiscvLitex"
+  var resetVector = 0l
   val files = ArrayBuffer[String]()
   assert(new scopt.OptionParser[Unit]("NaxRiscv") {
     help("help").text("prints this usage text")
     opt[String]("netlist-directory") action { (v, c) => netlistDirectory = v }
     opt[String]("netlist-name") action { (v, c) => netlistName = v }
     opt[String]("scala-file") unbounded() action  { (v, c) => files += v }
+    opt[Long]("reset-vector") action  { (v, c) => resetVector = v }
   }.parse(args))
 
   val spinalConfig = SpinalConfig(inlineRom = true, targetDirectory = netlistDirectory)
@@ -111,6 +113,7 @@ object LitexGen extends App{
          |import naxriscv.utilities.Plugin
          |import spinal.lib.bus.misc.SizeMapping
          |val plugins = ArrayBuffer[Plugin]()
+         |val resetVector = $resetVector
          |""".stripMargin
     codes ++= files.map(scala.io.Source.fromFile(_).mkString)
     codes += "plugins\n"
@@ -187,6 +190,8 @@ Nax : timed 5026 gametics in 4958 realtics (35.480034 fps)
       timed 5026 gametics in 3444 realtics (51.077236 fps) (no more memcpy for doom flush)
       timed 5026 gametics in 2369 realtics (74.254959 fps) (-1)
 Vex : timed 5026 gametics in 5606 realtics (31.378880 fps)
+      timed 5026 gametics in 5238 realtics (33.583427 fps)
+      timed 5026 gametics in 4866 realtics (36.150841 fps) (-1)
 
 chocolate-doom -2 -timedemo demo1.lmp  -noblit
 Nax : timed 5026 gametics in 2040 realtics (86.230392 fps)
