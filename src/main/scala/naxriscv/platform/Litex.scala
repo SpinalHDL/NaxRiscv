@@ -113,7 +113,7 @@ object LitexGen extends App{
          |import naxriscv.utilities.Plugin
          |import spinal.lib.bus.misc.SizeMapping
          |val plugins = ArrayBuffer[Plugin]()
-         |val resetVector = $resetVector
+         |val resetVector = ${resetVector}l
          |""".stripMargin
     codes ++= files.map(scala.io.Source.fromFile(_).mkString)
     codes += "plugins\n"
