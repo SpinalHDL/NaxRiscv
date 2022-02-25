@@ -101,12 +101,12 @@ class SrcPlugin(val euId : String,
       import stage._
 
       val imm = new IMM(Frontend.MICRO_OP)
-      ss.SRC1 := SRC1_CTRL.muxListDc[SInt](src1Keys.map {
+      if(src1Keys.nonEmpty) ss.SRC1 := SRC1_CTRL.muxListDc[SInt](src1Keys.map {
         case sk.SRC1.RF => src1ToEnum(sk.SRC1.RF) -> S(stage(eu(IntRegFile, RS1)))
         case sk.SRC1.U  => src1ToEnum(sk.SRC1.U ) -> S(imm.u)
       })
 
-      ss.SRC2 := SRC2_CTRL.muxListDc[SInt](src2Keys.map {
+      if(src2Keys.nonEmpty) ss.SRC2 := SRC2_CTRL.muxListDc[SInt](src2Keys.map {
         case sk.SRC2.RF => src2ToEnum(sk.SRC2.RF) -> S(stage(eu(IntRegFile, RS2)))
         case sk.SRC2.I  => src2ToEnum(sk.SRC2.I ) -> imm.i_sext
         case sk.SRC2.S  => src2ToEnum(sk.SRC2.S ) -> imm.s_sext

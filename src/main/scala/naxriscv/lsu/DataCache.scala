@@ -414,8 +414,7 @@ class DataCache(val cacheSize: Int,
 
   val banks = for(id <- 0 until bankCount) yield new Area{
     val mem = Mem(Bits(bankWidth bits), bankWordCount)
-    val write = mem.writePortWithMask
-    write.mask.setWidth(mem.getWidth/8)
+    val write = mem.writePortWithMask(mem.getWidth/8)
     val read = new Area{
       val usedByWriteBack = False
       val cmd = Flow(mem.addressType)

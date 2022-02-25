@@ -59,7 +59,7 @@ class RobPlugin(var robSize : Int,
     val frontend = getService[FrontendPlugin]
 
     val completionReg = completionWithReg generate new Area {
-      val valids = Reg(Bits(ROB.SIZE bits)) init (0) //TODO this maybe optimized using distributed ram, also this may improve the commit stage path
+      val valids = Reg(Bits(ROB.SIZE bits)) init (0)
       for (p <- robLineMaskPort) {
         p.mask := valids.subdivideIn(ROB.COLS bits).read(p.line(ROB.lineRange))
       }

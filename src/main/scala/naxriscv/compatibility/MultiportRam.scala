@@ -49,6 +49,45 @@ case class RamAsyncMwXor[T <: Data](payloadType : HardType[T], depth : Int, writ
   }
 }
 
+case class RamAsyncMwMux[T <: Data](payloadType : HardType[T],
+                                    depth : Int,
+                                    writePorts : Int,
+                                    readPorts : Int) extends Component {
+  val io = new Bundle {
+    val writes = Vec.fill(writePorts)(slave(Flow(MemWriteCmd(payloadType, depth))))
+    val read = Vec.fill(readPorts)(slave(MemRead(payloadType, depth)))
+  }
+  val rawBits = payloadType.getBitsWidth
+  val rawType = HardType(Bits(rawBits bits))
+  val ram = List.fill(writePorts)(Mem.fill(depth)(rawType))
+
+  val location = RamAsyncMwXor(
+    payloadType = UInt(log2Up(writePorts) bits),
+    depth       = depth,
+    writePorts  = writePorts,
+    readPorts   = readPorts
+  )
+
+  val writes = for((port, storage, loc) <- (io.writes, ram, location.io.writes).zipped) yield new Area{
+    storage.write(
+      enable = port.valid,
+      address = port.address,
+      data = port.data.asBits
+    )
+    loc.valid := port.valid
+    loc.address := port.address
+    loc.data := U(ram.indexOf(storage))
+  }
+
+  val reads = for((port, loc) <- (io.read, location.io.read).zipped) yield new Area{
+    loc.cmd.valid := port.cmd.valid
+    loc.cmd.payload := port.cmd.payload
+
+    val reads  = ram.map(_.readAsync(port.cmd.payload))
+    port.rsp := reads.read(loc.rsp).as(payloadType)
+  }
+}
+
 case class RamSyncMwXor[T <: Data](payloadType : HardType[T], depth : Int, writePorts : Int, readPorts : Int) extends Component {
   val io = new Bundle {
     val writes = Vec.fill(writePorts)(slave(Flow(MemWriteCmd(payloadType, depth))))
