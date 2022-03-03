@@ -152,7 +152,7 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
         writePort.address := allocation.getAddress(csrWriteCmd.address.resized)
         if(withHigh) writePort.address(log2Up(counterCount)) := csrWriteCmd.high
         writePort.data := csr.onWriteBits
-        when(!csrWriteCmd.high) {
+        when(if(withHigh) !csrWriteCmd.high else True) {
           whenIndexed(counters, csrWriteCmd.address) { slot =>
             if(!slot.dummy) {
               slot.value := csr.onWriteBits.asUInt.resized
@@ -213,7 +213,7 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
       }
 
 
-      WRITE_HIGH whenIsActive{
+      if(withHigh) WRITE_HIGH whenIsActive{
         writePort.valid := True
         writePort.address(log2Up(counterCount)) := True
         writePort.data := B(result >> 32)
@@ -256,7 +256,7 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
     val csrWrite = new Area{
       val fired = RegInit(False) setWhen(fsm.csrWriteCmd.fire)
       fsm.csrWriteCmd.address := csr.onWriteAddress(0, log2Up(counterCount) bits)
-      fsm.csrWriteCmd.high := csr.onWriteAddress(7)
+      if(withHigh) fsm.csrWriteCmd.high := csr.onWriteAddress(7)
       fsm.csrWriteCmd.valid := False
 
       csr.onWrite(csrFilter, false){

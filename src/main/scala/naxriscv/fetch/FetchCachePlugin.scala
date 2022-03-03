@@ -398,11 +398,10 @@ class FetchCachePlugin(var cacheSize : Int,
           way.read.cmd.payload := FETCH_PC(lineRange)
         }
 
-        !hitsWithTranslationWays generate {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === tpk.TRANSLATED(tagRange) }
+        (!hitsWithTranslationWays || translationPort.wayCount == 0) generate {import hitsStage._ ; WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === tpk.TRANSLATED(tagRange) }
 
-        val hits = hitsWithTranslationWays generate new Area{
+        val hits = (hitsWithTranslationWays && translationPort.wayCount > 0) generate new Area{
           import hitsStage._
-          assert(translationPort.wayCount > 0)
           val wayTlbHits = (0 until translationPort.wayCount) map(tlbWayId => WAYS_TAGS(wayId).address === tpk.WAYS_PHYSICAL(tlbWayId)(tagRange) && tpk.WAYS_OH(tlbWayId))
           val translatedHits = wayTlbHits.orR
           val bypassHits     = WAYS_TAGS(wayId).address === FETCH_PC(tagRange)

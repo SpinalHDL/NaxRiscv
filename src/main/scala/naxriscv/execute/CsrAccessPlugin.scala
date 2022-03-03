@@ -281,7 +281,7 @@ class CsrAccessPlugin(val euId: String)(var decodeAt: Int,
       setup.trap.valid      := isValid && SEL && (CSR_TRAP || CSR_FLUSH_PIPELINE)
       setup.trap.robId      := ROB.ID
       setup.trap.cause      := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
-      setup.trap.tval       := MICRO_OP
+      setup.trap.tval       := MICRO_OP.resized
       setup.trap.skipCommit := CSR_TRAP
       setup.trap.reason     := ScheduleReason.TRAP
 

@@ -172,8 +172,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       csr.read(U(p.hartId),  CSR.MHARTID) // MRO Hardware thread ID.Machine Trap Setup
       val misaExt = misaIds.map(1l << _).reduce(_ | _)
       val misaMxl = XLEN.get match {
-        case 32 => 1 << XLEN.get-2
-        case 64 => 2 << XLEN.get-2
+        case 32 => BigInt(1) << XLEN.get-2
+        case 64 => BigInt(2) << XLEN.get-2
       }
       val misa = misaMxl | misaExt
       csr.read(U(misa, XLEN bits), CSR.MISA) // MRW ISA and extensions

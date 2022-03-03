@@ -64,7 +64,7 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
       val CAN_IMPROVE = Stageable(Bool())
       val BRANCHED_PREDICTION = Stageable(Bool())
       val NEED_CORRECTION = Stageable(Bool())
-      val OFFSET = Stageable(SInt(32 bits))
+      val OFFSET = Stageable(SInt(PC_WIDTH bits))
       val CONDITIONAL_PREDICTION = Stageable(Bool())
       val LAST_SLICE = Stageable(UInt(log2Up(SLICE_COUNT) bits))
       val BAD_RET_PC = Stageable(Bool())

@@ -839,12 +839,16 @@ class LsuPlugin(var lqSize: Int,
             rspShifted := checkSqArbi.bypass.data
           }
 
-          assert(Global.XLEN.get == 32)
-          val rspFormated = rspSize.mux(
-            0 -> B((31 downto 8) -> (rspShifted(7) && !rspUnsigned),(7 downto 0) -> rspShifted(7 downto 0)),
-            1 -> B((31 downto 16) -> (rspShifted(15) && !rspUnsigned),(15 downto 0) -> rspShifted(15 downto 0)),
-            default -> rspShifted //W
-          )
+          val sizeMax = log2Up(XLEN/8)
+          val rspFormated = rspSize.muxListDc((0 to sizeMax).map{i =>
+            val off = (1 << i) * 8
+            i -> B((XLEN.get - 1 downto off) -> (rspShifted(off-1) && !rspUnsigned), (off-1 downto 0) -> rspShifted(off-1 downto 0))
+          })
+//          val rspFormated = rspSize.mux(
+//            0 -> B((31 downto 8) -> (rspShifted(7) && !rspUnsigned),(7 downto 0) -> rspShifted(7 downto 0)),
+//            1 -> B((31 downto 16) -> (rspShifted(15) && !rspUnsigned),(15 downto 0) -> rspShifted(15 downto 0)),
+//            default -> rspShifted //W
+//          )
 
           setup.rfWrite.valid   := isValid && WRITE_RD
           setup.rfWrite.address := decoder.PHYS_RD

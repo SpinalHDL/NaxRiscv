@@ -253,7 +253,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
         setup.exceptionPort.tval  := B(pc + (fetchFaultSlice << SLICE_RANGE_LOW))
       } otherwise {
         setup.exceptionPort.cause := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
-        setup.exceptionPort.tval  := OHMux.or(oh, instReg)
+        setup.exceptionPort.tval  := OHMux.or(oh, instReg).resized
       }
     }
 

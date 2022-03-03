@@ -38,7 +38,7 @@ class ShiftPlugin(val euId : String,
       import stage._
       val ss = SrcStageables
 
-      assert(Global.XLEN.get == 32)
+      if(Global.XLEN.get != 32) SpinalWarning("RV64")
       val amplitude  = ss.SRC2(4 downto 0).asUInt
       val reversed   = Mux[SInt](LEFT, ss.SRC1.reversed, ss.SRC1)
       val shifted = (S((SIGNED & ss.SRC1.msb) ## reversed) >> amplitude).resize(Global.XLEN bits)
