@@ -1,5 +1,6 @@
 package naxriscv.execute
 
+import naxriscv.Global.XLEN
 import naxriscv.frontend.RfDependencyPlugin
 import naxriscv.{DecodeListType, Frontend, ROB}
 import naxriscv.interfaces.{DecoderService, MicroOp, RS2}
@@ -8,6 +9,8 @@ import naxriscv.riscv.{Const, IntRegFile, Rvi}
 import naxriscv.utilities._
 import spinal.core._
 import spinal.lib.pipeline.Stageable
+
+import scala.collection.mutable.ArrayBuffer
 
 object StorePlugin extends AreaObject{
   val SEL = Stageable(Bool())
@@ -37,7 +40,9 @@ class StorePlugin(val euId : String) extends Plugin{
 
     val sk = SrcKeys
     val srcOps = List(sk.Op.ADD, sk.SRC1.RF, sk.SRC2.S)
-    val stores = List(Rvi.SB, Rvi.SH, Rvi.SW)
+    val stores = ArrayBuffer(Rvi.SB, Rvi.SH, Rvi.SW)
+    if(XLEN.get == 64) stores ++= List(Rvi.SD)
+
     for(store <- stores) add(store, srcOps, List(AMO -> False, SC -> False))
 
     val amos = List(

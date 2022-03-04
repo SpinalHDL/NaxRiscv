@@ -9,6 +9,8 @@ import spinal.core._
 import spinal.lib.pipeline.Stageable
 import naxriscv.Global._
 
+import scala.collection.mutable.ArrayBuffer
+
 object LoadPlugin extends AreaObject{
   val SEL      = Stageable(Bool())
   val UNSIGNED = Stageable(Bool())
@@ -35,7 +37,8 @@ class LoadPlugin(val euId : String) extends Plugin{
     }
 
     val sk = SrcKeys
-    val loads = List(Rvi.LB , Rvi.LH , Rvi.LW , Rvi.LBU, Rvi.LHU)
+    val loads = ArrayBuffer(Rvi.LB , Rvi.LH , Rvi.LW , Rvi.LBU, Rvi.LHU)
+    if(XLEN.get == 64) loads ++= List(Rvi.LD, Rvi.LWU)
 
     for(op <- loads) add(op, List(sk.Op.ADD, sk.SRC1.RF, sk.SRC2.I), List(LR -> False))
     add(Rvi.LR,  List(sk.Op.SRC1, sk.SRC1.RF),  List(LR -> True))
