@@ -33,6 +33,46 @@ riscv_tests = [
 	"rv32ui-p-xori"
 ]
 
+riscv64_tests = [
+    "rv64ui-p-add",
+    "rv64ui-p-addi",
+    "rv64ui-p-addiw",
+    "rv64ui-p-addw",
+    "rv64ui-p-and",
+    "rv64ui-p-andi",
+    "rv64ui-p-auipc",
+    "rv64ui-p-beq",
+    "rv64ui-p-bge",
+    "rv64ui-p-bgeu",
+    "rv64ui-p-blt",
+    "rv64ui-p-bltu",
+    "rv64ui-p-bne",
+    "rv64ui-p-jal",
+    "rv64ui-p-jalr",
+    "rv64ui-p-or",
+    "rv64ui-p-ori",
+    "rv64ui-p-sll",
+    "rv64ui-p-slli",
+    "rv64ui-p-slliw",
+    "rv64ui-p-sllw",
+    "rv64ui-p-slt",
+    "rv64ui-p-slti",
+    "rv64ui-p-sltiu",
+    "rv64ui-p-sltu",
+    "rv64ui-p-sra",
+    "rv64ui-p-srai",
+    "rv64ui-p-sraiw",
+    "rv64ui-p-sraw",
+    "rv64ui-p-srl",
+    "rv64ui-p-srli",
+    "rv64ui-p-srliw",
+    "rv64ui-p-srlw",
+    "rv64ui-p-sub",
+    "rv64ui-p-subw",
+    "rv64ui-p-xor",
+    "rv64ui-p-xori",
+]
+
 riscvTestMemory = [
 	"rv32ui-p-lb",
 	"rv32ui-p-lbu",
@@ -43,6 +83,22 @@ riscvTestMemory = [
 	"rv32ui-p-sh",
 	"rv32ui-p-sw"
 ]
+
+riscv64TestMemory = [
+    "rv64ui-p-lb",
+    "rv64ui-p-lbu",
+    "rv64ui-p-lh",
+    "rv64ui-p-lhu",
+    "rv64ui-p-lui",
+    "rv64ui-p-lw",
+    "rv64ui-p-lwu",
+    "rv64ui-p-ld",
+    "rv64ui-p-sb",
+    "rv64ui-p-sh",
+    "rv64ui-p-sw",
+    "rv64ui-p-sd",
+]
+
 
 riscvTestAmo = [
     "rv32ua-p-amoswap_w",
@@ -206,7 +262,20 @@ riscvArch32Priv = listPrefix("rv32i_m/privilege/", [
     "misalign-sw-01",
 ])
 
-arch="rv32im"
+file = open('../../../../nax.h',mode='r')
+naxHeader = file.read()
+file.close()
+import re
+
+def getInt(key):
+    return int(re.findall(key + " (\d+)", naxHeader)[0])
+
+xlen = getInt("XLEN")
+
+if xlen == 64:
+    arch="rv64im"
+else:
+    arch="rv32im"
 
 naxSoftware = [
 	["lsu", "baremetal/lsu/build/lsu.elf"],
@@ -258,16 +327,6 @@ with open('tests.mk', 'w') as f:
         ]))
         f.write(f"\n\n")
 
-
-
-    for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv + riscvTestAmo:
-        rvTest(name)
-
-
-    rvTest("rv32ua-p-lrsc_1234", elf="rv32ua-p-lrsc", timeout=300000, passs="test_5")
-    rvTest("rv32ua-p-lrsc_6", elf="rv32ua-p-lrsc", timeout=100000, start="test_6")
-
-
     def rvArch(name, elf=None, timeout=1000000, passs="pass"):
         if not elf:
             elf = name
@@ -288,74 +347,86 @@ with open('tests.mk', 'w') as f:
         ]))
         f.write(f"\n\n")
 
-    for name in riscvArch32i + riscvArch32M + riscvArch32Zifencei:
-        rvArch(name)
 
-    for spec in naxSoftware:
-        outputDir = "output/nax/" + spec[0]
-        rule = outputDir +"/PASS"
-        tests.append(rule)
-        ouputs.append(outputDir)
-        if spec[0] in naxSoftwareRegular:
-            testsFast.append(rule)
-        f.write(f"{outputDir}/PASS:\n")
-        f.write("\t" + " ".join([
-            "obj_dir/VNaxRiscv",
-            "--name", spec[0],
-            "--output-dir", outputDir,
-            "--load-elf", f"../../../../ext/NaxSoftware/{spec[1]}",
-            "--start-symbol", "_start",
-            "--pass-symbol", "pass",
-            "--fail-symbol", "fail",
-            "--no-putc-flush",
-           "${ARGS}"
-        ]))
-        f.write(f"\n\n")
+    if xlen == 64:
+        for name in riscv64_tests + riscv64TestMemory:
+            rvTest(name)
+
+    if xlen == 32:
+        for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv + riscvTestAmo:
+            rvTest(name)
+
+        rvTest("rv32ua-p-lrsc_1234", elf="rv32ua-p-lrsc", timeout=300000, passs="test_5")
+        rvTest("rv32ua-p-lrsc_6", elf="rv32ua-p-lrsc", timeout=100000, start="test_6")
+
+        for name in riscvArch32i + riscvArch32M + riscvArch32Zifencei:
+            rvArch(name)
+
+        for spec in naxSoftware:
+            outputDir = "output/nax/" + spec[0]
+            rule = outputDir +"/PASS"
+            tests.append(rule)
+            ouputs.append(outputDir)
+            if spec[0] in naxSoftwareRegular:
+                testsFast.append(rule)
+            f.write(f"{outputDir}/PASS:\n")
+            f.write("\t" + " ".join([
+                "obj_dir/VNaxRiscv",
+                "--name", spec[0],
+                "--output-dir", outputDir,
+                "--load-elf", f"../../../../ext/NaxSoftware/{spec[1]}",
+                "--start-symbol", "_start",
+                "--pass-symbol", "pass",
+                "--fail-symbol", "fail",
+                "--no-putc-flush",
+               "${ARGS}"
+            ]))
+            f.write(f"\n\n")
 
 
 
-    for i in range(4):
-        outputDir = "output/nax/buildroot/run" + str(i)
-        rule = outputDir +"/PASS"
-        imagePath = "../../../../ext/NaxSoftware/buildroot/images/rv32ima"
+        for i in range(4):
+            outputDir = "output/nax/buildroot/run" + str(i)
+            rule = outputDir +"/PASS"
+            imagePath = "../../../../ext/NaxSoftware/buildroot/images/rv32ima"
 
-        tests.append(rule)
-        ouputs.append(outputDir)
-        f.write(f"{outputDir}/PASS:\n")
-        f.write("\t" + " ".join([
-        f"""./obj_dir/VNaxRiscv \\
-           --seed {i}                  \\
-           --name buildroot_run{i}    \\
-           --output-dir  {outputDir}   \\
-           --load-bin {imagePath}/fw_jump.bin,0x80000000 \\
-           --load-bin {imagePath}/linux.dtb,0x80F80000 \\
-           --load-bin {imagePath}/Image,0x80400000 \\
-           --load-bin {imagePath}/rootfs.cpio,0x81000000 \\
-           --no-stdin                  \\
-           --no-putc-flush          \\
-           --getc "buildroot login" \\
-           --putc "root" \\
-           --getc "#" \\
-           --putc "cat /proc/cpuinfo" \\
-           --getc "#" \\
-           --putc "echo 1+2+3*4 | bc" \\
-           --getc "#" \\
-           --putc "micropython" \\
-           --getc ">>> " \\
-           --putc "import math" \\
-           --getc ">>> " \\
-           --putc "math.sin(math.pi/4)" \\
-           --getc ">>> " \\
-           --putc "from sys import exit" \\
-           --getc ">>> " \\
-           --putc "exit()" \\
-           --getc "#" \\
-           --putc "ls /" \\
-           --getc "#" \\
-           --success \\
-           ${{ARGS}} """
-        ]))
-        f.write(f"\n\n")
+            tests.append(rule)
+            ouputs.append(outputDir)
+            f.write(f"{outputDir}/PASS:\n")
+            f.write("\t" + " ".join([
+            f"""./obj_dir/VNaxRiscv \\
+               --seed {i}                  \\
+               --name buildroot_run{i}    \\
+               --output-dir  {outputDir}   \\
+               --load-bin {imagePath}/fw_jump.bin,0x80000000 \\
+               --load-bin {imagePath}/linux.dtb,0x80F80000 \\
+               --load-bin {imagePath}/Image,0x80400000 \\
+               --load-bin {imagePath}/rootfs.cpio,0x81000000 \\
+               --no-stdin                  \\
+               --no-putc-flush          \\
+               --getc "buildroot login" \\
+               --putc "root" \\
+               --getc "#" \\
+               --putc "cat /proc/cpuinfo" \\
+               --getc "#" \\
+               --putc "echo 1+2+3*4 | bc" \\
+               --getc "#" \\
+               --putc "micropython" \\
+               --getc ">>> " \\
+               --putc "import math" \\
+               --getc ">>> " \\
+               --putc "math.sin(math.pi/4)" \\
+               --getc ">>> " \\
+               --putc "from sys import exit" \\
+               --getc ">>> " \\
+               --putc "exit()" \\
+               --getc "#" \\
+               --putc "ls /" \\
+               --getc "#" \\
+               --success \\
+               ${{ARGS}} """
+            ]))
+            f.write(f"\n\n")
 
 
 

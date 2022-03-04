@@ -18,6 +18,7 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
   def euCompletionAt : Int = euWritebackAt
   def euWritebackAt : Int
 
+  var _setup : Setup = null
   class Setup extends Area {
     val eu = findService[ExecutionUnitBase](_.euId == euId)
     eu.retain()
@@ -36,6 +37,12 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
     }
 
     eu.setDecodingDefault(SEL, False)
+
+    val intFormat = findService[IntFormatPlugin](_.euId == euId)
+    val intFormatPort = intFormat.access(euWritebackAt, 1 - staticLatency.toInt)
+    _setup = this
+
+    def signExtend(op : MicroOp, bitId : Int) = intFormat.signExtend(intFormatPort, op, 31)
   }
 
   class Logic extends Area with PostInitCallback{
@@ -43,7 +50,7 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
     val decode = getService[DecoderService]
 
     val wbStage = eu.getExecute(euWritebackAt)
-    val wb = eu.newWriteback(IntRegFile, RD, wbStage, if(staticLatency) 0 else 1)
+    val wb = _setup.intFormatPort
     wb.valid := wbStage(SEL)
 
     val wake = !staticLatency generate new Area{

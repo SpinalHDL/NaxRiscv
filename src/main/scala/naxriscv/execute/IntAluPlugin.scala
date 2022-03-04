@@ -1,5 +1,6 @@
 package naxriscv.execute
 
+import naxriscv.Global.XLEN
 import naxriscv.{DecodeList, Frontend, Global}
 import naxriscv.interfaces._
 import naxriscv.riscv._
@@ -50,6 +51,16 @@ class IntAluPlugin(val euId : String,
 
     add(Rvi.LUI,   List(Op.SRC1  , SRC1.U)         , DecodeList(ALU_CTRL -> ace.ADD_SUB))
     add(Rvi.AUIPC, List(Op.ADD   , SRC1.U, SRC2.PC), DecodeList(ALU_CTRL -> ace.ADD_SUB))
+
+    if(XLEN.get == 64){
+      add(Rvi.ADDW ,  List(Op.ADD   , SRC1.RF, SRC2.RF), DecodeList(ALU_CTRL -> ace.ADD_SUB ))
+      add(Rvi.SUBW , List(Op.SUB   , SRC1.RF, SRC2.RF), DecodeList(ALU_CTRL -> ace.ADD_SUB ))
+      add(Rvi.ADDIW , List(Op.ADD   , SRC1.RF, SRC2.I), DecodeList(ALU_CTRL -> ace.ADD_SUB ))
+
+      for(op <- List(Rvi.ADDW, Rvi.SUBW, Rvi.ADDIW)){
+        signExtend(op, 31)
+      }
+    }
   }
 
   override val logic = create late new Logic{

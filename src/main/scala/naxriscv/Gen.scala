@@ -194,6 +194,7 @@ object Config{
 
     //EXECUTION UNITES
     plugins += new ExecutionUnitBase("EU0")
+    plugins += new IntFormatPlugin("EU0")
     plugins += new SrcPlugin("EU0", earlySrc = true)
     plugins += new IntAluPlugin("EU0", aluStage = 0)
     plugins += new ShiftPlugin("EU0" , aluStage = 0)
@@ -202,6 +203,7 @@ object Config{
 //    plugins += new StorePlugin("EU0")
 
     plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1)
+    plugins += new IntFormatPlugin("EU1")
     plugins += new SrcPlugin("EU1", earlySrc = true)
     plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new DivPlugin("EU1", writebackAt = 2)
@@ -239,6 +241,7 @@ object Config{
 //    plugins += new StorePlugin("EU2")
 
     plugins += new ExecutionUnitBase("EU4")
+    plugins += new IntFormatPlugin("EU4")
     plugins += new SrcPlugin("EU4")
     plugins += new IntAluPlugin("EU4")
     plugins += new ShiftPlugin("EU4")
@@ -464,6 +467,7 @@ object Config64{
 
     //EXECUTION UNITES
     plugins += new ExecutionUnitBase("EU0")
+    plugins += new IntFormatPlugin("EU0")
     plugins += new SrcPlugin("EU0", earlySrc = true)
     plugins += new IntAluPlugin("EU0", aluStage = 0)
     plugins += new ShiftPlugin("EU0" , aluStage = 0)
@@ -472,6 +476,7 @@ object Config64{
     //    plugins += new StorePlugin("EU0")
 
     plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1)
+    plugins += new IntFormatPlugin("EU1")
     plugins += new SrcPlugin("EU1", earlySrc = true)
     plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new DivPlugin("EU1", writebackAt = 2)
@@ -509,6 +514,7 @@ object Config64{
     //    plugins += new StorePlugin("EU2")
 
     plugins += new ExecutionUnitBase("EU4")
+    plugins += new IntFormatPlugin("EU4")
     plugins += new SrcPlugin("EU4")
     plugins += new IntAluPlugin("EU4")
     plugins += new ShiftPlugin("EU4")
