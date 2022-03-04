@@ -654,6 +654,8 @@ obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/p
 obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/freertosDemo/integer/rv32im/freertosDemo.elf --start-symbol _start --pass-symbol c_pass --fail-symbol c_fail --stats-print-all
 
 
+obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/play/build/rv64im/play.elf --start-symbol _start --pass-symbol pass --fail-symbol fail --trace --trace-ref --stats-print-all
+
 LAST PC COMMIT=c002be98
 
 ARGS_COMMON="--load-elf /media/data/open/riscv/VexRiscvOoo/ext/NaxSoftware/baremetal/play/build/play.elf"

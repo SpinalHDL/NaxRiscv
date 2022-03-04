@@ -45,7 +45,12 @@ using namespace std;
 #include <getopt.h>
 
 #define RvAddress u32
+
+#if XLEN == 32
 #define RvData u32
+#else
+#define RvData u64
+#endif
 
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
 
@@ -75,11 +80,19 @@ void breakMe(){
     int a = 0;
 }
 
+#if XLEN == 32
 #define assertEq(message, x,ref) if((RvData)(x) != (RvData)(ref)) {\
 	printf("\n*** %s DUT=%x REF=%x ***\n\n",message,(RvData)x,(RvData)ref);\
 	breakMe();\
 	failure();\
 }
+#else
+#define assertEq(message, x,ref) if((RvData)(x) != (RvData)(ref)) {\
+	printf("\n*** %s DUT=%lx REF=%lx ***\n\n",message,(RvData)x,(RvData)ref);\
+	breakMe();\
+	failure();\
+}
+#endif
 
 #define assertTrue(message, x) if(!(x)) {\
     printf("\n*** %s ***\n\n",message);\
@@ -727,14 +740,14 @@ public:
 
 class RobCtx{
 public:
-    IData pc;
+    RvData pc;
     bool integerWriteValid;
     RvData integerWriteData;
 
     bool csrValid;
     bool csrWriteDone;
     bool csrReadDone;
-    RvData csrAddress;
+    int  csrAddress;
     RvData csrWriteData;
     RvData csrReadData;
 
@@ -843,7 +856,7 @@ public:
     FetchCtx fetchCtx[4096];
     OpCtx opCtx[4096];
     int sqToOp[256];
-    IData *robToPc[DISPATCH_COUNT];
+    RvData *robToPc[DISPATCH_COUNT];
     CData *integer_write_valid[INTEGER_WRITE_COUNT];
     CData *integer_write_robId[INTEGER_WRITE_COUNT];
     CData *rob_completions_valid[ROB_COMPLETIONS_PORTS];
@@ -855,9 +868,9 @@ public:
     SData *decoded_fetch_id[DISPATCH_COUNT];
     SData *allocated_fetch_id[DISPATCH_COUNT];
     IData *decoded_instruction[DISPATCH_COUNT];
-    IData *decoded_pc[DISPATCH_COUNT];
+    RvData *decoded_pc[DISPATCH_COUNT];
     CData *dispatch_mask[DISPATCH_COUNT];
-    IData *integer_write_data[INTEGER_WRITE_COUNT];
+    RvData *integer_write_data[INTEGER_WRITE_COUNT];
     ofstream gem5;
     disassembler_t disasm;
     bool gem5Enable = false;
@@ -1446,8 +1459,12 @@ void spikeInit(){
     fptr = trace_ref ? fopen((outputDir + "/spike.log").c_str(),"w") : NULL;
     std::ofstream outfile ("/dev/null",std::ofstream::binary);
     wrap = new sim_wrap();
-
-    proc = new processor_t("RV32IMA", "MSU", "", wrap, 0, false, fptr, outfile);
+    #if XLEN==32
+    const char * isa = "RV32IMA";
+    #else
+    const char * isa = "RV64IMA";
+    #endif
+    proc = new processor_t(isa, "MSU", "", wrap, 0, false, fptr, outfile);
     if(trace_ref) proc->enable_log_commits();
     if(spike_debug) proc->debug = true;
     proc->set_pmp_num(0);
