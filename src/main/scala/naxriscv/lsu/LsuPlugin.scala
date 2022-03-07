@@ -1608,7 +1608,8 @@ class LsuPlugin(var lqSize: Int,
           op   = sq.mem.op,
           swap = sq.mem.swap,
           mem  = readed,
-          rf   = storeData
+          rf   = storeData,
+          isWord = storeSize === 2
         )
 
         val result = Reg(Bits(XLEN bits))
@@ -1659,8 +1660,9 @@ class LsuPlugin(var lqSize: Int,
           setup.rfWrite.address      := sq.mem.physRd
           setup.rfWrite.robId        := robId
 
-          load.pipeline.cacheRsp.rspAddress := storeAddress
-          load.pipeline.cacheRsp.rspSize    := storeSize
+          load.pipeline.cacheRsp.rspAddress  := storeAddress
+          load.pipeline.cacheRsp.rspSize     := storeSize
+          if(XLEN.get == 64) load.pipeline.cacheRsp.rspUnsigned := False
 
           when(rsp.fire){
             setup.rfWrite.valid        setWhen(sq.mem.writeRd)

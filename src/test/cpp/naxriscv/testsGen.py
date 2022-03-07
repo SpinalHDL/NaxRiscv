@@ -112,6 +112,28 @@ riscvTestAmo = [
     "rv32ua-p-amomin_w",
 ]
 
+riscv64TestAmo = [
+    "rv64ua-p-amoadd_d",
+    "rv64ua-p-amoand_d",
+    "rv64ua-p-amomax_d",
+    "rv64ua-p-amomaxu_d",
+    "rv64ua-p-amomin_d",
+    "rv64ua-p-amominu_d",
+    "rv64ua-p-amoor_d",
+    "rv64ua-p-amoswap_d",
+    "rv64ua-p-amoxor_d",
+    "rv64ua-p-amoadd_w",
+    "rv64ua-p-amoand_w",
+    "rv64ua-p-amomaxu_w",
+    "rv64ua-p-amomax_w",
+    "rv64ua-p-amomin_w",
+    "rv64ua-p-amominu_w",
+    "rv64ua-p-amoor_w",
+    "rv64ua-p-amoswap_w",
+    "rv64ua-p-amoxor_w",
+]
+
+
 riscvTestFloat = [
     "rv32uf-p-fmadd",
     "rv32uf-p-fadd",
@@ -153,6 +175,27 @@ riscvTestDiv = [
 	"rv32um-p-rem",
 	"rv32um-p-remu"
 ]
+
+
+riscv64TestMul = [
+    "rv64um-p-mul",
+    "rv64um-p-mulh",
+    "rv64um-p-mulhsu",
+    "rv64um-p-mulhu",
+    "rv64um-p-mulw",
+]
+
+riscv64TestDiv = [
+    "rv64um-p-div",
+    "rv64um-p-divu",
+    "rv64um-p-rem",
+    "rv64um-p-remu",
+    "rv64um-p-divuw",
+    "rv64um-p-divw",
+    "rv64um-p-remuw",
+    "rv64um-p-remw",
+]
+
 
 def listPrefix(prefix, l):
     return list(map(lambda x : prefix + x, l))
@@ -281,10 +324,14 @@ naxSoftware = [
 	["lsu", "baremetal/lsu/build/lsu.elf"],
 ]
 
+nax64Software = []
+
 naxSoftwareRegular = [
     "machine", "supervisor", "mmu_sv32", "dhrystone", "coremark"
 ]
-
+nax64SoftwareRegular = [
+    "dhrystone", "coremark"
+]
 
 freertos = ["blocktim", "countsem", "EventGroupsDemo", "flop", "integer", "QPeek",
             "QueueSet", "recmutex", "semtest", "TaskNotify", "dynamic",
@@ -296,6 +343,8 @@ for e in naxSoftwareRegular:
 for e in freertos:
     naxSoftware.append(["freertos/" + e, f"baremetal/freertosDemo/build/{e}/{arch}/freertosDemo.elf"])
 
+for e in nax64SoftwareRegular:
+    nax64Software.append([e, f"baremetal/{e}/build/{arch}/{e}.elf"])
 
 # naxSoftware.append(["coremark", f"baremetal/coremark/coremark_{arch}.elf"])
 
@@ -347,10 +396,35 @@ with open('tests.mk', 'w') as f:
         ]))
         f.write(f"\n\n")
 
+    def regularSoftware(spec):
+        outputDir = "output/nax/" + spec[0]
+        rule = outputDir +"/PASS"
+        tests.append(rule)
+        ouputs.append(outputDir)
+        if spec[0] in naxSoftwareRegular:
+            testsFast.append(rule)
+        f.write(f"{outputDir}/PASS:\n")
+        f.write("\t" + " ".join([
+            "obj_dir/VNaxRiscv",
+            "--name", spec[0],
+            "--output-dir", outputDir,
+            "--load-elf", f"../../../../ext/NaxSoftware/{spec[1]}",
+            "--start-symbol", "_start",
+            "--pass-symbol", "pass",
+            "--fail-symbol", "fail",
+            "--no-putc-flush",
+           "${ARGS}"
+        ]))
+        f.write(f"\n\n")
+
 
     if xlen == 64:
-        for name in riscv64_tests + riscv64TestMemory:
+        for name in riscv64_tests + riscv64TestMemory + riscv64TestMul + riscv64TestDiv + riscv64TestAmo:
             rvTest(name)
+
+        for spec in nax64Software:
+            regularSoftware(spec)
+
 
     if xlen == 32:
         for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv + riscvTestAmo:
@@ -363,25 +437,7 @@ with open('tests.mk', 'w') as f:
             rvArch(name)
 
         for spec in naxSoftware:
-            outputDir = "output/nax/" + spec[0]
-            rule = outputDir +"/PASS"
-            tests.append(rule)
-            ouputs.append(outputDir)
-            if spec[0] in naxSoftwareRegular:
-                testsFast.append(rule)
-            f.write(f"{outputDir}/PASS:\n")
-            f.write("\t" + " ".join([
-                "obj_dir/VNaxRiscv",
-                "--name", spec[0],
-                "--output-dir", outputDir,
-                "--load-elf", f"../../../../ext/NaxSoftware/{spec[1]}",
-                "--start-symbol", "_start",
-                "--pass-symbol", "pass",
-                "--fail-symbol", "fail",
-                "--no-putc-flush",
-               "${ARGS}"
-            ]))
-            f.write(f"\n\n")
+            regularSoftware(spec)
 
 
 

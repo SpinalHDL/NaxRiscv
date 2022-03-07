@@ -645,8 +645,9 @@ X0 init =>
 - RegFilePlugin will write physical 0 with 0
 
  */
-
-
+/*
+./configure --prefix=/opt/riscv --with-cmodel=medany --with-multilib-generator="rv32i-ilp32--;rv32im-ilp32--;rv32imac-ilp32--;rv32imafd-ilp32d--;rv32imacfd-ilp32d--;rv64i-lp64--;rv64im-lp64--;rv64imac-lp64--;rv64imafd-lp64d--;rv64imacfd-lp64d--"
+*/
 //stats
 
 /*
