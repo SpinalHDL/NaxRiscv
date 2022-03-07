@@ -40,6 +40,13 @@ class MulPlugin(val euId : String,
     add(Rvi.MULH  , List(), DecodeList(HIGH -> True,  RS1_SIGNED -> True,  RS2_SIGNED -> True))
     add(Rvi.MULHSU, List(), DecodeList(HIGH -> True,  RS1_SIGNED -> True,  RS2_SIGNED -> False))
     add(Rvi.MULHU , List(), DecodeList(HIGH -> True,  RS1_SIGNED -> False, RS2_SIGNED -> False))
+
+    if(XLEN.get == 64){
+      add(Rvi.MULW   , List(), DecodeList(HIGH -> False, RS1_SIGNED -> True,  RS2_SIGNED -> True))
+      for(op <- List(Rvi.MULW)){
+        signExtend(op, 31)
+      }
+    }
   }
 
   override val logic = create late new Logic{

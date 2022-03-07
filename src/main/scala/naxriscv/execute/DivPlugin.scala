@@ -14,6 +14,7 @@ object DivPlugin extends AreaObject {
   val REM = Stageable(Bool())
   val SIGNED = Stageable(Bool())
   val DIV_RESULT = Stageable(Bits(XLEN bits))
+  val IS_W = Stageable(Bool())
 }
 
 class DivPlugin(val euId : String,
@@ -33,6 +34,22 @@ class DivPlugin(val euId : String,
     add(Rvi.DIVU, List(), DecodeList(REM -> False, SIGNED -> False))
     add(Rvi.REM , List(), DecodeList(REM -> True , SIGNED -> True))
     add(Rvi.REMU, List(), DecodeList(REM -> True , SIGNED -> False))
+
+    if(XLEN.get == 64){
+      add(Rvi.DIVW , List(), DecodeList(REM -> False, SIGNED -> True))
+      add(Rvi.DIVUW, List(), DecodeList(REM -> False, SIGNED -> False))
+      add(Rvi.REMW , List(), DecodeList(REM -> True , SIGNED -> True))
+      add(Rvi.REMUW, List(), DecodeList(REM -> True , SIGNED -> False))
+
+      for(op <- List(Rvi.DIVW , Rvi.DIVUW, Rvi.REMW , Rvi.REMUW)){
+        signExtend(op, 31)
+        eu.addDecoding(op, DecodeList(IS_W -> True))
+      }
+
+      for(op <- List(Rvi.DIV , Rvi.DIVU, Rvi.REM , Rvi.REMU)){
+        eu.addDecoding(op, DecodeList(IS_W -> False))
+      }
+    }
   }
 
   override val logic = create late new Logic{
@@ -51,14 +68,22 @@ class DivPlugin(val euId : String,
     val feed = new ExecuteArea(cmdAt) {
       import stage._
 
-      val rs1 = eu(IntRegFile, RS1)
-      val rs2 = eu(IntRegFile, RS2)
+      val rs1 = stage(eu(IntRegFile, RS1))
+      val rs2 = stage(eu(IntRegFile, RS2))
 
-      val revertA = SIGNED && rs1.msb
-      val revertB = SIGNED && rs2.msb
-      val divA = twoComplement(rs1, revertA)
-      val divB = twoComplement(rs2, revertB)
-      DIV_REVERT_RESULT := (revertA ^ (revertB && !REM)) && !(rs2 === 0 && SIGNED && !REM)
+      val rs1Formated = CombInit(rs1)
+      val rs2Formated = CombInit(rs2)
+
+      if(XLEN.get == 64) when(IS_W){
+        rs1Formated(63 downto 32) := (default -> (SIGNED && rs1(31)))
+        rs2Formated(63 downto 32) := (default -> (SIGNED && rs2(31)))
+      }
+
+      val revertA = SIGNED && rs1Formated.msb
+      val revertB = SIGNED && rs2Formated.msb
+      val divA = twoComplement(rs1Formated, revertA)
+      val divB = twoComplement(rs2Formated, revertB)
+      DIV_REVERT_RESULT := (revertA ^ (revertB && !REM)) && !(rs2Formated === 0 && SIGNED && !REM)
 
       val cmdSent = RegInit(False) setWhen (div.io.cmd.fire) clearWhen (isReady || isFlushed)
       div.io.cmd.valid := isValid && SEL && !cmdSent
