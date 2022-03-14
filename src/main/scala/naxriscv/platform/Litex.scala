@@ -18,7 +18,7 @@ import spinal.lib.misc.plic.{AxiLite4Plic, WishbonePlic}
 import scala.collection.mutable.ArrayBuffer
 
 
-class NaxRiscvLitex(plugins : ArrayBuffer[Plugin]) extends Component{
+class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component{
 
   val ramDataWidth = 64
   val ioDataWidth  =  32
@@ -32,7 +32,7 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin]) extends Component{
   plugins += new LsuPeripheralAxiLite4()
 
   val cpu = new NaxRiscv(
-    xlen = 32,
+    xlen = xlen,
     plugins
   )
 
@@ -89,6 +89,7 @@ object LitexGen extends App{
   var netlistDirectory = "."
   var netlistName = "NaxRiscvLitex"
   var resetVector = 0l
+  var xlen = 32
   val files = ArrayBuffer[String]()
   assert(new scopt.OptionParser[Unit]("NaxRiscv") {
     help("help").text("prints this usage text")
@@ -96,6 +97,7 @@ object LitexGen extends App{
     opt[String]("netlist-name") action { (v, c) => netlistName = v }
     opt[String]("scala-file") unbounded() action  { (v, c) => files += v }
     opt[Long]("reset-vector") action  { (v, c) => resetVector = v }
+    opt[Int]("xlen") action  { (v, c) => xlen = v }
   }.parse(args))
 
   val spinalConfig = SpinalConfig(inlineRom = true, targetDirectory = netlistDirectory)
@@ -114,12 +116,13 @@ object LitexGen extends App{
          |import spinal.lib.bus.misc.SizeMapping
          |val plugins = ArrayBuffer[Plugin]()
          |val resetVector = ${resetVector}l
+         |val xlen = ${xlen}
          |""".stripMargin
     codes ++= files.map(scala.io.Source.fromFile(_).mkString)
     codes += "plugins\n"
     val code = codes.mkString("\n")
     val plugins = ScalaInterpreter.evaluate[ArrayBuffer[Plugin]](code)
-    new NaxRiscvLitex(plugins).setDefinitionName(netlistName)
+    new NaxRiscvLitex(plugins, xlen).setDefinitionName(netlistName)
   }
 }
 
