@@ -553,12 +553,8 @@ object Gen64 extends App{
   LutInputs.set(6)
   def plugins = {
     val l = Config64.plugins(withRdTime = false)
-    Tweek.aluTwoCycle(l)
-//    Tweek.mulDivEnvWbAt(l, 3)
-      l.foreach{
-        case p : MulPlugin => p.sum1At = 0; p.sum2At = 1
-        case _ =>
-      }
+    Tweek.euWritebackAt(l, "EU1", 1)
+    Tweek.euWritebackAt(l, "EU4", 1)
     l
   }
 
