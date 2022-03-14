@@ -18,15 +18,17 @@ object IntAluPlugin extends AreaObject {
   }
 
  val ALU_BITWISE_CTRL = Stageable(AluBitwiseCtrlEnum())
- val ALU_CTRL = Stageable(AluCtrlEnum())
+val ALU_CTRL = Stageable(AluCtrlEnum())
+val ALU_RESULT = Stageable(Bits(XLEN bits))
 }
 
 class IntAluPlugin(val euId : String,
                    var staticLatency : Boolean = true,
-                   var aluStage : Int = 0) extends ExecutionUnitElementSimple(euId, staticLatency)  {
+                   var aluStage : Int = 0,
+                   var writebackAt : Int = 0) extends ExecutionUnitElementSimple(euId, staticLatency)  {
   import IntAluPlugin._
 
-  override def euWritebackAt = aluStage
+  override def euWritebackAt = writebackAt
 
   override val setup = create early new Setup{
     import SrcKeys._
@@ -80,7 +82,12 @@ class IntAluPlugin(val euId : String,
         AluCtrlEnum.ADD_SUB  -> stage(ss.ADD_SUB)
       )
 
-      wb.payload := B(result)
+      ALU_RESULT := result.asBits
+    }
+
+    val writeback = new ExecuteArea(writebackAt) {
+      import stage._
+      wb.payload := ALU_RESULT
     }
   }
 }

@@ -16,14 +16,16 @@ object ShiftPlugin extends AreaObject {
   val LEFT = Stageable(Bool())
   val IS_W = Stageable(Bool())
   val IS_W_RIGHT = Stageable(Bool())
+  val SHIFT_RESULT = Stageable(Bits(XLEN bits))
 }
 
 class ShiftPlugin(val euId : String,
                   var staticLatency : Boolean = true,
-                  var aluStage : Int = 0) extends ExecutionUnitElementSimple(euId, staticLatency) {
+                  var aluStage : Int = 0,
+                  var writebackAt : Int = 0) extends ExecutionUnitElementSimple(euId, staticLatency) {
   import ShiftPlugin._
 
-  override def euWritebackAt = aluStage
+  override def euWritebackAt = writebackAt
 
   override val setup = create early new Setup{
     import SrcKeys._
@@ -72,7 +74,12 @@ class ShiftPlugin(val euId : String,
         }
       }
 
-      wb.payload := B(patched)
+      SHIFT_RESULT := B(patched)
+    }
+
+    val writeback = new ExecuteArea(writebackAt) {
+      import stage._
+      wb.payload := SHIFT_RESULT
     }
   }
 }
