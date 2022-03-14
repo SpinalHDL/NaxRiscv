@@ -269,9 +269,15 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
     }
 
     if(p.withRdTime) {
-      assert(XLEN.get == 32)
-      csr.read(io.rdtime(31 downto 0), CSR.UTIME)
-      csr.read(io.rdtime(63 downto 32), CSR.UTIMEH)
+      XLEN.get match {
+        case 32 => {
+          csr.read(io.rdtime(31 downto 0), CSR.UTIME)
+          csr.read(io.rdtime(63 downto 32), CSR.UTIMEH)
+        }
+        case 64 => {
+          csr.read(io.rdtime, CSR.UTIME)
+        }
+      }
     }
 
     csr.release()
