@@ -55,7 +55,7 @@ class LoadPlugin(val euId : String) extends Plugin{
     setup.port.valid := isFireing && SEL
     setup.port.robId := ROB.ID
     setup.port.lqId := lsu.keys.LSU_ID.resized
-    setup.port.address := U(SrcStageables.ADD_SUB)
+    setup.port.address := U(SrcStageables.ADD_SUB).resized
     setup.port.size := U(func3(1 downto 0))
     setup.port.unsigned := func3(2)
     setup.port.physicalRd := decoder.PHYS_RD

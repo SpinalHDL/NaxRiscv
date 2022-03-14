@@ -1,7 +1,7 @@
 package naxriscv
 
 import naxriscv.Fetch.INSTRUCTION_SLICE_COUNT
-import naxriscv.Global.{PC, PC_TRANSLATED_WIDTH}
+import naxriscv.Global.{PC}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib.pipeline.Stageable
@@ -44,9 +44,15 @@ object Global extends AreaRoot {
   val RVC = NaxParameter[Boolean]
 
   val PC_WIDTH = NaxParameter[Int]
-  val PC_TRANSLATED_WIDTH = NaxParameter[Int]
   val PC = Stageable(UInt(PC_WIDTH bits))
-  val PC_TRANSLATED = Stageable(UInt(PC_TRANSLATED_WIDTH bits))
+  val PC_TRANSLATED = Stageable(UInt(PHYSICAL_WIDTH bits))
+
+
+  val PHYSICAL_WIDTH = NaxParameter[Int]
+  val VIRTUAL_WIDTH  = NaxParameter[Int]
+  val VIRTUAL_EXT_WIDTH  = NaxParameter[Int]
+
+  val TVAL_WIDTH = NaxParameter[Int]
 }
 
 object Fetch extends AreaObject{

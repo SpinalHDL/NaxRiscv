@@ -40,7 +40,8 @@ object Config{
     plugins += new MmuPlugin(
       spec    = MmuSpec.sv32,
       ioRange = ioRange,
-      fetchRange = fetchRange
+      fetchRange = fetchRange,
+      physicalWidth = 32
     )
 
     //FETCH
@@ -312,9 +313,15 @@ object Config64{
               fetchRange : UInt => Bool = _(31 downto 28) =/= 0x1): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
-    plugins += new StaticAddressTranslationPlugin(
-      ioRange = _(31 downto 28) === 0x1,
-      fetchRange = fetchRange
+//    plugins += new StaticAddressTranslationPlugin(
+//      ioRange = _(31 downto 28) === 0x1,
+//      fetchRange = fetchRange
+//    )
+    plugins += new MmuPlugin(
+      spec    = MmuSpec.sv39,
+      ioRange = ioRange,
+      fetchRange = fetchRange,
+      physicalWidth = 32
     )
 
     //FETCH
@@ -343,13 +350,13 @@ object Config64{
         ),
         priority = 0
       ),
-//      translationPortParameter  = MmuPortParameter(
-//        readAt = 1,
-//        hitsAt = 1,
-//        ctrlAt = 1,
-//        rspAt  = 1
-//      )
-      translationPortParameter  = StaticAddressTranslationParameter(rspAt = 1)
+      translationPortParameter  = MmuPortParameter(
+        readAt = 1,
+        hitsAt = 1,
+        ctrlAt = 1,
+        rspAt  = 1
+      )
+//      translationPortParameter  = StaticAddressTranslationParameter(rspAt = 1)
     )
     plugins += new AlignerPlugin(
       decodeCount = 2,
@@ -414,21 +421,20 @@ object Config64{
         ),
         priority = 1
       ),
-//      loadTranslationParameter  = MmuPortParameter(
-//        readAt = 0,
-//        hitsAt = 1,
-//        ctrlAt = 1,
-//        rspAt  = 1
-//      ),
-//      storeTranslationParameter = MmuPortParameter(
-//        readAt = 1,
-//        hitsAt = 1,
-//        ctrlAt = 1,
-//        rspAt  = 1
-//      )
-      //      translationStorageParameter = null,
-        loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
-        storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
+      loadTranslationParameter  = MmuPortParameter(
+        readAt = 0,
+        hitsAt = 1,
+        ctrlAt = 1,
+        rspAt  = 1
+      ),
+      storeTranslationParameter = MmuPortParameter(
+        readAt = 1,
+        hitsAt = 1,
+        ctrlAt = 1,
+        rspAt  = 1
+      )
+//        loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
+//        storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
     )
     plugins += new DataCachePlugin(
       memDataWidth = 64,

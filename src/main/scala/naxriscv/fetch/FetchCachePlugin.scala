@@ -1,6 +1,7 @@
 package naxriscv.fetch
 
-import naxriscv.Fetch
+import naxriscv.{Fetch, Global}
+import naxriscv.Global._
 import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationService, JumpService, PerformanceCounterService, PulseHandshake}
 import naxriscv.utilities._
 import spinal.core._
@@ -161,7 +162,7 @@ class FetchCachePlugin(var cacheSize : Int,
   override def stagesCountMin = injectionAt + 1
 
   val mem = create early master(FetchL1Bus(
-    physicalWidth = getService[AddressTranslationService].postWidth,
+    physicalWidth = PHYSICAL_WIDTH,
     dataWidth     = memDataWidth,
     lineSize      = lineSize,
     withBackPresure = false
@@ -194,7 +195,6 @@ class FetchCachePlugin(var cacheSize : Int,
   val logic = create late new Area{
     val fetch = getService[FetchPlugin]
     val translation = getService[AddressTranslationService]
-    val preTranslationWidth = getService[AddressTranslationService].postWidth
     val cpuWordWidth = FETCH_DATA_WIDTH.get
     val bytePerMemWord = memDataWidth/8
     val bytePerFetchWord = cpuWordWidth/8
@@ -203,10 +203,10 @@ class FetchCachePlugin(var cacheSize : Int,
     val memDataPerWay = waySize/bytePerMemWord
     val memData = HardType(Bits(memDataWidth bits))
     val memWordPerLine = lineSize/bytePerMemWord
-    val tagWidth = preTranslationWidth-log2Up(waySize)
+    val tagWidth = PHYSICAL_WIDTH-log2Up(waySize)
 
 
-    val tagRange = preTranslationWidth-1 downto log2Up(linePerWay*lineSize)
+    val tagRange = PHYSICAL_WIDTH-1 downto log2Up(linePerWay*lineSize)
     val lineRange = tagRange.low-1 downto log2Up(lineSize)
 
     val bankCount = wayCount
@@ -315,7 +315,7 @@ class FetchCachePlugin(var cacheSize : Int,
     val refill = new Area {
       val fire = False
       val valid = RegInit(False) clearWhen (fire)
-      val address = KeepAttribute(Reg(UInt(preTranslationWidth bits)))
+      val address = KeepAttribute(Reg(UInt(PHYSICAL_WIDTH bits)))
       val isIo = Reg(Bool())
       val hadError = RegInit(False)
 
@@ -404,7 +404,7 @@ class FetchCachePlugin(var cacheSize : Int,
           import hitsStage._
           val wayTlbHits = (0 until translationPort.wayCount) map(tlbWayId => WAYS_TAGS(wayId).address === tpk.WAYS_PHYSICAL(tlbWayId)(tagRange) && tpk.WAYS_OH(tlbWayId))
           val translatedHits = wayTlbHits.orR
-          val bypassHits     = WAYS_TAGS(wayId).address === FETCH_PC(tagRange)
+          val bypassHits     = WAYS_TAGS(wayId).address === FETCH_PC >> tagRange.low
           WAYS_HITS(wayId) := (tpk.BYPASS_TRANSLATION ? bypassHits | translatedHits) & WAYS_TAGS(wayId).loaded
         }
       }

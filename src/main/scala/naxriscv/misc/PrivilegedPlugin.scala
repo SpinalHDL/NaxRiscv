@@ -186,6 +186,9 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       if(p.withSupervisor) {
         for((id, enable) <- medeleg.mapping) csr.readWrite(CSR.MEDELEG, id -> enable)
         csr.readWrite(CSR.MIDELEG, 9 -> mideleg.se, 5 -> mideleg.st, 1 -> mideleg.ss)
+        if(XLEN.get == 64){
+          csr.read(CSR.MSTATUS, 34 -> U"10")
+        }
       }
 
       addInterrupt(mip.mtip && mie.mtie, id = 7,  privilege = 3, delegators = Nil)
@@ -251,6 +254,11 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       addInterrupt(sip.seipOr && sie.seie,  id = 9, privilege = 1, delegators = List(Delegator(machine.mideleg.se, 3)))
 
       for((id, enable) <- machine.medeleg.mapping) exceptionSpecs += ExceptionSpec(id, List(Delegator(enable, 3)))
+
+      if(XLEN.get == 64){
+        csr.read(CSR.MSTATUS, 32 -> U"10")
+        csr.read(CSR.SSTATUS, 32 -> U"10")
+      }
     }
 
     val userTrap = p.withUserTrap generate new Area {
@@ -274,7 +282,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
     val rescheduleUnbuffered = Stream(new Bundle{
       val cause      = UInt(commit.rescheduleCauseWidth bits)
       val epc        = PC()
-      val tval       = Bits(Global.XLEN bits)
+      val tval       = Bits(TVAL_WIDTH bits)
       val slices     = Fetch.INSTRUCTION_SLICE_COUNT()
     })
     val reschedule = rescheduleUnbuffered.stage()
@@ -473,13 +481,13 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       }
 
       FLUSH_CALC whenIsActive{
-        readed := B(reschedule.epc + (reschedule.slices + 1 << Fetch.SLICE_RANGE_LOW).andMask(reschedule.cause =/= CSR.MCAUSE_ENUM.ECALL_HYPERVISOR))
+        readed(0, PC_WIDTH bits) := B(reschedule.epc + (reschedule.slices + 1 << Fetch.SLICE_RANGE_LOW).andMask(reschedule.cause =/= CSR.MCAUSE_ENUM.ECALL_HYPERVISOR))
         goto(FLUSH_JUMP)
       }
 
       FLUSH_JUMP whenIsActive{
         setup.jump.valid := True
-        setup.jump.pc := U(readed)
+        setup.jump.pc := U(readed).resized
         goto(IDLE)
       }
 
@@ -511,7 +519,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
           machine.tval.getAddress(),
           supervisor.tval.getAddress()
         )
-        setup.ramWrite.data    := reschedule.tval
+        setup.ramWrite.data    := S(reschedule.tval).resize(XLEN).asBits
         when(decoderInterrupt.raised){ setup.ramWrite.data    := 0 }
         when(setup.ramWrite.ready){
           goto(EPC_WRITE)
@@ -523,14 +531,14 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
           machine.epc.getAddress(),
           supervisor.epc.getAddress()
         )
-        setup.ramWrite.data    := B(reschedule.epc)
+        setup.ramWrite.data    := S(reschedule.epc, XLEN bits).asBits //TODO PC sign extends ? (DONE)
         when(setup.ramWrite.ready){
           goto(TRAP)
         }
       }
       TRAP.whenIsActive{
         setup.jump.valid := True
-        setup.jump.pc := U(readed) //TODO mask
+        setup.jump.pc := U(readed).resized //TODO mask
         trap.fire := True
         setup.privilege := trap.targetPrivilege
         switch(trap.targetPrivilege){
@@ -555,7 +563,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       }
       XRET.whenIsActive{
         setup.jump.valid := True
-        setup.jump.pc    := U(readed)
+        setup.jump.pc    := U(readed).resized
 
         setup.privilege  := xret.targetPrivilege
         setup.xretAwayFromMachine clearWhen(xret.targetPrivilege < 3)

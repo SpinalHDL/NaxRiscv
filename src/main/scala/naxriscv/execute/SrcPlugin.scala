@@ -110,7 +110,7 @@ class SrcPlugin(val euId : String,
         case sk.SRC2.RF => src2ToEnum(sk.SRC2.RF) -> S(stage(eu(IntRegFile, RS2)))
         case sk.SRC2.I  => src2ToEnum(sk.SRC2.I ) -> imm.i_sext
         case sk.SRC2.S  => src2ToEnum(sk.SRC2.S ) -> imm.s_sext
-        case sk.SRC2.PC => src2ToEnum(sk.SRC2.PC) -> S(stage(PC))
+        case sk.SRC2.PC => src2ToEnum(sk.SRC2.PC) -> S(stage(PC)).resize(XLEN bits)
       })
     }
 

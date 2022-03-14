@@ -90,7 +90,7 @@ class BranchPlugin(val euId : String,
       val imm = IMM(Frontend.MICRO_OP)
       val target_a = BRANCH_CTRL.mux(
         default             -> S(stage(PC)),
-        BranchCtrlEnum.JALR -> stage(ss.SRC1)
+        BranchCtrlEnum.JALR -> stage(ss.SRC1).resize(PC_WIDTH)
       )
 
       val target_b = BRANCH_CTRL.mux(
@@ -99,7 +99,7 @@ class BranchPlugin(val euId : String,
         BranchCtrlEnum.JALR  -> imm.i_sext
       )
 
-      (PC, "TRUE") := U(target_a + target_b)
+      (PC, "TRUE") := U(target_a + target_b).resized
       (PC, "TRUE")(0) := False
 
       val slices = Fetch.INSTRUCTION_SLICE_COUNT+^1
@@ -119,7 +119,7 @@ class BranchPlugin(val euId : String,
     val writeback = new ExecuteArea(writebackAt){
       import stage._
 
-      wb.payload := B(stage(PC, "FALSE")) //JAL/JALR
+      wb.payload := S(stage(PC, "FALSE"), XLEN bits).asBits //TODO PC sign extends ? (DONE)
     }
 
     val branch = new ExecuteArea(branchAt){

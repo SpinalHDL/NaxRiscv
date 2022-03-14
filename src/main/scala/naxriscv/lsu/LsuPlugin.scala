@@ -29,7 +29,7 @@ object LsuUtils{
 case class LsuLoadPort(lqSize : Int, wordWidth : Int, physicalRdWidth : Int, pcWidth : Int) extends Bundle {
   val robId = ROB.ID()
   val lqId = UInt(log2Up(lqSize) bits)
-  val address = UInt(Global.XLEN bits)
+  val address = UInt(VIRTUAL_EXT_WIDTH bits)
   val size = UInt(log2Up(log2Up(wordWidth/8)+1) bits)
   val unsigned = Bool()
   val physicalRd = UInt(physicalRdWidth bits)
@@ -44,7 +44,7 @@ case class LsuLoadPort(lqSize : Int, wordWidth : Int, physicalRdWidth : Int, pcW
 case class LsuStorePort(sqSize : Int, wordWidth : Int, physicalRdWidth : Int) extends Bundle {
   val robId = ROB.ID()
   val sqId = UInt(log2Up(sqSize) bits)
-  val address = UInt(Global.XLEN bits)
+  val address = UInt(VIRTUAL_EXT_WIDTH bits)
   val size = UInt(log2Up(log2Up(wordWidth/8)+1) bits)
 
   //Atomic stuff
@@ -155,10 +155,8 @@ class LsuPlugin(var lqSize: Int,
   def pageNumberWidth = pageNumberRange.size
   override def postCommitBusy = setup.postCommitBusy
 
-  val peripheralBus = create late master(LsuPeripheralBus(postWidth, wordWidth))
-
-  def postWidth = getService[AddressTranslationService].postWidth
-  def virtualAddressWidth = getService[AddressTranslationService].preWidth
+  val peripheralBus = create late master(LsuPeripheralBus(PHYSICAL_WIDTH, wordWidth))
+  
 
   case class StorePortSpec(port : Flow[LsuStorePort])
   val storePorts = ArrayBuffer[StorePortSpec]()
@@ -171,7 +169,7 @@ class LsuPlugin(var lqSize: Int,
   val loadPorts = ArrayBuffer[LoadPortSpec]()
   def newLoadPort(): Flow[LsuLoadPort] = {
     val physicalRdWidth = getService[DecoderService].PHYS_RD
-    loadPorts.addRet(LoadPortSpec(Flow(LsuLoadPort(lqSize, wordWidth, widthOf(physicalRdWidth), virtualAddressWidth)))).port
+    loadPorts.addRet(LoadPortSpec(Flow(LsuLoadPort(lqSize, wordWidth, widthOf(physicalRdWidth), VIRTUAL_EXT_WIDTH)))).port
   }
 
 
@@ -190,7 +188,7 @@ class LsuPlugin(var lqSize: Int,
     val LQ_SEL_OH = Stageable(Bits(lqSize bits))
     val SQ_SEL = Stageable(UInt(log2Up(sqSize) bits))
     val SQ_SEL_OH = Stageable(Bits(sqSize bits))
-    val ADDRESS_PRE_TRANSLATION = Stageable(UInt(virtualAddressWidth bits))
+    val ADDRESS_PRE_TRANSLATION = Stageable(UInt(VIRTUAL_EXT_WIDTH bits))
     val DATA_MASK = Stageable(Bits(wordBytes bits))
   }
   import keys._
@@ -347,8 +345,8 @@ class LsuPlugin(var lqSize: Int,
       }
 
       val mem = new Area{
-        val addressPre = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
-        val addressPost = Mem.fill(lqSize)(UInt(virtualAddressWidth bits))
+        val addressPre = Mem.fill(lqSize)(UInt(VIRTUAL_EXT_WIDTH bits))
+        val addressPost = Mem.fill(lqSize)(UInt(PHYSICAL_WIDTH bits))
         val physRd = Mem.fill(lqSize)(decoder.PHYS_RD)
         val robId = Mem.fill(lqSize)(ROB.ID)
         val pc = Mem.fill(lqSize)(PC)
@@ -360,7 +358,7 @@ class LsuPlugin(var lqSize: Int,
 
       val reservation = new Area{
         val valid = Reg(Bool()) init(False)
-        val address = Reg(UInt(postWidth bits))
+        val address = Reg(UInt(PHYSICAL_WIDTH bits))
       }
 
       val hazardPrediction = withHazardPrediction generate new Area{
@@ -440,8 +438,8 @@ class LsuPlugin(var lqSize: Int,
       }
 
       val mem = new Area{
-        val addressPre = Mem.fill(sqSize)(UInt(virtualAddressWidth bits))
-        val addressPost = Mem.fill(sqSize)(UInt(virtualAddressWidth bits))
+        val addressPre = Mem.fill(sqSize)(UInt(VIRTUAL_EXT_WIDTH bits))
+        val addressPost = Mem.fill(sqSize)(UInt(PHYSICAL_WIDTH bits))
         val word = Mem.fill(sqSize)(Bits(wordWidth bits))
         val robId = Mem.fill(sqSize)(ROB.ID)
         val lqAlloc = Mem.fill(sqSize)(UInt(log2Up(lqSize) + 1 bits))
@@ -678,7 +676,7 @@ class LsuPlugin(var lqSize: Int,
             when(!arbitration.output.valid){
               LQ_SEL                  := port.lqId
               LQ_SEL_OH               := portPush.oh
-              ADDRESS_PRE_TRANSLATION := port.address
+              ADDRESS_PRE_TRANSLATION := port.address.resized
               SIZE                    := port.size
               ROB.ID                  := port.robId
               decoder.PHYS_RD         := port.physicalRd
@@ -887,7 +885,7 @@ class LsuPlugin(var lqSize: Int,
 
           setup.loadTrap.valid      := False
           setup.loadTrap.robId      := ROB.ID
-          setup.loadTrap.tval       := B(ADDRESS_PRE_TRANSLATION)
+          setup.loadTrap.tval       := B(ADDRESS_PRE_TRANSLATION).resized //TODO addr sign extends ?
           setup.loadTrap.skipCommit := True
           setup.loadTrap.cause      := EnvCallPlugin.CAUSE_REDO
           setup.loadTrap.reason     := ScheduleReason.LOAD_HIT_MISS_PREDICTED
@@ -1213,7 +1211,7 @@ class LsuPlugin(var lqSize: Int,
             setup.storeTrap.trap     := False
             setup.storeTrap.reason   := ScheduleReason.STORE_TO_LOAD_HAZARD
           }
-          setup.storeTrap.tval       := B(ADDRESS_PRE_TRANSLATION)
+          setup.storeTrap.tval       := B(ADDRESS_PRE_TRANSLATION).resized //TOOD PC sign extends ?
           setup.storeTrap.skipCommit := True
           setup.storeTrap.cause.assignDontCare()
           setup.storeTrap.pcTarget   := YOUNGER_LOAD_PC
@@ -1352,7 +1350,7 @@ class LsuPlugin(var lqSize: Int,
       val prefetch = new Area{
         val predictor = new PrefetchPredictor(
           lineSize = cache.lineSize,
-          addressWidth = postWidth
+          addressWidth = PHYSICAL_WIDTH
         )
 //        predictor.io.prediction.ready := True //TODO
       }
@@ -1572,7 +1570,7 @@ class LsuPlugin(var lqSize: Int,
       setup.specialTrap.valid      := False
       setup.specialTrap.robId      := robId
       setup.specialTrap.cause      := (isStore ? U(CSR.MCAUSE_ENUM.STORE_ACCESS_FAULT) otherwise U(CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT)).resized
-      setup.specialTrap.tval       := B(address)
+      setup.specialTrap.tval       := B(address).resized //TODO PC sign extends ?
       setup.specialTrap.skipCommit := True
       setup.specialTrap.reason     := ScheduleReason.TRAP
 
@@ -1588,7 +1586,7 @@ class LsuPlugin(var lqSize: Int,
         setup.rfWrite.valid                := loadWriteRd
         setup.rfWrite.address              := loadPhysRd
         setup.rfWrite.robId                := robId
-        load.pipeline.cacheRsp.rspAddress  := loadAddress
+        load.pipeline.cacheRsp.rspAddress  := loadAddress.resized
         load.pipeline.cacheRsp.rspSize     := loadSize
         load.pipeline.cacheRsp.rspRaw      := peripheralBus.rsp.data
         load.pipeline.cacheRsp.rspUnsigned := loadUnsigned
@@ -1643,7 +1641,7 @@ class LsuPlugin(var lqSize: Int,
         LOAD_CMD whenIsActive{
           val cmd = setup.cacheLoad.cmd //If you move that in another stage, be carefull to update loadFeedAt usages (sq d$ writeback rsp delay)
           cmd.valid   := True
-          cmd.virtual := storeAddress
+          cmd.virtual := storeAddress.resized
           cmd.size    := storeSize
           cmd.redoOnDataHazard := False
           when(cmd.fire){
@@ -1660,7 +1658,7 @@ class LsuPlugin(var lqSize: Int,
           setup.rfWrite.address      := sq.mem.physRd
           setup.rfWrite.robId        := robId
 
-          load.pipeline.cacheRsp.rspAddress  := storeAddress
+          load.pipeline.cacheRsp.rspAddress  := storeAddress.resized
           load.pipeline.cacheRsp.rspSize     := storeSize
           if(XLEN.get == 64) load.pipeline.cacheRsp.rspUnsigned := False
 

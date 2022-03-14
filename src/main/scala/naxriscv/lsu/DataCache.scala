@@ -350,10 +350,10 @@ class DataCache(val cacheSize: Int,
   val memDataPerWay = waySize/bytePerMemWord
   val memData = HardType(Bits(memDataWidth bits))
   val memWordPerLine = lineSize/bytePerMemWord
-  val tagWidth = preTranslationWidth-log2Up(waySize)
+  val tagWidth = postTranslationWidth-log2Up(waySize)
 
 
-  val tagRange = preTranslationWidth-1 downto log2Up(linePerWay*lineSize)
+  val tagRange = postTranslationWidth-1 downto log2Up(linePerWay*lineSize)
   val lineRange = tagRange.low-1 downto log2Up(lineSize)
   val refillRange = tagRange.high downto lineRange.low
 

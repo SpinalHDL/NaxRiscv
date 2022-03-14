@@ -1,5 +1,6 @@
 package naxriscv.misc
 
+import naxriscv.Global._
 import naxriscv._
 import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService, PulseHandshake}
 import naxriscv.utilities.Plugin
@@ -11,15 +12,17 @@ import scala.collection.mutable.ArrayBuffer
 
 case class StaticAddressTranslationParameter(rspAt : Int)
 
-class StaticAddressTranslationPlugin(var ioRange : UInt => Bool,
-                                     var fetchRange : UInt => Bool) extends Plugin with AddressTranslationService{
-  override def preWidth = Global.XLEN.get
-  override def postWidth = Global.XLEN.get
+class StaticAddressTranslationPlugin( var physicalWidth : Int,
+                                      var ioRange : UInt => Bool,
+                                      var fetchRange : UInt => Bool) extends Plugin with AddressTranslationService{
   override def withTranslation = true
 
   create config {
-    Global.PC_WIDTH.set(preWidth)
-    Global.PC_TRANSLATED_WIDTH.set(postWidth)
+    PHYSICAL_WIDTH.set(physicalWidth)
+    VIRTUAL_WIDTH.set((PHYSICAL_WIDTH.get + 1) min XLEN.get)
+    VIRTUAL_EXT_WIDTH.set(VIRTUAL_WIDTH.get +  (VIRTUAL_WIDTH < XLEN).toInt)
+    PC_WIDTH.set(VIRTUAL_EXT_WIDTH)
+    TVAL_WIDTH.set(VIRTUAL_EXT_WIDTH)
   }
   case class Spec(stages: Seq[Stage], preAddress: Stageable[UInt], p: StaticAddressTranslationParameter, rsp : AddressTranslationRsp)
   val specs = ArrayBuffer[Spec]()

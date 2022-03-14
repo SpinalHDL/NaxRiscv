@@ -64,7 +64,7 @@ class StorePlugin(val euId : String) extends Plugin{
     import stage._
     val func3 = Frontend.MICRO_OP(Const.funct3Range)
     setup.port.valid := isFireing && SEL
-    setup.port.address := U(SrcStageables.ADD_SUB)
+    setup.port.address := U(SrcStageables.ADD_SUB).resized
     setup.port.sqId := lsu.keys.LSU_ID.resized
     setup.port.robId := ROB.ID
     setup.port.size := U(func3(1 downto 0))

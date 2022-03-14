@@ -129,7 +129,7 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
           OFFSET := inst(2).mux(
             False -> imm.b_sext,
             True  -> imm.j_sext
-          )
+          ).resized
 
           val rdLink  = List(1,5).map(decoder.ARCH_RD === _).orR
           val rs1Link = List(1,5).map(decoder.ARCH_RS(0) === _).orR

@@ -1,7 +1,7 @@
 package naxriscv.lsu
 
 import naxriscv.Global
-import naxriscv.Global.XLEN
+import naxriscv.Global.{PHYSICAL_WIDTH, VIRTUAL_EXT_WIDTH, XLEN}
 import naxriscv.interfaces.{AddressTranslationService, LockedImpl, PerformanceCounterService}
 import spinal.core._
 import spinal.lib._
@@ -49,8 +49,6 @@ class DataCachePlugin(var memDataWidth : Int,
   def lineRange = log2Up(linePerWay*lineSize) -1 downto log2Up(lineSize)
 
   def cpuDataWidth = XLEN.get
-  def preTranslationWidth : Int = getService[AddressTranslationService].preWidth
-  def postTranslationWidth : Int = getService[AddressTranslationService].postWidth
 
   def writebackBusy = setup.writebackBusy
 
@@ -59,8 +57,8 @@ class DataCachePlugin(var memDataWidth : Int,
   def newLoadPort(priority : Int): DataLoadPort = {
     loadPorts.addRet(LoadPortSpec(
       DataLoadPort(
-        preTranslationWidth  = preTranslationWidth,
-        postTranslationWidth = postTranslationWidth,
+        preTranslationWidth  = VIRTUAL_EXT_WIDTH,
+        postTranslationWidth = PHYSICAL_WIDTH,
         dataWidth     = cpuDataWidth,
         refillCount   = refillCount,
         rspAt         = loadRspAt,
@@ -74,12 +72,12 @@ class DataCachePlugin(var memDataWidth : Int,
   val storePorts = ArrayBuffer[StorePortSpec]()
   def newStorePort(): DataStorePort = {
     storePorts.addRet(StorePortSpec(DataStorePort(
-      postTranslationWidth = postTranslationWidth,
+      postTranslationWidth = PHYSICAL_WIDTH,
       dataWidth     = cpuDataWidth,
       refillCount   = refillCount
     ))).port
   }
-  
+
   def refillCompletions = setup.refillCompletions
 
   def lockPort = setup.lockPort
@@ -113,8 +111,8 @@ class DataCachePlugin(var memDataWidth : Int,
       cpuDataWidth    = cpuDataWidth,
       refillCount     = refillCount,
       writebackCount  = writebackCount,
-      preTranslationWidth    = preTranslationWidth,
-      postTranslationWidth   = postTranslationWidth,
+      preTranslationWidth    = VIRTUAL_EXT_WIDTH,
+      postTranslationWidth   = PHYSICAL_WIDTH,
       lineSize         = lineSize,
       loadRefillCheckEarly  = loadRefillCheckEarly,
       storeRefillCheckEarly = storeRefillCheckEarly,

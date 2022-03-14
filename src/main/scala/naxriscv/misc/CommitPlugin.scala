@@ -98,7 +98,7 @@ class CommitPlugin(var commitCount : Int,
       val robId    = Reg(UInt(ROB.ID_WIDTH bits))
       val pcTarget = Reg(PC)
       val cause    = Reg(UInt(rescheduleCauseWidth bits))
-      val tval     = Reg(Bits(Global.XLEN bits))
+      val tval     = Reg(Bits(TVAL_WIDTH bits))
       val reason   = Reg(ScheduleReason.hardType)
       val commit = new Area{
         val (row, col) = robId.splitAt(log2Up(ROB.COLS))
@@ -232,7 +232,7 @@ class CommitPlugin(var commitCount : Int,
       val robToPc = new Area {
         val valid = patch(ptr.stage.isFireing)
         val robId = patch(ptr.stage(ROB.ID))
-        val pc = (0 until DISPATCH_COUNT).map(i => patch(ptr.stage(PC, i)))
+        val pc = (0 until DISPATCH_COUNT).map(i => patch(S(ptr.stage(PC, i), XLEN bits)))
       }
       val commit = patch(cmt.event)
       val reschedule = patch(cmt.reschedulePort)

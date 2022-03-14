@@ -317,8 +317,12 @@ xlen = getInt("XLEN")
 
 if xlen == 64:
     arch="rv64im"
+    archLinux="rv64ima"
 else:
     arch="rv32im"
+    archLinux="rv32ima"
+
+
 
 naxSoftware = [
 	["lsu", "baremetal/lsu/build/lsu.elf"],
@@ -330,7 +334,7 @@ naxSoftwareRegular = [
     "machine", "supervisor", "mmu_sv32", "dhrystone", "coremark"
 ]
 nax64SoftwareRegular = [
-    "dhrystone", "coremark"
+    "machine", "supervisor",  "mmu_sv39", "dhrystone", "coremark",
 ]
 
 freertos = ["blocktim", "countsem", "EventGroupsDemo", "flop", "integer", "QPeek",
@@ -441,48 +445,48 @@ with open('tests.mk', 'w') as f:
 
 
 
-        for i in range(4):
-            outputDir = "output/nax/buildroot/run" + str(i)
-            rule = outputDir +"/PASS"
-            imagePath = "../../../../ext/NaxSoftware/buildroot/images/rv32ima"
+    for i in range(4):
+        outputDir = "output/nax/buildroot/run" + str(i)
+        rule = outputDir +"/PASS"
+        imagePath = "../../../../ext/NaxSoftware/buildroot/images/" + archLinux
 
-            tests.append(rule)
-            ouputs.append(outputDir)
-            f.write(f"{outputDir}/PASS:\n")
-            f.write("\t" + " ".join([
-            f"""./obj_dir/VNaxRiscv \\
-               --seed {i}                  \\
-               --name buildroot_run{i}    \\
-               --output-dir  {outputDir}   \\
-               --load-bin {imagePath}/fw_jump.bin,0x80000000 \\
-               --load-bin {imagePath}/linux.dtb,0x80F80000 \\
-               --load-bin {imagePath}/Image,0x80400000 \\
-               --load-bin {imagePath}/rootfs.cpio,0x81000000 \\
-               --no-stdin                  \\
-               --no-putc-flush          \\
-               --getc "buildroot login" \\
-               --putc "root" \\
-               --getc "#" \\
-               --putc "cat /proc/cpuinfo" \\
-               --getc "#" \\
-               --putc "echo 1+2+3*4 | bc" \\
-               --getc "#" \\
-               --putc "micropython" \\
-               --getc ">>> " \\
-               --putc "import math" \\
-               --getc ">>> " \\
-               --putc "math.sin(math.pi/4)" \\
-               --getc ">>> " \\
-               --putc "from sys import exit" \\
-               --getc ">>> " \\
-               --putc "exit()" \\
-               --getc "#" \\
-               --putc "ls /" \\
-               --getc "#" \\
-               --success \\
-               ${{ARGS}} """
-            ]))
-            f.write(f"\n\n")
+        tests.append(rule)
+        ouputs.append(outputDir)
+        f.write(f"{outputDir}/PASS:\n")
+        f.write("\t" + " ".join([
+        f"""./obj_dir/VNaxRiscv \\
+           --seed {i}                  \\
+           --name buildroot_run{i}    \\
+           --output-dir  {outputDir}   \\
+           --load-bin {imagePath}/fw_jump.bin,0x80000000 \\
+           --load-bin {imagePath}/linux.dtb,0x80F80000 \\
+           --load-bin {imagePath}/Image,0x80400000 \\
+           --load-bin {imagePath}/rootfs.cpio,0x81000000 \\
+           --no-stdin                  \\
+           --no-putc-flush          \\
+           --getc "buildroot login" \\
+           --putc "root" \\
+           --getc "#" \\
+           --putc "cat /proc/cpuinfo" \\
+           --getc "#" \\
+           --putc "echo 1+2+3*4 | bc" \\
+           --getc "#" \\
+           --putc "micropython" \\
+           --getc ">>> " \\
+           --putc "import math" \\
+           --getc ">>> " \\
+           --putc "math.sin(math.pi/4)" \\
+           --getc ">>> " \\
+           --putc "from sys import exit" \\
+           --getc ">>> " \\
+           --putc "exit()" \\
+           --getc "#" \\
+           --putc "ls /" \\
+           --getc "#" \\
+           --success \\
+           ${{ARGS}} """
+        ]))
+        f.write(f"\n\n")
 
 
 

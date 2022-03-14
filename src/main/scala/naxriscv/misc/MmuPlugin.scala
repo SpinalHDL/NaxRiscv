@@ -1,6 +1,7 @@
 package naxriscv.misc
 
 import naxriscv._
+import naxriscv.Global._
 import naxriscv.fetch.FetchPlugin
 import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
 import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService, CsrRamService, CsrService, PostCommitBusy, PulseHandshake}
@@ -33,8 +34,8 @@ case class MmuPortParameter(readAt : Int,
 
 case class MmuSpec(levels : Seq[MmuLevel],
                    entryBytes : Int,
-                   preWidth : Int,
-                   postWidth : Int,
+                   virtualWidth : Int,
+                   physicalWidth : Int,
                    satpMode : Int)
 
 case class MmuLevel(virtualWidth : Int,
@@ -56,24 +57,39 @@ object MmuSpec{
       MmuLevel(virtualWidth = 10, physicalWidth = 10, virtualOffset =  22, physicalOffset = 22, entryOffset =  20) //Avoid 34 bits physical address
     ),
     entryBytes = 4,
-    preWidth   = 32,
-    postWidth  = 32,
+    virtualWidth   = 32,
+    physicalWidth  = 32,
     satpMode   = 1
+  )
+  val sv39 = MmuSpec(
+    levels     = List(
+      MmuLevel(virtualWidth = 9, physicalWidth = 9 , virtualOffset =  12, physicalOffset = 12, entryOffset =  10),
+      MmuLevel(virtualWidth = 9, physicalWidth = 9 , virtualOffset =  21, physicalOffset = 21, entryOffset =  19),
+      MmuLevel(virtualWidth = 9, physicalWidth = 26, virtualOffset =  30, physicalOffset = 30, entryOffset =  28)
+    ),
+    entryBytes = 8,
+    virtualWidth   = 39,
+    physicalWidth  = 56,
+    satpMode   = 8
   )
 }
 
 class MmuPlugin(var spec : MmuSpec,
+                var physicalWidth : Int,
                 var ioRange : UInt => Bool,
                 var fetchRange : UInt => Bool) extends Plugin with AddressTranslationService{
-  override def preWidth  = spec.preWidth
-  override def postWidth = spec.postWidth
   override def withTranslation = true
   override def invalidatePort = setup.invalidatePort
 
 
   create config {
-    Global.PC_WIDTH.set(preWidth)
-    Global.PC_TRANSLATED_WIDTH.set(postWidth)
+    PHYSICAL_WIDTH.set(physicalWidth)
+    VIRTUAL_WIDTH.set(spec.virtualWidth)
+    VIRTUAL_EXT_WIDTH.set(VIRTUAL_WIDTH.get + (VIRTUAL_WIDTH < XLEN).toInt)
+    PC_WIDTH.set(VIRTUAL_EXT_WIDTH)
+    TVAL_WIDTH.set(VIRTUAL_EXT_WIDTH)
+    assert(VIRTUAL_WIDTH.get == XLEN.get || XLEN.get > VIRTUAL_WIDTH.get && VIRTUAL_WIDTH.get > physicalWidth)
+
   }
 
   case class PortSpec(stages: Seq[Stage],
@@ -138,10 +154,11 @@ class MmuPlugin(var spec : MmuSpec,
     val priv = getService[PrivilegedPlugin]
 
     val ALLOW_REFILL = Stageable(Bool())
+    def physCap(range : Range) = (range.high min physicalWidth-1) downto range.low
 
     case class StorageEntry(levelId : Int, depth : Int) extends Bundle {
       val vw = spec.levels.drop(levelId).map(_.virtualWidth).sum
-      val pw = spec.levels.drop(levelId).map(_.physicalWidth).sum
+      val pw = spec.levels.drop(levelId).map(_.physicalWidth).sum-(spec.physicalWidth-physicalWidth)
       val valid, exception = Bool()
       val virtualAddress  = UInt(vw-log2Up(depth) bits)
       val physicalAddress = UInt(pw bits)
@@ -153,9 +170,9 @@ class MmuPlugin(var spec : MmuSpec,
 
 
     val satp = new Area {
-      val (modeWidth, ppnWidth) = Global.XLEN.get match {
-        case 32 => (1, 20) //20 instead of 22 to avoid 34 physical bits
-        case 64 => (4, 44)
+      val (modeOffset, modeWidth, ppnWidth) = Global.XLEN.get match {
+        case 32 => (31, 1, 20) //20 instead of 22 to avoid 34 physical bits
+        case 64 => (60, 4, 44)
       }
       val mode = Reg(Bits(modeWidth bits)) init(0)
       val asid = Reg(Bits(9 bits))         init(0)
@@ -170,7 +187,7 @@ class MmuPlugin(var spec : MmuSpec,
     for(offset <- List(CSR.MSTATUS, CSR.SSTATUS)) csr.readWrite(offset, 19 -> status.mxr, 18 -> status.sum)
     csr.readWrite(CSR.MSTATUS, 17 -> status.mprv)
 
-    csr.write(CSR.SATP, 31 -> satp.mode, 22 -> satp.asid, 0 -> satp.ppn)
+    csr.write(CSR.SATP, satp.modeOffset -> satp.mode, 22 -> satp.asid, 0 -> satp.ppn)
     csr.readWriteRam(CSR.SATP)
 
     csr.onDecode(CSR.SATP){
@@ -235,7 +252,7 @@ class MmuPlugin(var spec : MmuSpec,
         }
       }
 
-      for (sl <- storage.sl) yield new Area {
+      val read = for (sl <- storage.sl) yield new Area {
         val readAddress = readStage(ps.preAddress)(sl.lineRange)
         for ((way, wayId) <- sl.ways.zipWithIndex) {
           readStage(sl.keys.ENTRIES)(wayId) := way.readAsync(readAddress)
@@ -286,7 +303,7 @@ class MmuPlugin(var spec : MmuSpec,
           PAGE_FAULT    := lineException || lineAllowUser && priv.isSupervisor() && !status.sum || !lineAllowUser && priv.isUser()
         } otherwise {
           REDO          := False
-          TRANSLATED    := ps.preAddress
+          TRANSLATED    := ps.preAddress.resized //TODO PC overflow ?
           ALLOW_EXECUTE := True
           ALLOW_READ    := True
           ALLOW_WRITE   := True
@@ -314,7 +331,7 @@ class MmuPlugin(var spec : MmuSpec,
         (ports, portOhReg.asBools).zipped.foreach(_.storage.refillOngoing setWhen(_))
       }
 
-      val virtual = Reg(UInt(preWidth bits))
+      val virtual = Reg(UInt(VIRTUAL_EXT_WIDTH bits))
 
       val portsRequests = ports.map(_.ctrl.askRefill).asBits()
       val portsRequest  = portsRequests.orR
@@ -340,7 +357,7 @@ class MmuPlugin(var spec : MmuSpec,
       }
 
       INIT whenIsActive{
-        load.address := satp.ppn @@ spec.levels.last.vpn(virtual) @@ U(0, log2Up(spec.entryBytes) bits) //It relax timings to do it there instead than in IDLE
+        load.address := (satp.ppn @@ spec.levels.last.vpn(virtual) @@ U(0, log2Up(spec.entryBytes) bits)).resized //It relax timings to do it there instead than in IDLE
         goto(CMD(spec.levels.size - 1))
       }
 
@@ -348,7 +365,7 @@ class MmuPlugin(var spec : MmuSpec,
       portSpecs.foreach(_.rsp.wake := doWake)
 
       val load = new Area{
-        val address = Reg(UInt(postWidth bits))
+        val address = Reg(UInt(PHYSICAL_WIDTH bits))
 
         def cmd = setup.cacheLoad.cmd
         val rspUnbuffered = setup.cacheLoad.rsp
@@ -361,7 +378,7 @@ class MmuPlugin(var spec : MmuSpec,
         }
 
         cmd.valid             := False
-        cmd.virtual           := address
+        cmd.virtual           := address.resized
         cmd.size              := U(log2Up(spec.entryBytes))
         cmd.redoOnDataHazard  := True
         cmd.unlocked          := False
@@ -372,20 +389,20 @@ class MmuPlugin(var spec : MmuSpec,
         setup.cacheLoad.cancels := 0
 
         val flags = readed.resized.as(MmuEntryFlags())
-        val exception = !flags.V || (!flags.R && flags.W) || rsp.fault
         val leaf = flags.R || flags.X
-        val levelToPhysicalAddress = List.fill(spec.levels.size)(UInt(postWidth bits))
+        val exception = !flags.V || (!flags.R && flags.W) || rsp.fault || (!leaf && (flags.D | flags.A | flags.U))
+        val levelToPhysicalAddress = List.fill(spec.levels.size)(UInt(PHYSICAL_WIDTH bits))
         val levelException = List.fill(spec.levels.size)(False)
-        val nextLevelBase = U(0, postWidth bits)
+        val nextLevelBase = U(0, PHYSICAL_WIDTH bits)
         for((level, id) <- spec.levels.zipWithIndex) {
-          nextLevelBase(level.physicalRange) := readed(level.entryRange).asUInt
+          nextLevelBase(physCap(level.physicalRange)) := readed(level.entryRange).asUInt.resized
           levelToPhysicalAddress(id) := 0
           for((e, eId) <- spec.levels.zipWithIndex){
             if(eId < id) {
               levelException(id) setWhen(readed(e.entryRange) =/= 0)
               levelToPhysicalAddress(id)(e.physicalRange) := e.vpn(virtual)
             } else {
-              levelToPhysicalAddress(id)(e.physicalRange) := readed(e.entryRange).asUInt
+              levelToPhysicalAddress(id)(physCap(e.physicalRange)) := readed(e.entryRange).asUInt.resized
             }
           }
         }
@@ -404,7 +421,7 @@ class MmuPlugin(var spec : MmuSpec,
             storageLevel.write.address              := virtual(storageLevel.lineRange)
             storageLevel.write.data.valid           := True
             storageLevel.write.data.exception       := load.exception || load.levelException(levelId) || !load.flags.A
-            storageLevel.write.data.virtualAddress  := virtual.takeHigh(widthOf(storageLevel.write.data.virtualAddress)).asUInt
+            storageLevel.write.data.virtualAddress  := virtual(specLevel.virtualOffset + log2Up(storageLevel.slp.depth), widthOf(storageLevel.write.data.virtualAddress) bits)
             storageLevel.write.data.physicalAddress := load.levelToPhysicalAddress(levelId) >> specLevel.virtualOffset
             storageLevel.write.data.allowRead       := load.flags.R
             storageLevel.write.data.allowWrite      := load.flags.W && load.flags.D

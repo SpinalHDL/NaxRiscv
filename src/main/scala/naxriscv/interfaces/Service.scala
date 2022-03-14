@@ -45,7 +45,7 @@ case class EuGroup(eus : Seq[ExecuteUnitService],
 case class DecoderTrap() extends Bundle{
   val cause = UInt(4 bits)
   val epc   = UInt(PC_WIDTH bits)
-  val tval  = Bits(XLEN bits)
+  val tval  = Bits(TVAL_WIDTH bits)
 }
 
 trait DecoderService extends Service with LockedService {
@@ -171,7 +171,7 @@ case class RescheduleEvent(causeWidth : Int) extends Bundle{
   val robIdNext  = ROB.ID()
   val trap       = Bool()
   val cause      = UInt(causeWidth bits)
-  val tval       = Bits(Global.XLEN bits)
+  val tval       = Bits(TVAL_WIDTH bits)
   val reason     = ScheduleReason.hardType()
 }
 
@@ -293,7 +293,7 @@ case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int, caus
   val trap       = (canTrap && canJump) generate Bool()
   val pcTarget   = canJump generate UInt(pcWidth bits)
   val cause      = canTrap generate UInt(causeWidth bits)
-  val tval       = canTrap generate Bits(Global.XLEN bits)
+  val tval       = canTrap generate Bits(TVAL_WIDTH bits)
   val skipCommit = Bool() //Want to skip commit for exceptions, but not for [jump, ebreak, redo]
   val reason     = ScheduleReason.hardType()
 
@@ -341,13 +341,13 @@ trait WakeWithBypassService extends Service{
 class AddressTranslationRsp(s : AddressTranslationService, wakesCount : Int, val rspStage : Stage, val wayCount : Int) extends Area{
   val keys = new Area {
     setName("MMU")
-    val TRANSLATED = Stageable(UInt(s.postWidth bits))
+    val TRANSLATED = Stageable(UInt(PHYSICAL_WIDTH bits))
     val IO = Stageable(Bool())
     val REDO = Stageable(Bool())
     val ALLOW_READ, ALLOW_WRITE, ALLOW_EXECUTE = Stageable(Bool())
     val PAGE_FAULT = Stageable(Bool())
     val WAYS_OH  = Stageable(Bits(wayCount bits))
-    val WAYS_PHYSICAL  = Stageable(Vec.fill(wayCount)(UInt(s.postWidth bits)))
+    val WAYS_PHYSICAL  = Stageable(Vec.fill(wayCount)(UInt(PHYSICAL_WIDTH bits)))
     val BYPASS_TRANSLATION = Stageable(Bool())
   }
   val wake = Bool()
@@ -361,9 +361,6 @@ object AddressTranslationPortUsage{
 }
 
 trait AddressTranslationService extends Service with LockedImpl {
-  def preWidth : Int
-  def postWidth : Int
-
   def newStorage(pAny: Any) : Any
   def newTranslationPort(stages: Seq[Stage],
                          preAddress: Stageable[UInt],
