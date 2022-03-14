@@ -552,7 +552,14 @@ object Config64{
 object Gen64 extends App{
   LutInputs.set(6)
   def plugins = {
-    Config64.plugins(withRdTime = false)
+    val l = Config64.plugins(withRdTime = false)
+    Tweek.aluTwoCycle(l)
+//    Tweek.mulDivEnvWbAt(l, 3)
+      l.foreach{
+        case p : MulPlugin => p.sum1At = 0; p.sum2At = 1
+        case _ =>
+      }
+    l
   }
 
   {
@@ -571,7 +578,7 @@ object Gen64 extends App{
 
   {
     def wrapper[T <: Component](c: T) = {
-      c.afterElaboration(Rtl.ffIo(c)); c
+      c.afterElaboration(Rtl.xorOutputs(Rtl.ffIo(c))); c
     }
     val spinalConfig = SpinalConfig(inlineRom = true)
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)

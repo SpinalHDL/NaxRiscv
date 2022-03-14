@@ -118,7 +118,6 @@ class BranchPlugin(val euId : String,
 
     val writeback = new ExecuteArea(writebackAt){
       import stage._
-
       wb.payload := S(stage(PC, "FALSE"), XLEN bits).asBits //TODO PC sign extends ? (DONE)
     }
 
