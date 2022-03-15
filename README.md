@@ -4,14 +4,14 @@ An RISC-V core currently characterised by :
 
 - Out of order execution with register renaming
 - Superscalar (ex : 2 decode, 3 execution units, 2 retire)
-- RV32IMASU (Linux and freertos works in simulation)
+- (RV32 RV64)IMASU (Linux / Buildroot works on harwdare)
 - Portable HDL, but target FPGA with distributed ram (Xilinx series 7 is the reference used so far)
 - Target a (relatively) low area usage and high fmax (not the best IPC)
 - Decentralized hardware elaboration (Empty toplevel parametrized with plugins)
 - Frontend implemented around a pipelining framework to ease customisation
 - Non-blocking Data cache with multiple refill and writeback slots
 - BTB + GSHARE + RAS branch predictors
-- Hardware refilled MMU
+- Hardware refilled MMU (SV32, SV39)
 - Load to use latency of 3 cycles via the speculative cache hit predictor 
 - Pipeline visualisation via verilator simulation and Konata (gem5 file format)
 
@@ -56,7 +56,7 @@ An alternative configuration to get more performance is
 - 3 execution unit (2\*Int/Shift/Branch, 1\*load/store/mul/div/csr/env) :
 
 Performance :
-- Dhrystone   : 2.64 DMIPS/Mhz    1.42 IPC (-O3 -fno-common -fno-inline)
+- Dhrystone   : 2.64 DMIPS/Mhz    1.44 IPC (-O3 -fno-common -fno-inline)
 - Coremark    : 4.70 Coremark/Mhz 1.19 IPC (-O3 and so many more random flags)
 - Embench-iot : 1.55 baseline     1.32 IPC (-O2 -ffunction-sections)
 
