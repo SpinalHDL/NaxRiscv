@@ -553,7 +553,7 @@ object Gen64 extends App{
   LutInputs.set(6)
   def plugins = {
     val l = Config64.plugins(withRdTime = false)
-    Tweek.euWritebackAt(l, "EU1", 1)
+    Tweek.euWritebackAt(l, "EU0", 1)
     Tweek.euWritebackAt(l, "EU4", 1)
     l
   }
