@@ -262,8 +262,8 @@ public:
                 }
             }
         }break;
-        case PUT_HEX: printf("%lx", *((u64*)data)); if(putcFlush) fflush(stdout); break;
-        case PUT_DEC: printf("%ld", *((u64*)data)); if(putcFlush) fflush(stdout); break;
+        case PUT_HEX: printf("%x", *((u32*)data)); if(putcFlush) fflush(stdout); break;
+        case PUT_DEC: printf("%d", *((u32*)data)); if(putcFlush) fflush(stdout); break;
         case MACHINE_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_machine_external = *data & 1;  break;
         #if SUPERVISOR == 1
         case SUPERVISOR_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_supervisor_external = *data & 1;  break;
