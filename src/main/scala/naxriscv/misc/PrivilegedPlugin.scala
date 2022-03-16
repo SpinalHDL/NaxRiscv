@@ -153,8 +153,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       }
 
       val medeleg = p.withSupervisor generate new Area {
-        val iam, iaf, ii, bp, lam, laf, sam, saf, eu, es, ipf, lpf, spf = RegInit(False)
-        val mapping = mutable.LinkedHashMap(0 -> iam, 1 -> iaf, 2 -> ii, 3 -> bp, 4 -> lam, 5 -> laf, 6 -> sam, 7 -> saf, 8 -> eu, 9 -> es, 12 -> ipf, 13 -> lpf, 15 -> spf)
+        val iam, bp, eu, es, ipf, lpf, spf = RegInit(False)
+        val mapping = mutable.LinkedHashMap(0 -> iam, 3 -> bp, 8 -> eu, 9 -> es, 12 -> ipf, 13 -> lpf, 15 -> spf)
       }
 
       val mideleg = new Area {
