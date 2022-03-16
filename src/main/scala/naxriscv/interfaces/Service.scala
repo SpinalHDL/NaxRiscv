@@ -346,6 +346,7 @@ class AddressTranslationRsp(s : AddressTranslationService, wakesCount : Int, val
     val REDO = Stageable(Bool())
     val ALLOW_READ, ALLOW_WRITE, ALLOW_EXECUTE = Stageable(Bool())
     val PAGE_FAULT = Stageable(Bool())
+    val ACCESS_FAULT = Stageable(Bool())
     val WAYS_OH  = Stageable(Bits(wayCount bits))
     val WAYS_PHYSICAL  = Stageable(Vec.fill(wayCount)(UInt(PHYSICAL_WIDTH bits)))
     val BYPASS_TRANSLATION = Stageable(Bool())

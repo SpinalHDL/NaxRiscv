@@ -705,7 +705,7 @@ public:
     // used for MMIO addresses
     virtual bool mmio_load(reg_t addr, size_t len, uint8_t* bytes)  {
 //        printf("mmio_load %lx %ld\n", addr, len);
-        if(addr < 0x10000000) return false;
+        if(addr < 0x10000000 || addr > 0x20000000) return false;
         assertTrue("missing mmio\n", !mmioDut.empty());
         auto dut = mmioDut.front();
         assertEq("mmio write\n", dut.write, false);
@@ -717,7 +717,7 @@ public:
     }
     virtual bool mmio_store(reg_t addr, size_t len, const uint8_t* bytes)  {
 //        printf("mmio_store %lx %ld\n", addr, len);
-        if(addr < 0x10000000) return false;
+        if(addr < 0x10000000 || addr > 0x20000000) return false;
         assertTrue("missing mmio\n", !mmioDut.empty());
         auto dut = mmioDut.front();
         assertEq("mmio write\n", dut.write, true);

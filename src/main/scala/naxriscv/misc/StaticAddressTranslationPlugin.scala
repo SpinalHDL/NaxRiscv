@@ -48,6 +48,7 @@ class StaticAddressTranslationPlugin( var physicalWidth : Int,
       ALLOW_READ := True
       ALLOW_WRITE := True
       PAGE_FAULT := False
+      ACCESS_FAULT := False
       wake := True
 
       ALLOW_EXECUTE clearWhen(!fetchRange(TRANSLATED))

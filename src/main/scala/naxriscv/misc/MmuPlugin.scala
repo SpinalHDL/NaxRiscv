@@ -159,7 +159,7 @@ class MmuPlugin(var spec : MmuSpec,
     case class StorageEntry(levelId : Int, depth : Int) extends Bundle {
       val vw = spec.levels.drop(levelId).map(_.virtualWidth).sum
       val pw = spec.levels.drop(levelId).map(_.physicalWidth).sum-(spec.physicalWidth-physicalWidth)
-      val valid, exception = Bool()
+      val valid, pageFault, accessFault = Bool()
       val virtualAddress  = UInt(vw-log2Up(depth) bits)
       val physicalAddress = UInt(pw bits)
       val allowRead, allowWrite, allowExecute, allowUser = Bool
@@ -275,8 +275,9 @@ class MmuPlugin(var spec : MmuSpec,
         val lineAllowRead    = entriesMux(_.allowRead)
         val lineAllowWrite   = entriesMux(_.allowWrite)
         val lineAllowUser    = entriesMux(_.allowUser)
-        val lineException    = entriesMux(_.exception)
+        val lineException    = entriesMux(_.pageFault)
         val lineTranslated   = entriesMux(_.physicalAddressFrom(ps.preAddress))
+        val lineAccessFault  = entriesMux(_.accessFault)
 
         val requireMmuLockup  = satp.mode === spec.satpMode
         val needRefill        = isValid && !hit && requireMmuLockup
@@ -301,13 +302,15 @@ class MmuPlugin(var spec : MmuSpec,
           ALLOW_READ    := lineAllowRead || status.mxr && lineAllowExecute
           ALLOW_WRITE   := lineAllowWrite
           PAGE_FAULT    := lineException || lineAllowUser && priv.isSupervisor() && !status.sum || !lineAllowUser && priv.isUser()
+          ACCESS_FAULT  := lineAccessFault
         } otherwise {
           REDO          := False
-          TRANSLATED    := ps.preAddress.resized //TODO PC overflow ?
+          TRANSLATED    := ps.preAddress.resized
           ALLOW_EXECUTE := True
           ALLOW_READ    := True
           ALLOW_WRITE   := True
           PAGE_FAULT    := False
+          ACCESS_FAULT  := ps.preAddress.drop(physicalWidth) =/= 0
         }
 
         ALLOW_EXECUTE clearWhen(!fetchRange(TRANSLATED))
@@ -391,7 +394,7 @@ class MmuPlugin(var spec : MmuSpec,
         val flags = readed.resized.as(MmuEntryFlags())
         val leaf = flags.R || flags.X
         val exception = !flags.V || (!flags.R && flags.W) || rsp.fault || (!leaf && (flags.D | flags.A | flags.U))
-        val levelToPhysicalAddress = List.fill(spec.levels.size)(UInt(PHYSICAL_WIDTH bits))
+        val levelToPhysicalAddress = List.fill(spec.levels.size)(UInt(spec.physicalWidth bits))
         val levelException = List.fill(spec.levels.size)(False)
         val nextLevelBase = U(0, PHYSICAL_WIDTH bits)
         for((level, id) <- spec.levels.zipWithIndex) {
@@ -402,7 +405,7 @@ class MmuPlugin(var spec : MmuSpec,
               levelException(id) setWhen(readed(e.entryRange) =/= 0)
               levelToPhysicalAddress(id)(e.physicalRange) := e.vpn(virtual)
             } else {
-              levelToPhysicalAddress(id)(physCap(e.physicalRange)) := readed(e.entryRange).asUInt.resized
+              levelToPhysicalAddress(id)(e.physicalRange) := readed(e.entryRange).asUInt
             }
           }
         }
@@ -420,9 +423,10 @@ class MmuPlugin(var spec : MmuSpec,
             storageLevel.write.mask                 := UIntToOh(storageLevel.allocId).andMask(sel)
             storageLevel.write.address              := virtual(storageLevel.lineRange)
             storageLevel.write.data.valid           := True
-            storageLevel.write.data.exception       := load.exception || load.levelException(levelId) || !load.flags.A
+            storageLevel.write.data.pageFault       := load.exception || load.levelException(levelId) || !load.flags.A
+            storageLevel.write.data.accessFault     := !storageLevel.write.data.pageFault && load.levelToPhysicalAddress(levelId).drop(physicalWidth) =/= 0
             storageLevel.write.data.virtualAddress  := virtual(specLevel.virtualOffset + log2Up(storageLevel.slp.depth), widthOf(storageLevel.write.data.virtualAddress) bits)
-            storageLevel.write.data.physicalAddress := load.levelToPhysicalAddress(levelId) >> specLevel.virtualOffset
+            storageLevel.write.data.physicalAddress := (load.levelToPhysicalAddress(levelId) >> specLevel.virtualOffset).resized
             storageLevel.write.data.allowRead       := load.flags.R
             storageLevel.write.data.allowWrite      := load.flags.W && load.flags.D
             storageLevel.write.data.allowExecute    := load.flags.X

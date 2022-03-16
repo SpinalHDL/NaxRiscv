@@ -417,7 +417,7 @@ class FetchCachePlugin(var cacheSize : Int,
         setup.redoJump.valid := False
         setup.redoJump.pc    := FETCH_PC
 
-        WORD_FAULT := (B(WAYS_HITS) & B(WAYS_TAGS.map(_.error))).orR || WORD_FAULT_PAGE
+        WORD_FAULT := (B(WAYS_HITS) & B(WAYS_TAGS.map(_.error))).orR || WORD_FAULT_PAGE || tpk.ACCESS_FAULT
         WORD_FAULT_PAGE := tpk.PAGE_FAULT || !tpk.ALLOW_EXECUTE
 
         val redoIt = False
@@ -430,7 +430,7 @@ class FetchCachePlugin(var cacheSize : Int,
         when(isValid) {
           when(tpk.REDO){
             redoIt := True
-          } elsewhen(!WORD_FAULT_PAGE && !WAYS_HIT) {
+          } elsewhen(!WORD_FAULT_PAGE && !tpk.ACCESS_FAULT && !WAYS_HIT) {
             redoIt         := True
             refill.valid   := True
             refill.address := tpk.TRANSLATED

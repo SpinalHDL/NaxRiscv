@@ -461,7 +461,7 @@ else:
 
 
 naxSoftware = [
-	["lsu", "baremetal/lsu/build/lsu.elf"],
+	["lsu", "baremetal/lsu/build/rv32im/lsu.elf"],
 ]
 
 nax64Software = []

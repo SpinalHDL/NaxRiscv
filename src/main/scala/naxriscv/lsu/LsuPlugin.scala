@@ -742,7 +742,7 @@ class LsuPlugin(var lqSize: Int,
           import stage._
 
           setup.cacheLoad.translated.physical := tpk.TRANSLATED
-          setup.cacheLoad.translated.abord := stage(tpk.IO) || tpk.PAGE_FAULT || !tpk.ALLOW_READ || tpk.REDO
+          setup.cacheLoad.translated.abord := stage(tpk.IO) || tpk.PAGE_FAULT || tpk.ACCESS_FAULT || !tpk.ALLOW_READ || tpk.REDO
         }
 
         val cancels = for(stageId <- 0 to cache.loadRspLatency){
@@ -892,7 +892,7 @@ class LsuPlugin(var lqSize: Int,
 
           val missAligned = (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
           val pageFault = !tpk.ALLOW_READ || tpk.PAGE_FAULT
-          val accessFault = CombInit(rsp.fault)
+          val accessFault = rsp.fault || tpk.ACCESS_FAULT
 
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(LQ_SEL_OH(reg.id)){ body(reg) }
 
@@ -969,7 +969,7 @@ class LsuPlugin(var lqSize: Int,
             writePort.valid    := isFireing && LOAD_FRESH
             writePort.address  := lq.hitPrediction.index(LOAD_FRESH_PC)
             writePort.data.counter := next.sat(widthOf(next) - hitPredictionCounterWidth bits)
-            when(!tpk.REDO && !tpk.PAGE_FAULT && tpk.IO && tpk.ALLOW_READ){
+            when(!tpk.REDO && !tpk.PAGE_FAULT && !tpk.ACCESS_FAULT && tpk.IO && tpk.ALLOW_READ){
               writePort.data.counter := writePort.data.counter.maxValue
             }
           }
@@ -1186,7 +1186,7 @@ class LsuPlugin(var lqSize: Int,
           import stage._
 
           PAGE_FAULT := !tpk.ALLOW_WRITE || tpk.PAGE_FAULT //Assumed always ok -> AMO && !tpk.ALLOW_READ
-          STORE_DO_TRAP := MISS_ALIGNED || PAGE_FAULT
+          STORE_DO_TRAP := MISS_ALIGNED || PAGE_FAULT || tpk.ACCESS_FAULT
           STORE_TRAP_PORT_ROB_ID := (STORE_DO_TRAP ?  stage(ROB.ID) | stage(YOUNGER_LOAD_ROB))
         }
 
@@ -1241,6 +1241,9 @@ class LsuPlugin(var lqSize: Int,
             } elsewhen(stage(PAGE_FAULT)) {
               setup.storeTrap.valid      := True
               setup.storeTrap.cause      := CSR.MCAUSE_ENUM.STORE_PAGE_FAULT
+            } elsewhen(stage(tpk.ACCESS_FAULT)) {
+              setup.storeTrap.valid      := True
+              setup.storeTrap.cause      := CSR.MCAUSE_ENUM.STORE_ACCESS_FAULT
             } otherwise {
               onRegs(_.address.translated := True)
               whenMasked(regs, SQ_SEL_OH){reg =>
