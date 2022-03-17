@@ -62,10 +62,11 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component
     AxiLite4SpecRenamer(ibus)
     AxiLite4SpecRenamer(dbus)
 
-    val clintCtrl = new AxiLite4Clint(1)
+    val clintCtrl = new AxiLite4Clint(1, xlen)
     val plicCtrl = new AxiLite4Plic(
       sourceCount = 32,
-      targetCount = 2
+      targetCount = 2,
+      dataWidth   = 32
     )
 
     val clint = clintCtrl.io.bus.toIo()
@@ -164,6 +165,8 @@ py3tftp -p 69
 picocom -b 115200 /dev/ttyUSB1 --imap lfcrlf
 
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet  --build --load
+
+Error opening terminal: vt100.
 
 export DISPLAY=:0
 twm &

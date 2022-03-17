@@ -23,11 +23,14 @@ case class MemRead[T <: Data](payloadType : HardType[T], depth : Int) extends Bu
   }
 }
 
+
+case class RamAxyncMwIo[T <: Data](payloadType : HardType[T], depth : Int, writePorts : Int, readPorts : Int) extends Bundle {
+  val writes = Vec.fill(writePorts)(slave(Flow(MemWriteCmd(payloadType, depth))))
+  val read = Vec.fill(readPorts)(slave(MemRead(payloadType, depth)))
+}
+
 case class RamAsyncMwXor[T <: Data](payloadType : HardType[T], depth : Int, writePorts : Int, readPorts : Int) extends Component {
-  val io = new Bundle {
-    val writes = Vec.fill(writePorts)(slave(Flow(MemWriteCmd(payloadType, depth))))
-    val read = Vec.fill(readPorts)(slave(MemRead(payloadType, depth)))
-  }
+  val io = RamAxyncMwIo(payloadType, depth, writePorts, readPorts)
   val rawBits = payloadType.getBitsWidth
   val rawType = HardType(Bits(rawBits bits))
   val ram = List.fill(writePorts)(Mem.fill(depth)(rawType))
@@ -53,10 +56,7 @@ case class RamAsyncMwMux[T <: Data](payloadType : HardType[T],
                                     depth : Int,
                                     writePorts : Int,
                                     readPorts : Int) extends Component {
-  val io = new Bundle {
-    val writes = Vec.fill(writePorts)(slave(Flow(MemWriteCmd(payloadType, depth))))
-    val read = Vec.fill(readPorts)(slave(MemRead(payloadType, depth)))
-  }
+  val io = RamAxyncMwIo(payloadType, depth, writePorts, readPorts)
   val rawBits = payloadType.getBitsWidth
   val rawType = HardType(Bits(rawBits bits))
   val ram = List.fill(writePorts)(Mem.fill(depth)(rawType))
@@ -178,21 +178,30 @@ class MultiPortWritesSymplifier extends PhaseMemBlackboxing{
 
       val ctx = List(mem.parentScope.push(), cd.push())
 
-      val c = RamAsyncMwXor(
-        payloadType = Bits(mem.width bits),
-        depth       = mem.wordCount,
-        writePorts  = writes.size,
-        readPorts   = readsAsync.size
-      ).setCompositeName(mem)
+      val io = if(typo.mem.width >= 10){
+        RamAsyncMwMux(
+          payloadType = Bits(mem.width bits),
+          depth       = mem.wordCount,
+          writePorts  = writes.size,
+          readPorts   = readsAsync.size
+        ).setCompositeName(mem).io
+      } else {
+        RamAsyncMwXor(
+          payloadType = Bits(mem.width bits),
+          depth       = mem.wordCount,
+          writePorts  = writes.size,
+          readPorts   = readsAsync.size
+        ).setCompositeName(mem).io
+      }
 
-      for((dst, src) <- (c.io.writes, writes).zipped){
+      for((dst, src) <- (io.writes, writes).zipped){
         dst.valid.assignFrom(src.writeEnable)
         dst.address.assignFrom(src.address)
         dst.data.assignFrom(src.data)
       }
 
 
-      for((reworked, old) <- (c.io.read, readsAsync).zipped){
+      for((reworked, old) <- (io.read, readsAsync).zipped){
         reworked.cmd.payload.assignFrom(old.address)
         wrapConsumers(typo, old, reworked.rsp)
       }
