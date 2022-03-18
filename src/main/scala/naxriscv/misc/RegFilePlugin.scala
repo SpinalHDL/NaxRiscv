@@ -60,7 +60,7 @@ class RegFileAsync(addressWidth    : Int,
 
     val bypass = !r.forceNoBypass generate new Area{
       val hits = io.bypasses.map(b => b.valid && b.address === r.address)
-      val hitsValue = MuxOH.or(hits, io.bypasses.map(_.data))
+      val hitsValue = MuxOH.mux(hits, io.bypasses.map(_.data))
       when(hits.orR){
         r.data := hitsValue
       }
