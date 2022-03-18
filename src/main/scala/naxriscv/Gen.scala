@@ -144,7 +144,7 @@ object Config{
       ),
       loadTranslationParameter  = MmuPortParameter(
         readAt = 0,
-        hitsAt = 1,
+        hitsAt = 0,
         ctrlAt = 1,
         rspAt  = 1
       ),
@@ -203,7 +203,7 @@ object Config{
 //    plugins += new LoadPlugin("EU0")
 //    plugins += new StorePlugin("EU0")
 
-    plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1)
+    plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1, readPhysRsFromQueue = true)
     plugins += new IntFormatPlugin("EU1")
     plugins += new SrcPlugin("EU1", earlySrc = true)
     plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
@@ -215,11 +215,7 @@ object Config{
     plugins += new StorePlugin("EU1")
     plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
     plugins += new CsrAccessPlugin("EU1")(
-      decodeAt = 0,
-      readAt = 1,
-      writeAt = 2,
-      writebackAt = 2,
-      staticLatency = false
+      writebackAt = 2
     )
 
 //    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
@@ -423,7 +419,7 @@ object Config64{
       ),
       loadTranslationParameter  = MmuPortParameter(
         readAt = 0,
-        hitsAt = 1,
+        hitsAt = 0,
         ctrlAt = 1,
         rspAt  = 1
       ),
@@ -481,7 +477,7 @@ object Config64{
     //    plugins += new LoadPlugin("EU0")
     //    plugins += new StorePlugin("EU0")
 
-    plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1)
+    plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1, readPhysRsFromQueue = true)
     plugins += new IntFormatPlugin("EU1")
     plugins += new SrcPlugin("EU1", earlySrc = true)
     plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
@@ -493,11 +489,7 @@ object Config64{
     plugins += new StorePlugin("EU1")
     plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
     plugins += new CsrAccessPlugin("EU1")(
-      decodeAt = 0,
-      readAt = 1,
-      writeAt = 2,
-      writebackAt = 2,
-      staticLatency = false
+      writebackAt = 2
     )
 
     //    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
@@ -553,8 +545,12 @@ object Gen64 extends App{
   LutInputs.set(6)
   def plugins = {
     val l = Config64.plugins(withRdTime = false)
-    Tweek.euWritebackAt(l, "EU0", 1)
-    Tweek.euWritebackAt(l, "EU4", 1)
+    l.foreach{
+//      case p : ExecutionUnitBase if p.euId == "EU1" => p.readPhysRsFromQueue = true
+      case _ =>
+    }
+//    Tweek.euWritebackAt(l, "EU0", 1)
+//    Tweek.euWritebackAt(l, "EU4", 1)
     l
   }
 
@@ -607,6 +603,9 @@ make test-clean output/nax/dhrystone/PASS output/nax/coremark/PASS ARGS="--stats
 
 //TODO Optimisations
 /*
+- Each Eu could have its own regfile space
+- Optimise SrcPlugin by unifying SRC / ADD muxes
+- May use distributed shift register for the issue queue context
 - bypass for write to read on btb
 - commit.reschedule storage could be used to trigger frontend flush, reducing branch miss penality and combinatorial delay
 - Decoder ILLEGAL datapath can be optimized to use INSTRUCTION_ALIGNED instead, with some additional hit from the decompressor for RVC stuff

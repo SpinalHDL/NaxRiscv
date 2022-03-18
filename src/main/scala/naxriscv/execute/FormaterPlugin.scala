@@ -51,7 +51,7 @@ class IntFormatPlugin(val euId : String) extends Plugin{
       wb.valid := hits.orR
 
       val signExtendsGroups = group.flatMap(_.signExtends).groupByLinked(_.bitId).map(_._2)
-      val raw = MuxOH.or(hits, group.map(_.port.payload))
+      val raw = MuxOH.or(hits, group.map(_.port.payload), true)
       wb.payload := raw
 
       val signExtend = for(seg <- signExtendsGroups) yield new Area{

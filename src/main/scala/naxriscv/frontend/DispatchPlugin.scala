@@ -129,10 +129,14 @@ class DispatchPlugin(var slotCount : Int = 0,
       val fromBits = toBits.map(e => e._2 -> e._1).toMap
     }
 
+
+    val eusContextKeys = eus.flatMap(_.pushPort().contextKeys).distinctLinked.toSeq
     case class Context() extends Bundle{
       val staticWake = Bits(globalStaticLatencies.latencies.size bits)
       val physRd = decoder.PHYS_RD()
       val robId = ROB.ID() //Only for debug so far
+      val euCtx = eusContextKeys.map(_.craft())
+      def getEuCtx[T <: Data](key : Stageable[T]) : T = euCtx(eusContextKeys.indexOf(key)).asInstanceOf[T]
     }
     val queue = new IssueQueue(
       p = IssueQueueParameter(
@@ -192,6 +196,9 @@ class DispatchPlugin(var slotCount : Int = 0,
         slot.sel   := (DISPATCH_MASK, slotId) ? groups.map(g => stage(g.sel, slotId)).asBits() | B(0)
         slot.context.physRd := stage(decoder.PHYS_RD, slotId)
         slot.context.robId := stage(ROB.ID) | slotId
+        for(key <- eusContextKeys){
+          slot.context.getEuCtx(key).assignFrom(stage(key, slotId))
+        }
         for(latency <- globalStaticLatencies.latencies){
           val bitId = globalStaticLatencies.toBits(latency)
           slot.context.staticWake(bitId) := (decoder.WRITE_RD, slotId) && (globalStaticLatencies.latenciesStageable(latency), slotId)
@@ -273,6 +280,10 @@ class DispatchPlugin(var slotCount : Int = 0,
       euPort.robId := euStage(keys.ROB_ID)
       euPort.physRd := euStage(decoder.PHYS_RD)
       if(euPort.withReady) euStage.haltIt(!euPort.ready)
+      for(key <- euPort.contextKeys){
+        readContext(key.asInstanceOf[Stageable[Data]], euAt)(_.getEuCtx(key))
+        euPort.getContext(key).assignFrom(euStage(key))
+      }
 
       stagesList.last.flushIt(rescheduling.valid, root = false)
 

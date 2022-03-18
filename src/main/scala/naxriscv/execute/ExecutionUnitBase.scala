@@ -16,6 +16,7 @@ import naxriscv.Global._
 
 class ExecutionUnitBase(val euId : String,
                         var writebackCountMax : Int = Int.MaxValue,
+                        var readPhysRsFromQueue : Boolean = false,
                         var contextAt : Int = 0,
                         var rfReadAt : Int = 0,
                         var decodeAt : Int = 0,
@@ -201,11 +202,24 @@ class ExecutionUnitBase(val euId : String,
     // Implement the fetch pipeline
     val push = new Area{
       val stage = fetch(0)
-      val port = ExecutionUnitPush(withReady = staticLatenciesStorage.isEmpty, physRdType = decoder.PHYS_RD)
+      val contextKeys = ArrayBuffer[Stageable[_ <: Data]]()
+      if(readPhysRsFromQueue) for(e <- rfReads){
+        contextKeys += decoder.PHYS_RS(e)
+      }
+      val port = ExecutionUnitPush(
+        withReady = staticLatenciesStorage.isEmpty,
+        physRdType = decoder.PHYS_RD,
+        contextKeys = contextKeys
+      )
       stage.valid := port.valid
       stage(ROB.ID) := port.robId
       if(implementRd) stage(decoder.PHYS_RD) := port.physRd
       if(port.withReady) port.ready := stage.isReady
+
+      if (readPhysRsFromQueue) for(e <- rfReads) {
+        val key = decoder.PHYS_RS(e)
+        stage(key) := port.getContext(key)
+      }
     }
 
     val context = new Area{
@@ -223,7 +237,7 @@ class ExecutionUnitBase(val euId : String,
 
       readAndInsert(Frontend.MICRO_OP)
       for(e <- rfReads){
-        readAndInsert(decoder.PHYS_RS(e))
+        if(!readPhysRsFromQueue) readAndInsert(decoder.PHYS_RS(e))
         readAndInsert(decoder.READ_RS(e))
       }
       if(implementRd){
@@ -272,7 +286,7 @@ class ExecutionUnitBase(val euId : String,
       write.valid := key.stage.isFireing && key.stage(decoder.WRITE_RD) && spec.ports.map(_.valid).orR
       write.robId := key.stage(ROB.ID)
       write.address := key.stage(decoder.PHYS_RD)
-      write.data := MuxOH.or(spec.ports.map(_.valid), spec.ports.map(_.payload))
+      write.data := MuxOH.mux(spec.ports.map(_.valid), spec.ports.map(_.payload))
 
 //      val bypass = (spec.latency == 0) generate new Area{
 //        val port = rfService.newBypass()

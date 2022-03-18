@@ -24,10 +24,10 @@ case class MmuStorageLevel(id : Int,
 case class MmuStorageParameter(levels : Seq[MmuStorageLevel],
                                priority : Int)
 
-case class MmuPortParameter(readAt : Int,
-                            hitsAt : Int,
-                            ctrlAt : Int,
-                            rspAt : Int){
+case class MmuPortParameter(var readAt : Int,
+                            var hitsAt : Int,
+                            var ctrlAt : Int,
+                            var rspAt : Int){
 
 }
 
