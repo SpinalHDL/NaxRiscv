@@ -698,7 +698,6 @@ class LsuPlugin(var lqSize: Int,
             HIT_SPECULATION_COUNTER := portPush.hitPrediction.read.rsp.counter
           }
 
-          DATA_MASK       := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
           SQCHECK_END_ID  := mem.sqAlloc.readAsync(LQ_SEL)
 
 
@@ -735,6 +734,7 @@ class LsuPlugin(var lqSize: Int,
           WRITE_RD        := mem.writeRd.readAsync(LQ_SEL)
           LR              := mem.lr.readAsync(LQ_SEL)
           UNSIGNED        := regs.map(_.address.unsigned).read(LQ_SEL)
+          DATA_MASK       := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
         }
 
         val feedTranslation = new Area{
