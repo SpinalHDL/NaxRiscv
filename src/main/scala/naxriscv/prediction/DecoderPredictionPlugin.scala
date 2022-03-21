@@ -77,7 +77,9 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
     val applyStage  = applyAt(frontend)
 
     if(!isServiceAvailable[FetchConditionalPrediction]){
-      fetch.getLastStage(CONDITIONAL_TAKE_IT) := 0
+      for(slotId <- 0 until Frontend.DECODE_COUNT) {
+        frontend.pipeline.decompressed(CONDITIONAL_TAKE_IT, slotId) := 0
+      }
     }
 
     val ras = new Area{
