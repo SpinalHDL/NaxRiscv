@@ -78,7 +78,7 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
 
     if(!isServiceAvailable[FetchConditionalPrediction]){
       for(slotId <- 0 until Frontend.DECODE_COUNT) {
-        frontend.pipeline.decompressed(CONDITIONAL_TAKE_IT, slotId) := 0
+        frontend.pipeline.decompressed(CONDITIONAL_TAKE_IT, slotId) := (1 << SLICE_COUNT) - 1
       }
     }
 
