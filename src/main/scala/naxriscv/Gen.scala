@@ -86,7 +86,7 @@ object Config{
 
     //FRONTEND
     plugins += new FrontendPlugin()
-    plugins += new DecompressorPlugin()
+    plugins += new DecompressorPlugin(enabled = false)
     plugins += new DecoderPlugin()
     plugins += new RfTranslationPlugin()
     plugins += new RfDependencyPlugin()
@@ -361,7 +361,7 @@ object Config64{
 
     //FRONTEND
     plugins += new FrontendPlugin()
-    plugins += new DecompressorPlugin()
+    plugins += new DecompressorPlugin(enabled = false)
     plugins += new DecoderPlugin()
     plugins += new RfTranslationPlugin()
     plugins += new RfDependencyPlugin()

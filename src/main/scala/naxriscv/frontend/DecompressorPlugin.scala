@@ -10,9 +10,10 @@ import naxriscv.Frontend._
 
 
 //Pass through for now (not implemented)
-class DecompressorPlugin() extends Plugin{
+class DecompressorPlugin(var enabled : Boolean) extends Plugin{
   create config {
-    Global.RVC.set(false)
+    Global.RVC.set(enabled)
+    assert(!enabled)
   }
 
   val setup = create early new Area{
