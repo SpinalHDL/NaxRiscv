@@ -50,6 +50,11 @@ case class RamAsyncMwXor[T <: Data](payloadType : HardType[T], depth : Int, writ
     val xored = values.reduceBalancedTree(_ ^ _)
     port.rsp := xored.as(payloadType)
   }
+
+  def addMemTags(spinalTags: Seq[SpinalTag]) : this.type = {
+    ram.foreach(_.addTags(spinalTags))
+    this
+  }
 }
 
 case class RamAsyncMwMux[T <: Data](payloadType : HardType[T],
@@ -86,6 +91,11 @@ case class RamAsyncMwMux[T <: Data](payloadType : HardType[T],
     val reads  = ram.map(_.readAsync(port.cmd.payload))
     port.rsp := reads.read(loc.rsp).as(payloadType)
   }
+
+  def addMemTags(spinalTags: Seq[SpinalTag]) : this.type = {
+    ram.foreach(_.addTags(spinalTags))
+    this
+  }
 }
 
 case class RamSyncMwXor[T <: Data](payloadType : HardType[T], depth : Int, writePorts : Int, readPorts : Int) extends Component {
@@ -111,6 +121,11 @@ case class RamSyncMwXor[T <: Data](payloadType : HardType[T], depth : Int, write
     val values = ram.map(_.readSync(port.cmd.payload, port.cmd.valid))
     val xored = values.reduceBalancedTree(_ ^ _)
     port.rsp := xored.as(payloadType)
+  }
+
+  def addMemTags(spinalTags: Seq[SpinalTag]) : this.type = {
+    ram.foreach(_.addTags(spinalTags))
+    this
   }
 }
 
@@ -166,9 +181,12 @@ case class RamMwStorage[T <: Data](payloadType : HardType[T], depth : Int, ways 
 
 
 case class ClockDomainFasterTag(times : Int, cd : ClockDomain) extends SpinalTag
+case class MultiPortWritesSymplifierTag() extends SpinalTag
 
-class MultiPortWritesSymplifier extends PhaseMemBlackboxing{
-  override def doBlackboxing(pc: PhaseContext, typo: MemTopology) = {
+class MultiPortWritesSymplifier(onlyTagged : Boolean = false) extends PhaseMemBlackboxing{
+  override def doBlackboxing(pc: PhaseContext, typo: MemTopology) : Unit = {
+    if(onlyTagged && typo.mem.getTag(classOf[MultiPortWritesSymplifierTag]).isEmpty) return
+
     if(typo.writes.size > 1 && typo.readsSync.size == 0){
       typo.writes.foreach(w => assert(w.mask == null))
       typo.writes.foreach(w => assert(w.clockDomain == typo.writes.head.clockDomain))
@@ -184,14 +202,14 @@ class MultiPortWritesSymplifier extends PhaseMemBlackboxing{
           depth       = mem.wordCount,
           writePorts  = writes.size,
           readPorts   = readsAsync.size
-        ).setCompositeName(mem).io
+        ).setCompositeName(mem).addMemTags(mem.getTags().toSeq).io
       } else {
         RamAsyncMwXor(
           payloadType = Bits(mem.width bits),
           depth       = mem.wordCount,
           writePorts  = writes.size,
           readPorts   = readsAsync.size
-        ).setCompositeName(mem).io
+        ).setCompositeName(mem).addMemTags(mem.getTags().toSeq).io
       }
 
       for((dst, src) <- (io.writes, writes).zipped){
@@ -317,6 +335,28 @@ class MemReadDuringWriteHazardPhase extends PhaseMemBlackboxing{
     }
   }
 }
+
+class MemReadAsyncToPhasedReadSyncPhaseTag(val cd : ClockDomain) extends SpinalTag
+class MemReadAsyncToPhasedReadSyncPhase extends PhaseMemBlackboxing{
+  override def doBlackboxing(pc: PhaseContext, typo: MemTopology) : Unit = {
+    import typo._
+
+    val tag = mem.getTag(classOf[MemReadAsyncToPhasedReadSyncPhaseTag])
+    if(tag.isEmpty) return
+    val cd = tag.get.cd
+    for(read <- typo.readsAsync){
+
+      val ctx = List(mem.parentScope.push(), cd.push())
+
+      val readed = mem.readSync(read.address.asInstanceOf[UInt]).asInstanceOf[Data].asBits
+      wrapConsumers(typo, read, readed)
+      read.removeStatement()
+
+      ctx.foreach(_.restore())
+    }
+  }
+}
+
 
 
 

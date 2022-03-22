@@ -197,6 +197,15 @@ riscv64TestDiv = [
 ]
 
 
+
+riscv32TestRvc = [
+    "rv32uc-p-rvc",
+]
+
+riscv64TestRvc = [
+    "rv64uc-p-rvc",
+]
+
 def listPrefix(prefix, l):
     return list(map(lambda x : prefix + x, l))
 
@@ -449,7 +458,14 @@ import re
 def getInt(key):
     return int(re.findall(key + " (\d+)", naxHeader)[0])
 
+def getBoolean(key):
+    return len(re.findall(key + " true", naxHeader)) != 0
+
+
 xlen = getInt("XLEN")
+rvc = getBoolean("RVC")
+
+
 
 if xlen == 64:
     arch="rv64im"
@@ -562,6 +578,11 @@ with open('tests.mk', 'w') as f:
         for name in riscv64_tests + riscv64TestMemory + riscv64TestMul + riscv64TestDiv + riscv64TestAmo:
             rvTest(name)
 
+        if rvc:
+            for name in riscv64TestRvc:
+                rvTest(name)
+
+
         for name in riscvArch64i + riscvArch64M + riscvArch64Zifencei:
             rvArch(name)
 
@@ -574,6 +595,10 @@ with open('tests.mk', 'w') as f:
     if xlen == 32:
         for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv + riscvTestAmo:
             rvTest(name)
+
+        if rvc:
+            for name in riscv32TestRvc:
+                rvTest(name)
 
         rvTest("rv32ua-p-lrsc_1234", elf="rv32ua-p-lrsc", timeout=300000, passs="test_5")
         rvTest("rv32ua-p-lrsc_6", elf="rv32ua-p-lrsc", timeout=100000, start="test_6")

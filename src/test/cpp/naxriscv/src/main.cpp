@@ -1459,12 +1459,15 @@ void spikeInit(){
     fptr = trace_ref ? fopen((outputDir + "/spike.log").c_str(),"w") : NULL;
     std::ofstream outfile ("/dev/null",std::ofstream::binary);
     wrap = new sim_wrap();
+    string isa;
     #if XLEN==32
-    const char * isa = "RV32IMA";
+    isa += "RV32I";
     #else
-    const char * isa = "RV64IMA";
+    isa += "RV64I";
     #endif
-    proc = new processor_t(isa, "MSU", "", wrap, 0, false, fptr, outfile);
+    isa += "MA";
+    if(RVC) isa += "C";
+    proc = new processor_t(isa.c_str(), "MSU", "", wrap, 0, false, fptr, outfile);
     if(trace_ref) proc->enable_log_commits();
     if(spike_debug) proc->debug = true;
     proc->set_pmp_num(0);

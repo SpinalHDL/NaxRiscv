@@ -31,18 +31,29 @@ object Config{
   def plugins(resetVector : BigInt = 0x80000000l,
               withRdTime : Boolean = true,
               ioRange    : UInt => Bool = _(31 downto 28) === 0x1,
-              fetchRange : UInt => Bool = _(31 downto 28) =/= 0x1): ArrayBuffer[Plugin] ={
+              fetchRange : UInt => Bool = _(31 downto 28) =/= 0x1,
+              aluCount : Int = 2,
+              decodeCount : Int = 2,
+              withRvc : Boolean = false,
+              withMmu : Boolean = true,
+              withPerfCounters : Boolean = true,
+              withSupervisor : Boolean = true,
+              withDistributedRam : Boolean = true): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
-//    plugins += new StaticAddressTranslationPlugin(
-//      ioRange = _(31 downto 28) === 0x1
-//    )
-    plugins += new MmuPlugin(
-      spec    = MmuSpec.sv32,
-      ioRange = ioRange,
-      fetchRange = fetchRange,
-      physicalWidth = 32
-    )
+    plugins += (withMmu match {
+      case false => new StaticAddressTranslationPlugin(
+        ioRange = _(31 downto 28) === 0x1,
+        fetchRange = fetchRange,
+        physicalWidth = 32
+      )
+      case true => new MmuPlugin(
+        spec    = MmuSpec.sv32,
+        ioRange = ioRange,
+        fetchRange = fetchRange,
+        physicalWidth = 32
+      )
+    })
 
     //FETCH
     plugins += new FetchPlugin()
@@ -55,6 +66,7 @@ object Config{
       memDataWidth = 64,
       reducedBankWidth = false,
       hitsWithTranslationWays = true,
+      tagsReadAsync = withDistributedRam,
       translationStorageParameter = MmuStorageParameter(
         levels   = List(
           MmuStorageLevel(
@@ -70,23 +82,24 @@ object Config{
         ),
         priority = 0
       ),
-      translationPortParameter  = MmuPortParameter(
-        readAt = 1,
-        hitsAt = 1,
-        ctrlAt = 1,
-        rspAt  = 1
-      )
-      //      translationStorageParameter = null,
-      //      translationPortParameter  = StaticAddressTranslationParameter(rspAt = 1),
+      translationPortParameter = withMmu match {
+        case false => StaticAddressTranslationParameter(rspAt = 1)
+        case true => MmuPortParameter(
+          readAt = 1,
+          hitsAt = 1,
+          ctrlAt = 1,
+          rspAt = 1
+        )
+      }
     )
     plugins += new AlignerPlugin(
-      decodeCount = 2,
+      decodeCount = decodeCount,
       inputAt = 2
     )
 
     //FRONTEND
     plugins += new FrontendPlugin()
-    plugins += new DecompressorPlugin(enabled = false)
+    plugins += new DecompressorPlugin(enabled = withRvc)
     plugins += new DecoderPlugin()
     plugins += new RfTranslationPlugin()
     plugins += new RfDependencyPlugin()
@@ -142,21 +155,25 @@ object Config{
         ),
         priority = 1
       ),
-      loadTranslationParameter  = MmuPortParameter(
-        readAt = 0,
-        hitsAt = 0,
-        ctrlAt = 1,
-        rspAt  = 1
-      ),
-      storeTranslationParameter = MmuPortParameter(
-        readAt = 1,
-        hitsAt = 1,
-        ctrlAt = 1,
-        rspAt  = 1
-      )
-//      translationStorageParameter = null,
-//      loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
-//      storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
+
+      loadTranslationParameter = withMmu match {
+        case false => StaticAddressTranslationParameter(rspAt = 1)
+        case true => MmuPortParameter(
+          readAt = 0,
+          hitsAt = 0,
+          ctrlAt = 1,
+          rspAt  = 1
+        )
+      },
+      storeTranslationParameter = withMmu match {
+        case false => StaticAddressTranslationParameter(rspAt = 1)
+        case true => MmuPortParameter(
+          readAt = 1,
+          hitsAt = 1,
+          ctrlAt = 1,
+          rspAt  = 1
+        )
+      }
     )
     plugins += new DataCachePlugin(
       memDataWidth = 64,
@@ -164,7 +181,9 @@ object Config{
       wayCount     = 4,
       refillCount = 2,
       writebackCount = 2,
-      tagsReadAsync = true,
+      tagsReadAsync = withDistributedRam,
+      loadReadTagsAt = if(withDistributedRam) 1 else 0,
+      storeReadTagsAt = if(withDistributedRam) 1 else 0,
       reducedBankWidth = false,
 //      loadHitAt      = 2
 //      loadRspAt      = 3,
@@ -177,7 +196,7 @@ object Config{
       completionWithReg = false
     )
     plugins += new CommitPlugin(
-      commitCount = 2,
+      commitCount = decodeCount,
       ptrCommitRetimed = true
     )
     plugins += new RegFilePlugin(
@@ -187,21 +206,21 @@ object Config{
     )
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
     plugins += new CsrRamPlugin()
-    plugins += new PrivilegedPlugin(PrivilegedConfig.full.copy(withRdTime = withRdTime))
-    plugins += new PerformanceCounterPlugin(
+    plugins += new PrivilegedPlugin(PrivilegedConfig.full.copy(withRdTime = withRdTime, withSupervisor = withSupervisor))
+    if(withPerfCounters) plugins += new PerformanceCounterPlugin(
       additionalCounterCount = 4,
       bufferWidth            = 6
     )
 
     //EXECUTION UNITES
-    plugins += new ExecutionUnitBase("EU0")
-    plugins += new IntFormatPlugin("EU0")
-    plugins += new SrcPlugin("EU0", earlySrc = true)
-    plugins += new IntAluPlugin("EU0", aluStage = 0)
-    plugins += new ShiftPlugin("EU0" , aluStage = 0)
-    plugins += new BranchPlugin("EU0")
-//    plugins += new LoadPlugin("EU0")
-//    plugins += new StorePlugin("EU0")
+    plugins += new ExecutionUnitBase("ALU0")
+    plugins += new IntFormatPlugin("ALU0")
+    plugins += new SrcPlugin("ALU0", earlySrc = true)
+    plugins += new IntAluPlugin("ALU0", aluStage = 0)
+    plugins += new ShiftPlugin("ALU0" , aluStage = 0)
+    if(aluCount > 1) plugins += new BranchPlugin("ALU0")
+//    plugins += new LoadPlugin("ALU0")
+//    plugins += new StorePlugin("ALU0")
 
     plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1, readPhysRsFromQueue = true)
     plugins += new IntFormatPlugin("EU1")
@@ -210,7 +229,7 @@ object Config{
     plugins += new DivPlugin("EU1", writebackAt = 2)
 //    plugins += new IntAluPlugin("EU1")
 //    plugins += new ShiftPlugin("EU1")
-//    plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
+    if(aluCount == 1) plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
     plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
@@ -237,12 +256,14 @@ object Config{
 //    plugins += new LoadPlugin("EU2")
 //    plugins += new StorePlugin("EU2")
 
-    plugins += new ExecutionUnitBase("EU4")
-    plugins += new IntFormatPlugin("EU4")
-    plugins += new SrcPlugin("EU4")
-    plugins += new IntAluPlugin("EU4")
-    plugins += new ShiftPlugin("EU4")
-    plugins += new BranchPlugin("EU4")
+    if(aluCount >= 2) {
+      plugins += new ExecutionUnitBase("ALU1")
+      plugins += new IntFormatPlugin("ALU1")
+      plugins += new SrcPlugin("ALU1")
+      plugins += new IntAluPlugin("ALU1")
+      plugins += new ShiftPlugin("ALU1")
+      plugins += new BranchPlugin("ALU1")
+    }
 
 
 //
@@ -270,7 +291,12 @@ object Config{
 object Gen extends App{
   LutInputs.set(6)
   def plugins = {
-    Config.plugins(withRdTime = false)
+    Config.plugins(
+      withRdTime = false,
+      aluCount    = 2,
+      decodeCount = 2,
+      withRvc = false
+    )
   }
 
   {
@@ -468,14 +494,14 @@ object Config64{
     )
 
     //EXECUTION UNITES
-    plugins += new ExecutionUnitBase("EU0")
-    plugins += new IntFormatPlugin("EU0")
-    plugins += new SrcPlugin("EU0", earlySrc = true)
-    plugins += new IntAluPlugin("EU0", aluStage = 0)
-    plugins += new ShiftPlugin("EU0" , aluStage = 0)
-    plugins += new BranchPlugin("EU0")
-    //    plugins += new LoadPlugin("EU0")
-    //    plugins += new StorePlugin("EU0")
+    plugins += new ExecutionUnitBase("ALU0")
+    plugins += new IntFormatPlugin("ALU0")
+    plugins += new SrcPlugin("ALU0", earlySrc = true)
+    plugins += new IntAluPlugin("ALU0", aluStage = 0)
+    plugins += new ShiftPlugin("ALU0" , aluStage = 0)
+    plugins += new BranchPlugin("ALU0")
+    //    plugins += new LoadPlugin("ALU0")
+    //    plugins += new StorePlugin("ALU0")
 
     plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1, readPhysRsFromQueue = true)
     plugins += new IntFormatPlugin("EU1")
@@ -511,12 +537,12 @@ object Config64{
     //    plugins += new LoadPlugin("EU2")
     //    plugins += new StorePlugin("EU2")
 
-    plugins += new ExecutionUnitBase("EU4")
-    plugins += new IntFormatPlugin("EU4")
-    plugins += new SrcPlugin("EU4")
-    plugins += new IntAluPlugin("EU4")
-    plugins += new ShiftPlugin("EU4")
-    plugins += new BranchPlugin("EU4")
+    plugins += new ExecutionUnitBase("ALU1")
+    plugins += new IntFormatPlugin("ALU1")
+    plugins += new SrcPlugin("ALU1")
+    plugins += new IntAluPlugin("ALU1")
+    plugins += new ShiftPlugin("ALU1")
+    plugins += new BranchPlugin("ALU1")
 
 
     //
@@ -549,8 +575,8 @@ object Gen64 extends App{
 //      case p : ExecutionUnitBase if p.euId == "EU1" => p.readPhysRsFromQueue = true
       case _ =>
     }
-//    Tweek.euWritebackAt(l, "EU0", 1)
-//    Tweek.euWritebackAt(l, "EU4", 1)
+//    Tweek.euWritebackAt(l, "ALU0", 1)
+//    Tweek.euWritebackAt(l, "ALU1", 1)
     l
   }
 
