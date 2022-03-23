@@ -42,6 +42,8 @@ object Global extends AreaRoot {
 //  val TRAP_CAUSE_WIDTH = NaxParameter[Handle[Int]]
   val XLEN = NaxParameter[Int]
   val RVC = NaxParameter[Boolean]
+  val RVF = NaxParameter[Boolean]
+  val RVD = NaxParameter[Boolean]
 
   val PC_WIDTH = NaxParameter[Int]
   val PC = Stageable(UInt(PC_WIDTH bits))
@@ -86,6 +88,7 @@ object Frontend extends AreaObject {
   val MASK_ALIGNED = Stageable(Bool())
   val INSTRUCTION_ALIGNED = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
   val INSTRUCTION_DECOMPRESSED = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
+  val INSTRUCTION_ILLEGAL = Stageable(Bool())
   val MICRO_OP = Stageable(Bits(Fetch.INSTRUCTION_WIDTH bits))
 
   val FETCH_FAULT = Stageable(Bool())

@@ -99,7 +99,10 @@ object Config{
 
     //FRONTEND
     plugins += new FrontendPlugin()
-    plugins += new DecompressorPlugin(enabled = withRvc)
+    plugins += new DecompressorPlugin(
+      enabled = withRvc,
+      pipelined = withRvc
+    )
     plugins += new DecoderPlugin()
     plugins += new RfTranslationPlugin()
     plugins += new RfDependencyPlugin()
@@ -387,7 +390,10 @@ object Config64{
 
     //FRONTEND
     plugins += new FrontendPlugin()
-    plugins += new DecompressorPlugin(enabled = false)
+    plugins += new DecompressorPlugin(
+      enabled = false,
+      pipelined = false
+    )
     plugins += new DecoderPlugin()
     plugins += new RfTranslationPlugin()
     plugins += new RfDependencyPlugin()

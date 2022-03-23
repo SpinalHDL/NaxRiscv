@@ -113,7 +113,7 @@ class BranchPlugin(val euId : String,
 
       if(setup.withBranchContext) stage(BRANCH_EARLY) := branchContext.readEarly(BRANCH_ID)
 
-      BAD_EARLY_TARGET := (if(setup.withBranchContext) BRANCH_EARLY.pc    =/= stage(PC, "TRUE") else False)
+      BAD_EARLY_TARGET := (if(setup.withBranchContext) BRANCH_EARLY.pc =/= stage(PC, "TRUE") else False)
     }
 
     val writeback = new ExecuteArea(writebackAt){

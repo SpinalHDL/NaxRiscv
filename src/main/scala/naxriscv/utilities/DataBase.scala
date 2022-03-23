@@ -36,6 +36,8 @@ object NaxScope extends ScopeProperty[DataBase]{
   def create(xlen : Int) : DataBase = {
     this.set(new DataBase)
     Global.XLEN.set(xlen)
+    Global.RVF.set(false)
+    Global.RVD.set(false)
     this.get
   }
 }

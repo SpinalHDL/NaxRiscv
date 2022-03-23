@@ -1143,6 +1143,7 @@ enum ARG
     ARG_LOAD_ELF,
     ARG_LOAD_BIN,
     ARG_START_SYMBOL,
+    ARG_START_ADD,
     ARG_PASS_SYMBOL,
     ARG_FAIL_SYMBOL,
     ARG_OUTPUT_DIR,
@@ -1182,6 +1183,7 @@ static const struct option long_options[] =
     { "load-elf", required_argument, 0, ARG_LOAD_ELF },
     { "load-bin", required_argument, 0, ARG_LOAD_BIN },
     { "start-symbol", required_argument, 0, ARG_START_SYMBOL },
+    { "start-add", required_argument, 0, ARG_START_ADD },
     { "pass-symbol", required_argument, 0, ARG_PASS_SYMBOL },
     { "fail-symbol", required_argument, 0, ARG_FAIL_SYMBOL },
     { "output-dir", required_argument, 0, ARG_OUTPUT_DIR },
@@ -1351,6 +1353,7 @@ void parseArgFirst(int argc, char** argv){
             case ARG_LOAD_ELF:
             case ARG_LOAD_BIN:
             case ARG_START_SYMBOL:
+            case ARG_START_ADD:
             case ARG_PASS_SYMBOL:
             case ARG_FAIL_SYMBOL:
             case ARG_STATS_START_SYMBOL:
@@ -1399,6 +1402,7 @@ void parseArgsSecond(int argc, char** argv){
                 soc->memory.loadBin(string(path), address);
             }break;
             case ARG_START_SYMBOL: startPc = elf->getSymbolAddress(optarg); break;
+            case ARG_START_ADD: startPc += stol(optarg); break;
             case ARG_PASS_SYMBOL: {
                 u64 addr = elf->getSymbolAddress(optarg);
                 addPcEvent(addr, [&](RvData pc){ success();});

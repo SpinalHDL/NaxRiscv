@@ -98,7 +98,8 @@ class AlignerPlugin(var decodeCount : Int,
 
     val slices = new Area {
       val data = (WORD ## buffer.data).subdivideIn(SLICE_WIDTH bits)
-      var mask = (isInputValid ? input(MASK_FRONT) | B(0)) ## buffer.mask //Which slice have valid data
+      var carry = (isInputValid ? input(MASK_FRONT) | B(0)) ## buffer.mask //Which slice have valid data
+      var remains = CombInit(carry)
       var used = B(0, SLICE_COUNT*2 bits)
     }
 
@@ -119,7 +120,7 @@ class AlignerPlugin(var decodeCount : Int,
           if(i == SLICE_COUNT * 2 - 1)
             !rvc
           else if(i == SLICE_COUNT - 1)
-            !rvc && !MASK_FRONT.lsb
+            !rvc && (!MASK_FRONT.lsb || !isInputValid)
           else
             False
         case false => False
@@ -162,16 +163,17 @@ class AlignerPlugin(var decodeCount : Int,
     }
 
     val extractors = for (i <- 0 until DECODE_COUNT) yield new Area {
-      val maskOh = OHMasking.firstV2(slices.mask.drop(i))
+      val maskOh = OHMasking.firstV2(slices.maskCarry.drop(i))
       val usage  = MuxOH.or(maskOh, decoders.drop(i).map(_.usage))
       val usable = MuxOH.or(maskOh, decoders.drop(i).map(_.usable))
       val rvc    = RVC.get generate MuxOH.or(maskOh, decoders.drop(i).map(_.rvc))
       val slice0 = MuxOH.or(maskOh, slices.data.drop(i))
       val slice1 = RVC.get generate MuxOH.or(maskOh.dropHigh(1), slices.data.drop(i + 1))
       val instruction = if(RVC) slice1 ## slice0 else slice0
-      val valid = slices.mask.drop(i).orR && usable
+      val valid = slices.maskCarry.drop(i).orR && usable
       slices.used \= slices.used | usage
-      slices.mask \= slices.mask & ~usage
+      slices.maskCarry \= slices.maskCarry & ~usage
+      slices.remains \= slices.remains & ~(usage.andMask(valid))
       output(INSTRUCTION_ALIGNED,i) := instruction
       output(MASK_ALIGNED, i) := valid
       output(INSTRUCTION_SLICE_COUNT, i) := (if(RVC) U(!rvc) else U(0))
@@ -183,7 +185,7 @@ class AlignerPlugin(var decodeCount : Int,
       val bufferPredictionLast = buffer.branchSlice === sliceLast
       val inputPredictionLast  = WORD_BRANCH_SLICE === sliceLast
       val lastWord = maskOh.drop(SLICE_COUNT-i).orR
-      if(RVC) lastWord.setWhen(rvc && maskOh(SLICE_COUNT-i-1))
+      if(RVC) lastWord.setWhen(!rvc && maskOh(SLICE_COUNT-i-1))
 
       when(lastWord) {
         output(ALIGNED_BRANCH_VALID, i)   := WORD_BRANCH_VALID && !predictionSanity.failure && inputPredictionLast
@@ -222,16 +224,16 @@ class AlignerPlugin(var decodeCount : Int,
     }
 
     val fireOutput = CombInit(output.isFireing)
-    val fireInput = isInputValid && buffer.mask === 0 || fireOutput && slices.mask(0, SLICE_COUNT bits) === 0 //WARNING NEED RVC FIX this seems to not handle unaligned none RVC
+    val fireInput = isInputValid && buffer.mask === 0 || fireOutput && slices.remains(0, SLICE_COUNT bits) === 0 //WARNING NEED RVC FIX this seems to not handle unaligned none RVC
 
 
     when(fireOutput){
-      buffer.mask := slices.mask(0, SLICE_COUNT bits)
+      buffer.mask := slices.remains(0, SLICE_COUNT bits)
     }
 
     val postMask = MASK_BACK.orMask(predictionSanity.failure)
     when(fireInput){
-      buffer.mask := (fireOutput ? slices.mask(SLICE_COUNT, SLICE_COUNT bits) otherwise MASK_FRONT) & postMask
+      buffer.mask := (fireOutput ? slices.remains(SLICE_COUNT, SLICE_COUNT bits) otherwise MASK_FRONT) & postMask
       buffer.data := WORD
       buffer.pc   := FETCH_PC
       buffer.fault  := WORD_FAULT
@@ -244,7 +246,7 @@ class AlignerPlugin(var decodeCount : Int,
     }
 
     val correctionSent = RegInit(False) setWhen(setup.sequenceJump.valid) clearWhen(input.isReady || input.isFlushed)
-    fetch.getStage(inputAt-1).flushIt(predictionSanity.failure && !correctionSent)
+    fetch.getStage(inputAt-1).flushIt(predictionSanity.failure && !correctionSent) //It is ok ot access stage inputAt-1, as the s2m buffer will always expose the first cycle of a transaction while that transaction is also on its input
     setup.sequenceJump.valid := predictionSanity.failure && !correctionSent
     setup.sequenceJump.pc    := input(FETCH_PC_INC)
 

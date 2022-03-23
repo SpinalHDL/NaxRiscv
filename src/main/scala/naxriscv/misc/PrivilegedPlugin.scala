@@ -100,6 +100,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
     val xretAwayFromMachine = False
 
     addMisa('I')
+    if(RVC) addMisa('C')
     if(p.withUser) addMisa('U')
     if(p.withSupervisor) addMisa('S')
   }
@@ -487,7 +488,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       }
 
       FLUSH_CALC whenIsActive{
-        readed(0, PC_WIDTH bits) := B(reschedule.epc + (reschedule.slices + 1 << Fetch.SLICE_RANGE_LOW).andMask(reschedule.cause =/= CSR.MCAUSE_ENUM.ECALL_HYPERVISOR))
+        readed(0, PC_WIDTH bits) := B(reschedule.epc + (reschedule.slices +^ 1 << Fetch.SLICE_RANGE_LOW).andMask(reschedule.cause =/= CSR.MCAUSE_ENUM.ECALL_HYPERVISOR))
         goto(FLUSH_JUMP)
       }
 

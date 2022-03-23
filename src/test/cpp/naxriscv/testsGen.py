@@ -450,6 +450,74 @@ riscvArch64Priv = listPrefix("rv64i_m/privilege/", [
     "misalign-sw-01",
 ])
 
+
+riscvArch32C = listPrefix("rv32i_m/C/", [
+    "caddi16sp-01",
+    "cxor-01",
+    "cnop-01",
+    "cslli-01",
+    "cmv-01",
+    "clwsp-01",
+    "csrai-01",
+    "cj-01",
+    "cand-01",
+    "cebreak-01",
+    "cli-01",
+    "csub-01",
+    "caddi4spn-01",
+    "cbnez-01",
+    "clw-01",
+    "csw-01",
+    "candi-01",
+    "cswsp-01",
+    "cjalr-01",
+    "caddi-01",
+    "clui-01",
+    "cadd-01",
+    "cbeqz-01",
+    "cjr-01",
+    "csrli-01",
+    "cor-01",
+    "cjal-01",
+])
+
+riscvArch64C = listPrefix("rv64i_m/C/", [
+    "caddi16sp-01",
+    "csubw-01",
+    "csdsp-01",
+    "cxor-01",
+    "cnop-01",
+    "cslli-01",
+    "cmv-01",
+    "clwsp-01",
+    "csrai-01",
+    "cj-01",
+    "cand-01",
+    "cebreak-01",
+    "cldsp-01",
+    "cli-01",
+    "csub-01",
+    "caddi4spn-01",
+    "cbnez-01",
+    "caddw-01",
+    "csd-01",
+    "clw-01",
+    "caddiw-01",
+    "csw-01",
+    "candi-01",
+    "cswsp-01",
+    "cjalr-01",
+    "caddi-01",
+    "cld-01",
+    "clui-01",
+    "cadd-01",
+    "cbeqz-01",
+    "cjr-01",
+    "csrli-01",
+    "cor-01",
+])
+
+
 file = open('../../../../nax.h',mode='r')
 naxHeader = file.read()
 file.close()
@@ -473,6 +541,10 @@ if xlen == 64:
 else:
     arch="rv32im"
     archLinux="rv32ima"
+
+if rvc:
+    arch += "ac"
+    archLinux += "c"
 
 
 
@@ -510,7 +582,7 @@ ouputs = []
 
 with open('tests.mk', 'w') as f:
 
-    def rvTest(name, elf=None, timeout=10000, passs="pass", start="test_2"):
+    def rvTest(name, elf=None, timeout=10000, passs="pass", start="test_2", startAdd = 0):
         if not elf:
             elf = name
         outputDir = "output/riscv_tests/" + name
@@ -525,6 +597,7 @@ with open('tests.mk', 'w') as f:
             "--output-dir", outputDir,
             "--load-elf", f"../../../../ext/NaxSoftware/riscv-tests/{elf}",
             "--start-symbol", start,
+            "--start-add", str(startAdd),
             "--pass-symbol", passs,
             "--fail-symbol", "fail",
             "--timeout", str(timeout),
@@ -580,11 +653,15 @@ with open('tests.mk', 'w') as f:
 
         if rvc:
             for name in riscv64TestRvc:
-                rvTest(name)
+                rvTest(name, startAdd=-8)
 
 
         for name in riscvArch64i + riscvArch64M + riscvArch64Zifencei:
             rvArch(name)
+
+        if rvc:
+            for name in riscvArch64C:
+                rvArch(name)
 
         for spec in nax64Software:
             regularSoftware(spec)
@@ -598,13 +675,17 @@ with open('tests.mk', 'w') as f:
 
         if rvc:
             for name in riscv32TestRvc:
-                rvTest(name)
+                rvTest(name, startAdd=-8)
 
         rvTest("rv32ua-p-lrsc_1234", elf="rv32ua-p-lrsc", timeout=300000, passs="test_5")
         rvTest("rv32ua-p-lrsc_6", elf="rv32ua-p-lrsc", timeout=100000, start="test_6")
 
         for name in riscvArch32i + riscvArch32M + riscvArch32Zifencei:
             rvArch(name)
+
+        if rvc:
+            for name in riscvArch32C:
+                rvArch(name)
 
         for spec in naxSoftware:
             regularSoftware(spec)
