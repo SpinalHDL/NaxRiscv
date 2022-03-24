@@ -38,17 +38,18 @@ object Config{
               withMmu : Boolean = true,
               withPerfCounters : Boolean = true,
               withSupervisor : Boolean = true,
-              withDistributedRam : Boolean = true): ArrayBuffer[Plugin] ={
+              withDistributedRam : Boolean = true,
+              xlen : Int = 32): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
     plugins += (withMmu match {
       case false => new StaticAddressTranslationPlugin(
-        ioRange = _(31 downto 28) === 0x1,
+        ioRange = ioRange,
         fetchRange = fetchRange,
         physicalWidth = 32
       )
       case true => new MmuPlugin(
-        spec    = MmuSpec.sv32,
+        spec    = if(xlen == 32) MmuSpec.sv32 else MmuSpec.sv39,
         ioRange = ioRange,
         fetchRange = fetchRange,
         physicalWidth = 32
@@ -119,18 +120,18 @@ object Config{
       historyFetchBypass = true
     )
     plugins += new DecoderPredictionPlugin(
-//      applyAt = _.pipeline.decoded,
+      //      applyAt = _.pipeline.decoded,
       flushOnBranch = false //TODO remove me (DEBUG)
     )
     plugins += new BtbPlugin(
-//      entries = 8192*8,
+      //      entries = 8192*8,
       entries = 512,
       readAt = 0,
       hitAt = 1,
       jumpAt = 1
     )
     plugins += new GSharePlugin(
-//      entries = 1 << 24,
+      //      entries = 1 << 24,
       memBytes = 4 KiB,
       historyWidth = 24,
       readAt = 0
@@ -188,8 +189,8 @@ object Config{
       loadReadTagsAt = if(withDistributedRam) 1 else 0,
       storeReadTagsAt = if(withDistributedRam) 1 else 0,
       reducedBankWidth = false,
-//      loadHitAt      = 2
-//      loadRspAt      = 3,
+      //      loadHitAt      = 2
+      //      loadRspAt      = 3,
       loadRefillCheckEarly = false
     )
 
@@ -222,16 +223,16 @@ object Config{
     plugins += new IntAluPlugin("ALU0", aluStage = 0)
     plugins += new ShiftPlugin("ALU0" , aluStage = 0)
     if(aluCount > 1) plugins += new BranchPlugin("ALU0")
-//    plugins += new LoadPlugin("ALU0")
-//    plugins += new StorePlugin("ALU0")
+    //    plugins += new LoadPlugin("ALU0")
+    //    plugins += new StorePlugin("ALU0")
 
     plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1, readPhysRsFromQueue = true)
     plugins += new IntFormatPlugin("EU1")
     plugins += new SrcPlugin("EU1", earlySrc = true)
     plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new DivPlugin("EU1", writebackAt = 2)
-//    plugins += new IntAluPlugin("EU1")
-//    plugins += new ShiftPlugin("EU1")
+    //    plugins += new IntAluPlugin("EU1")
+    //    plugins += new ShiftPlugin("EU1")
     if(aluCount == 1) plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new LoadPlugin("EU1")
     plugins += new StorePlugin("EU1")
@@ -240,24 +241,24 @@ object Config{
       writebackAt = 2
     )
 
-//    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
-//    plugins += new SrcPlugin("EU2")
-//    plugins += new LoadPlugin("EU2")
-//
-//
-//    plugins += new ExecutionUnitBase("EU3", writebackCountMax = 0)
-//    plugins += new SrcPlugin("EU3")
-//    plugins += new StorePlugin("EU3")
+    //    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
+    //    plugins += new SrcPlugin("EU2")
+    //    plugins += new LoadPlugin("EU2")
+    //
+    //
+    //    plugins += new ExecutionUnitBase("EU3", writebackCountMax = 0)
+    //    plugins += new SrcPlugin("EU3")
+    //    plugins += new StorePlugin("EU3")
 
-//    plugins += new ExecutionUnitBase("EU2")
-//    plugins += new MulPlugin("EU2", staticLatency = false)
-//    plugins += new DivPlugin("EU2", staticLatency = false)
-//    plugins += new SrcPlugin("EU2")
-//    plugins += new IntAluPlugin("EU2")
-//    plugins += new ShiftPlugin("EU2")
-//    plugins += new BranchPlugin("EU2")
-//    plugins += new LoadPlugin("EU2")
-//    plugins += new StorePlugin("EU2")
+    //    plugins += new ExecutionUnitBase("EU2")
+    //    plugins += new MulPlugin("EU2", staticLatency = false)
+    //    plugins += new DivPlugin("EU2", staticLatency = false)
+    //    plugins += new SrcPlugin("EU2")
+    //    plugins += new IntAluPlugin("EU2")
+    //    plugins += new ShiftPlugin("EU2")
+    //    plugins += new BranchPlugin("EU2")
+    //    plugins += new LoadPlugin("EU2")
+    //    plugins += new StorePlugin("EU2")
 
     if(aluCount >= 2) {
       plugins += new ExecutionUnitBase("ALU1")
@@ -269,27 +270,26 @@ object Config{
     }
 
 
-//
-//    plugins += new ExecutionUnitBase("EU5", writebackCountMax = 0)
-//    plugins += new SrcPlugin("EU5")
-//    plugins += new StorePlugin("EU5")
+    //
+    //    plugins += new ExecutionUnitBase("EU5", writebackCountMax = 0)
+    //    plugins += new SrcPlugin("EU5")
+    //    plugins += new StorePlugin("EU5")
 
-//    plugins += new ExecutionUnitBase("EU5", writebackCountMax = 1)
-//    plugins += new MulPlugin("EU5", writebackAt = 2, staticLatency = false)
-//    plugins += new DivPlugin("EU5", writebackAt = 2)
-//    plugins += new EnvCallPlugin("EU5")(rescheduleAt = 2)
-//    plugins += new CsrAccessPlugin("EU5")(
-//      decodeAt = 0,
-//      readAt = 1,
-//      writeAt = 2,
-//      writebackAt = 2,
-//      staticLatency = false
-//    )
+    //    plugins += new ExecutionUnitBase("EU5", writebackCountMax = 1)
+    //    plugins += new MulPlugin("EU5", writebackAt = 2, staticLatency = false)
+    //    plugins += new DivPlugin("EU5", writebackAt = 2)
+    //    plugins += new EnvCallPlugin("EU5")(rescheduleAt = 2)
+    //    plugins += new CsrAccessPlugin("EU5")(
+    //      decodeAt = 0,
+    //      readAt = 1,
+    //      writeAt = 2,
+    //      writebackAt = 2,
+    //      staticLatency = false
+    //    )
 
     plugins
   }
 }
-
 // ramstyle = "MLAB, no_rw_check"
 object Gen extends App{
   LutInputs.set(6)
@@ -330,253 +330,17 @@ object Gen extends App{
 }
 
 
-
-object Config64{
-  def plugins(resetVector : BigInt = 0x80000000l,
-              withRdTime : Boolean = true,
-              ioRange    : UInt => Bool = _(31 downto 28) === 0x1,
-              fetchRange : UInt => Bool = _(31 downto 28) =/= 0x1): ArrayBuffer[Plugin] ={
-    val plugins = ArrayBuffer[Plugin]()
-    plugins += new DocPlugin()
-//    plugins += new StaticAddressTranslationPlugin(
-//      ioRange = _(31 downto 28) === 0x1,
-//      fetchRange = fetchRange
-//    )
-    plugins += new MmuPlugin(
-      spec    = MmuSpec.sv39,
-      ioRange = ioRange,
-      fetchRange = fetchRange,
-      physicalWidth = 32
-    )
-
-    //FETCH
-    plugins += new FetchPlugin()
-    plugins += new PcPlugin(resetVector)
-    plugins += new FetchCachePlugin(
-      cacheSize = 4096*4,
-      wayCount = 4,
-      injectionAt = 2,
-      fetchDataWidth = 64,
-      memDataWidth = 64,
-      reducedBankWidth = false,
-      hitsWithTranslationWays = true,
-      translationStorageParameter = MmuStorageParameter(
-        levels   = List(
-          MmuStorageLevel(
-            id    = 0,
-            ways  = 4,
-            depth = 32
-          ),
-          MmuStorageLevel(
-            id    = 1,
-            ways  = 2,
-            depth = 32
-          )
-        ),
-        priority = 0
-      ),
-      translationPortParameter  = MmuPortParameter(
-        readAt = 1,
-        hitsAt = 1,
-        ctrlAt = 1,
-        rspAt  = 1
-      )
-//      translationPortParameter  = StaticAddressTranslationParameter(rspAt = 1)
-    )
-    plugins += new AlignerPlugin(
-      decodeCount = 2,
-      inputAt = 2
-    )
-
-    //FRONTEND
-    plugins += new FrontendPlugin()
-    plugins += new DecompressorPlugin(
-      enabled = false,
-      pipelined = false
-    )
-    plugins += new DecoderPlugin()
-    plugins += new RfTranslationPlugin()
-    plugins += new RfDependencyPlugin()
-    plugins += new RfAllocationPlugin(riscv.IntRegFile)
-    plugins += new DispatchPlugin(
-      slotCount = 32
-    )
-
-    //BRANCH PREDICTION
-    plugins += new BranchContextPlugin(
-      branchCount = 16
-    )
-    plugins += new HistoryPlugin(
-      historyFetchBypass = true
-    )
-    plugins += new DecoderPredictionPlugin(
-      //      applyAt = _.pipeline.decoded,
-      flushOnBranch = false //TODO remove me (DEBUG)
-    )
-    plugins += new BtbPlugin(
-      //      entries = 8192*8,
-      entries = 512,
-      readAt = 0,
-      hitAt = 1,
-      jumpAt = 1
-    )
-    plugins += new GSharePlugin(
-      //      entries = 1 << 24,
-      memBytes = 4 KiB,
-      historyWidth = 24,
-      readAt = 0
-    )
-
-    //LOAD / STORE
-    plugins += new LsuPlugin(
-      lqSize = 16,
-      sqSize = 16,
-      loadToCacheBypass = true,
-      lqToCachePipelined = true,
-      hitPedictionEntries = 1024,
-      translationStorageParameter = MmuStorageParameter(
-        levels   = List(
-          MmuStorageLevel(
-            id    = 0,
-            ways  = 4,
-            depth = 32
-          ),
-          MmuStorageLevel(
-            id    = 1,
-            ways  = 2,
-            depth = 32
-          )
-        ),
-        priority = 1
-      ),
-      loadTranslationParameter  = MmuPortParameter(
-        readAt = 0,
-        hitsAt = 0,
-        ctrlAt = 1,
-        rspAt  = 1
-      ),
-      storeTranslationParameter = MmuPortParameter(
-        readAt = 1,
-        hitsAt = 1,
-        ctrlAt = 1,
-        rspAt  = 1
-      )
-//        loadTranslationParameter  = StaticAddressTranslationParameter(rspAt = 1),
-//        storeTranslationParameter = StaticAddressTranslationParameter(rspAt = 1)
-    )
-    plugins += new DataCachePlugin(
-      memDataWidth = 64,
-      cacheSize    = 4096*4,
-      wayCount     = 4,
-      refillCount = 2,
-      writebackCount = 2,
-      tagsReadAsync = true,
-      reducedBankWidth = false,
-      //      loadHitAt      = 2
-      //      loadRspAt      = 3,
-      loadRefillCheckEarly = false
-    )
-
-    //MISC
-    plugins += new RobPlugin(
-      robSize = 64,
-      completionWithReg = false
-    )
-    plugins += new CommitPlugin(
-      commitCount = 2,
-      ptrCommitRetimed = true
-    )
-    plugins += new RegFilePlugin(
-      spec = riscv.IntRegFile,
-      physicalDepth = 64,
-      bankCount = 1
-    )
-    plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
-    plugins += new CsrRamPlugin()
-    plugins += new PrivilegedPlugin(PrivilegedConfig.full.copy(withRdTime = withRdTime))
-    plugins += new PerformanceCounterPlugin(
-      additionalCounterCount = 4,
-      bufferWidth            = 6
-    )
-
-    //EXECUTION UNITES
-    plugins += new ExecutionUnitBase("ALU0")
-    plugins += new IntFormatPlugin("ALU0")
-    plugins += new SrcPlugin("ALU0", earlySrc = true)
-    plugins += new IntAluPlugin("ALU0", aluStage = 0)
-    plugins += new ShiftPlugin("ALU0" , aluStage = 0)
-    plugins += new BranchPlugin("ALU0")
-    //    plugins += new LoadPlugin("ALU0")
-    //    plugins += new StorePlugin("ALU0")
-
-    plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1, readPhysRsFromQueue = true)
-    plugins += new IntFormatPlugin("EU1")
-    plugins += new SrcPlugin("EU1", earlySrc = true)
-    plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
-    plugins += new DivPlugin("EU1", writebackAt = 2)
-    //    plugins += new IntAluPlugin("EU1")
-    //    plugins += new ShiftPlugin("EU1")
-    //    plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
-    plugins += new LoadPlugin("EU1")
-    plugins += new StorePlugin("EU1")
-    plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
-    plugins += new CsrAccessPlugin("EU1")(
-      writebackAt = 2
-    )
-
-    //    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
-    //    plugins += new SrcPlugin("EU2")
-    //    plugins += new LoadPlugin("EU2")
-    //
-    //
-    //    plugins += new ExecutionUnitBase("EU3", writebackCountMax = 0)
-    //    plugins += new SrcPlugin("EU3")
-    //    plugins += new StorePlugin("EU3")
-
-    //    plugins += new ExecutionUnitBase("EU2")
-    //    plugins += new MulPlugin("EU2", staticLatency = false)
-    //    plugins += new DivPlugin("EU2", staticLatency = false)
-    //    plugins += new SrcPlugin("EU2")
-    //    plugins += new IntAluPlugin("EU2")
-    //    plugins += new ShiftPlugin("EU2")
-    //    plugins += new BranchPlugin("EU2")
-    //    plugins += new LoadPlugin("EU2")
-    //    plugins += new StorePlugin("EU2")
-
-    plugins += new ExecutionUnitBase("ALU1")
-    plugins += new IntFormatPlugin("ALU1")
-    plugins += new SrcPlugin("ALU1")
-    plugins += new IntAluPlugin("ALU1")
-    plugins += new ShiftPlugin("ALU1")
-    plugins += new BranchPlugin("ALU1")
-
-
-    //
-    //    plugins += new ExecutionUnitBase("EU5", writebackCountMax = 0)
-    //    plugins += new SrcPlugin("EU5")
-    //    plugins += new StorePlugin("EU5")
-
-    //    plugins += new ExecutionUnitBase("EU5", writebackCountMax = 1)
-    //    plugins += new MulPlugin("EU5", writebackAt = 2, staticLatency = false)
-    //    plugins += new DivPlugin("EU5", writebackAt = 2)
-    //    plugins += new EnvCallPlugin("EU5")(rescheduleAt = 2)
-    //    plugins += new CsrAccessPlugin("EU5")(
-    //      decodeAt = 0,
-    //      readAt = 1,
-    //      writeAt = 2,
-    //      writebackAt = 2,
-    //      staticLatency = false
-    //    )
-
-    plugins
-  }
-}
-
 // ramstyle = "MLAB, no_rw_check"
 object Gen64 extends App{
   LutInputs.set(6)
   def plugins = {
-    val l = Config64.plugins(withRdTime = false)
+    val l = Config.plugins(
+      xlen = 64,
+      withRdTime = false,
+      aluCount    = 2,
+      decodeCount = 2,
+      withRvc = false
+    )
     l.foreach{
 //      case p : ExecutionUnitBase if p.euId == "EU1" => p.readPhysRsFromQueue = true
       case _ =>
