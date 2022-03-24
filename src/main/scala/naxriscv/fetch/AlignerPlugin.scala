@@ -163,16 +163,16 @@ class AlignerPlugin(var decodeCount : Int,
     }
 
     val extractors = for (i <- 0 until DECODE_COUNT) yield new Area {
-      val maskOh = OHMasking.firstV2(slices.maskCarry.drop(i))
+      val maskOh = OHMasking.firstV2(slices.carry.drop(i))
       val usage  = MuxOH.or(maskOh, decoders.drop(i).map(_.usage))
       val usable = MuxOH.or(maskOh, decoders.drop(i).map(_.usable))
       val rvc    = RVC.get generate MuxOH.or(maskOh, decoders.drop(i).map(_.rvc))
       val slice0 = MuxOH.or(maskOh, slices.data.drop(i))
       val slice1 = RVC.get generate MuxOH.or(maskOh.dropHigh(1), slices.data.drop(i + 1))
       val instruction = if(RVC) slice1 ## slice0 else slice0
-      val valid = slices.maskCarry.drop(i).orR && usable
+      val valid = slices.carry.drop(i).orR && usable
       slices.used \= slices.used | usage
-      slices.maskCarry \= slices.maskCarry & ~usage
+      slices.carry \= slices.carry & ~usage
       slices.remains \= slices.remains & ~(usage.andMask(valid))
       output(INSTRUCTION_ALIGNED,i) := instruction
       output(MASK_ALIGNED, i) := valid
