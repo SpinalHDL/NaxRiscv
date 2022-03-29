@@ -2,6 +2,7 @@ package naxriscv
 
 import spinal.core._
 import naxriscv.compatibility._
+import naxriscv.debug.{DebugTransportModuleParameter, EmbeddedJtagPlugin}
 import naxriscv.frontend._
 import naxriscv.fetch._
 import naxriscv.misc._
@@ -39,7 +40,9 @@ object Config{
               withPerfCounters : Boolean = true,
               withSupervisor : Boolean = true,
               withDistributedRam : Boolean = true,
-              xlen : Int = 32): ArrayBuffer[Plugin] ={
+              xlen : Int = 32,
+              withLoadStore : Boolean = true,
+              withEmbeddedJtag : Boolean = false): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
     plugins += (withMmu match {
@@ -55,6 +58,11 @@ object Config{
         physicalWidth = 32
       )
     })
+    if(withEmbeddedJtag) plugins += new EmbeddedJtagPlugin(DebugTransportModuleParameter(
+      addressWidth = 7,
+      version      = 1,
+      idle         = 4
+    ))
 
     //FETCH
     plugins += new FetchPlugin()
@@ -138,61 +146,63 @@ object Config{
     )
 
     //LOAD / STORE
-    plugins += new LsuPlugin(
-      lqSize = 16,
-      sqSize = 16,
-      loadToCacheBypass = true,
-      lqToCachePipelined = true,
-      hitPedictionEntries = 1024,
-      translationStorageParameter = MmuStorageParameter(
-        levels   = List(
-          MmuStorageLevel(
-            id    = 0,
-            ways  = 4,
-            depth = 32
+    if(withLoadStore){
+      plugins += new LsuPlugin(
+        lqSize = 16,
+        sqSize = 16,
+        loadToCacheBypass = true,
+        lqToCachePipelined = true,
+        hitPedictionEntries = 1024,
+        translationStorageParameter = MmuStorageParameter(
+          levels   = List(
+            MmuStorageLevel(
+              id    = 0,
+              ways  = 4,
+              depth = 32
+            ),
+            MmuStorageLevel(
+              id    = 1,
+              ways  = 2,
+              depth = 32
+            )
           ),
-          MmuStorageLevel(
-            id    = 1,
-            ways  = 2,
-            depth = 32
-          )
+          priority = 1
         ),
-        priority = 1
-      ),
 
-      loadTranslationParameter = withMmu match {
-        case false => StaticAddressTranslationParameter(rspAt = 1)
-        case true => MmuPortParameter(
-          readAt = 0,
-          hitsAt = 0,
-          ctrlAt = 1,
-          rspAt  = 1
-        )
-      },
-      storeTranslationParameter = withMmu match {
-        case false => StaticAddressTranslationParameter(rspAt = 1)
-        case true => MmuPortParameter(
-          readAt = 1,
-          hitsAt = 1,
-          ctrlAt = 1,
-          rspAt  = 1
-        )
-      }
-    )
-    plugins += new DataCachePlugin(
-      memDataWidth = 64,
-      cacheSize    = 4096*4,
-      wayCount     = 4,
-      refillCount = 2,
-      writebackCount = 2,
-      tagsReadAsync = withDistributedRam,
-      loadReadTagsAt = if(withDistributedRam) 1 else 0,
-      storeReadTagsAt = if(withDistributedRam) 1 else 0,
-      reducedBankWidth = false,
-      //      loadHitAt      = 2
-      //      loadRspAt      = 3,
-      loadRefillCheckEarly = false
-    )
+        loadTranslationParameter = withMmu match {
+          case false => StaticAddressTranslationParameter(rspAt = 1)
+          case true => MmuPortParameter(
+            readAt = 0,
+            hitsAt = 0,
+            ctrlAt = 1,
+            rspAt  = 1
+          )
+        },
+        storeTranslationParameter = withMmu match {
+          case false => StaticAddressTranslationParameter(rspAt = 1)
+          case true => MmuPortParameter(
+            readAt = 1,
+            hitsAt = 1,
+            ctrlAt = 1,
+            rspAt  = 1
+          )
+        }
+      )
+      plugins += new DataCachePlugin(
+        memDataWidth = 64,
+        cacheSize    = 4096*4,
+        wayCount     = 4,
+        refillCount = 2,
+        writebackCount = 2,
+        tagsReadAsync = withDistributedRam,
+        loadReadTagsAt = if(withDistributedRam) 1 else 0,
+        storeReadTagsAt = if(withDistributedRam) 1 else 0,
+        reducedBankWidth = false,
+        //      loadHitAt      = 2
+        //      loadRspAt      = 3,
+        loadRefillCheckEarly = false
+      )
+    }
 
     //MISC
     plugins += new RobPlugin(
@@ -234,8 +244,10 @@ object Config{
     //    plugins += new IntAluPlugin("EU1")
     //    plugins += new ShiftPlugin("EU1")
     if(aluCount == 1) plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
-    plugins += new LoadPlugin("EU1")
-    plugins += new StorePlugin("EU1")
+    if(withLoadStore) {
+      plugins += new LoadPlugin("EU1")
+      plugins += new StorePlugin("EU1")
+    }
     plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
     plugins += new CsrAccessPlugin("EU1")(
       writebackAt = 2
@@ -298,7 +310,10 @@ object Gen extends App{
       withRdTime = false,
       aluCount    = 2,
       decodeCount = 2,
-      withRvc = false
+      withRvc = false,
+      withLoadStore = true,
+      withMmu = true,
+      withEmbeddedJtag = false
     )
   }
 
@@ -313,7 +328,7 @@ object Gen extends App{
     doc.genC()
 
     val nax = report.toplevel
-    val dcache = nax.framework.getService[DataCachePlugin].logic.cache
+//    val dcache = nax.framework.getService[DataCachePlugin].logic.cache
   }
 
   {
@@ -329,6 +344,11 @@ object Gen extends App{
   }
 }
 
+/*
+RV32IMASU => 14472
+no mmu   => 13427
+no mmu, no load/store => 7873
+ */
 
 // ramstyle = "MLAB, no_rw_check"
 object Gen64 extends App{

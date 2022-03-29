@@ -107,14 +107,18 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
 
     //Handle FENCE.I and FENCE.VMA
     val flushes = new StateMachine{
-      val IDLE, RESCHEDULE, VMA_FETCH_FLUSH, VMA_FETCH_WAIT, LSU_FLUSH, WAIT_LSU = new State
+      val vmaPort = getService[AddressTranslationService].invalidatePort
+      val fetchPort = getService[FetchCachePlugin].invalidatePort
+      val lsuPort   = getServiceOption[LsuPlugin] match {
+        case Some(lsu) => lsu.flushPort
+        case None => println("No LSU plugin for the EnvCallPlugin flush ???"); null
+      }
+
+      val IDLE, RESCHEDULE, VMA_FETCH_FLUSH, VMA_FETCH_WAIT = new State()
+      val LSU_FLUSH, WAIT_LSU = (lsuPort != null) generate new State
       setEntry(IDLE)
 
       fetch.getStage(0).haltIt(!isActive(IDLE))
-
-      val vmaPort = getService[AddressTranslationService].invalidatePort
-      val fetchPort = getService[FetchCachePlugin].invalidatePort
-      val lsuPort   = getService[LsuPlugin].flushPort
 
       val vmaInv, fetchInv, flushData = Reg(Bool())
 
@@ -128,7 +132,7 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
               goto(RESCHEDULE)
             }
             when(FLUSH_DATA) {
-              goto(LSU_FLUSH)
+              goto(if(lsuPort != null) LSU_FLUSH else IDLE)
             }
           }
         }
@@ -148,22 +152,24 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
 
       VMA_FETCH_WAIT whenIsActive{
         when(fetchPort.served) {
-          goto(LSU_FLUSH)
+          goto(if(lsuPort != null) LSU_FLUSH else IDLE)
         }
         when(vmaPort.served){
           goto(IDLE)
         }
       }
 
-      LSU_FLUSH whenIsActive{
-        lsuPort.request   := True
-        lsuPort.payload.withFree := flushData
-        goto(WAIT_LSU)
-      }
+      if(lsuPort != null) {
+        LSU_FLUSH whenIsActive {
+          lsuPort.request := True
+          lsuPort.payload.withFree := flushData
+          goto(WAIT_LSU)
+        }
 
-      WAIT_LSU whenIsActive{
-        when(lsuPort.served){
-          goto(IDLE)
+        WAIT_LSU whenIsActive {
+          when(lsuPort.served) {
+            goto(IDLE)
+          }
         }
       }
 
