@@ -232,7 +232,7 @@ class LsuPlugin(var lqSize: Int,
     val loadTrap = commit.newSchedulePort(canTrap = true, canJump = false)
     val storeTrap = commit.newSchedulePort(canTrap = true, canJump = true)
     val specialTrap = commit.newSchedulePort(canTrap = true, canJump = false)
-    val flushPort = PulseHandshake(LsuFlushPayload()).idle()
+    val flushPort = PulseHandshake(LsuFlushPayload()).setIdleAll()
 
     decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
     decoder.addResourceDecoding(naxriscv.interfaces.SQ, SQ_ALLOC)

@@ -533,17 +533,31 @@ trait PerformanceCounterService extends Service with LockedImpl{
   def createEventPort(id : Int) : Bool
 }
 
-case class PulseHandshake[T <: Data](payloadType : HardType[T]) extends Bundle{
+case class PulseHandshake[T <: Data](payloadType : HardType[T] = NoData()) extends Bundle with IMasterSlave {
   val request = Bool()
   val served  = Bool()
   val payload = payloadType()
 
-  def idle(): this.type ={
+
+  override def asMaster() = {
+    out(request, payload)
+    in(served)
+  }
+
+  def setIdleAll(): this.type ={
     request := False
     served := False
     payload.assignDontCare()
     this
   }
+
+  def setIdle(): this.type ={
+    request := False
+    payload.assignDontCare()
+    this
+  }
+
+  def isPending() : Bool = RegInit(False) setWhen(request) clearWhen(served)
 }
 
 trait PostCommitBusy extends Service{
