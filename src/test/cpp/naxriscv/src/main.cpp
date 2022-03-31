@@ -34,10 +34,20 @@ using namespace std;
 
 #define VL_RANDOM_I_WIDTH(w) (VL_RANDOM_I() & (1 << w)-1)
 
+class SimElement{
+public:
+    virtual ~SimElement(){}
+    virtual void onReset(){}
+    virtual void postReset(){}
+    virtual void preCycle(){}
+    virtual void postCycle(){}
+};
+
 #include "type.h"
 #include "memory.h"
 #include "elf.h"
 #include "nax.h"
+#include "jtag.h"
 #define u64 uint64_t
 #define u8 uint8_t
 
@@ -171,6 +181,8 @@ bool statsPrint = false;
 bool statsPrintHist = false;
 bool traceGem5 = false;
 bool spike_debug = false;
+bool spike_enabled = true;
+bool timeout_enabled = true;
 bool simMaster = false;
 bool simSlave = false;
 bool noStdIn = false;
@@ -215,14 +227,7 @@ bool stdinNonEmpty(){
 
 
 
-class SimElement{
-public:
-	virtual ~SimElement(){}
-	virtual void onReset(){}
-	virtual void postReset(){}
-	virtual void preCycle(){}
-	virtual void postCycle(){}
-};
+
 
 class Soc : public SimElement{
 public:
@@ -1163,6 +1168,8 @@ enum ARG
     ARG_STATS_TOGGLE_SYMBOL,
     ARG_TRACE_GEM5,
     ARG_SPIKE_DEBUG,
+    ARG_SPIKE_DISABLED,
+    ARG_TIMEOUT_DISABLED,
     ARG_MEMORY_LATENCY,
     ARG_SIM_MASTER,
     ARG_SIM_SLAVE,
@@ -1203,6 +1210,8 @@ static const struct option long_options[] =
     { "stats-toggle-symbol", required_argument, 0, ARG_STATS_TOGGLE_SYMBOL },
     { "trace-gem5", no_argument, 0, ARG_TRACE_GEM5 },
     { "spike-debug", no_argument, 0, ARG_SPIKE_DEBUG },
+    { "spike-disabled", no_argument, 0, ARG_SPIKE_DISABLED},
+    { "timeout-disabled", no_argument, 0, ARG_TIMEOUT_DISABLED},
     { "memory-latency", required_argument, 0, ARG_MEMORY_LATENCY },
     { "sim-master", no_argument, 0, ARG_SIM_MASTER },
     { "sim-slave", no_argument, 0, ARG_SIM_SLAVE },
@@ -1340,6 +1349,8 @@ void parseArgFirst(int argc, char** argv){
             case ARG_TRACE_GEM5: traceGem5 = true; break;
             case ARG_HELP: cout << helpString; exit(0); break;
             case ARG_SPIKE_DEBUG: spike_debug = true; break;
+            case ARG_SPIKE_DISABLED : spike_enabled = false; break;
+            case ARG_TIMEOUT_DISABLED : timeout_enabled = false; break;
             case ARG_SIM_MASTER: simMaster = true; break;
             case ARG_SIM_SLAVE: simSlave = true; trace_enable = false; break;
             case ARG_SIM_SLAVE_DELAY: simSlaveTraceDuration = stol(optarg); break;
@@ -1492,6 +1503,15 @@ void rtlInit(){
     simElements.push_back(new DataCached(top, soc, true));
     simElements.push_back(new LsuPeripheral(top, soc, &wrap->mmioDut, true));
     simElements.push_back(whitebox);
+#ifdef EMBEDDED_JTAG
+    simElements.push_back(new Jtag(
+        &top->EmbeddedJtagPlugin_logic_jtag_tms,
+        &top->EmbeddedJtagPlugin_logic_jtag_tdi,
+        &top->EmbeddedJtagPlugin_logic_jtag_tdo,
+        &top->EmbeddedJtagPlugin_logic_jtag_tck,
+        8
+    ));
+#endif
 #ifdef ALLOCATOR_CHECKS
     simElements.push_back(new NaxAllocatorChecker(top->NaxRiscv));
 #endif
@@ -1787,7 +1807,7 @@ void simLoop(){
             } else {
                 for(SimElement* simElement : simElements) simElement->preCycle();
 
-                if(cycleSinceLastCommit == 10000){
+                if(timeout_enabled && cycleSinceLastCommit == 10000){
                     printf("NO PROGRESS the cpu hasn't commited anything since too long\n");
                     failure();
                 }
@@ -1804,39 +1824,41 @@ void simLoop(){
     //                        printf("Commit %d %x\n", robId, whitebox->robCtx[robId].pc);
 
                         RvData pc = state->pc;
-                        spikeStep(robCtx);
+                        if(spike_enabled) spikeStep(robCtx);
 
     //                        cout << state->minstret.get()->read() << endl;
                         last_commit_pc = pc;
-                        assertEq("MISSMATCH PC", whitebox->robCtx[robId].pc,  pc);
-                        for (auto item : state->log_reg_write) {
-                            if (item.first == 0)
-                              continue;
+                        if(spike_enabled) {
+                            assertEq("MISSMATCH PC", whitebox->robCtx[robId].pc,  pc);
+                            for (auto item : state->log_reg_write) {
+                                if (item.first == 0)
+                                  continue;
 
-                            int rd = item.first >> 4;
-                            switch (item.first & 0xf) {
-                            case 0: { //integer
-                                assertTrue("INTEGER WRITE MISSING", whitebox->robCtx[robId].integerWriteValid);
-                                assertEq("INTEGER WRITE DATA", whitebox->robCtx[robId].integerWriteData, item.second.v[0]);
-                            } break;
-                            case 4:{ //CSR
-                                u64 inst = state->last_inst.bits();
-                                switch(inst){
-                                case 0x30200073: //MRET
-                                case 0x10200073: //SRET
-                                case 0x00200073: //URET
-                                    break;
-                                default:
-                                    assertTrue("CSR WRITE MISSING", whitebox->robCtx[robId].csrWriteDone);
-                                    assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
-    //                                    assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
-                                    break;
+                                int rd = item.first >> 4;
+                                switch (item.first & 0xf) {
+                                case 0: { //integer
+                                    assertTrue("INTEGER WRITE MISSING", whitebox->robCtx[robId].integerWriteValid);
+                                    assertEq("INTEGER WRITE DATA", whitebox->robCtx[robId].integerWriteData, item.second.v[0]);
+                                } break;
+                                case 4:{ //CSR
+                                    u64 inst = state->last_inst.bits();
+                                    switch(inst){
+                                    case 0x30200073: //MRET
+                                    case 0x10200073: //SRET
+                                    case 0x00200073: //URET
+                                        break;
+                                    default:
+                                        assertTrue("CSR WRITE MISSING", whitebox->robCtx[robId].csrWriteDone);
+                                        assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
+        //                                    assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
+                                        break;
+                                    }
+                                } break;
+                                default: {
+                                    printf("??? unknown spike trace");
+                                    failure();
+                                } break;
                                 }
-                            } break;
-                            default: {
-                                printf("??? unknown spike trace");
-                                failure();
-                            } break;
                             }
                         }
 
@@ -1856,7 +1878,7 @@ void simLoop(){
                     }
                 }
 
-                spikeSyncTrap();
+                if(spike_enabled) spikeSyncTrap();
 
                 top->eval();
                 for(SimElement* simElement : simElements) simElement->postCycle();
