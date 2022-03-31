@@ -42,7 +42,8 @@ object Config{
               withDistributedRam : Boolean = true,
               xlen : Int = 32,
               withLoadStore : Boolean = true,
-              withEmbeddedJtag : Boolean = false): ArrayBuffer[Plugin] ={
+              withEmbeddedJtag : Boolean = false,
+              branchCount : Int = 16): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
     plugins += (withMmu match {
@@ -61,7 +62,7 @@ object Config{
     if(withEmbeddedJtag) plugins += new EmbeddedJtagPlugin(DebugTransportModuleParameter(
       addressWidth = 7,
       version      = 1,
-      idle         = 4
+      idle         = 7
     ))
 
     //FETCH
@@ -122,7 +123,7 @@ object Config{
 
     //BRANCH PREDICTION
     plugins += new BranchContextPlugin(
-      branchCount = 16
+      branchCount = branchCount
     )
     plugins += new HistoryPlugin(
       historyFetchBypass = true
@@ -333,6 +334,7 @@ object Gen extends App{
 
   {
     def wrapper[T <: Component](c: T) = {
+      c.afterElaboration(c.getAllIo.foreach(_.addTag(crossClockDomain)))
       c.afterElaboration(Rtl.ffIo(c)); c
     }
     val spinalConfig = SpinalConfig(inlineRom = true)
