@@ -57,6 +57,9 @@ class DebugBusSlaveFactory(bus: DebugBus) extends BusSlaveFactoryDelayed{
   val askRead  = (bus.cmd.valid && !bus.cmd.write).allowPruning()
   val doWrite  = (askWrite && bus.cmd.ready).allowPruning()
   val doRead   = (askRead && bus.cmd.ready).allowPruning()
+//  val forceError = False
+
+//  def error() = forceError := True
 
   bus.rsp.valid := rspBuffer.valid
   bus.rsp.payload  := rspBuffer.payload
@@ -87,18 +90,20 @@ class DebugBusSlaveFactory(bus: DebugBus) extends BusSlaveFactoryDelayed{
     switch(bus.cmd.address) {
       for ((address, jobs) <- elementsPerAddress if address.isInstanceOf[SingleMapping]) {
         is(address.asInstanceOf[SingleMapping].address) {
-          doMappedElements(jobs)
           cmdToRsp.error := False
+          doMappedElements(jobs)
         }
       }
     }
 
     for ((address, jobs) <- elementsPerAddress if !address.isInstanceOf[SingleMapping]) {
       when(address.hit(bus.cmd.address)){
-        doMappedElements(jobs)
         cmdToRsp.error := False
+        doMappedElements(jobs)
       }
     }
+
+//    cmdToRsp.error setWhen(forceError)
   }
 
   override def busDataWidth: Int = 32

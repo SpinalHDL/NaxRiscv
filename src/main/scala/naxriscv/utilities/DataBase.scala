@@ -38,6 +38,7 @@ object NaxScope extends ScopeProperty[DataBase]{
     Global.XLEN.set(xlen)
     Global.RVF.set(false)
     Global.RVD.set(false)
+    Global.RV_DEBUG.set(false)
     this.get
   }
 }

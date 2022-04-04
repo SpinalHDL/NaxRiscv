@@ -14,6 +14,7 @@ import naxriscv.utilities._
 import spinal.lib.LatencyAnalysis
 import spinal.lib.bus.amba4.axi.Axi4SpecRenamer
 import spinal.lib.bus.amba4.axilite.AxiLite4SpecRenamer
+import spinal.lib.bus.misc.SizeMapping
 import spinal.lib.eda.bench.Rtl
 import spinal.lib.misc.WishboneClint
 import spinal.lib.misc.plic.WishbonePlic
@@ -42,6 +43,7 @@ object Config{
               withDistributedRam : Boolean = true,
               xlen : Int = 32,
               withLoadStore : Boolean = true,
+              withDebug : Boolean = false,
               withEmbeddedJtag : Boolean = false,
               branchCount : Int = 16): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
@@ -221,7 +223,12 @@ object Config{
     )
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
     plugins += new CsrRamPlugin()
-    plugins += new PrivilegedPlugin(PrivilegedConfig.full.copy(withRdTime = withRdTime, withSupervisor = withSupervisor))
+    plugins += new PrivilegedPlugin(PrivilegedConfig.full.copy(
+      withRdTime = withRdTime,
+      withSupervisor = withSupervisor,
+      withDebug = withDebug,
+      debugVector = SizeMapping(0x100, 0x10*4)
+    ))
     if(withPerfCounters) plugins += new PerformanceCounterPlugin(
       additionalCounterCount = 4,
       bufferWidth            = 6
@@ -309,12 +316,13 @@ object Gen extends App{
   def plugins = {
     Config.plugins(
       withRdTime = false,
-      aluCount    = 2,
-      decodeCount = 2,
+      aluCount    = 1,
+      decodeCount = 1,
       withRvc = false,
       withLoadStore = true,
       withMmu = true,
-      withEmbeddedJtag = false
+      withDebug = true,
+      withEmbeddedJtag = true
     )
   }
 

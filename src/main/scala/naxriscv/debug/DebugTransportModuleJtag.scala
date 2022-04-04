@@ -81,18 +81,13 @@ class DebugTransportModuleJtag(p : DebugTransportModuleParameter,
 
   val systemLogic = debugCd on new Area{
     val bus = DebugBus(addressWidth)
-    val x = jtagLogic.dmiCmd.ccToggle(
+    val cmd = jtagLogic.dmiCmd.ccToggle(
       pushClock = jtagCd,
       popClock = debugCd,
       withOutputM2sPipe = false
     ).toStream.m2sPipe()
 
-    val counter = Reg(UInt(1 bits)) init(0) //TODO remove this (DEBUG)
-    counter := 0
-    when(x.valid) {
-      counter := counter + 1
-    }
-    bus.cmd << x.haltWhen(!counter.msb)
+    bus.cmd << cmd
 
     jtagLogic.dmiRsp << bus.rsp.ccToggle(
       pushClock = debugCd,

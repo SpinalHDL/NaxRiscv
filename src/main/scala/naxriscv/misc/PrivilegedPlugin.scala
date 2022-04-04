@@ -2,9 +2,10 @@ package naxriscv.misc
 
 import naxriscv.{Fetch, Frontend, Global}
 import naxriscv.Global._
+import naxriscv.debug.{DebugDmToHartOp, DebugHartBus, DebugModule}
 import naxriscv.execute.EnvCallPlugin.{CAUSE_FLUSH, CAUSE_REDO, CAUSE_XRET}
 import naxriscv.execute.{CsrAccessPlugin, EnvCallPlugin}
-import naxriscv.fetch.{FetchPlugin, PcPlugin}
+import naxriscv.fetch.{FetchCachePlugin, FetchPlugin, PcPlugin}
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.JumpService.Priorities
 import naxriscv.interfaces.{CommitService, CsrListFilter, CsrRamService, DecoderService, PrivilegedService}
@@ -12,6 +13,7 @@ import naxriscv.riscv.CSR
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.{DocPlugin, Plugin}
+import spinal.lib.bus.misc.{AddressMapping, SizeMapping}
 import spinal.lib.fsm._
 import spinal.lib.pipeline.StageableOffset
 
@@ -24,10 +26,12 @@ object PrivilegedConfig{
     withUser       = true,
     withUserTrap   = false,
     withRdTime     = true,
+    withDebug      = false,
     vendorId       = 0,
     archId         = 0,
     impId          = 0,
-    hartId         = 0
+    hartId         = 0,
+    debugVector = null
   )
 }
 
@@ -35,6 +39,8 @@ case class PrivilegedConfig(withSupervisor : Boolean,
                             withUser: Boolean,
                             withUserTrap: Boolean,
                             withRdTime : Boolean,
+                            withDebug: Boolean,
+                            debugVector : SizeMapping,
                             vendorId: Int,
                             archId: Int,
                             impId: Int,
@@ -52,6 +58,10 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
   override def implementSupervisor = p.withSupervisor
   override def implementUserTrap = p.withUserTrap
+
+  create config{
+    Global.RV_DEBUG.set(p.withDebug)
+  }
 
 
   val misaIds = mutable.LinkedHashSet[Int]()
@@ -90,10 +100,11 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
     rob.retain()
     frontend.retain()
 
-    val jump = getService[PcPlugin].createJumpInterface(Priorities.COMMIT_TRAP)
+    val jump = getService[PcPlugin].createJumpInterface(Priorities.COMMIT_TRAP).setIdle()
     val ramRead  = ram.ramReadPort(CsrRamService.priority.TRAP)
     val ramWrite = ram.ramWritePort(CsrRamService.priority.TRAP)
 
+    val debugMode = p.withDebug generate RegInit(False)
     val privilege = RegInit(U"11")
     val withMachinePrivilege    = privilege >= U"11"
     val withSupervisorPrivilege = privilege >= U"01"
@@ -103,6 +114,9 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
     if(RVC) addMisa('C')
     if(p.withUser) addMisa('U')
     if(p.withSupervisor) addMisa('S')
+
+    val debugBus = p.withDebug generate master(DebugHartBus())
+    val fetchBypass = p.withDebug generate getService[FetchCachePlugin].createBypass()
   }
 
   val logic = create late new Area{
@@ -133,6 +147,127 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       when(csrReadOnly && csr.onDecodeWrite || csrPrivilege > setup.privilege){
         csr.onDecodeTrap()
       }
+    }
+
+    val debug = p.withDebug generate new Area{
+      def bus = setup.debugBus
+
+      val halted = RegInit(False)
+      val running = RegInit(True)
+
+      fetch.getStage(0).haltIt(!running)
+
+      bus.hartToDm.setIdle()
+      bus.halt.served := False
+      bus.resume.served := False
+
+      bus.halted := halted
+      bus.running := running
+      bus.unavailable := False
+
+      val doHalt = bus.halt.isPending()
+      val doResume = bus.resume.isPending()
+
+      val fetchBypass = new Area{
+        val words = p.debugVector.size.toInt/4
+        val banksCount = widthOf(setup.fetchBypass.data)/32
+        val wordsPerBank = words / banksCount
+        val banks = List.fill(banksCount)(Mem.fill(wordsPerBank)(Bits(32 bits)))
+
+        val write = new Area{
+          for((bank, id) <- banks.zipWithIndex){
+            bank.write(
+              address = (bus.dmToHart.address >> log2Up(banksCount)).resized,
+              data = bus.dmToHart.data,
+              enable = bus.dmToHart.valid && bus.dmToHart.op === DebugDmToHartOp.INSTRUCTION && bus.dmToHart.address(0, log2Up(banksCount) bits) === id
+            )
+          }
+        }
+
+        val stage = fetch.getStage(1)
+        val read = new Area{
+          val address = stage(Fetch.FETCH_PC)
+          val hit = setup.debugMode && p.debugVector.hit(address)
+          val shift = log2Up(widthOf(setup.fetchBypass.data)/8)
+          val values = banks.map(_.readAsync((address >> shift).resized))
+          stage(setup.fetchBypass.valid) := hit
+          stage(setup.fetchBypass.data) := B(values)
+        }
+      }
+
+      val execute = new Area{
+        val start = bus.dmToHart.valid && bus.dmToHart.op === DebugDmToHartOp.EXECUTE
+        when(start) {
+          setup.jump.valid := True
+          setup.jump.pc := U(p.debugVector.base, PC_WIDTH bits) + (bus.dmToHart.address << 2)
+          setup.privilege  := 3
+          setup.debugMode  := True
+          halted := False
+          running := True
+        }
+      }
+
+      val dataFilter = CsrListFilter(DebugModule.CSR_DATA to DebugModule.CSR_DATA + 11)
+      val dataRead = new Area{
+        val address = csr.onWriteAddress-DebugModule.CSR_DATA
+        csr.onWrite(dataFilter, onlyOnFire = false){
+          bus.hartToDm.valid := True
+          bus.hartToDm.address := address.resized
+          bus.hartToDm.data  := csr.onWriteBits.subdivideIn(32 bits).read((address).resized)
+        }
+      }
+
+      val dataWrite = new Area{
+        val words = 12
+        val banksCount = XLEN.get/32
+        val wordsPerBank = words / banksCount
+        val banks = List.fill(banksCount)(Mem.fill(banksCount)(Bits(32 bits)))
+
+        val write = new Area{
+          for((bank, id) <- banks.zipWithIndex){
+            bank.write(
+              address = (bus.dmToHart.address >> log2Up(banksCount)).resized,
+              data = bus.dmToHart.data,
+              enable = bus.dmToHart.valid && bus.dmToHart.op === DebugDmToHartOp.DATA && bus.dmToHart.address(0, log2Up(banksCount) bits) === id
+            )
+          }
+        }
+
+        val read = new Area{
+          val address = csr.onReadAddress-DebugModule.CSR_DATA
+          val values = B(banks.map(_.readAsync((address >> log2Up(XLEN.get/32)).resized)))
+          csr.read(values, dataFilter)
+        }
+      }
+
+      val dpc = csr.readWriteRam(CSR.DPC)
+      val dcsr = new Area{
+        val prv = RegInit(U"11")
+        val step = RegInit(False)
+        val nmip = False
+        val mprven = False
+        val cause = RegInit(U"000")
+        val stoptime = False
+        val stopcount = False
+        val stepie = RegInit(False)
+        val ebreaku = p.withUser generate RegInit(False)
+        val ebreaks = p.withSupervisor generate RegInit(False)
+        val ebreakm = RegInit(False)
+        val xdebugver = U(4, 4 bits)
+
+
+        csr.read(CSR.DCSR, 3 -> nmip, 6 -> cause, 28 -> xdebugver)
+        csr.readWrite(CSR.DCSR, 0 -> prv, 2 -> step, 4 -> mprven, 9 -> stoptime, 10 -> stopcount, 11 -> stepie, 15 -> ebreakm)
+        if(p.withSupervisor) csr.readWrite(CSR.DCSR, 13 -> ebreaks)
+        if(p.withUser)       csr.readWrite(CSR.DCSR, 12 -> ebreaku)
+
+        when(csr.onDecodeRead || csr.onDecodeWrite){
+          when(!setup.debugMode && csr.onDecodeAddress >> 4 === 0x7B){
+            csr.onDecodeTrap()
+          }
+        }
+      }
+
     }
 
     val machine = new Area {
@@ -322,8 +457,6 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
     setup.ramWrite.data.assignDontCare()
     setup.ramRead.valid := False
     setup.ramRead.address.assignDontCare()
-    setup.jump.valid := False
-    setup.jump.pc.assignDontCare()
 
 
     //Process interrupt request, code and privilege
@@ -334,8 +467,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
       val privilegeAllowInterrupts = mutable.LinkedHashMap[Int, Bool]()
       var privilegs: List[Int] = Nil
-
-      privilegs = List(3)
+      privilegs :+= 3
       privilegeAllowInterrupts += 3 -> (machine.mstatus.mie || !setup.withMachinePrivilege)
 
       if (p.withSupervisor) {
@@ -364,6 +496,10 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
           }
         }
         privilegs = privilegs.tail
+      }
+
+      if(p.withDebug) when(debug.doHalt){
+        valid := True
       }
     }
 
@@ -434,6 +570,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
     val fsm = new StateMachine{
       val IDLE, SETUP, EPC_WRITE, TVAL_WRITE, EPC_READ, TVEC_READ, XRET, FLUSH_CALC, FLUSH_JUMP, TRAP = new State()
+      val DPC_WRITE, DEBUG_ENTER, DPC_READ, RESUME = p.withDebug generate new State()
       setEntry(IDLE)
 
       val trap = new Area{
@@ -441,6 +578,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         val interrupt = Reg(Bool())
         val code      = Reg(UInt(commit.rescheduleCauseWidth bits))
         val targetPrivilege = Reg(UInt(2 bits))
+        val debug = p.withDebug generate Reg(Bool())
+        val dcause = p.withDebug generate Reg(UInt(3 bits))
       }
 
       val xret = new Area{
@@ -459,6 +598,9 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         when(rescheduleUnbuffered.valid){
           goto(SETUP)
         }
+        if(p.withDebug) when(debug.halted && debug.doResume){
+          goto(DPC_READ)
+        }
       }
       SETUP.whenIsActive{
         when(decoderInterrupt.raised){
@@ -466,6 +608,13 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
           trap.code := decoderInterrupt.buffer.code
           trap.targetPrivilege := decoderInterrupt.buffer.targetPrivilege
           goto(TVEC_READ)
+
+          if(p.withDebug) {
+            trap.dcause := 3
+            when(debug.doHalt){
+              goto(DPC_WRITE)
+            }
+          }
         } otherwise {
           switch(reschedule.cause){
             is(CAUSE_FLUSH){
@@ -482,6 +631,14 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
               trap.code := exception.code
               trap.targetPrivilege := exception.targetPrivilege
               goto(TVEC_READ)
+
+              if(p.withDebug){
+                trap.dcause := 1
+                if(p.withUser)       when(debug.dcsr.ebreaku && exception.code === CSR.MCAUSE_ENUM.ECALL_USER){ goto(DPC_WRITE) }
+                if(p.withSupervisor) when(debug.dcsr.ebreaks && exception.code === CSR.MCAUSE_ENUM.ECALL_SUPERVISOR){ goto(DPC_WRITE) }
+                when(debug.dcsr.ebreakm && exception.code === CSR.MCAUSE_ENUM.ECALL_MACHINE){ goto(DPC_WRITE) }
+                when(setup.debugMode){ goto(DPC_WRITE) }
+              }
             }
           }
         }
@@ -541,6 +698,48 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         setup.ramWrite.data    := S(reschedule.epc, XLEN bits).asBits //TODO PC sign extends ? (DONE)
         when(setup.ramWrite.ready){
           goto(TRAP)
+        }
+      }
+      if(p.withDebug) {
+        DPC_WRITE.whenIsActive{
+          setup.ramWrite.valid   := True
+          setup.ramWrite.address := debug.dpc.getAddress()
+          setup.ramWrite.data    := S(reschedule.epc, XLEN bits).asBits //TODO PC sign extends ? (DONE)
+          debug.running := False
+          when(setup.ramWrite.ready){
+            goto(DEBUG_ENTER)
+          }
+        }
+        DEBUG_ENTER.whenIsActive{
+//          setup.jump.valid := True
+//          setup.jump.pc    := p.debugVector
+          when(!setup.debugMode) {
+            debug.dcsr.cause := trap.dcause
+            debug.dcsr.prv := setup.privilege
+          }
+          setup.privilege  := 3
+          setup.debugMode  := True
+          debug.halted := True
+          debug.bus.halt.served := True
+          goto(IDLE)
+        }
+        DPC_READ.whenIsActive{
+          setup.ramRead.valid   := True
+          setup.ramRead.address := debug.dpc.getAddress()
+          readed := setup.ramRead.data
+          debug.halted := False
+          when(setup.ramRead.ready){
+            goto(RESUME)
+          }
+        }
+        RESUME.whenIsActive{
+          setup.jump.valid := True
+          setup.jump.pc := U(readed).resized
+          setup.debugMode := False
+          setup.privilege := debug.dcsr.prv
+          debug.running := True
+          debug.bus.resume.served := True
+          goto(IDLE)
         }
       }
       TRAP.whenIsActive{
