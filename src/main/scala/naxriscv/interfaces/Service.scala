@@ -390,7 +390,7 @@ case class CsrOnDecode (override val csrFilter : Any, priority : Int, body : () 
 
 case class CsrRamSpec(override val csrFilter : Any, alloc : CsrRamAllocation) extends CsrSpec(csrFilter)
 
-case class CsrListFilter(mapping : List[Int]) extends Nameable
+case class CsrListFilter(mapping : Seq[Int]) extends Nameable
 trait CsrService extends Service with LockedImpl{
   val spec = ArrayBuffer[CsrSpec]()
   def onRead (csrFilter : Any, onlyOnFire : Boolean)(body : => Unit) = spec += CsrOnRead(csrFilter, onlyOnFire, () => body)

@@ -1,5 +1,6 @@
 package naxriscv.debug
 
+import naxriscv.misc.PrivilegedPlugin
 import naxriscv.utilities._
 import spinal.core._
 
@@ -22,10 +23,24 @@ class EmbeddedJtagPlugin(p : DebugTransportModuleParameter) extends Plugin{
       )
     )
     dm.io.ctrl <> dmi.io.bus
-    dm.io.harts.head.resume.served := False
-    dm.io.harts.head.halted := False
-    dm.io.harts.head.running := False
-    dm.io.harts.head.unavailable := False
+//    dm.io.harts.head.resume.served := False
+//    dm.io.harts.head.halted := False
+//    dm.io.harts.head.running := False
+//    dm.io.harts.head.unavailable := False
     val jtag = dmi.io.jtag.toIo()
+
+    getService[PrivilegedPlugin].setup.debugBus.setAsDirectionLess <> dm.io.harts(0)
   }
 }
+
+
+/*
+//TODO
+- Ebreak stoping programm buffer
+- All debug mode privelege special cases
+- debug csr only accessible in debug mode
+
+make compile && ./obj_dir/VNaxRiscv --timeout-disable --spike-disable
+
+src/openocd -f ../VexRiscvOoo/src/main/tcl/openocd/naxriscv_sim.tcl
+ */

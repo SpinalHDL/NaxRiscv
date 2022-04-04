@@ -62,6 +62,9 @@ object CSR {
     1 << c-'A'
   }
 
+  val DCSR      = 0x7b0
+  val DPC       = 0x7b1
+
   def MVENDORID = 0xF11 // MRO Vendor ID.
   def MARCHID   = 0xF12 // MRO Architecture ID.
   def MIMPID    = 0xF13 // MRO Implementation ID.

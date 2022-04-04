@@ -44,6 +44,7 @@ object Global extends AreaRoot {
   val RVC = NaxParameter[Boolean]
   val RVF = NaxParameter[Boolean]
   val RVD = NaxParameter[Boolean]
+  val RV_DEBUG = NaxParameter[Boolean]
 
   val PC_WIDTH = NaxParameter[Int]
   val PC = Stageable(UInt(PC_WIDTH bits))
