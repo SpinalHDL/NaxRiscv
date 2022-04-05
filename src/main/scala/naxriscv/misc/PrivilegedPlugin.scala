@@ -5,7 +5,7 @@ import naxriscv.Global._
 import naxriscv.debug.{DebugDmToHartOp, DebugHartBus, DebugModule}
 import naxriscv.execute.EnvCallPlugin.{CAUSE_FLUSH, CAUSE_REDO, CAUSE_XRET}
 import naxriscv.execute.{CsrAccessPlugin, EnvCallPlugin}
-import naxriscv.fetch.{FetchCachePlugin, FetchPlugin, PcPlugin}
+import naxriscv.fetch.{AlignerPlugin, FetchCachePlugin, FetchPlugin, PcPlugin}
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.interfaces.JumpService.Priorities
 import naxriscv.interfaces.{CommitService, CsrListFilter, CsrRamService, DecoderService, PrivilegedService}
@@ -166,7 +166,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       bus.running := running
       bus.unavailable := False
 
-      val doHalt = bus.halt.isPending()
+      val doHalt = RegInit(False) setWhen(bus.halt.request) clearWhen(bus.halt.served)
       val doResume = bus.resume.isPending()
 
       val fetchBypass = new Area{
@@ -244,17 +244,50 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       val dpc = csr.readWriteRam(CSR.DPC)
       val dcsr = new Area{
         val prv = RegInit(U"11")
-        val step = RegInit(False)
+        val step = RegInit(False) //TODO
         val nmip = False
         val mprven = False
         val cause = RegInit(U"000")
         val stoptime = False
         val stopcount = False
-        val stepie = RegInit(False)
+        val stepie = RegInit(False) //TODO
         val ebreaku = p.withUser generate RegInit(False)
         val ebreaks = p.withSupervisor generate RegInit(False)
         val ebreakm = RegInit(False)
         val xdebugver = U(4, 4 bits)
+
+        val stepLogic = new StateMachine{
+          val IDLE, SINGLE, WAIT, DELAY = new State()
+          setEntry(IDLE)
+
+          val stage = frontend.pipeline.aligned
+          val isCause = RegInit(False)
+
+          IDLE whenIsActive{
+            when(step && bus.resume.served){
+              goto(SINGLE)
+            }
+          }
+          SINGLE whenIsActive{
+            getService[AlignerPlugin].setSingleFetch()
+            when(stage.isFireing){
+              goto(WAIT)
+            }
+          }
+          WAIT whenIsActive{
+            stage.haltIt()
+            when(commit.onCommit().mask =/= 0){ //TODO
+              doHalt := True
+              isCause := True
+              goto(DELAY)
+            }
+          }
+          DELAY whenIsActive{
+            stage.haltIt()
+            goto(IDLE)
+          }
+          build()
+        }
 
 
         csr.read(CSR.DCSR, 3 -> nmip, 6 -> cause, 28 -> xdebugver)
@@ -499,8 +532,14 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         privilegs = privilegs.tail
       }
 
-      if(p.withDebug) when(debug.doHalt){
-        valid := True
+      if(p.withDebug) {
+        when(debug.dcsr.step && debug.dcsr.stepie && !setup.debugMode){
+          valid := False
+        }
+
+        when(debug.doHalt){
+          valid := True
+        }
       }
     }
 
@@ -615,6 +654,9 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
             when(debug.doHalt){
               goto(DPC_WRITE)
             }
+            when(debug.dcsr.stepLogic.isCause){
+              trap.dcause := 4
+            }
           }
         } otherwise {
           switch(reschedule.cause){
@@ -635,9 +677,12 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
               if(p.withDebug){
                 trap.dcause := 1
-                if(p.withUser)       when(debug.dcsr.ebreaku && exception.code === CSR.MCAUSE_ENUM.ECALL_USER){ goto(DPC_WRITE) }
-                if(p.withSupervisor) when(debug.dcsr.ebreaks && exception.code === CSR.MCAUSE_ENUM.ECALL_SUPERVISOR){ goto(DPC_WRITE) }
-                when(debug.dcsr.ebreakm && exception.code === CSR.MCAUSE_ENUM.ECALL_MACHINE){ goto(DPC_WRITE) }
+                when(exception.code === CSR.MCAUSE_ENUM.BREAKPOINT){
+                  val doIt = setup.privilege === 3 && debug.dcsr.ebreakm
+                  if(p.withUser) doIt setWhen(setup.privilege === 0 && debug.dcsr.ebreaku)
+                  if(p.withSupervisor) doIt setWhen(setup.privilege === 1 && debug.dcsr.ebreaks)
+                  when(doIt){ goto(DPC_WRITE) }
+                }
                 when(setup.debugMode){ goto(DPC_WRITE) }
               }
             }
@@ -712,8 +757,6 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
           }
         }
         DEBUG_ENTER.whenIsActive{
-//          setup.jump.valid := True
-//          setup.jump.pc    := p.debugVector
           when(!setup.debugMode) {
             debug.dcsr.cause := trap.dcause
             debug.dcsr.prv := setup.privilege
