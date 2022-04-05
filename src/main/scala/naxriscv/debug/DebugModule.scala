@@ -167,10 +167,10 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
       }
     }
 
-    val abstracts = new Area{
+    val abstractcs = new Area{
       val dataCount = factory.read(U(p.datacount, 4 bits), 0x16, 0)
       val cmdErr = factory.createReadAndClearOnSet(DebugModuleCmdErr(), 0x16, 8) init(DebugModuleCmdErr.NONE)
-      val busy = factory.createReadOnly(Bool(), 0x16, 12) init(False) //TODO
+      val busy = factory.createReadOnly(Bool(), 0x16, 12) init(False)
       val progBufSize = factory.read(U(p.progBufSize, 5 bits), 0x16, 24)
     }
 
@@ -186,8 +186,8 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
 
       setEntry(IDLE)
 
-      val enabled = io.ctrl.cmd.valid && io.ctrl.cmd.address === 0x17 && io.ctrl.cmd.write
-      val data = Reg(Bits(32 bits))
+      val commandRequest = factory.isWriting(0x17)
+      val data = factory.createWriteOnly(Bits(32 bits), 0x17)
       val access = new Area{
         case class Args() extends Bundle{
           val regno = UInt(16 bits)
@@ -208,24 +208,27 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
         val completion = halted.rise(False)
       }
 
+      val request = commandRequest || abstractAuto.trigger
+      when(request && abstractcs.busy && abstractcs.cmdErr === DebugModuleCmdErr.NONE){
+        abstractcs.cmdErr := DebugModuleCmdErr.BUSY
+      }
 
+      IDLE.onEntry(
+        abstractcs.busy := False
+      )
       IDLE.whenIsActive{
-        when(enabled || abstractAuto.trigger) {
+        when(request) {
           selected.hart := dmcontrol.hartSel.resized
+          abstractcs.busy := True
           goto(DECODE)
-        }
-        when(enabled){
-          factory.writeHalt()
-          data := io.ctrl.cmd.data
         }
       }
       DECODE.whenIsActive{
-        factory.cmdToRsp.error := False
         goto(IDLE)
-        switch(io.ctrl.cmd.data(31 downto 24)) {
+        switch(data(31 downto 24)) {
           is(0) { //access register
             when(access.notSupported) {
-              abstracts.cmdErr := DebugModuleCmdErr.NOT_SUPPORTED
+              abstractcs.cmdErr := DebugModuleCmdErr.NOT_SUPPORTED
             } otherwise {
               when(access.args.postExec){
                 goto(POST_EXEC)
@@ -240,7 +243,7 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
             }
           }
           default{
-            abstracts.cmdErr := DebugModuleCmdErr.NOT_SUPPORTED
+            abstractcs.cmdErr := DebugModuleCmdErr.NOT_SUPPORTED
           }
         }
       }

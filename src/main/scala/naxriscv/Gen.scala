@@ -343,7 +343,7 @@ object Gen extends App{
   {
     def wrapper[T <: Component](c: T) = {
       c.afterElaboration(c.getAllIo.foreach(_.addTag(crossClockDomain)))
-      c.afterElaboration(Rtl.ffIo(c)); c
+      c.afterElaboration(Rtl.xorOutputs(Rtl.ffIo(c))); c
     }
     val spinalConfig = SpinalConfig(inlineRom = true)
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
