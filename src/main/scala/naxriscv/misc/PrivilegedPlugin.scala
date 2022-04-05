@@ -13,6 +13,7 @@ import naxriscv.riscv.CSR
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.{DocPlugin, Plugin}
+import spinal.core
 import spinal.lib.bus.misc.{AddressMapping, SizeMapping}
 import spinal.lib.fsm._
 import spinal.lib.pipeline.StageableOffset
@@ -221,7 +222,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         val words = 12
         val banksCount = XLEN.get/32
         val wordsPerBank = words / banksCount
-        val banks = List.fill(banksCount)(Mem.fill(banksCount)(Bits(32 bits)))
+        val banks = List.fill(banksCount)(Mem.fill(wordsPerBank)(Bits(32 bits)))
 
         val write = new Area{
           for((bank, id) <- banks.zipWithIndex){
@@ -702,11 +703,11 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       }
       if(p.withDebug) {
         DPC_WRITE.whenIsActive{
-          setup.ramWrite.valid   := True
+          setup.ramWrite.valid   := !setup.debugMode
           setup.ramWrite.address := debug.dpc.getAddress()
           setup.ramWrite.data    := S(reschedule.epc, XLEN bits).asBits //TODO PC sign extends ? (DONE)
           debug.running := False
-          when(setup.ramWrite.ready){
+          when(setup.debugMode || setup.ramWrite.ready){
             goto(DEBUG_ENTER)
           }
         }
