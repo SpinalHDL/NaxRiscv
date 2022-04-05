@@ -40,6 +40,8 @@ class AlignerPlugin(var decodeCount : Int,
   val firstWordContextSpec = mutable.LinkedHashSet[Stageable[_ <: Data]]()
   def addFirstWordContext(key : Stageable[_ <: Data]*): Unit = firstWordContextSpec ++= key
 
+  def setSingleFetch(){ setup.singleFetch := True}
+
   val setup = create early new Area{
     val fetch = getService[FetchPlugin]
     val frontend = getService[FrontendPlugin]
@@ -60,6 +62,8 @@ class AlignerPlugin(var decodeCount : Int,
       WORD_BRANCH_SLICE := 0
       WORD_BRANCH_PC_NEXT.assignDontCare()
     }
+
+    val singleFetch = False
   }
 
   val MASK_BACK, MASK_FRONT = Stageable(Bits(FETCH_DATA_WIDTH/SLICE_WIDTH bits))
@@ -171,6 +175,8 @@ class AlignerPlugin(var decodeCount : Int,
       val slice1 = RVC.get generate MuxOH.or(maskOh.dropHigh(1), slices.data.drop(i + 1))
       val instruction = if(RVC) slice1 ## slice0 else slice0
       val valid = slices.carry.drop(i).orR && usable
+      if(i != 0) valid clearWhen(setup.singleFetch)
+
       slices.used \= slices.used | usage
       slices.carry \= slices.carry & ~usage
       slices.remains \= slices.remains & ~(usage.andMask(valid))
