@@ -46,6 +46,7 @@ case class DecoderTrap() extends Bundle{
   val cause = UInt(4 bits)
   val epc   = UInt(PC_WIDTH bits)
   val tval  = Bits(TVAL_WIDTH bits)
+  val debugEnter = RV_DEBUG.get() generate Bool()
 }
 
 trait DecoderService extends Service with LockedService {
@@ -77,6 +78,9 @@ trait DecoderService extends Service with LockedService {
   def trapHalt() : Unit
   def trapRaise() : Unit
   def trapReady() : Bool
+
+  //Used by the debug trigger module to implement hardware breakpoints (trigger in the frontend.decoded stage)
+  def debugEnter(slotId : Int) : Unit
 }
 
 trait RobService extends Service{

@@ -45,6 +45,7 @@ object Config{
               withLoadStore : Boolean = true,
               withDebug : Boolean = false,
               withEmbeddedJtag : Boolean = false,
+              debugTriggers : Int = 0,
               branchCount : Int = 16): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
@@ -227,6 +228,7 @@ object Config{
       withRdTime = withRdTime,
       withSupervisor = withSupervisor,
       withDebug = withDebug,
+      debugTriggers = debugTriggers,
       debugVector = SizeMapping(0x100, 0x10*4)
     ))
     if(withPerfCounters) plugins += new PerformanceCounterPlugin(
@@ -316,8 +318,9 @@ object Gen extends App{
   def plugins = {
     Config.plugins(
       withRdTime = false,
-      aluCount    = 1,
-      decodeCount = 1,
+      aluCount    = 2,
+      decodeCount = 2,
+      debugTriggers = 4,
       withRvc = false,
       withLoadStore = true,
       withMmu = true,

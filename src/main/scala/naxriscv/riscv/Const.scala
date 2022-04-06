@@ -62,8 +62,13 @@ object CSR {
     1 << c-'A'
   }
 
-  val DCSR      = 0x7b0
-  val DPC       = 0x7b1
+  val DCSR      = 0x7B0
+  val DPC       = 0x7B1
+  val TSELECT   = 0x7A0
+  val TDATA1    = 0x7A1
+  val TDATA2    = 0x7A2
+  val TINFO     = 0x7a4
+  val TCONTROL  = 0x7A5
 
   def MVENDORID = 0xF11 // MRO Vendor ID.
   def MARCHID   = 0xF12 // MRO Architecture ID.
