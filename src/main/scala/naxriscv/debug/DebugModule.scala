@@ -218,9 +218,11 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
       )
       IDLE.whenIsActive{
         when(request) {
-          selected.hart := dmcontrol.hartSel.resized
-          abstractcs.busy := True
-          goto(DECODE)
+          when(abstractcs.cmdErr === DebugModuleCmdErr.NONE) {
+            selected.hart := dmcontrol.hartSel.resized
+            abstractcs.busy := True
+            goto(DECODE)
+          }
         }
       }
       DECODE.whenIsActive{
