@@ -176,6 +176,9 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
       val cmdErr = factory.createReadAndClearOnSet(DebugModuleCmdErr(), 0x16, 8) init(DebugModuleCmdErr.NONE)
       val busy = factory.createReadOnly(Bool(), 0x16, 12) init(False)
       val progBufSize = factory.read(U(p.progBufSize, 5 bits), 0x16, 24)
+
+      val noError = cmdErr === DebugModuleCmdErr.NONE
+      toHarts.valid clearWhen(busy)
     }
 
     val abstractAuto = new Area{
@@ -213,19 +216,24 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
       }
 
       val request = commandRequest || abstractAuto.trigger
-      when(request && abstractcs.busy && abstractcs.cmdErr === DebugModuleCmdErr.NONE){
+      when(request && abstractcs.busy && abstractcs.noError){
         abstractcs.cmdErr := DebugModuleCmdErr.BUSY
       }
       when(io.harts.map(e => e.halt.served && e.halt.rsp.exception).orR){
         abstractcs.cmdErr := DebugModuleCmdErr.EXCEPTION
+      }
+      when(abstractcs.busy && (progbufX.trigged || dataX.trigged) && abstractcs.noError){
+        abstractcs.cmdErr := DebugModuleCmdErr.BUSY
       }
 
       IDLE.onEntry(
         abstractcs.busy := False
       )
       IDLE.whenIsActive{
-        when(request) {
-          when(abstractcs.cmdErr === DebugModuleCmdErr.NONE) {
+        when(request && abstractcs.noError) {
+          when(selected.running){
+            abstractcs.cmdErr := DebugModuleCmdErr.HALT_RESUME
+          } otherwise {
             selected.hart := dmcontrol.hartSel.resized
             abstractcs.busy := True
             goto(DECODE)
