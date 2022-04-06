@@ -39,11 +39,18 @@ class EmbeddedJtagPlugin(p : DebugTransportModuleParameter) extends Plugin{
 - Ebreak stoping programm buffer
 - All debug mode privelege special cases
 - debug csr only accessible in debug mode
-- ! Handle case where a command/data access/prog access is done while a command is still running !
-- cmderr on abstract command exception
 - RV64 abstract register access  need to access data1 aswell
 
 make compile && ./obj_dir/VNaxRiscv --timeout-disable --spike-disable
 
 src/openocd -f ../VexRiscvOoo/src/main/tcl/openocd/naxriscv_sim.tcl
+
+
+riscv32-unknown-elf-gdb myExecutable.elf
+target remote localhost:3333
+set remotetimeout 60
+set arch riscv:rv32
+load
+break main
+continue
  */
