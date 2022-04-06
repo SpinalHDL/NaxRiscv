@@ -28,9 +28,13 @@ case class DebugHartToDm() extends Bundle{
   val data = Bits(32 bits)
 }
 
+case class DebugHartHalt() extends Bundle{
+  val exception = Bool()
+}
 case class DebugHartBus() extends Bundle with IMasterSlave {
   val halted, running, unavailable = Bool()
-  val resume, halt = PulseHandshake()
+  val resume = PulseHandshake()
+  val halt = PulseHandshake(NoData(), DebugHartHalt())
 
   val dmToHart = Flow(DebugDmToHart())
   val hartToDm = Flow(DebugHartToDm())
@@ -211,6 +215,9 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
       val request = commandRequest || abstractAuto.trigger
       when(request && abstractcs.busy && abstractcs.cmdErr === DebugModuleCmdErr.NONE){
         abstractcs.cmdErr := DebugModuleCmdErr.BUSY
+      }
+      when(io.harts.map(e => e.halt.served && e.halt.rsp.exception).orR){
+        abstractcs.cmdErr := DebugModuleCmdErr.EXCEPTION
       }
 
       IDLE.onEntry(

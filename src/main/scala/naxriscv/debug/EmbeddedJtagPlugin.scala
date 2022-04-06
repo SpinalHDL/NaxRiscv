@@ -39,6 +39,9 @@ class EmbeddedJtagPlugin(p : DebugTransportModuleParameter) extends Plugin{
 - Ebreak stoping programm buffer
 - All debug mode privelege special cases
 - debug csr only accessible in debug mode
+- ! Handle case where a command/data access/prog access is done while a command is still running !
+- cmderr on abstract command exception
+- RV64 abstract register access  need to access data1 aswell
 
 make compile && ./obj_dir/VNaxRiscv --timeout-disable --spike-disable
 

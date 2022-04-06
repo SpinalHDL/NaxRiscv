@@ -373,7 +373,7 @@ trait AddressTranslationService extends Service with LockedImpl {
                          storageSpec: Any): AddressTranslationRsp
 
   def withTranslation : Boolean
-  def invalidatePort : PulseHandshake[NoData]
+  def invalidatePort : PulseHandshake[NoData, NoData]
 }
 
 class CsrSpec(val csrFilter : Any){
@@ -533,27 +533,34 @@ trait PerformanceCounterService extends Service with LockedImpl{
   def createEventPort(id : Int) : Bool
 }
 
-case class PulseHandshake[T <: Data](payloadType : HardType[T] = NoData()) extends Bundle with IMasterSlave {
+object PulseHandshake{
+  def apply() : PulseHandshake[NoData, NoData] = PulseHandshake(NoData(), NoData())
+  def apply[T <: Data, T2 <: Data](cmdType : HardType[T], rspType : HardType[T2]) : PulseHandshake[T, T2] = new PulseHandshake(cmdType, rspType)
+}
+
+class PulseHandshake[T <: Data, T2 <: Data](cmdType : HardType[T], rspType : HardType[T2]) extends Bundle with IMasterSlave {
   val request = Bool()
   val served  = Bool()
-  val payload = payloadType()
+  val cmd = cmdType()
+  val rsp = rspType()
 
 
   override def asMaster() = {
-    out(request, payload)
-    in(served)
+    out(request, cmd)
+    in(served, rsp)
   }
 
   def setIdleAll(): this.type ={
     request := False
     served := False
-    payload.assignDontCare()
+    cmd.assignDontCare()
+    rsp.assignDontCare()
     this
   }
 
   def setIdle(): this.type ={
     request := False
-    payload.assignDontCare()
+    cmd.assignDontCare()
     this
   }
 

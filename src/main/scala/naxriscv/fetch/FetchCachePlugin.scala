@@ -190,7 +190,7 @@ class FetchCachePlugin(var cacheSize : Int,
     val redoJump = getService[PcPlugin].createJumpInterface(priority)
     val historyJump = withHistory generate getService[HistoryPlugin].createJumpPort(priority)
     val refillEvent = getServiceOption[PerformanceCounterService].map(_.createEventPort(refillEventId))
-    val invalidatePort = PulseHandshake(NoData).setIdleAll
+    val invalidatePort = PulseHandshake().setIdleAll
 
 
     val translationStorage = translation.newStorage(translationStorageParameter)
