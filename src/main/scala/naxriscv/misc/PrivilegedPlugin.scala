@@ -634,6 +634,10 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         val targetPrivilege = Reg(UInt(2 bits))
         val debug = p.withDebug generate Reg(Bool())
         val dcause = p.withDebug generate Reg(UInt(3 bits))
+        val debugException = p.withDebug generate RegInit(False)
+        if(p.withDebug){
+          setup.debugBus.halt.rsp.exception := debugException
+        }
       }
 
       val xret = new Area{
@@ -657,6 +661,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         }
       }
       SETUP.whenIsActive{
+        if(p.withDebug) trap.debugException := False
         when(!reschedule.fromCommit && decoderInterrupt.raised){
           trap.interrupt := True
           trap.code := decoderInterrupt.buffer.code
@@ -698,7 +703,12 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
                   if(p.withSupervisor) doIt setWhen(setup.privilege === 1 && debug.dcsr.ebreaks)
                   when(doIt){ goto(DPC_WRITE) }
                 }
-                when(setup.debugMode){ goto(DPC_WRITE) }
+                when(setup.debugMode){
+                  when(exception.code =/= CSR.MCAUSE_ENUM.BREAKPOINT){
+                    trap.debugException := True
+                  }
+                  goto(DPC_WRITE)
+                }
               }
             }
           }
