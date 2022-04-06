@@ -118,6 +118,9 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
     val debugBus = p.withDebug generate master(DebugHartBus())
     val fetchBypass = p.withDebug generate getService[FetchCachePlugin].createBypass()
+
+    val trapEvent = False
+    val redoTriggered = False
   }
 
   val logic = create late new Area{
@@ -276,15 +279,24 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
           }
           WAIT whenIsActive{
             stage.haltIt()
-            when(commit.onCommit().mask =/= 0){ //TODO
+            when(commit.onCommit().mask =/= 0 || setup.trapEvent){ //TODO
               doHalt := True
               isCause := True
               goto(DELAY)
+            }
+            when(setup.redoTriggered){
+              goto(SINGLE)
             }
           }
           DELAY whenIsActive{
             stage.haltIt()
             goto(IDLE)
+          }
+
+          always{
+            when(bus.halt.served){
+              goto(IDLE)
+            }
           }
           build()
         }
@@ -460,6 +472,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       val epc        = PC()
       val tval       = Bits(TVAL_WIDTH bits)
       val slices     = Fetch.INSTRUCTION_SLICE_COUNT()
+      val fromCommit = Bool() //Ensure commited things have priority over interrupts as their may have side effect
     })
     val reschedule = rescheduleUnbuffered.stage()
 
@@ -469,9 +482,10 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
     rescheduleUnbuffered.epc   := rob.readAsyncSingle(Global.PC, cr.robId)
     rescheduleUnbuffered.slices := rob.readAsyncSingle(Fetch.INSTRUCTION_SLICE_COUNT, cr.robId)
     rescheduleUnbuffered.tval  := cr.tval
+    rescheduleUnbuffered.fromCommit := cr.valid && cr.trap
 
     val dt = decoder.getTrap()
-    when(dt.valid) {
+    when(dt.valid && !rescheduleUnbuffered.fromCommit) {
       rescheduleUnbuffered.valid := True
       rescheduleUnbuffered.cause := dt.cause
       rescheduleUnbuffered.epc   := dt.epc
@@ -643,7 +657,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         }
       }
       SETUP.whenIsActive{
-        when(decoderInterrupt.raised){
+        when(!reschedule.fromCommit && decoderInterrupt.raised){
           trap.interrupt := True
           trap.code := decoderInterrupt.buffer.code
           trap.targetPrivilege := decoderInterrupt.buffer.targetPrivilege
@@ -664,6 +678,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
               goto(FLUSH_CALC)
             }
             is(CAUSE_REDO){
+              setup.redoTriggered := True
               goto(FLUSH_CALC)
             }
             is(CAUSE_XRET){
@@ -809,6 +824,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
             supervisor.cause.code      := trap.code
           }
         }
+        setup.trapEvent := True
         goto(IDLE)
       }
       XRET.whenIsActive{
