@@ -32,7 +32,8 @@ object PrivilegedConfig{
     archId         = 0,
     impId          = 0,
     hartId         = 0,
-    debugVector = null
+    debugVector = null,
+    debugTriggers = 0
   )
 }
 
@@ -42,6 +43,7 @@ case class PrivilegedConfig(withSupervisor : Boolean,
                             withRdTime : Boolean,
                             withDebug: Boolean,
                             debugVector : SizeMapping,
+                            debugTriggers : Int,
                             vendorId: Int,
                             archId: Int,
                             impId: Int,
@@ -314,6 +316,82 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         }
       }
 
+      //Very limited subset of the trigger spec
+      val trigger = (p.debugTriggers > 0) generate new Area {
+        val tselect = new Area{
+          val index = Reg(UInt(log2Up(p.debugTriggers) bits))
+          csr.readWrite(index, CSR.TSELECT)
+
+          val outOfRange = if(isPow2(p.debugTriggers)) False else index < p.debugTriggers
+        }
+
+        val tinfo = new Area{
+          csr.read(CSR.TINFO, 0 -> tselect.outOfRange, 2 -> !tselect.outOfRange)
+        }
+
+        val slots = for(slotId <- 0 until p.debugTriggers) yield new Area {
+          val selected = tselect.index === slotId
+          def csrw(csrId : Int, thats : (Int, Data)*): Unit ={
+            csr.onWrite(csrId, onlyOnFire = true){
+              when(selected) {
+                for((offset, data) <- thats){
+                  data.assignFromBits(csr.onWriteBits(offset, widthOf(data) bits))
+                }
+              }
+            }
+          }
+          def csrr(csrId : Int, read : Bits, thats : (Int, Data)*): Unit ={
+            when(selected) {
+              for((offset, data) <- thats){
+                read(offset, widthOf(data) bits) := data.asBits
+              }
+            }
+          }
+          def csrrw(csrId : Int, read : Bits, thats : (Int, Data)*) : Unit = {
+            csrw(csrId, thats :_*)
+            csrr(csrId, read, thats :_*)
+          }
+
+          val tdata1 = new Area{
+            val read = B(0, XLEN bits)
+            val tpe = Reg(UInt(4 bits)) init(2)
+            val dmode = Reg(Bool()) init(False)
+
+            val execute = RegInit(False)
+            val m, s, u = RegInit(False)
+            val action = RegInit(U"0000")
+            val privilegeHit = !setup.debugMode && setup.privilege.mux(
+              0 -> u,
+              1 -> s,
+              3 -> m,
+              default -> False
+            )
+
+            csrrw(CSR.TDATA1, read, 2 -> execute , 3 -> u, 4-> s, 6 -> m, XLEN - 4 -> tpe, XLEN - 5 -> dmode, 12 -> action)
+
+
+            //TODO action sizelo timing select sizehi maskmax
+          }
+
+          val tdata2 = new Area{
+            val value = Reg(PC)
+            csrw(CSR.TDATA2, 0 -> value)
+
+
+            val execute = new Area{
+              val enabled = tdata1.action === 1 && tdata1.execute && tdata1.privilegeHit
+              val slots = for(i <- 0 until Frontend.DECODE_COUNT) yield new Area {
+                val hit = enabled && value === frontend.pipeline.decoded(PC, i)
+                when(hit){
+                  decoder.debugEnter(i)
+                }
+              }
+            }
+          }
+        }
+
+        csr.read(CSR.TDATA1, 0 -> slots.map(_.tdata1.read).read(tselect.index))
+      }
     }
 
     val machine = new Area {
@@ -473,6 +551,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       val tval       = Bits(TVAL_WIDTH bits)
       val slices     = Fetch.INSTRUCTION_SLICE_COUNT()
       val fromCommit = Bool() //Ensure commited things have priority over interrupts as their may have side effect
+      val debugEnter = p.withDebug generate Bool()
     })
     val reschedule = rescheduleUnbuffered.stage()
 
@@ -483,6 +562,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
     rescheduleUnbuffered.slices := rob.readAsyncSingle(Fetch.INSTRUCTION_SLICE_COUNT, cr.robId)
     rescheduleUnbuffered.tval  := cr.tval
     rescheduleUnbuffered.fromCommit := cr.valid && cr.trap
+    if(p.withDebug) rescheduleUnbuffered.debugEnter := False
 
     val dt = decoder.getTrap()
     when(dt.valid && !rescheduleUnbuffered.fromCommit) {
@@ -490,6 +570,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       rescheduleUnbuffered.cause := dt.cause
       rescheduleUnbuffered.epc   := dt.epc
       rescheduleUnbuffered.tval  := dt.tval
+      if(p.withDebug) rescheduleUnbuffered.debugEnter := dt.debugEnter
     }
 
     assert(!rescheduleUnbuffered.isStall)
@@ -711,6 +792,10 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
                 }
               }
             }
+          }
+          if(p.withDebug) when(reschedule.debugEnter){
+            trap.debugException := False
+            goto(DPC_WRITE)
           }
         }
       }
