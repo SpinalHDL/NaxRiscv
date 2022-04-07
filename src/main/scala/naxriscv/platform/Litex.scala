@@ -6,6 +6,7 @@ import naxriscv.lsu._
 import naxriscv.misc._
 import naxriscv.utilities._
 import naxriscv.compatibility.{EnforceSyncRamPhase, MultiPortWritesSymplifier}
+import naxriscv.debug.EmbeddedJtagPlugin
 import naxriscv.platform.ScalaInterpreter.evaluate
 import spinal.core._
 import spinal.lib._
@@ -42,6 +43,11 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component
     val dbus = cpu.framework.getService[DataCacheAxi4].logic.axi.toIo()
     Axi4SpecRenamer(ibus)
     Axi4SpecRenamer(dbus)
+
+    plugins.foreach{
+      case p : EmbeddedJtagPlugin => p.logic.jtag.toIo().setName("jtag")
+      case _ =>
+    }
 
 //    val ibus = cpu.framework.getService[FetchAxi4].logic.axiRam
 //    val dbus = cpu.framework.getService[DataCacheAxi4].logic.axi
@@ -131,7 +137,6 @@ object LitexGen extends App{
          |val debug = ${debug}
          |def arg[T](key : String, default : T) = args.getOrElse(key, default).asInstanceOf[T]
          |${scalaArgs.mkString("\n")}
-         |println(arg("miaaou", 42))
          |""".stripMargin
     codes ++= files.map(scala.io.Source.fromFile(_).mkString)
     codes += "plugins\n"
