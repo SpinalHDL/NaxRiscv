@@ -15,6 +15,7 @@ import spinal.lib.bus.misc.SizeMapping
 import spinal.lib.misc.{AxiLite4Clint, WishboneClint}
 import spinal.lib.misc.plic.{AxiLite4Plic, WishbonePlic}
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 
@@ -101,7 +102,7 @@ object LitexGen extends App{
     opt[String]("scala-file") unbounded() action  { (v, c) => files += v }
     opt[String]("scala-args") unbounded() action  { (v, c) =>
       val elements = v.split(",").map(_.split("="))
-      for(e <- elements) scalaArgs += s"val ${e(0)} = ${e(1)}"
+      for(e <- elements) scalaArgs += s"""args("${e(0)}") = ${e(1)}"""
     }
     opt[Long]("reset-vector") action  { (v, c) => resetVector = v }
     opt[Int]("xlen") action  { (v, c) => xlen = v }
@@ -116,7 +117,6 @@ object LitexGen extends App{
 
   spinalConfig.generateVerilog {
 
-
     val codes = ArrayBuffer[String]()
     codes +=
       s"""
@@ -125,10 +125,13 @@ object LitexGen extends App{
          |import spinal.lib.bus.misc.SizeMapping
          |val plugins = ArrayBuffer[Plugin]()
          |val resetVector = ${resetVector}l
+         |val args = scala.collection.mutable.LinkedHashMap[String, Any]()
          |val xlen = ${xlen}
          |val jtagTap = ${jtagTap}
          |val debug = ${debug}
+         |def arg[T](key : String, default : T) = args.getOrElse(key, default).asInstanceOf[T]
          |${scalaArgs.mkString("\n")}
+         |println(arg("miaaou", 42))
          |""".stripMargin
     codes ++= files.map(scala.io.Source.fromFile(_).mkString)
     codes += "plugins\n"
