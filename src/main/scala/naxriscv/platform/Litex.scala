@@ -93,11 +93,16 @@ object LitexGen extends App{
   var jtagTap = false
   var debug = false
   val files = ArrayBuffer[String]()
+  val scalaArgs = ArrayBuffer[String]()
   assert(new scopt.OptionParser[Unit]("NaxRiscv") {
     help("help").text("prints this usage text")
     opt[String]("netlist-directory") action { (v, c) => netlistDirectory = v }
     opt[String]("netlist-name") action { (v, c) => netlistName = v }
     opt[String]("scala-file") unbounded() action  { (v, c) => files += v }
+    opt[String]("scala-args") unbounded() action  { (v, c) =>
+      val elements = v.split(",").map(_.split("="))
+      for(e <- elements) scalaArgs += s"val ${e(0)} = ${e(1)}"
+    }
     opt[Long]("reset-vector") action  { (v, c) => resetVector = v }
     opt[Int]("xlen") action  { (v, c) => xlen = v }
     opt[Unit]("with-jtag-tap") action  { (v, c) => jtagTap = true }
@@ -123,6 +128,7 @@ object LitexGen extends App{
          |val xlen = ${xlen}
          |val jtagTap = ${jtagTap}
          |val debug = ${debug}
+         |${scalaArgs.mkString("\n")}
          |""".stripMargin
     codes ++= files.map(scala.io.Source.fromFile(_).mkString)
     codes += "plugins\n"
