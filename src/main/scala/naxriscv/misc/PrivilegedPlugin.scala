@@ -213,36 +213,33 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         }
       }
 
-      val dataFilter = CsrListFilter(DebugModule.CSR_DATA to DebugModule.CSR_DATA + 11)
-      val dataRead = new Area{
-        val address = csr.onWriteAddress-DebugModule.CSR_DATA
-        csr.onWrite(dataFilter, onlyOnFire = false){
+      val dataCsrr = new Area{
+        val state = RegInit(U(0, log2Up(XLEN/32) bits))
+
+        csr.onWrite(DebugModule.CSR_DATA, onlyOnFire = false){
+          when(state =/= state.maxValue) {
+            csr.onWriteHalt()
+          }
           bus.hartToDm.valid := True
-          bus.hartToDm.address := address.resized
-          bus.hartToDm.data  := csr.onWriteBits.subdivideIn(32 bits).read((address).resized)
+          bus.hartToDm.address := state.resized
+          bus.hartToDm.data  := csr.onWriteBits.subdivideIn(32 bits).read(state)
+          state := (state + 1).resized
         }
       }
 
-      val dataWrite = new Area{
-        val words = 12
-        val banksCount = XLEN.get/32
-        val wordsPerBank = words / banksCount
-        val banks = List.fill(banksCount)(Mem.fill(wordsPerBank)(Bits(32 bits)))
+      val dataCsrw = new Area{
+        val value = Reg(Bits(XLEN bits))
 
-        val write = new Area{
-          for((bank, id) <- banks.zipWithIndex){
-            bank.write(
-              address = (bus.dmToHart.address >> log2Up(banksCount)).resized,
-              data = bus.dmToHart.data,
-              enable = bus.dmToHart.valid && bus.dmToHart.op === DebugDmToHartOp.DATA && bus.dmToHart.address(0, log2Up(banksCount) bits) === id
-            )
+        val fromDm = new Area{
+          when(bus.dmToHart.valid && bus.dmToHart.op === DebugDmToHartOp.DATA){
+            value.subdivideIn(32 bits).onSel(bus.dmToHart.address, relaxedWidth = true){ chunk =>
+              chunk := bus.dmToHart.data
+            }
           }
         }
 
-        val read = new Area{
-          val address = csr.onReadAddress-DebugModule.CSR_DATA
-          val values = B(banks.map(_.readAsync((address >> log2Up(XLEN.get/32)).resized)))
-          csr.read(values, dataFilter)
+        val toHart = new Area{
+          csr.read(value, DebugModule.CSR_DATA)
         }
       }
 
