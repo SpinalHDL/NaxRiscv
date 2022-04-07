@@ -252,7 +252,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       setup.trapReady := isValid && pipelineEmpty
       setup.exceptionPort.valid := doIt
       setup.exceptionPort.epc   := pc
-      setup.exceptionPort.debugEnter := debugEnter
+      if(RV_DEBUG) setup.exceptionPort.debugEnter := debugEnter
       when(fetchFault){
         when(fetchFaultPage){
           setup.exceptionPort.cause := CSR.MCAUSE_ENUM.INSTRUCTION_PAGE_FAULT
