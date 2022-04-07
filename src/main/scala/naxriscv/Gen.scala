@@ -321,7 +321,7 @@ object Gen extends App{
       aluCount    = 2,
       decodeCount = 2,
       debugTriggers = 4,
-      withRvc = false,
+      withRvc = true,
       withLoadStore = true,
       withMmu = true,
       withDebug = true,
@@ -372,7 +372,10 @@ object Gen64 extends App{
       withRdTime = false,
       aluCount    = 2,
       decodeCount = 2,
-      withRvc = false
+      withRvc = true,
+      withDebug = true,
+      withEmbeddedJtag = true,
+      debugTriggers = 4
     )
     l.foreach{
 //      case p : ExecutionUnitBase if p.euId == "EU1" => p.readPhysRsFromQueue = true
@@ -399,6 +402,7 @@ object Gen64 extends App{
 
   {
     def wrapper[T <: Component](c: T) = {
+      c.afterElaboration(c.getAllIo.foreach(_.addTag(crossClockDomain)))
       c.afterElaboration(Rtl.xorOutputs(Rtl.ffIo(c))); c
     }
     val spinalConfig = SpinalConfig(inlineRom = true)

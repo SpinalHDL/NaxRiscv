@@ -1,5 +1,6 @@
 package naxriscv.debug
 
+import naxriscv.Global
 import naxriscv.misc.PrivilegedPlugin
 import naxriscv.utilities._
 import spinal.core._
@@ -19,7 +20,7 @@ class EmbeddedJtagPlugin(p : DebugTransportModuleParameter) extends Plugin{
         version = p.version + 1,
         harts = 1,
         progBufSize = 4,
-        datacount   = 8
+        datacount   = Global.XLEN/32
       )
     )
     dm.io.ctrl <> dmi.io.bus
@@ -50,6 +51,14 @@ riscv32-unknown-elf-gdb myExecutable.elf
 target remote localhost:3333
 set remotetimeout 60
 set arch riscv:rv32
+load
+break main
+continue
+
+
+target remote localhost:3333
+set remotetimeout 60
+set arch riscv:rv64
 load
 break main
 continue

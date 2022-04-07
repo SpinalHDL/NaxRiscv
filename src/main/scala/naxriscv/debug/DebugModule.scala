@@ -189,7 +189,7 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
     }
 
     val command = new StateMachine{
-      val IDLE, DECODE, READ_REG_0, WRITE_REG_0, READ_REG_EBREAK, READ_REG_START, WAIT_DONE, POST_EXEC, POST_EXEC_WAIT = new State()
+      val IDLE, DECODE, READ_REG, WRITE_REG, READ_REG_EBREAK, READ_REG_START, WAIT_DONE, POST_EXEC, POST_EXEC_WAIT = new State()
 
       setEntry(IDLE)
 
@@ -252,9 +252,9 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
               }
               when(access.args.transfer) {
                 when(access.args.write) {
-                  goto(WRITE_REG_0)
+                  goto(WRITE_REG)
                 } otherwise {
-                  goto(READ_REG_0)
+                  goto(READ_REG)
                 }
               }
             }
@@ -282,9 +282,8 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
           goto(states._2)
         }
       }
-      assert(XLEN.get == 32)
-      writeInstruction(WRITE_REG_0     -> READ_REG_EBREAK) (12, csrr(0, access.args.regno(4 downto 0)))
-      writeInstruction(READ_REG_0      -> READ_REG_EBREAK) (12, csrw(0, access.args.regno(4 downto 0)))
+      writeInstruction(WRITE_REG     -> READ_REG_EBREAK) (12, csrr(0, access.args.regno(4 downto 0)))
+      writeInstruction(READ_REG      -> READ_REG_EBREAK) (12, csrw(0, access.args.regno(4 downto 0)))
       writeInstruction(READ_REG_EBREAK -> READ_REG_START ) (13, ebreak())
       startInstruction(READ_REG_START  -> WAIT_DONE      ) (12)
 
