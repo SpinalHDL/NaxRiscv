@@ -90,7 +90,8 @@ object LitexGen extends App{
   var netlistName = "NaxRiscvLitex"
   var resetVector = 0l
   var xlen = 32
-  var jtag = false
+  var jtagTap = false
+  var debug = false
   val files = ArrayBuffer[String]()
   assert(new scopt.OptionParser[Unit]("NaxRiscv") {
     help("help").text("prints this usage text")
@@ -99,7 +100,8 @@ object LitexGen extends App{
     opt[String]("scala-file") unbounded() action  { (v, c) => files += v }
     opt[Long]("reset-vector") action  { (v, c) => resetVector = v }
     opt[Int]("xlen") action  { (v, c) => xlen = v }
-    opt[Boolean]("jtag") action  { (v, c) => jtag = v }
+    opt[Boolean]("with-jtag-tap") action  { (v, c) => jtagTap = v }
+    opt[Boolean]("with-debug") action  { (v, c) => debug = v }
   }.parse(args))
 
   val spinalConfig = SpinalConfig(inlineRom = true, targetDirectory = netlistDirectory)
@@ -119,7 +121,8 @@ object LitexGen extends App{
          |val plugins = ArrayBuffer[Plugin]()
          |val resetVector = ${resetVector}l
          |val xlen = ${xlen}
-         |val jtag = ${jtag}
+         |val jtagTap = ${jtagTap}
+         |val debug = ${debug}
          |""".stripMargin
     codes ++= files.map(scala.io.Source.fromFile(_).mkString)
     codes += "plugins\n"
