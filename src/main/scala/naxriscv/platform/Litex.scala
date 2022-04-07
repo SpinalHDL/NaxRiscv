@@ -90,6 +90,7 @@ object LitexGen extends App{
   var netlistName = "NaxRiscvLitex"
   var resetVector = 0l
   var xlen = 32
+  var jtag = false
   val files = ArrayBuffer[String]()
   assert(new scopt.OptionParser[Unit]("NaxRiscv") {
     help("help").text("prints this usage text")
@@ -98,6 +99,7 @@ object LitexGen extends App{
     opt[String]("scala-file") unbounded() action  { (v, c) => files += v }
     opt[Long]("reset-vector") action  { (v, c) => resetVector = v }
     opt[Int]("xlen") action  { (v, c) => xlen = v }
+    opt[Boolean]("jtag") action  { (v, c) => jtag = v }
   }.parse(args))
 
   val spinalConfig = SpinalConfig(inlineRom = true, targetDirectory = netlistDirectory)
@@ -117,6 +119,7 @@ object LitexGen extends App{
          |val plugins = ArrayBuffer[Plugin]()
          |val resetVector = ${resetVector}l
          |val xlen = ${xlen}
+         |val jtag = ${jtag}
          |""".stripMargin
     codes ++= files.map(scala.io.Source.fromFile(_).mkString)
     codes += "plugins\n"
@@ -164,6 +167,8 @@ py3tftp -p 69
 picocom -b 115200 /dev/ttyUSB1 --imap lfcrlf
 
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet  --build --load
+
+Error opening terminal: vt100.
 
 export DISPLAY=:0
 twm &
