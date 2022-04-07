@@ -323,11 +323,23 @@ class FetchCachePlugin(var cacheSize : Int,
 
 
     val refill = new Area {
+      val start = new Area{
+        val valid = False
+        val address = UInt(PHYSICAL_WIDTH bits)
+        val isIo = Bool()
+      }
+    
       val fire = False
       val valid = RegInit(False) clearWhen (fire)
       val address = KeepAttribute(Reg(UInt(PHYSICAL_WIDTH bits)))
       val isIo = Reg(Bool())
       val hadError = RegInit(False)
+      
+      when(!valid){
+        valid setWhen(start.valid)
+        address := start.address
+        isIo := start.isIo
+      }
 
       invalidate.canStart clearWhen(valid)
 
@@ -445,11 +457,11 @@ class FetchCachePlugin(var cacheSize : Int,
             redoIt := True
           } elsewhen (!WORD_FAULT_PAGE && !tpk.ACCESS_FAULT && !WAYS_HIT) {
             redoIt := True
-            refill.valid := True
-            refill.address := tpk.TRANSLATED
-            refill.isIo := tpk.IO
+            refill.start.valid := True
           }
         }
+        refill.start.address := tpk.TRANSLATED
+        refill.start.isIo := tpk.IO
 
         val bypass = if(bypassesSpec.nonEmpty)  new Area {
           val hits = B(bypassesSpec.map(e => controlStage(e.valid)))
@@ -460,7 +472,7 @@ class FetchCachePlugin(var cacheSize : Int,
             WORD_FAULT_PAGE := False
             WORD := value
             redoIt := False
-            refill.valid := False
+            refill.start.valid := False
           }
         }
 

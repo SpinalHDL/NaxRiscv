@@ -231,7 +231,7 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
       )
       IDLE.whenIsActive{
         when(request && abstractcs.noError) {
-          when(selected.running){
+          when(!selected.halted){
             abstractcs.cmdErr := DebugModuleCmdErr.HALT_RESUME
           } otherwise {
             selected.hart := dmcontrol.hartSel.resized
