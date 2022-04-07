@@ -100,8 +100,8 @@ object LitexGen extends App{
     opt[String]("scala-file") unbounded() action  { (v, c) => files += v }
     opt[Long]("reset-vector") action  { (v, c) => resetVector = v }
     opt[Int]("xlen") action  { (v, c) => xlen = v }
-    opt[Boolean]("with-jtag-tap") action  { (v, c) => jtagTap = v }
-    opt[Boolean]("with-debug") action  { (v, c) => debug = v }
+    opt[Unit]("with-jtag-tap") action  { (v, c) => jtagTap = true }
+    opt[Unit]("with-debug") action  { (v, c) => debug = true }
   }.parse(args))
 
   val spinalConfig = SpinalConfig(inlineRom = true, targetDirectory = netlistDirectory)
