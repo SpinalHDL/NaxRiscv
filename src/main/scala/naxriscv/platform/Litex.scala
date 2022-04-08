@@ -45,7 +45,10 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component
     Axi4SpecRenamer(dbus)
 
     plugins.foreach{
-      case p : EmbeddedJtagPlugin => p.logic.jtag.toIo().setName("jtag")
+      case p : EmbeddedJtagPlugin => {
+        if(p.withTap) p.logic.jtag.toIo().setName("jtag")
+        else p.logic.jtagInstruction.toIo().setName("jtag_instruction")
+      }
       case _ =>
     }
 
@@ -92,12 +95,12 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component
 }
 
 object LitexGen extends App{
-
   var netlistDirectory = "."
   var netlistName = "NaxRiscvLitex"
   var resetVector = 0l
   var xlen = 32
   var jtagTap = false
+  var jtagInstruction = false
   var debug = false
   val files = ArrayBuffer[String]()
   val scalaArgs = ArrayBuffer[String]()
@@ -113,6 +116,7 @@ object LitexGen extends App{
     opt[Long]("reset-vector") action  { (v, c) => resetVector = v }
     opt[Int]("xlen") action  { (v, c) => xlen = v }
     opt[Unit]("with-jtag-tap") action  { (v, c) => jtagTap = true }
+    opt[Unit]("with-jtag-instruction") action  { (v, c) => jtagInstruction = true }
     opt[Unit]("with-debug") action  { (v, c) => debug = true }
   }.parse(args))
 
@@ -134,6 +138,7 @@ object LitexGen extends App{
          |val args = scala.collection.mutable.LinkedHashMap[String, Any]()
          |val xlen = ${xlen}
          |val jtagTap = ${jtagTap}
+         |val jtagInstruction = ${jtagInstruction}
          |val debug = ${debug}
          |def arg[T](key : String, default : T) = args.getOrElse(key, default).asInstanceOf[T]
          |${scalaArgs.mkString("\n")}
@@ -184,6 +189,10 @@ py3tftp -p 69
 picocom -b 115200 /dev/ttyUSB1 --imap lfcrlf
 
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet  --build --load
+
+python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=32 --scala-args='rvc=true,alu-count=1,decode-count=1' --with-jtag-tap --build --load
+
+python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=32 --scala-args='rvc=true,alu-count=1,decode-count=1' --with-jtag-instruction --build --load
 
 Error opening terminal: vt100.
 

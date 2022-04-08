@@ -44,7 +44,9 @@ object Config{
               xlen : Int = 32,
               withLoadStore : Boolean = true,
               withDebug : Boolean = false,
-              withEmbeddedJtag : Boolean = false,
+              withEmbeddedJtagTap : Boolean = false,
+              withEmbeddedJtagInstruction : Boolean = false,
+              jtagTunneled : Boolean = false,
               debugTriggers : Int = 0,
               branchCount : Int = 16): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
@@ -62,11 +64,15 @@ object Config{
         physicalWidth = 32
       )
     })
-    if(withEmbeddedJtag) plugins += new EmbeddedJtagPlugin(DebugTransportModuleParameter(
-      addressWidth = 7,
-      version      = 1,
-      idle         = 7
-    ))
+    if(withEmbeddedJtagTap || withEmbeddedJtagInstruction) plugins += new EmbeddedJtagPlugin(
+      p = DebugTransportModuleParameter(
+        addressWidth = 7,
+        version      = 1,
+        idle         = 7
+      ),
+      withTunneling = jtagTunneled,
+      withTap = withEmbeddedJtagTap
+    )
 
     //FETCH
     plugins += new FetchPlugin()
@@ -325,7 +331,8 @@ object Gen extends App{
       withLoadStore = true,
       withMmu = true,
       withDebug = true,
-      withEmbeddedJtag = true
+      withEmbeddedJtagTap = true,
+      jtagTunneled = true
     )
   }
 
@@ -374,7 +381,7 @@ object Gen64 extends App{
       decodeCount = 2,
       withRvc = true,
       withDebug = true,
-      withEmbeddedJtag = true,
+      withEmbeddedJtagTap = true,
       debugTriggers = 4
     )
     l.foreach{
