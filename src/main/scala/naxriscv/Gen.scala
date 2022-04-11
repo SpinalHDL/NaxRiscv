@@ -330,12 +330,12 @@ object Gen extends App{
       aluCount    = 2,
       decodeCount = 2,
       debugTriggers = 4,
-      withRvc = true,
+      withRvc = false,
       withLoadStore = true,
-      withMmu = true,
-      withDebug = true,
-      withEmbeddedJtagTap = true,
-      jtagTunneled = true
+      withMmu = true
+//      withDebug = true,
+//      withEmbeddedJtagTap = true,
+//      jtagTunneled = true
     )
   }
 
