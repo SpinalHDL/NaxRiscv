@@ -12,7 +12,13 @@ import spinal.lib._
 
 import scala.collection.mutable.ArrayBuffer
 
-class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with CommitService{
+class CommitPlugin(var commitCount : Int,
+                   var ptrCommitRetimed : Boolean = true) extends Plugin with CommitService{
+
+  create config {
+    Global.COMMIT_COUNT.set(commitCount)
+  }
+
   override def onCommit() : CommitEvent = logic.commit.event
 //  override def onCommitLine() =  logic.commit.lineEvent
 
@@ -52,12 +58,15 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
 
     val ptr = new Area {
       val alloc, commit, free = Reg(UInt(ROB.ID_WIDTH + 1 bits)) init (0)
-      val full = (alloc ^ free) === ROB.SIZE.get
-      val empty = alloc === commit
-      val canFree = free =/= commit
       val commitRow = commit >> log2Up(ROB.COLS)
       val commitNext = CombInit(commit)
+      val allocNext = UInt(ROB.ID_WIDTH + 1 bits)
       commit := commitNext
+      alloc := allocNext
+
+      val full = (alloc ^ free) === ROB.SIZE.get
+      val empty = RegNext(allocNext === commitNext) init(True) //Retimed to relieve that critical path
+      val canFree = free =/= commit
 
       val robLineMaskRsp = Bits(ROB.COLS bits)
       ptrCommitRetimed match {
@@ -72,16 +81,13 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
         }
       }
 
-
       //Manage frontend ROB id allocation
       val frontend = getService[FrontendPlugin]
       val stage = frontend.pipeline.allocated
       stage(ROB.ID) := alloc.resized
       stage.haltIt(full)
 
-      val allocNext = alloc + (stage.isFireing ? U(ROB.COLS) | U(0))
-      alloc := allocNext
-
+      allocNext := alloc + (stage.isFireing ? U(ROB.COLS) | U(0))
       setup.isRobEmpty := empty
     }
 
@@ -92,7 +98,7 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
       val robId    = Reg(UInt(ROB.ID_WIDTH bits))
       val pcTarget = Reg(PC)
       val cause    = Reg(UInt(rescheduleCauseWidth bits))
-      val tval     = Reg(Bits(Global.XLEN bits))
+      val tval     = Reg(Bits(TVAL_WIDTH bits))
       val reason   = Reg(ScheduleReason.hardType)
       val commit = new Area{
         val (row, col) = robId.splitAt(log2Up(ROB.COLS))
@@ -226,7 +232,7 @@ class CommitPlugin(ptrCommitRetimed : Boolean = true) extends Plugin with Commit
       val robToPc = new Area {
         val valid = patch(ptr.stage.isFireing)
         val robId = patch(ptr.stage(ROB.ID))
-        val pc = (0 until DISPATCH_COUNT).map(i => patch(ptr.stage(PC, i)))
+        val pc = (0 until DISPATCH_COUNT).map(i => patch(S(ptr.stage(PC, i), XLEN bits)))
       }
       val commit = patch(cmt.event)
       val reschedule = patch(cmt.reschedulePort)

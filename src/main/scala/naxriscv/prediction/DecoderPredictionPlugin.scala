@@ -17,11 +17,11 @@ import spinal.lib.pipeline.{Stage, Stageable, StageableOffset}
 
 
 //flushOnBranch can be used to ensure correctness of the branch history used by predictors (usefull for debug) at the cost of flushes
-class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.decoded,
-                               pcAddAt: FrontendPlugin => Stage = _.pipeline.decoded,
-                               pcPredictionAt: FrontendPlugin => Stage = _.pipeline.decoded,
-                               applyAt : FrontendPlugin => Stage = _.pipeline.serialized,
-                               flushOnBranch : Boolean = false) extends Plugin with DecoderPrediction{
+class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipeline.decoded,
+                               var pcAddAt: FrontendPlugin => Stage = _.pipeline.decoded,
+                               var pcPredictionAt: FrontendPlugin => Stage = _.pipeline.decoded,
+                               var applyAt : FrontendPlugin => Stage = _.pipeline.serialized,
+                               var flushOnBranch : Boolean = false) extends Plugin with DecoderPrediction{
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     val fetch = getService[FetchPlugin]
@@ -64,7 +64,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
       val CAN_IMPROVE = Stageable(Bool())
       val BRANCHED_PREDICTION = Stageable(Bool())
       val NEED_CORRECTION = Stageable(Bool())
-      val OFFSET = Stageable(SInt(32 bits))
+      val OFFSET = Stageable(SInt(PC_WIDTH bits))
       val CONDITIONAL_PREDICTION = Stageable(Bool())
       val LAST_SLICE = Stageable(UInt(log2Up(SLICE_COUNT) bits))
       val BAD_RET_PC = Stageable(Bool())
@@ -77,7 +77,9 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
     val applyStage  = applyAt(frontend)
 
     if(!isServiceAvailable[FetchConditionalPrediction]){
-      fetch.getLastStage(CONDITIONAL_TAKE_IT) := 0
+      for(slotId <- 0 until Frontend.DECODE_COUNT) {
+        frontend.pipeline.decompressed(CONDITIONAL_TAKE_IT, slotId) := (1 << SLICE_COUNT) - 1
+      }
     }
 
     val ras = new Area{
@@ -128,8 +130,8 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
           val imm = IMM(inst)
           OFFSET := inst(2).mux(
             False -> imm.b_sext,
-            True -> imm.j_sext
-          )
+            True  -> imm.j_sext
+          ).resized
 
           val rdLink  = List(1,5).map(decoder.ARCH_RD === _).orR
           val rs1Link = List(1,5).map(decoder.ARCH_RS(0) === _).orR
@@ -208,8 +210,9 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
         val hit = slotIds.map(stage(NEED_CORRECTION, _)).orR
         val selOh = OHMasking.first(slotIds.map(stage(NEED_CORRECTION, _)))
         val applySideEffects = isFireing
+        val firstCycle = RegInit(True) clearWhen(isValid) setWhen(isReady || isFlushed)
 
-        setup.decodeJump.valid := applySideEffects && hit
+        setup.decodeJump.valid := isValid && hit  //IsValid instead of applySideEffects to avoid propagating the ready path
         setup.decodeJump.pc := U(MuxOH(selOh, (0 until DECODE_COUNT).map(stage(PC_PREDICTION, _))))
 
         setup.historyPush.flush := setup.decodeJump.valid
@@ -218,7 +221,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
         ras.ptr.popIt     clearWhen(!applySideEffects)
 
 
-        flushIt(setup.decodeJump.valid, root = false)
+        flushIt(setup.decodeJump.valid && isReady, root = false)
 
         //WARNING, overloaded(Frontend.DISPATCH_MASK) may not be reconized by some downstream plugins if you move this futher the decoding stage
         for (slotId <- 0 until Frontend.DECODE_COUNT) {
@@ -228,7 +231,7 @@ class DecoderPredictionPlugin( decodeAt: FrontendPlugin => Stage = _.pipeline.de
         for (slotId <- 0 until Frontend.DECODE_COUNT) {
           val slot = slots(slotId)
           implicit val _ = StageableOffset(slotId)
-          setup.historyPush.mask(slotId) := applySideEffects && IS_BRANCH && Frontend.DECODED_MASK && !stage(0 until slotId)(NEED_CORRECTION).orR
+          setup.historyPush.mask(slotId) := isValid && firstCycle && IS_BRANCH && Frontend.DECODED_MASK && !stage(0 until slotId)(NEED_CORRECTION).orR
           setup.historyPush.taken(slotId) := BRANCHED_PREDICTION
         }
       }

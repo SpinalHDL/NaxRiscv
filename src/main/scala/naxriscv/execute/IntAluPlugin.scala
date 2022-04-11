@@ -1,5 +1,6 @@
 package naxriscv.execute
 
+import naxriscv.Global.XLEN
 import naxriscv.{DecodeList, Frontend, Global}
 import naxriscv.interfaces._
 import naxriscv.riscv._
@@ -17,13 +18,17 @@ object IntAluPlugin extends AreaObject {
   }
 
  val ALU_BITWISE_CTRL = Stageable(AluBitwiseCtrlEnum())
- val ALU_CTRL = Stageable(AluCtrlEnum())
+val ALU_CTRL = Stageable(AluCtrlEnum())
+val ALU_RESULT = Stageable(Bits(XLEN bits))
 }
 
-class IntAluPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int = 0) extends ExecutionUnitElementSimple(euId, staticLatency)  {
+class IntAluPlugin(val euId : String,
+                   var staticLatency : Boolean = true,
+                   var aluStage : Int = 0,
+                   var writebackAt : Int = 0) extends ExecutionUnitElementSimple(euId, staticLatency)  {
   import IntAluPlugin._
 
-  override def euWritebackAt = aluStage
+  override def euWritebackAt = writebackAt
 
   override val setup = create early new Setup{
     import SrcKeys._
@@ -48,6 +53,16 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int
 
     add(Rvi.LUI,   List(Op.SRC1  , SRC1.U)         , DecodeList(ALU_CTRL -> ace.ADD_SUB))
     add(Rvi.AUIPC, List(Op.ADD   , SRC1.U, SRC2.PC), DecodeList(ALU_CTRL -> ace.ADD_SUB))
+
+    if(XLEN.get == 64){
+      add(Rvi.ADDW ,  List(Op.ADD   , SRC1.RF, SRC2.RF), DecodeList(ALU_CTRL -> ace.ADD_SUB ))
+      add(Rvi.SUBW , List(Op.SUB   , SRC1.RF, SRC2.RF), DecodeList(ALU_CTRL -> ace.ADD_SUB ))
+      add(Rvi.ADDIW , List(Op.ADD   , SRC1.RF, SRC2.I), DecodeList(ALU_CTRL -> ace.ADD_SUB ))
+
+      for(op <- List(Rvi.ADDW, Rvi.SUBW, Rvi.ADDIW)){
+        signExtend(op, 31)
+      }
+    }
   }
 
   override val logic = create late new Logic{
@@ -67,7 +82,12 @@ class IntAluPlugin(euId : String, staticLatency : Boolean = true, aluStage : Int
         AluCtrlEnum.ADD_SUB  -> stage(ss.ADD_SUB)
       )
 
-      wb.payload := B(result)
+      ALU_RESULT := result.asBits
+    }
+
+    val writeback = new ExecuteArea(writebackAt) {
+      import stage._
+      wb.payload := ALU_RESULT
     }
   }
 }

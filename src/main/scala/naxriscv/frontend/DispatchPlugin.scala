@@ -22,13 +22,13 @@ object DispatchPlugin extends AreaObject{
   val SPARSE_ROB_LINE = Stageable(Bool())
 }
 
-class DispatchPlugin(slotCount : Int = 0,
-                     uintAt : Int = 0,
-                     staticHitAt : Int = 0,
-                     robIdAt : Int = 1,
-                     physRdAt : Int = 1,
-                     euAt : Int = 1,
-                     readContextLayer0Factor : Int = LutInputs.get/2) extends Plugin with IssueService with LockedImpl with WakeRegFileService with InitCycles{
+class DispatchPlugin(var slotCount : Int = 0,
+                     var uintAt : Int = 0,
+                     var staticHitAt : Int = 0,
+                     var robIdAt : Int = 1,
+                     var physRdAt : Int = 1,
+                     var euAt : Int = 1,
+                     var readContextLayer0Factor : Int = LutInputs.get/2) extends Plugin with IssueService with LockedImpl with WakeRegFileService with InitCycles{
   import DispatchPlugin._
   val robWaits = ArrayBuffer[RobWait]()
   override def newRobDependency() = robWaits.addRet(RobWait())
@@ -129,10 +129,14 @@ class DispatchPlugin(slotCount : Int = 0,
       val fromBits = toBits.map(e => e._2 -> e._1).toMap
     }
 
+
+    val eusContextKeys = eus.flatMap(_.pushPort().contextKeys).distinctLinked.toSeq
     case class Context() extends Bundle{
       val staticWake = Bits(globalStaticLatencies.latencies.size bits)
       val physRd = decoder.PHYS_RD()
       val robId = ROB.ID() //Only for debug so far
+      val euCtx = eusContextKeys.map(_.craft())
+      def getEuCtx[T <: Data](key : Stageable[T]) : T = euCtx(eusContextKeys.indexOf(key)).asInstanceOf[T]
     }
     val queue = new IssueQueue(
       p = IssueQueueParameter(
@@ -187,11 +191,14 @@ class DispatchPlugin(slotCount : Int = 0,
       val slots = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield new Area{
         val slot = queue.io.push.slots(slotId)
         val self   = ((decoder.WRITE_RD, slotId) && (DISPATCH_MASK, slotId)) ? B(BigInt(1) << slotCount-Frontend.DISPATCH_COUNT+slotId, slotCount bits) | B(0)
-        val events = robWaits.map(o => B(slotCount bits, default -> stage(o.ENABLE, slotId)) & UIntToOh(g2l(stage(o.ID, slotId))))
+        val events = robWaits.map(o => UIntToOh(g2l(stage(o.ID, slotId))).andMask(stage(o.ENABLE, slotId)))
         slot.event := (self +: events).reduceBalancedTree(_ | _)
         slot.sel   := (DISPATCH_MASK, slotId) ? groups.map(g => stage(g.sel, slotId)).asBits() | B(0)
         slot.context.physRd := stage(decoder.PHYS_RD, slotId)
         slot.context.robId := stage(ROB.ID) | slotId
+        for(key <- eusContextKeys){
+          slot.context.getEuCtx(key).assignFrom(stage(key, slotId))
+        }
         for(latency <- globalStaticLatencies.latencies){
           val bitId = globalStaticLatencies.toBits(latency)
           slot.context.staticWake(bitId) := (decoder.WRITE_RD, slotId) && (globalStaticLatencies.latenciesStageable(latency), slotId)
@@ -273,6 +280,10 @@ class DispatchPlugin(slotCount : Int = 0,
       euPort.robId := euStage(keys.ROB_ID)
       euPort.physRd := euStage(decoder.PHYS_RD)
       if(euPort.withReady) euStage.haltIt(!euPort.ready)
+      for(key <- euPort.contextKeys){
+        readContext(key.asInstanceOf[Stageable[Data]], euAt)(_.getEuCtx(key))
+        euPort.getContext(key).assignFrom(euStage(key))
+      }
 
       stagesList.last.flushIt(rescheduling.valid, root = false)
 

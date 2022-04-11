@@ -18,15 +18,18 @@ object MulPlugin extends AreaObject {
   val RS2_SIGNED = Stageable(Bool())
 }
 
-class MulPlugin(euId : String,
-                srcAt : Int = 0,
-                mulAt : Int = 0,
-                sum1At : Int = 1,
-                sum2At : Int = 2,
-                writebackAt : Int = 2,
-                splitWidthA : Int = 16,
-                splitWidthB : Int = 16,
-                staticLatency : Boolean = true) extends ExecutionUnitElementSimple(euId, staticLatency) {
+class MulPlugin(val euId : String,
+                var srcAt : Int = 0,
+                var mulAt : Int = 0,
+                var sum1At : Int = 0,
+                var sum2At : Int = 1,
+                var sum3At : Int = 2,
+                var writebackAt : Int = 2,
+                var splitWidthA : Int = 16,
+                var splitWidthB : Int = 16,
+                var sum1WidthMax : Int = -1,
+                var sum2WidthMax : Int = -1,
+                var staticLatency : Boolean = true) extends ExecutionUnitElementSimple(euId, staticLatency) {
   import MulPlugin._
 
   override def euWritebackAt = writebackAt
@@ -34,26 +37,40 @@ class MulPlugin(euId : String,
   override val setup = create early new Setup{
     import SrcKeys._
 
+    if(sum1WidthMax == -1) sum1WidthMax = XLEN.get/2
+    if(sum2WidthMax == -1) sum2WidthMax = XLEN.get*4/3
+
     getServiceOption[PrivilegedService].foreach(_.addMisa('M'))
 
     add(Rvi.MUL   , List(), DecodeList(HIGH -> False, RS1_SIGNED -> True,  RS2_SIGNED -> True))
     add(Rvi.MULH  , List(), DecodeList(HIGH -> True,  RS1_SIGNED -> True,  RS2_SIGNED -> True))
     add(Rvi.MULHSU, List(), DecodeList(HIGH -> True,  RS1_SIGNED -> True,  RS2_SIGNED -> False))
     add(Rvi.MULHU , List(), DecodeList(HIGH -> True,  RS1_SIGNED -> False, RS2_SIGNED -> False))
+
+    if(XLEN.get == 64){
+      add(Rvi.MULW   , List(), DecodeList(HIGH -> False, RS1_SIGNED -> True,  RS2_SIGNED -> True))
+      for(op <- List(Rvi.MULW)){
+        signExtend(op, 31)
+      }
+    }
   }
 
   override val logic = create late new Logic{
     val splits = MulSpliter.splits(XLEN.get() + 1, XLEN.get() + 1, splitWidthA, splitWidthB, true, true)
     val finalWidth = XLEN*2+2
-    val sumSplitAt = splits.size/2
+    val sum1Takes = splits.takeWhile(e => e.offsetC + e.widthC <= sum1WidthMax).size
+    val sum2Takes = splits.takeWhile(e => e.offsetC + e.widthC <= sum2WidthMax).size-sum1Takes
+    val sum3Takes = splits.size - sum1Takes - sum2Takes
 
     val keys = new AreaRoot{
       val MUL_SRC1 = Stageable(Bits(XLEN.get+1 bits))
       val MUL_SRC2 = Stageable(Bits(XLEN.get+1 bits))
       val MUL_SLICES1 = Stageable(Vec(splits.map(e => SInt(e.widthA + e.widthB + 1 bits))))
-      val MUL_SLICES2  = Stageable(Vec(splits.drop(sumSplitAt).map(e => SInt(e.widthA + e.widthB + 1 bits))))
+      val MUL_SLICES2  = Stageable(Vec(splits.drop(sum1Takes).map(e => SInt(e.widthA + e.widthB + 1 bits))))
       val MUL_SUM1 = Stageable(SInt(finalWidth bits))
       val MUL_SUM2 = Stageable(SInt(finalWidth bits))
+      val MUL_SUM3 = Stageable(SInt(finalWidth bits))
+      val MUL_SLICES3_REDUCED = Stageable(SInt(finalWidth bits))
     }
     import keys._
 
@@ -64,6 +81,9 @@ class MulPlugin(euId : String,
       val rs2 = eu(IntRegFile, RS2)
       MUL_SRC1 := (RS1_SIGNED && rs1.msb) ## (rs1)
       MUL_SRC2 := (RS2_SIGNED && rs2.msb) ## (rs2)
+
+      KeepAttribute(stage(MUL_SRC1))
+      KeepAttribute(stage(MUL_SRC2))
     }
 
     val mul = new ExecuteArea(mulAt) {
@@ -73,18 +93,30 @@ class MulPlugin(euId : String,
 
     val sum1 = new ExecuteArea(sum1At) {
       import stage._
-      MUL_SUM1 := splits.take(sumSplitAt).map(e => (MUL_SLICES1(e.id) << e.offsetC).resize(finalWidth)).reduceBalancedTree(_ + _).resized
-      stage(MUL_SLICES2) := Vec(MUL_SLICES1.drop(sumSplitAt))
+      MUL_SUM1 := (if(sum1Takes != 0) splits.take(sum1Takes).map(e => (MUL_SLICES1(e.id) << e.offsetC).resize(finalWidth)).reduceBalancedTree(_ + _).resized else S(0))
+      stage(MUL_SLICES2) := Vec(MUL_SLICES1.drop(sum1Takes))
+
+      KeepAttribute(stage(MUL_SLICES2))
     }
 
     val sum2 = new ExecuteArea(sum2At) {
       import stage._
-      MUL_SUM2 := MUL_SUM1 + splits.drop(sumSplitAt).map(e => (MUL_SLICES2(e.id - sumSplitAt) << e.offsetC).resize(finalWidth)).reduceBalancedTree(_ + _)
+      MUL_SUM2 := (stage(MUL_SUM1) +: splits.drop(sum1Takes).take(sum2Takes).map(e => (MUL_SLICES2(e.id - sum1Takes) << e.offsetC).resize(finalWidth))).reduceBalancedTree(_ + _)
+
+      if(sum3Takes != 0) {
+        MUL_SLICES3_REDUCED := splits.drop(sum1Takes + sum2Takes).map(e => (MUL_SLICES2(e.id - sum1Takes) << e.offsetC).resize(finalWidth)).reduceBalancedTree(_ + _)
+      }
     }
+
+    val sum3 = new ExecuteArea(sum3At) {
+      import stage._
+      MUL_SUM3 := (if(sum3Takes != 0) MUL_SUM2 + MUL_SLICES3_REDUCED else stage(MUL_SUM2))
+    }
+
 
     val writeback = new ExecuteArea(writebackAt) {
       import stage._
-      wb.payload := B(HIGH ? stage(MUL_SUM2)(XLEN, XLEN bits) otherwise stage(MUL_SUM2)(0, XLEN bits))
+      wb.payload := B(HIGH ? stage(MUL_SUM3)(XLEN, XLEN bits) otherwise stage(MUL_SUM3)(0, XLEN bits))
     }
   }
 

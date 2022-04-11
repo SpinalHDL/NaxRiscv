@@ -11,6 +11,7 @@ import naxriscv.Frontend._
 import naxriscv.Global._
 import naxriscv.frontend.DispatchPlugin
 import naxriscv.misc.CommitPlugin
+import spinal.lib.fsm.{State, StateMachine}
 import spinal.lib.logic.Symplify
 
 object CsrAccessPlugin extends AreaObject{
@@ -31,11 +32,7 @@ object CsrAccessPlugin extends AreaObject{
   val CSR_FLUSH_PIPELINE = Stageable(Bool())
 }
 
-class CsrAccessPlugin(euId: String)(decodeAt: Int,
-                                    readAt: Int,
-                                    writeAt: Int,
-                                    writebackAt: Int,
-                                    staticLatency: Boolean) extends ExecutionUnitElementSimple(euId, staticLatency) with CsrService{
+class CsrAccessPlugin(val euId: String)(var writebackAt: Int) extends ExecutionUnitElementSimple(euId, staticLatency = false) with CsrService{
   override def euWritebackAt = writebackAt
 
   override def onReadHalt()   = setup.onReadHalt   := True
@@ -111,8 +108,8 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
     val useRamWrite = spec.exists(_.isInstanceOf[CsrRamSpec])
     val useRam = useRamRead || useRamWrite
 
-    val ramReadPort = useRamRead generate ram.ramReadPort()
-    val ramWritePort = useRamWrite generate ram.ramWritePort()
+    val ramReadPort = useRamRead generate ram.ramReadPort(CsrRamService.priority.CSR)
+    val ramWritePort = useRamWrite generate ram.ramWritePort(CsrRamService.priority.CSR)
     if(ram != null) ram.portLock.release()
 
     def filterToName(filter : Any) = filter match{
@@ -120,176 +117,254 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
       case f : Nameable => f.getName()
     }
     val grouped = spec.groupByLinked(_.csrFilter)
-    val sels = grouped.map(g => g._1 -> Stageable(Bool()).setName("CSR_" + filterToName(g._1)))
 
 
     val RAM_ADDRESS = Stageable(UInt(ramReadPort.addressWidth bits))
-    val decodeLogic = new ExecuteArea(decodeAt) {
-      import stage._
-      sels.foreach{
-        case (filter : Int, stageable) => stageable := MICRO_OP(Const.csrRange) === filter
-        case (filter : CsrListFilter, stageable) => stageable := filter.mapping.map(MICRO_OP(Const.csrRange) === _).orR
+
+
+    val fsm = new StateMachine{
+      val IDLE, READ, WRITE, DONE = new State
+      setEntry(IDLE)
+
+      val regs = new Area{
+        val sels = grouped.map(e => e._1 -> Reg(Bool()).setName("REG_CSR_" + filterToName(e._1)))
+        val ramAddress = useRam generate Reg(RAM_ADDRESS)
+        val ramSel = useRam generate Reg(Bool())
+        val microOp = Reg(MICRO_OP)
+        val doImm, doMask, doClear = Reg(Bool())
+        val rs1 = Reg(Bits(XLEN bits))
+
+        val implemented, trap, flushPipeline = Reg(Bool())
+        val read, write = Reg(Bool())
+
+        val aluInput, csrValue = Reg(CSR_VALUE)
       }
-      RAM_SEL := spec.filter(_.isInstanceOf[CsrRamSpec]).map(e => stage(sels(e.csrFilter))).orR
 
-      val imm = IMM(MICRO_OP)
-      val immZero = imm.z === 0
-      val srcZero = CSR_IMM ? immZero otherwise MICRO_OP(Const.rs1Range) === 0
-      CSR_WRITE := !(CSR_MASK && srcZero)
-      CSR_READ := !(!CSR_MASK && !decoder.WRITE_RD)
-      CSR_IMPLEMENTED := sels.values.map(stage(_)).toSeq.orR
 
-      setup.onDecodeRead := CSR_READ
-      setup.onDecodeWrite := CSR_WRITE
-      CSR_TRAP := !CSR_IMPLEMENTED || setup.onDecodeTrap
-      CSR_FLUSH_PIPELINE := setup.onDecodeFlushPipeline
+      val startLogic = new ExecuteArea(0) {
+        import stage._
 
-      setup.onDecodeAddress := U(MICRO_OP)(Const.csrRange)
+        val imm = IMM(MICRO_OP)
+        val immZero = imm.z === 0
+        val srcZero = CSR_IMM ? immZero otherwise MICRO_OP(Const.rs1Range) === 0
+        val csrWrite = !(CSR_MASK && srcZero)
+        val csrRead  = !(!CSR_MASK && !decoder.WRITE_RD)
+        val sels = grouped.map(e => e._1 -> Bool().setName("COMB_CSR_" + filterToName(e._1)))
+        for((filter, sel) <- sels) sel := (filter match {
+          case filter : Int           => MICRO_OP(Const.csrRange) === filter
+          case filter : CsrListFilter => filter.mapping.map(MICRO_OP(Const.csrRange) === _).orR
+        })
+        val implemented = sels.values.orR
 
-      val onDecodeDo = isValid && SEL
-      val priorities = spec.collect{ case e : CsrOnDecode  => e.priority }.distinct.sorted
-      for(priority <- priorities) {
+        setup.onDecodeWrite := csrWrite
+        setup.onDecodeRead  := csrRead
+        val trap = !implemented || setup.onDecodeTrap
+
+        val write = SEL && !trap && csrWrite
+        val read  = SEL && !trap && csrRead
+
+        setup.onDecodeAddress := U(MICRO_OP)(Const.csrRange)
+
+
+
+        val onDecodeDo = isValid && SEL
+        val priorities = spec.collect{ case e : CsrOnDecode  => e.priority }.distinct.sorted
+        for(priority <- priorities) {
+          for ((csrFilter, elements) <- grouped) {
+            val onDecodes = elements.collect { case e: CsrOnDecode if e.priority == priority => e }
+            if (onDecodes.nonEmpty) when(onDecodeDo && sels(csrFilter)) {
+              onDecodes.foreach(_.body())
+            }
+          }
+        }
+
+        IDLE whenIsActive{
+          regs.microOp := MICRO_OP
+          regs.doImm   := CSR_IMM
+          regs.doMask  := CSR_MASK
+          regs.doClear := CSR_CLEAR
+          regs.rs1     := eu(IntRegFile, RS1)
+          regs.implemented := implemented
+          regs.trap := trap
+          regs.flushPipeline := setup.onDecodeFlushPipeline
+          regs.write := write
+          regs.read  := read
+
+          (regs.sels.values, sels.values).zipped.foreach(_ := _)
+
+          if(useRam){
+            ramReadPort.get //Ensure the ram port is generated
+            regs.ramSel := False
+            switch(MICRO_OP(Const.csrRange)) {
+              for (e <- spec.collect { case x: CsrRamSpec => x }) e.csrFilter match {
+                case filter: CsrListFilter => for ((csrId, offset) <- filter.mapping.zipWithIndex) {
+                  is(csrId) {
+                    regs.ramSel := True
+                    regs.ramAddress := e.alloc.at + offset
+                  }
+                }
+                case csrId: Int => {
+                  is(csrId) {
+                    regs.ramSel := True
+                    regs.ramAddress := e.alloc.at
+                  }
+                }
+              }
+            }
+          }
+
+
+          when(onDecodeDo){
+            goto(READ)
+          }
+        }
+      }
+
+      val readLogic = new Area{
+        setup.onReadAddress := U(regs.microOp)(Const.csrRange)
+        val onReadsDo = False
+        val onReadsFireDo = False
+
+        setup.onReadMovingOff := !setup.onReadHalt || eu.getExecute(0).isFlushed
+
+        val groupedLogic = for ((csrFilter, elements) <- grouped) yield new Area{
+          setPartialName(filterToName(csrFilter))
+
+          val onReads  = elements.collect{ case e : CsrOnRead  => e }
+          val onReadsData = elements.collect{ case e : CsrOnReadData => e }
+          val onReadsAlways  = onReads.filter(!_.onlyOnFire)
+          val onReadsFire  = onReads.filter(_.onlyOnFire)
+
+          if(onReadsAlways.nonEmpty)  when(onReadsDo      && regs.sels(csrFilter)){ onReadsAlways.foreach(_.body()) }
+          if(onReadsFire.nonEmpty)   when(onReadsFireDo  && regs.sels(csrFilter)){ onReadsFire.foreach(_.body()) }
+
+          val read = onReadsData.nonEmpty generate new Area {
+            val bitCount = onReadsData.map(e => widthOf(e.value)).sum
+            assert(bitCount <= XLEN.get)
+
+            val value = if(bitCount != XLEN.get) B(0, XLEN bits) else Bits(XLEN bits)
+            onReadsData.foreach (e => value.assignFromBits(e.value.asBits, e.bitOffset, widthOf(e.value) bits) )
+            val masked = value.andMask(regs.sels(csrFilter))
+          }
+        }
+
+        val csrValue = CSR_VALUE()
+        if(groupedLogic.exists(_.onReadsData.nonEmpty)){
+          csrValue := groupedLogic.filter(_.onReadsData.nonEmpty).map(_.read.masked).toList.reduceBalancedTree(_ | _)
+        } else {
+          csrValue := 0
+        }
+
+        val ramRead = useRamRead generate new Area {
+          ramReadPort.valid := onReadsDo && regs.ramSel
+          ramReadPort.address := regs.ramAddress
+          when(regs.ramSel) {
+            csrValue := ramReadPort.data
+          }
+          setup.onReadHalt setWhen(ramReadPort.valid && !ramReadPort.ready)
+        }
+
+        setup.onReadToWriteBits := csrValue
         for ((csrFilter, elements) <- grouped) {
-          val onDecodes = elements.collect { case e: CsrOnDecode if e.priority == priority => e }
-          if (onDecodes.nonEmpty) when(onDecodeDo && sels(csrFilter)) {
-            onDecodes.foreach(_.body())
+          val onReadToWrite = elements.collect { case e: CsrOnReadToWrite => e }
+          if(onReadToWrite.nonEmpty)  when(onReadsDo  && regs.sels(csrFilter)){ onReadToWrite.foreach(_.body()) }
+        }
+
+        READ.whenIsActive{
+          onReadsDo := regs.read
+          regs.aluInput := setup.onReadToWriteBits
+          regs.csrValue := csrValue
+          when(!setup.onReadHalt){
+            onReadsFireDo :=  regs.read
+            goto(WRITE)
           }
         }
       }
 
-      val ram = useRam generate new Area{
-        ramReadPort.get //Ensure the ram port is generated
-        RAM_ADDRESS.assignDontCare()
-        switch(MICRO_OP(Const.csrRange)) {
-          for (e <- spec.collect{ case x : CsrRamSpec => x}) e.csrFilter match {
-            case filter: CsrListFilter => for((csrId, offset) <- filter.mapping.zipWithIndex){
-              is(csrId){
-                RAM_ADDRESS := e.alloc.at + offset
-              }
-            }
-            case csrId : Int => {
-              is(csrId){
-                RAM_ADDRESS := e.alloc.at
-              }
-            }
+      val writeLogic = new Area{
+        val imm = IMM(regs.microOp)
+        setup.onWriteMovingOff := !setup.onWriteHalt || eu.getExecute(0).isFlushed
+
+        val alu = new Area {
+          val mask = regs.doImm ? imm.z.resized | regs.rs1
+          val masked = regs.doClear ? (regs.aluInput & ~mask) otherwise (regs.aluInput | mask)
+          val result = regs.doMask ? masked otherwise mask
+        }
+
+        setup.onWriteBits    := alu.result
+        setup.onWriteAddress := U(regs.microOp)(Const.csrRange)
+
+        val onWritesDo     = False
+        val onWritesFireDo = False
+
+        WRITE.whenIsActive{
+          onWritesDo :=  regs.write
+          when(!setup.onWriteHalt){
+            onWritesFireDo :=  regs.write
+            goto(DONE)
           }
         }
-      }
-    }
-
-    val readLogic = new ExecuteArea(readAt) {
-      import stage._
-
-      setup.onReadAddress := U(MICRO_OP)(Const.csrRange)
-      val onReadsDo = isValid && SEL && !CSR_TRAP && CSR_READ
-      val onReadsFireDo = isFireing && SEL && !CSR_TRAP && CSR_READ
-      setup.onReadMovingOff := stage.isReady || stage.isFlushed
-
-      haltIt(setup.onReadHalt)
 
 
-      val groupedLogic = for ((csrFilter, elements) <- grouped) yield new Area{
-        setPartialName(filterToName(csrFilter))
+        val groupedLogic = for ((csrFilter, elements) <- grouped) yield new Area{
+          setPartialName(filterToName(csrFilter))
 
-        val onReads  = elements.collect{ case e : CsrOnRead  => e }
-        val onReadsData = elements.collect{ case e : CsrOnReadData => e }
-        val onReadsAlways  = onReads.filter(!_.onlyOnFire)
-        val onReadsFire  = onReads.filter(_.onlyOnFire)
+          val onWrites = elements.collect{ case e : CsrOnWrite => e }
+          val onWritesAlways = onWrites.filter(!_.onlyOnFire)
+          val onWritesFire = onWrites.filter(_.onlyOnFire)
 
-        if(onReadsAlways.nonEmpty)  when(onReadsDo      && sels(csrFilter)){ onReadsAlways.foreach(_.body()) }
-        if(onReadsFire.nonEmpty)   when(onReadsFireDo  && sels(csrFilter)){ onReadsFire.foreach(_.body()) }
+          if(onWritesAlways.nonEmpty) when(onWritesDo     && regs.sels(csrFilter)){ onWritesAlways.foreach(_.body()) }
+          if(onWritesFire.nonEmpty)  when(onWritesFireDo && regs.sels(csrFilter)){ onWritesFire.foreach(_.body()) }
+        }
 
-        val read = onReadsData.nonEmpty generate new Area {
-          val bitCount = onReadsData.map(e => widthOf(e.value)).sum
-          assert(bitCount <= XLEN.get)
-
-          val value = if(bitCount != XLEN.get) B(0, XLEN bits) else Bits(XLEN bits)
-          onReadsData.foreach (e => value.assignFromBits(e.value.asBits, e.bitOffset, widthOf(e.value) bits) )
-          val masked = value.andMask(sels(csrFilter))
+        val ramWrite = useRamRead generate new Area {
+          val fired = RegInit(False) setWhen(ramWritePort.fire) clearWhen(setup.onWriteMovingOff)
+          ramWritePort.valid := onWritesDo && regs.ramSel && !fired
+          ramWritePort.address := regs.ramAddress
+          ramWritePort.data := setup.onWriteBits
+          setup.onWriteHalt setWhen(ramWritePort.valid && !ramWritePort.ready)
         }
       }
 
-      if(groupedLogic.exists(_.onReadsData.nonEmpty)){
-        CSR_VALUE := groupedLogic.filter(_.onReadsData.nonEmpty).map(_.read.masked).toList.reduceBalancedTree(_ | _)
-      } else {
-        CSR_VALUE := 0
-      }
-
-      val ramRead = useRamRead generate new Area {
-        //val fired = RegInit(False) setWhen(ramReadPort.fire) clearWhen(isReady || isFlushed)
-        ramReadPort.valid := onReadsDo && RAM_SEL// && !fired
-        ramReadPort.address := RAM_ADDRESS
-        when(RAM_SEL) {
-          CSR_VALUE := ramReadPort.data
+      val isDone = False
+      val isCompletionReady = False
+      DONE.whenIsActive{
+        isDone := True
+        when(isCompletionReady){
+          goto(IDLE)
         }
-        haltIt(ramReadPort.valid && !ramReadPort.ready)
       }
 
-      setup.onReadToWriteBits := CSR_VALUE
-      for ((csrFilter, elements) <- grouped) {
-        val onReadToWrite = elements.collect { case e: CsrOnReadToWrite => e }
-        if(onReadToWrite.nonEmpty)  when(onReadsDo  && sels(csrFilter)){ onReadToWrite.foreach(_.body()) }
-      }
-      CSR_VALUE_TO_ALU := setup.onReadToWriteBits
-    }
-
-    val writeLogic = new ExecuteArea(writeAt) {
-      import stage._
-      val imm = IMM(MICRO_OP)
-      setup.onWriteMovingOff := stage.isReady || stage.isFlushed
-
-      ALU_INPUT := CSR_VALUE_TO_ALU
-      ALU_MASK := CSR_IMM ? imm.z.resized | eu(IntRegFile, RS1)
-      ALU_MASKED := CSR_CLEAR ? (ALU_INPUT & ~ALU_MASK) otherwise (ALU_INPUT | ALU_MASK)
-      ALU_RESULT := CSR_MASK ? stage(ALU_MASKED) otherwise ALU_MASK
-
-      setup.onWriteBits := ALU_RESULT
-      setup.onWriteAddress := U(MICRO_OP)(Const.csrRange)
-
-      val onWritesDo = isValid && SEL && !CSR_TRAP && CSR_WRITE
-      val onWritesFireDo = isFireing && SEL && !CSR_TRAP && CSR_WRITE
-
-      haltIt(setup.onWriteHalt)
-
-      val groupedLogic = for ((csrFilter, elements) <- grouped) yield new Area{
-        setPartialName(filterToName(csrFilter))
-
-        val onWrites = elements.collect{ case e : CsrOnWrite => e }
-        val onWritesAlways = onWrites.filter(!_.onlyOnFire)
-        val onWritesFire = onWrites.filter(_.onlyOnFire)
-
-        if(onWritesAlways.nonEmpty) when(onWritesDo     && sels(csrFilter)){ onWritesAlways.foreach(_.body()) }
-        if(onWritesFire.nonEmpty)  when(onWritesFireDo && sels(csrFilter)){ onWritesFire.foreach(_.body()) }
+      always{
+        when(eu.getExecute(0).isFlushed){
+          goto(IDLE)
+        }
       }
 
-      val ramWrite = useRamRead generate new Area {
-        val fired = RegInit(False) setWhen(ramWritePort.fire) clearWhen(isReady || isFlushed)
-        ramWritePort.valid := onWritesDo && RAM_SEL && !fired
-        ramWritePort.address := RAM_ADDRESS
-        ramWritePort.data := setup.onWriteBits
-        haltIt(ramWritePort.valid && !ramWritePort.ready)
-      }
+      build()
     }
 
     val writebackLogic = new ExecuteArea(writebackAt) {
       import stage._
-      wb.payload := CSR_VALUE
+      wb.payload := fsm.regs.csrValue
 
-      setup.trap.valid      := isValid && SEL && (CSR_TRAP || CSR_FLUSH_PIPELINE)
+      setup.trap.valid      := isValid && SEL && fsm.isDone && (fsm.regs.trap || fsm.regs.flushPipeline)
       setup.trap.robId      := ROB.ID
       setup.trap.cause      := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
-      setup.trap.tval       := MICRO_OP
-      setup.trap.skipCommit := CSR_TRAP
+      setup.trap.tval       := fsm.regs.microOp.resized
+      setup.trap.skipCommit := fsm.regs.trap
       setup.trap.reason     := ScheduleReason.TRAP
 
-      when(!CSR_TRAP){
+      haltIt(isValid && SEL && !fsm.isDone)
+      fsm.isCompletionReady setWhen(isReady)
+
+      when(!fsm.regs.trap){
         setup.trap.cause := EnvCallPlugin.CAUSE_FLUSH
       }
     }
 
     val whitebox = new AreaRoot {
-      import writeLogic.stage._
-
+      import writebackLogic.stage._
       val csrAccess = Verilator.public(Flow(new Bundle {
         val robId = ROB.ID()
         val address = UInt(12 bits)
@@ -298,13 +373,13 @@ class CsrAccessPlugin(euId: String)(decodeAt: Int,
         val writeDone = Bool()
         val readDone = Bool()
       }))
-      csrAccess.valid := isFireing && SEL && !CSR_TRAP
+      csrAccess.valid := isFireing && SEL && !fsm.regs.trap
       csrAccess.robId := ROB.ID
       csrAccess.address := U(MICRO_OP)(Const.csrRange)
       csrAccess.write := setup.onWriteBits
-      csrAccess.read := CSR_VALUE
-      csrAccess.writeDone := CSR_WRITE
-      csrAccess.readDone := CSR_READ
+      csrAccess.read := fsm.regs.csrValue
+      csrAccess.writeDone := fsm.regs.write
+      csrAccess.readDone := fsm.regs.read
     }
   }
 }

@@ -12,12 +12,12 @@ import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Stageable
 
-class GSharePlugin(historyWidth : Int,
-                   entries : Int = 0,
-                   memBytes : BigInt = null,
-                   readAt : Int = 0,
-                   counterWidth : Int = 2,
-                   readAsync : Boolean = false) extends Plugin with FetchConditionalPrediction with HistoryUser{
+class GSharePlugin(var historyWidth : Int,
+                   var entries : Int = 0,
+                   var memBytes : BigInt = null,
+                   var readAt : Int = 0,
+                   var counterWidth : Int = 2,
+                   var readAsync : Boolean = false) extends Plugin with FetchConditionalPrediction with HistoryUser{
 
   override def useHistoryAt = readAt
   override def historyWidthUsed = historyWidth

@@ -26,12 +26,15 @@ object BranchPlugin extends AreaObject {
   val BRANCH_CTRL = new Stageable(BranchCtrlEnum())
   val VMA_INVALIDATE = Stageable(Bool())
   val FETCH_INVALIDATE = Stageable(Bool())
+  val MISSPREDICTED = Stageable(Bool())
+  val MISSALIGNED = Stageable(Bool())
+  val BAD_EARLY_TARGET = Stageable(Bool())
 }
 
-class BranchPlugin(euId : String,
-                   staticLatency : Boolean = true,
-                   writebackAt : Int = 0,
-                   branchAt : Int = 1) extends ExecutionUnitElementSimple(euId, staticLatency)  {
+class BranchPlugin(val euId : String,
+                   var staticLatency : Boolean = true,
+                   var writebackAt : Int = 0,
+                   var branchAt : Int = 1) extends ExecutionUnitElementSimple(euId, staticLatency)  {
   import BranchPlugin._
 
 
@@ -62,7 +65,7 @@ class BranchPlugin(euId : String,
     val fetch = getService[FetchPlugin]
     val commit = getService[CommitService]
     val rob = getService[RobService]
-    val sliceShift = if(Fetch.RVC) 1 else 2
+    val sliceShift = if(Global.RVC) 1 else 2
     val branchContext = setup.withBranchContext generate getService[BranchContextPlugin]
     val bck = setup.withBranchContext generate branchContext.keys.get
     import bck._
@@ -87,7 +90,7 @@ class BranchPlugin(euId : String,
       val imm = IMM(Frontend.MICRO_OP)
       val target_a = BRANCH_CTRL.mux(
         default             -> S(stage(PC)),
-        BranchCtrlEnum.JALR -> stage(ss.SRC1)
+        BranchCtrlEnum.JALR -> stage(ss.SRC1).resize(PC_WIDTH)
       )
 
       val target_b = BRANCH_CTRL.mux(
@@ -96,7 +99,7 @@ class BranchPlugin(euId : String,
         BranchCtrlEnum.JALR  -> imm.i_sext
       )
 
-      (PC, "TRUE") := U(target_a + target_b)
+      (PC, "TRUE") := U(target_a + target_b).resized
       (PC, "TRUE")(0) := False
 
       val slices = Fetch.INSTRUCTION_SLICE_COUNT+^1
@@ -109,35 +112,34 @@ class BranchPlugin(euId : String,
       KeepAttribute(stage(PC, "FALSE"))
 
       if(setup.withBranchContext) stage(BRANCH_EARLY) := branchContext.readEarly(BRANCH_ID)
+
+      BAD_EARLY_TARGET := (if(setup.withBranchContext) BRANCH_EARLY.pc =/= stage(PC, "TRUE") else False)
     }
 
     val writeback = new ExecuteArea(writebackAt){
       import stage._
-
-      wb.payload := B(stage(PC, "FALSE")) //JAL/JALR
+      wb.payload := S(stage(PC, "FALSE"), XLEN bits).asBits //TODO PC sign extends ? (DONE)
     }
 
     val branch = new ExecuteArea(branchAt){
       import stage._
 
-      //TODO pipeline badEarly
-      val badEarlyTarget = if(setup.withBranchContext) BRANCH_EARLY.pc    =/= stage(PC, "TRUE") else False
       val badEarlyTaken  = if(setup.withBranchContext) BRANCH_EARLY.taken =/= COND              else CombInit(stage(COND))
-      val misspredicted = badEarlyTaken || COND && badEarlyTarget
+      MISSPREDICTED := badEarlyTaken || COND && BAD_EARLY_TARGET
 
       def target = if(setup.withBranchContext)  stage(PC, "TARGET") else stage(PC, "TRUE")
 
-      val missaligned = if(Fetch.RVC) False else target(0, sliceShift bits) =/= 0 && COND
+      MISSALIGNED := (if(Global.RVC) False else target(0, sliceShift bits) =/= 0 && COND)
 
-      setup.reschedule.valid := isFireing && SEL && (misspredicted || missaligned)
+      setup.reschedule.valid := isFireing && SEL && (MISSPREDICTED || MISSALIGNED)
       setup.reschedule.robId := ROB.ID
       setup.reschedule.cause := 0
       setup.reschedule.tval := 0
       setup.reschedule.pcTarget := target
       setup.reschedule.reason  := ((BRANCH_CTRL === BranchCtrlEnum.B) ? U(ScheduleReason.BRANCH) otherwise U(ScheduleReason.JUMP)).resized
 
-      setup.reschedule.trap := missaligned
-      setup.reschedule.skipCommit := missaligned
+      setup.reschedule.trap := MISSALIGNED
+      setup.reschedule.skipCommit := MISSALIGNED
 
       val finalBranch = setup.withBranchContext generate branchContext.writeFinal()
       if(setup.withBranchContext) {

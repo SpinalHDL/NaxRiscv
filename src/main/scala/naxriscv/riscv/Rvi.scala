@@ -1,6 +1,7 @@
 package naxriscv.riscv
 
-import naxriscv.riscv.IntRegFile.TypeU
+import naxriscv.Global._
+import naxriscv.riscv.IntRegFile.{TypeU, width}
 import spinal.core._
 
 object Rvi{
@@ -18,7 +19,6 @@ object Rvi{
   def AND                = TypeR(M"0000000----------111-----0110011")
 
 
-
   def ADDI               = TypeI(M"-----------------000-----0010011")
   def SLLI               = TypeI(M"000000-----------001-----0010011")
   def SLTI               = TypeI(M"-----------------010-----0010011")
@@ -29,6 +29,17 @@ object Rvi{
   def ORI                = TypeI(M"-----------------110-----0010011")
   def ANDI               = TypeI(M"-----------------111-----0010011")
 
+
+  def ADDW               = TypeR(M"0000000----------000-----0111011")
+  def SUBW               = TypeR(M"0100000----------000-----0111011")
+  def ADDIW              = TypeI(M"-----------------000-----0011011")
+
+  def SLLW                = TypeR(M"0000000----------001-----0111011")
+  def SRLW                = TypeR(M"0000000----------101-----0111011")
+  def SRAW                = TypeR(M"0100000----------101-----0111011")
+  def SLLIW               = TypeI(M"000000-----------001-----0011011")
+  def SRLIW               = TypeI(M"000000-----------101-----0011011")
+  def SRAIW               = TypeI(M"010000-----------101-----0011011")
 
   def LUI   = TypeU(M"-------------------------0110111")
   def AUIPC = TypeUPC(M"-------------------------0010111")
@@ -48,26 +59,28 @@ object Rvi{
   def LB                 = TypeILQ(M"-----------------000-----0000011")
   def LH                 = TypeILQ(M"-----------------001-----0000011")
   def LW                 = TypeILQ(M"-----------------010-----0000011")
+  def LD                 = TypeILQ(M"-----------------011-----0000011")
   def LBU                = TypeILQ(M"-----------------100-----0000011")
   def LHU                = TypeILQ(M"-----------------101-----0000011")
+  def LWU                = TypeILQ(M"-----------------110-----0000011")
 
   def SB                 = TypeSSQ(M"-----------------000-----0100011")
   def SH                 = TypeSSQ(M"-----------------001-----0100011")
   def SW                 = TypeSSQ(M"-----------------010-----0100011")
+  def SD                 = TypeSSQ(M"-----------------011-----0100011")
 
-  def LR                 = TypeILQ(M"00010--00000-----010-----0101111")
-  def SC                 = TypeASQ(M"00011------------010-----0101111")
+  def LR                 = if(XLEN.get == 64) TypeILQ(M"00010--00000-----01------0101111") else TypeILQ(M"00010--00000-----010-----0101111")
+  def SC                 = if(XLEN.get == 64) TypeASQ(M"00011------------01------0101111") else TypeASQ(M"00011------------010-----0101111")
 
-  def AMOSWAP            = TypeASQ(M"00001------------010-----0101111")
-  def AMOADD             = TypeASQ(M"00000------------010-----0101111")
-  def AMOXOR             = TypeASQ(M"00100------------010-----0101111")
-  def AMOAND             = TypeASQ(M"01100------------010-----0101111")
-  def AMOOR              = TypeASQ(M"01000------------010-----0101111")
-  def AMOMIN             = TypeASQ(M"10000------------010-----0101111")
-  def AMOMAX             = TypeASQ(M"10100------------010-----0101111")
-  def AMOMINU            = TypeASQ(M"11000------------010-----0101111")
-  def AMOMAXU            = TypeASQ(M"11100------------010-----0101111")
-
+  def AMOSWAP            = if(XLEN.get == 64) TypeASQ(M"00001------------01------0101111") else TypeASQ(M"00001------------010-----0101111")
+  def AMOADD             = if(XLEN.get == 64) TypeASQ(M"00000------------01------0101111") else TypeASQ(M"00000------------010-----0101111")
+  def AMOXOR             = if(XLEN.get == 64) TypeASQ(M"00100------------01------0101111") else TypeASQ(M"00100------------010-----0101111")
+  def AMOAND             = if(XLEN.get == 64) TypeASQ(M"01100------------01------0101111") else TypeASQ(M"01100------------010-----0101111")
+  def AMOOR              = if(XLEN.get == 64) TypeASQ(M"01000------------01------0101111") else TypeASQ(M"01000------------010-----0101111")
+  def AMOMIN             = if(XLEN.get == 64) TypeASQ(M"10000------------01------0101111") else TypeASQ(M"10000------------010-----0101111")
+  def AMOMAX             = if(XLEN.get == 64) TypeASQ(M"10100------------01------0101111") else TypeASQ(M"10100------------010-----0101111")
+  def AMOMINU            = if(XLEN.get == 64) TypeASQ(M"11000------------01------0101111") else TypeASQ(M"11000------------010-----0101111")
+  def AMOMAXU            = if(XLEN.get == 64) TypeASQ(M"11100------------01------0101111") else TypeASQ(M"11100------------010-----0101111")
 
   def MUL                = TypeR(M"0000001----------000-----0110011")
   def MULH               = TypeR(M"0000001----------001-----0110011")
@@ -79,6 +92,12 @@ object Rvi{
   def DIVU               = TypeR(M"0000001----------101-----0110011")
   def REM                = TypeR(M"0000001----------110-----0110011")
   def REMU               = TypeR(M"0000001----------111-----0110011")
+
+  def MULW               = TypeR(M"0000001----------000-----0111011")
+  def DIVW               = TypeR(M"0000001----------100-----0111011")
+  def DIVUW              = TypeR(M"0000001----------101-----0111011")
+  def REMW               = TypeR(M"0000001----------110-----0111011")
+  def REMUW              = TypeR(M"0000001----------111-----0111011")
 
   def CSRRW              = TypeI (M"-----------------001-----1110011")
   def CSRRS              = TypeI (M"-----------------010-----1110011")
@@ -98,6 +117,8 @@ object Rvi{
   def FENCE              = TypeNone(M"-----------------000-----0001111")
   def FENCE_I            = TypeNone(M"-----------------001-----0001111")
   def SFENCE_VMA         = TypeNone(M"0001001----------000000001110011")
+
+  def FLUSH_DATA         = TypeNone(M"-------00000-----101-----0001111")
 
 //  def LR                 = M"00010--00000-----010-----0101111"
 //  def SC                 = M"00011------------010-----0101111"
@@ -119,18 +140,28 @@ object Rvi{
 class AtomicAlu(op : Bits,
                 swap : Bool,
                 mem : Bits,
-                rf : Bits) extends Area{
+                rf : Bits,
+                isWord : Bool) extends Area{
+  def lessFunc(bitId : Int) : Bool = Mux(rf(bitId) === mem(bitId), addSub(bitId), Mux(unsigned, mem(bitId), rf(bitId)))
   val compare  = op.msb
   val unsigned = op(1)
-  val addSub = (rf.asSInt + Mux(compare, ~mem, mem).asSInt + Mux(compare, S(1), S(0))).asBits
-  val less = Mux(rf.msb === mem.msb, addSub.msb, Mux(unsigned, mem.msb, rf.msb))
+  val addSub   = (rf.asSInt + Mux(compare, ~mem, mem).asSInt + Mux(compare, S(1), S(0))).asBits
+  val less     = lessFunc(widthOf(rf)-1)
   val selectRf = swap ? True | (op.lsb ^ less)
 
-  val result = (op | (swap ## B"00")).mux(
+  val raw = (op | (swap ## B"00")).mux(
     B"000"  -> addSub,
     B"001"  -> (rf ^ mem),
     B"010"  -> (rf | mem),
     B"011"  -> (rf & mem),
     default -> (selectRf ? rf | mem)
   )
+  val result = CombInit(raw)
+
+  if(widthOf(rf) == 64){
+    when(isWord){
+      less := lessFunc(31)
+      result(63 downto 32) := (default -> raw(31))
+    }
+  }
 }

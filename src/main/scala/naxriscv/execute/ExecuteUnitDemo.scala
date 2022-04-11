@@ -10,12 +10,9 @@ import naxriscv.Global._
 
 class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin with ExecuteUnitService with WakeRobService with WakeRegFileService with LockedImpl {
   setName(euId)
-  override def uniqueIds = List(euId)
 
   override def hasFixedLatency = ???
-
   override def getFixedLatencies = ???
-
   override def pushPort() = logic.pushPort
 
   override def euName() = euId
@@ -51,7 +48,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
     val decoder = getService[DecoderService]
     val flush = getService[CommitService].reschedulingPort().valid
 
-    val pushPort = ExecutionUnitPush(physRdType = decoder.PHYS_RD, withReady = true)
+    val pushPort = ExecutionUnitPush(physRdType = decoder.PHYS_RD, contextKeys = Nil, withReady = true)
     val euGroup = decoder.euGroups.find(_.eus.contains(ExecuteUnitDemo.this)).get
     val sf = euGroup.eus.size
     val so = euGroup.eus.indexOf(ExecuteUnitDemo.this)

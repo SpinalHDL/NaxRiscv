@@ -3,6 +3,7 @@ package naxriscv.lsu
 import naxriscv.utilities.{AddressToMask, Reservation}
 import spinal.core._
 import spinal.lib._
+import spinal.lib.bus.amba4.axi.{Axi4, Axi4Config}
 import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline.{Pipeline, Stage, Stageable, StageableOffsetNone}
 
@@ -70,25 +71,31 @@ case class DataStoreCmd(postTranslationWidth: Int,
   val address = UInt(postTranslationWidth bits)
   val data = Bits(dataWidth bits)
   val mask = Bits(dataWidth/8 bits)
-  val generation  = Bool()
+  val generation = Bool()
   val io = Bool()
   val flush = Bool() //Flush all the ways for the given address's line. May also set rsp.redo
+  val flushFree = Bool()
+  val prefetch = Bool()
 }
 
-case class DataStoreRsp(dataWidth : Int, refillCount : Int) extends Bundle {
+case class DataStoreRsp(addressWidth : Int, refillCount : Int) extends Bundle {
   val fault = Bool()
   val redo = Bool()
   val refillSlot = Bits(refillCount bits) //Zero when refillSlotAny
   val refillSlotAny = Bool() //Not valid if !miss
   val generationKo = Bool() //Ignore everything else if this is set
   val flush = Bool()
+  val prefetch = Bool()
+  val address = UInt(addressWidth bits)
 }
 
 
 case class DataMemBusParameter( addressWidth: Int,
                                 dataWidth: Int,
                                 readIdWidth: Int,
-                                writeIdWidth: Int)
+                                writeIdWidth: Int,
+                                lineSize: Int,
+                                withReducedBandwidth : Boolean)
 
 case class DataMemReadCmd(p : DataMemBusParameter) extends Bundle {
   val id = UInt(p.readIdWidth bits)
@@ -103,18 +110,42 @@ case class DataMemReadRsp(p : DataMemBusParameter) extends Bundle {
 
 case class DataMemReadBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
   val cmd = Stream(DataMemReadCmd(p))
-  val rsp = Flow(DataMemReadRsp(p))
+  val rsp = Stream(DataMemReadRsp(p))
 
   override def asMaster() = {
     master(cmd)
     slave(rsp)
   }
+
+  def <<(m : DataMemReadBus): Unit ={
+    m.cmd >> this.cmd
+    m.rsp << this.rsp
+  }
+
+  def resizer(newDataWidth : Int) : DataMemReadBus = new Composite(this, "resizer"){
+    val ret = DataMemReadBus(
+      p = p.copy(
+        dataWidth = newDataWidth,
+        withReducedBandwidth = p.withReducedBandwidth || newDataWidth > p.dataWidth
+      )
+    )
+
+    ret.cmd << self.cmd
+
+    val rspOutputStream = Stream(Bits(p.dataWidth bits))
+    StreamWidthAdapter(ret.rsp.translateWith(ret.rsp.data), rspOutputStream)
+
+    rsp.valid := rspOutputStream.valid
+    rsp.data  := rspOutputStream.payload
+    rsp.id    := ret.rsp.id
+    rsp.error := ret.rsp.error
+    rspOutputStream.ready :=  (if(p.withReducedBandwidth) rspOutputStream.ready else True)
+  }.ret
 }
 
 case class DataMemWriteCmd(p : DataMemBusParameter) extends Bundle {
   val address = UInt(p.addressWidth bits)
   val data    = Bits(p.dataWidth bits)
-  val mask    = Bits(p.dataWidth/8 bits)
   val id = UInt(p.writeIdWidth bits)
 }
 
@@ -124,23 +155,129 @@ case class DataMemWriteRsp(p : DataMemBusParameter) extends Bundle {
 }
 
 case class DataMemWriteBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
-  val cmd = Stream(DataMemWriteCmd(p))
+  val cmd = Stream(Fragment(DataMemWriteCmd(p)))
   val rsp = Flow(DataMemWriteRsp(p))
 
   override def asMaster() = {
     master(cmd)
     slave(rsp)
   }
+
+
+  def <<(m : DataMemWriteBus): Unit ={
+    m.cmd >> this.cmd
+    m.rsp << this.rsp
+  }
+
+  def resizer(newDataWidth : Int) : DataMemWriteBus = new Composite(this, "resizer"){
+    val ret = DataMemWriteBus(
+      p = p.copy(
+        dataWidth = newDataWidth,
+        withReducedBandwidth = p.withReducedBandwidth || newDataWidth > p.dataWidth
+      )
+    )
+
+    val cmdOutputStream = Stream(Fragment(Bits(newDataWidth bits)))
+    StreamFragmentWidthAdapter(cmd.translateWith(cmd.data).addFragmentLast(cmd.last), cmdOutputStream)
+
+    ret.cmd.arbitrationFrom(cmdOutputStream)
+    ret.cmd.id      := self.cmd.id
+    ret.cmd.address := self.cmd.address
+    ret.cmd.data    := cmdOutputStream.fragment
+    ret.cmd.last    := cmdOutputStream.last
+
+    self.rsp << ret.rsp
+  }.ret
 }
 
 
 case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
-  val read = master(DataMemReadBus(p))
-  val write = master(DataMemWriteBus(p))
+  val read = DataMemReadBus(p)
+  val write = DataMemWriteBus(p)
 
   override def asMaster() = {
     master(read, write)
   }
+
+  def resizer(newDataWidth : Int) : DataMemBus = new Composite(this, "resizer") {
+    val ret = DataMemBus(
+      p = p.copy(
+        dataWidth = newDataWidth,
+        withReducedBandwidth = p.withReducedBandwidth || newDataWidth > p.dataWidth
+      )
+    )
+
+    ret.read << read.resizer(newDataWidth)
+    ret.write << write.resizer(newDataWidth)
+
+  }.ret
+
+
+    def toAxi4(): Axi4 = new Composite(this, "toAxi4"){
+    val idWidth = p.readIdWidth max p.writeIdWidth
+
+    val axiConfig = Axi4Config(
+      addressWidth = p.addressWidth,
+      dataWidth    = p.dataWidth,
+      idWidth      = idWidth,
+      useId        = true,
+      useRegion    = false,
+      useBurst     = true,
+      useLock      = false,
+      useCache     = false,
+      useSize      = true,
+      useQos       = false,
+      useLen       = true,
+      useLast      = true,
+      useResp      = true,
+      useProt      = true,
+      useStrb      = true
+    )
+
+    val axi = Axi4(axiConfig)
+
+    //READ
+    axi.ar.valid := read.cmd.valid
+    axi.ar.addr  := read.cmd.address
+    axi.ar.id    := read.cmd.id
+    axi.ar.prot  := B"010"
+    axi.ar.len   := p.lineSize*8/p.dataWidth-1
+    axi.ar.size  := log2Up(p.dataWidth/8)
+    axi.ar.setBurstINCR()
+    read.cmd.ready := axi.ar.ready
+
+    read.rsp.valid := axi.r.valid
+    read.rsp.data  := axi.r.data
+    read.rsp.id    := axi.r.id
+    read.rsp.error := !axi.r.isOKAY()
+    axi.r.ready    := (if(p.withReducedBandwidth) read.rsp.ready else True)
+
+    //WRITE
+    val (awRaw, wRaw) = StreamFork2(write.cmd)
+    val awFiltred = awRaw.throwWhen(!awRaw.first)
+    val aw = awFiltred.stage()
+    axi.aw.valid := aw.valid
+    axi.aw.addr  := aw.address
+    axi.aw.id    := aw.id
+    axi.aw.prot  := B"010"
+    axi.aw.len   := p.lineSize*8/p.dataWidth-1
+    axi.aw.size  := log2Up(p.dataWidth/8)
+    axi.aw.setBurstINCR()
+    aw.ready := axi.aw.ready
+
+    val w = wRaw.haltWhen(awFiltred.valid)
+    axi.w.valid := w.valid
+    axi.w.data  := w.data
+    axi.w.strb.setAll()
+    axi.w.last  := w.last
+    w.ready := axi.w.ready
+
+    write.rsp.valid :=  axi.b.valid
+    write.rsp.id    :=  axi.b.id
+    write.rsp.error := !axi.b.isOKAY()
+    axi.b.ready     :=  True
+  }.axi
+
 }
 
 
@@ -155,7 +292,8 @@ class DataCache(val cacheSize: Int,
                 val loadRefillCheckEarly : Boolean = true,
                 val storeRefillCheckEarly : Boolean = true,
                 val lineSize: Int = 64,
-                val loadReadAt: Int = 0,
+                val loadReadBanksAt: Int = 0,
+                val loadReadTagsAt: Int = 1,
                 val loadTranslatedAt : Int = 1,
                 val loadHitsAt: Int = 1,
                 val loadHitAt: Int = 1,
@@ -163,11 +301,13 @@ class DataCache(val cacheSize: Int,
                 val loadBankMuxAt: Int = 2,
                 val loadControlAt: Int = 2,
                 val loadRspAt: Int = 2,
-                val storeReadAt: Int = 0,
+                val storeReadBanksAt: Int = 0,
+                val storeReadTagsAt: Int = 1,
                 val storeHitsAt: Int = 1,
                 val storeHitAt: Int = 1,
                 val storeControlAt: Int = 2,
                 val storeRspAt: Int = 2,
+                val tagsReadAsync : Boolean = true,
                 val reducedBankWidth : Boolean = false
                ) extends Component {
 
@@ -175,7 +315,9 @@ class DataCache(val cacheSize: Int,
     addressWidth  = postTranslationWidth,
     dataWidth     = memDataWidth,
     readIdWidth   = log2Up(refillCount),
-    writeIdWidth  = log2Up(writebackCount)
+    writeIdWidth  = log2Up(writebackCount),
+    lineSize      = lineSize,
+    withReducedBandwidth = false
   )
 
   val io = new Bundle {
@@ -208,10 +350,10 @@ class DataCache(val cacheSize: Int,
   val memDataPerWay = waySize/bytePerMemWord
   val memData = HardType(Bits(memDataWidth bits))
   val memWordPerLine = lineSize/bytePerMemWord
-  val tagWidth = preTranslationWidth-log2Up(waySize)
+  val tagWidth = postTranslationWidth-log2Up(waySize)
 
 
-  val tagRange = preTranslationWidth-1 downto log2Up(linePerWay*lineSize)
+  val tagRange = postTranslationWidth-1 downto log2Up(linePerWay*lineSize)
   val lineRange = tagRange.low-1 downto log2Up(lineSize)
   val refillRange = tagRange.high downto lineRange.low
 
@@ -264,14 +406,15 @@ class DataCache(val cacheSize: Int,
   val REFILL_SLOT = Stageable(Bits(refillCount bits))
   val REFILL_SLOT_FULL = Stageable(Bool())
   val GENERATION, GENERATION_OK = Stageable(Bool())
+  val PREFETCH = Stageable(Bool())
   val FLUSH = Stageable(Bool())
+  val FLUSH_FREE = Stageable(Bool())
 
   val BANKS_MUXES = Stageable(Vec.fill(bankCount)(Bits(cpuWordWidth bits)))
 
   val banks = for(id <- 0 until bankCount) yield new Area{
     val mem = Mem(Bits(bankWidth bits), bankWordCount)
-    val write = mem.writePortWithMask
-    write.mask.setWidth(mem.getWidth/8)
+    val write = mem.writePortWithMask(mem.getWidth/8)
     val read = new Area{
       val usedByWriteBack = False
       val cmd = Flow(mem.addressType)
@@ -302,12 +445,12 @@ class DataCache(val cacheSize: Int,
     mem.write(waysWrite.address, waysWrite.tag, waysWrite.mask(id))
     val loadRead = new Area{
       val cmd = Flow(mem.addressType)
-      val rsp = mem.readSync(cmd.payload, cmd.valid)
+      val rsp = if(tagsReadAsync) mem.readAsync(cmd.payload) else mem.readSync(cmd.payload, cmd.valid)
       KeepAttribute(rsp)
     }
     val storeRead = new Area{
       val cmd = Flow(mem.addressType)
-      val rsp = mem.readSync(cmd.payload, cmd.valid)
+      val rsp = if(tagsReadAsync) mem.readAsync(cmd.payload) else mem.readSync(cmd.payload, cmd.valid)
       KeepAttribute(rsp)
     }
   }
@@ -395,7 +538,6 @@ class DataCache(val cacheSize: Int,
     val free = B(OHMasking.first(slots.map(!_.valid)))
     val full = slots.map(_.valid).andR
 
-    val banksWrite = CombInit(io.mem.read.rsp.valid)
     val push = Flow(new Bundle{
       val address = UInt(postTranslationWidth bits)
       val way = UInt(log2Up(wayCount) bits)
@@ -439,16 +581,20 @@ class DataCache(val cacheSize: Int,
       val way = slots.map(_.way).read(io.mem.read.rsp.id)
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
 
+
+      val bankWriteNotif = B(0, bankCount bits)
       for ((bank, bankId) <- banks.zipWithIndex) {
         if (!reducedBankWidth) {
-          bank.write.valid := io.mem.read.rsp.valid && way=== bankId
+          bankWriteNotif(bankId) := io.mem.read.rsp.valid && way === bankId
+          bank.write.valid := bankWriteNotif(bankId)
           bank.write.address := rspAddress(lineRange) @@ wordIndex
           bank.write.data := io.mem.read.rsp.data
         } else {
           val sel = U(bankId) - way
           val groupSel = way(log2Up(bankCount) - 1 downto log2Up(bankCount / memToBankRatio))
           val subSel = sel(log2Up(bankCount / memToBankRatio) - 1 downto 0)
-          bank.write.valid := io.mem.read.rsp.valid && groupSel === (bankId >> log2Up(bankCount / memToBankRatio))
+          bankWriteNotif(bankId) := io.mem.read.rsp.valid && groupSel === (bankId >> log2Up(bankCount / memToBankRatio))
+          bank.write.valid := bankWriteNotif(bankId)
           bank.write.address := rspAddress(lineRange) @@ wordIndex @@ (subSel)
           bank.write.data := io.mem.read.rsp.data.subdivideIn(bankCount / memToBankRatio slices)(subSel)
         }
@@ -461,6 +607,7 @@ class DataCache(val cacheSize: Int,
       val faulty = hadError || io.mem.read.rsp.error
 
       io.refillCompletions := 0
+      io.mem.read.rsp.ready := True
       when(io.mem.read.rsp.valid) {
         wordIndex := wordIndex + 1
         when(wordIndex === wordIndex.maxValue) {
@@ -506,7 +653,6 @@ class DataCache(val cacheSize: Int,
     val free = B(OHMasking.first(slots.map(!_.valid)))
     val full = slots.map(_.valid).andR
 
-    val banksWrite = CombInit(io.mem.read.rsp.valid)
     val push = Flow(new Bundle{
       val address = UInt(postTranslationWidth bits)
       val way = UInt(log2Up(wayCount) bits)
@@ -599,16 +745,19 @@ class DataCache(val cacheSize: Int,
     val write = new Area{
       val arbiter = new PriorityArea(slots.map(s => (s.valid && s.victimBufferReady && !s.writeCmdDone, s.priority)))
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
+      val last = wordIndex === wordIndex.maxValue
 
       val bufferRead = Stream(new Bundle {
         val id = UInt(log2Up(writebackCount) bits)
         val address = UInt(postTranslationWidth bits)
+        val last = Bool()
       })
       bufferRead.valid := arbiter.hit
       bufferRead.id := arbiter.sel
+      bufferRead.last := last
       bufferRead.address := slots.map(_.address).read(arbiter.sel)
       wordIndex := wordIndex + U(bufferRead.fire)
-      when(bufferRead.fire && wordIndex === wordIndex.maxValue){
+      when(bufferRead.fire && last){
         whenMasked(slots, arbiter.oh)(_.writeCmdDone := True)
         arbiter.lock := 0
       }
@@ -618,8 +767,8 @@ class DataCache(val cacheSize: Int,
       io.mem.write.cmd.arbitrationFrom(cmd)
       io.mem.write.cmd.address := cmd.address
       io.mem.write.cmd.data := word
-      io.mem.write.cmd.mask.setAll()
       io.mem.write.cmd.id := cmd.id
+      io.mem.write.cmd.last := cmd.last
 
       when(io.mem.write.rsp.valid){
         whenIndexed(slots, io.mem.write.rsp.id)(_.fire := True)
@@ -647,7 +796,8 @@ class DataCache(val cacheSize: Int,
       }
     }
 
-    val readStage       = pipeline.stages(loadReadAt)
+    val readBanksStage  = pipeline.stages(loadReadBanksAt)
+    val readTagsStage   = pipeline.stages(loadReadTagsAt)
     val translatedStage = pipeline.stages(loadTranslatedAt)
     val hitsStage       = pipeline.stages(loadHitsAt)
     val hitStage        = pipeline.stages(loadHitAt)
@@ -658,7 +808,7 @@ class DataCache(val cacheSize: Int,
     val rspStage        = pipeline.stages(loadRspAt)
 
 
-    waysHazard((loadReadAt+1 to loadReadAt+1).map(pipeline.stages(_)), ADDRESS_PRE_TRANSLATION)
+    waysHazard((loadReadBanksAt+1 to loadReadBanksAt+1).map(pipeline.stages(_)), ADDRESS_PRE_TRANSLATION)
     val start = new Area {
       val stage = pipeline.stages.head
 
@@ -675,7 +825,7 @@ class DataCache(val cacheSize: Int,
     val fetch = new Area {
       for ((bank, bankId) <- banks.zipWithIndex) yield new Area {
         {
-          import readStage._
+          import readBanksStage._
           BANK_BUSY(bankId) := bank.read.usedByWriteBack
           when(!BANK_BUSY(bankId)) { //Not the best way of muxing it
             bank.read.cmd.valid := !isStuck
@@ -685,7 +835,7 @@ class DataCache(val cacheSize: Int,
         }
 
         {
-          val stage = pipeline.stages(loadReadAt + 1)
+          val stage = pipeline.stages(loadReadBanksAt + 1)
           import stage._
           BANKS_WORDS(bankId) := banks(bankId).read.rsp
 
@@ -704,10 +854,15 @@ class DataCache(val cacheSize: Int,
         }
       }
 
-      val bankMux = new Area {
+      val bankMuxStd = !reducedBankWidth generate new Area {
+        import bankMuxStage._
+        CPU_WORD := OhMux.or(WAYS_HITS, BANKS_MUXES)
+      }
+
+      val bankMuxReduced = reducedBankWidth generate new Area {
         import bankMuxStage._
         val wayId = OHToUInt(WAYS_HITS)
-        val bankId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
+        val bankId = (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_PRE_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
         CPU_WORD := BANKS_MUXES.read(bankId) //MuxOH(WAYS_HITS, BANKS_MUXES)
       }
 
@@ -717,11 +872,11 @@ class DataCache(val cacheSize: Int,
 
       for ((way, wayId) <- ways.zipWithIndex) yield new Area {
         {
-          import readStage._
+          import readTagsStage._
           way.loadRead.cmd.valid := !isStuck
           way.loadRead.cmd.payload := ADDRESS_PRE_TRANSLATION(lineRange)
         }
-        pipeline.stages(loadReadAt + 1)(WAYS_TAGS)(wayId) := ways(wayId).loadRead.rsp;
+        pipeline.stages(loadReadTagsAt + (!tagsReadAsync).toInt)(WAYS_TAGS)(wayId) := ways(wayId).loadRead.rsp;
         {
           import hitsStage._;
           WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === ADDRESS_POST_TRANSLATION(tagRange)
@@ -734,11 +889,11 @@ class DataCache(val cacheSize: Int,
       }
 
 
-      status.loadRead.cmd.valid := !readStage.isStuck
-      status.loadRead.cmd.payload := readStage(ADDRESS_PRE_TRANSLATION)(lineRange)
-      pipeline.stages(loadReadAt + 1)(STATUS) := status.loadRead.rsp
+      status.loadRead.cmd.valid := !readBanksStage.isStuck
+      status.loadRead.cmd.payload := readBanksStage(ADDRESS_PRE_TRANSLATION)(lineRange)
+      pipeline.stages(loadReadBanksAt + 1)(STATUS) := status.loadRead.rsp
 
-      val statusBypassOn = (loadReadAt + 1 until loadControlAt).map(pipeline.stages(_))
+      val statusBypassOn = (loadReadBanksAt + 1 until loadControlAt).map(pipeline.stages(_))
       statusBypassOn.foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION, stage == statusBypassOn.head))
     }
 
@@ -849,7 +1004,8 @@ class DataCache(val cacheSize: Int,
       }
     }
 
-    val readStage      = pipeline.stages(storeReadAt)
+    val readBanksStage      = pipeline.stages(storeReadBanksAt)
+    val readTagsStage      = pipeline.stages(storeReadTagsAt)
     val hitsStage      = pipeline.stages(storeHitsAt)
     val hitStage       = pipeline.stages(storeHitAt)
     val controlStage   = pipeline.stages(storeControlAt)
@@ -857,7 +1013,7 @@ class DataCache(val cacheSize: Int,
 
     val target = RegInit(False)
 
-    waysHazard((storeReadAt+1 to storeControlAt).map(pipeline.stages(_)), ADDRESS_POST_TRANSLATION)
+    waysHazard((storeReadBanksAt+1 to storeControlAt).map(pipeline.stages(_)), ADDRESS_POST_TRANSLATION)
     val start = new Area {
       val stage = pipeline.stages.head
 
@@ -869,6 +1025,8 @@ class DataCache(val cacheSize: Int,
       CPU_MASK := io.store.cmd.mask
       IO := io.store.cmd.io && !io.store.cmd.flush
       FLUSH := io.store.cmd.flush
+      FLUSH_FREE := io.store.cmd.flushFree
+      PREFETCH := io.store.cmd.prefetch
 
       GENERATION := io.store.cmd.generation
       WAYS_HAZARD := 0
@@ -877,11 +1035,11 @@ class DataCache(val cacheSize: Int,
     val fetch = new Area {
       for ((way, wayId) <- ways.zipWithIndex) yield new Area {
         {
-          import readStage._
+          import readTagsStage._
           way.storeRead.cmd.valid := !isStuck
           way.storeRead.cmd.payload := ADDRESS_POST_TRANSLATION(lineRange)
         }
-        pipeline.stages(storeReadAt + 1)(WAYS_TAGS)(wayId) := ways(wayId).storeRead.rsp;
+        pipeline.stages(storeReadTagsAt + (!tagsReadAsync).toInt)(WAYS_TAGS)(wayId) := ways(wayId).storeRead.rsp;
         {
           import hitsStage._;
           WAYS_HITS(wayId) := WAYS_TAGS(wayId).loaded && WAYS_TAGS(wayId).address === ADDRESS_POST_TRANSLATION(tagRange)
@@ -893,12 +1051,12 @@ class DataCache(val cacheSize: Int,
         WAYS_HIT := B(WAYS_HITS).orR
       }
 
-      status.storeRead.cmd.valid := !readStage.isStuck
-      status.storeRead.cmd.payload := readStage(ADDRESS_POST_TRANSLATION)(lineRange)
-      pipeline.stages(storeReadAt + 1)(STATUS) := status.storeRead.rsp
+      status.storeRead.cmd.valid := !readBanksStage.isStuck
+      status.storeRead.cmd.payload := readBanksStage(ADDRESS_POST_TRANSLATION)(lineRange)
+      pipeline.stages(storeReadBanksAt + 1)(STATUS) := status.storeRead.rsp
 
 
-      val statusBypassOn = (storeReadAt + 1 until storeControlAt).map(pipeline.stages(_))
+      val statusBypassOn = (storeReadBanksAt + 1 until storeControlAt).map(pipeline.stages(_))
       statusBypassOn.foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION,  stage == statusBypassOn.head))
     }
 
@@ -923,7 +1081,7 @@ class DataCache(val cacheSize: Int,
     val ctrl = new Area {
       import controlStage._
 
-      GENERATION_OK := GENERATION === target
+      GENERATION_OK := GENERATION === target || PREFETCH
 
       val reservation = tagsOrStatusWriteArbitration.create(3)
       val refillWay = CombInit(wayRandom.value)
@@ -932,8 +1090,9 @@ class DataCache(val cacheSize: Int,
       val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, refillWay)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
       val wasClean = !(B(STATUS.map(_.dirty)) & WAYS_HITS).orR
+      val bankBusy = !FLUSH && !PREFETCH && (WAYS_HITS & refill.read.bankWriteNotif).orR
 
-      REDO := MISS || waysHitHazard || refill.banksWrite || refillHit || (wasClean && !reservation.win)
+      REDO := MISS || waysHitHazard || bankBusy || refillHit || (wasClean && !reservation.win)
       MISS := !WAYS_HIT && !waysHitHazard && !refillHit
 
       val canRefill = !refill.full && !lineBusy && !load.ctrl.startRefill && reservation.win && !(refillWayNeedWriteback && writeback.full)
@@ -943,7 +1102,7 @@ class DataCache(val cacheSize: Int,
       REFILL_SLOT_FULL := MISS && !refillHit && refill.full
       REFILL_SLOT := refill.free.andMask(askRefill)
 
-      val writeCache = isValid && GENERATION_OK && !REDO
+      val writeCache = isValid && GENERATION_OK && !REDO && !PREFETCH
       val setDirty = writeCache && wasClean
       val wayId = OHToUInt(WAYS_HITS)
       val bankHitId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_POST_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
@@ -999,7 +1158,7 @@ class DataCache(val cacheSize: Int,
       }
 
       when(writeCache){
-        for((bank, bankId) <- banks.zipWithIndex){ //TODO fine bank write port usage
+        for((bank, bankId) <- banks.zipWithIndex) when(WAYS_HITS(bankId)){
           bank.write.valid := bankId === bankHitId
           bank.write.address := ADDRESS_POST_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
           bank.write.data.subdivideIn(cpuWordWidth bits).foreach(_ := CPU_WORD)
@@ -1012,9 +1171,14 @@ class DataCache(val cacheSize: Int,
       }
       when(startFlush){
         whenMasked(status.write.data, needFlushOh)(_.dirty := False)
+        when(FLUSH_FREE) {
+          whenMasked(waysWrite.mask.asBools, needFlushOh)(_ := True)
+        }
+        waysWrite.address := ADDRESS_POST_TRANSLATION(lineRange)
+        waysWrite.tag.loaded := False
       }
 
-      when(isValid && REDO && GENERATION_OK){
+      when(isValid && REDO && GENERATION_OK && !PREFETCH){
         target := !target
       }
     }
@@ -1030,6 +1194,8 @@ class DataCache(val cacheSize: Int,
       io.store.rsp.refillSlotAny := REFILL_SLOT_FULL
       io.store.rsp.refillSlot := REFILL_SLOT
       io.store.rsp.flush := FLUSH
+      io.store.rsp.prefetch := PREFETCH
+      io.store.rsp.address := ADDRESS_POST_TRANSLATION
     }
     pipeline.build()
   }

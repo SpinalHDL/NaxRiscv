@@ -23,7 +23,7 @@ case class HistoryJump(width : Int) extends Bundle{
   val history = Bits(width bits)
 }
 
-class HistoryPlugin(historyFetchBypass : Boolean = true) extends Plugin{
+class HistoryPlugin(var historyFetchBypass : Boolean = true) extends Plugin{
   class HistorySpec(val priority : Int){
     def update(history : Bits) = {}
   }

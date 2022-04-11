@@ -33,6 +33,46 @@ riscv_tests = [
 	"rv32ui-p-xori"
 ]
 
+riscv64_tests = [
+    "rv64ui-p-add",
+    "rv64ui-p-addi",
+    "rv64ui-p-addiw",
+    "rv64ui-p-addw",
+    "rv64ui-p-and",
+    "rv64ui-p-andi",
+    "rv64ui-p-auipc",
+    "rv64ui-p-beq",
+    "rv64ui-p-bge",
+    "rv64ui-p-bgeu",
+    "rv64ui-p-blt",
+    "rv64ui-p-bltu",
+    "rv64ui-p-bne",
+    "rv64ui-p-jal",
+    "rv64ui-p-jalr",
+    "rv64ui-p-or",
+    "rv64ui-p-ori",
+    "rv64ui-p-sll",
+    "rv64ui-p-slli",
+    "rv64ui-p-slliw",
+    "rv64ui-p-sllw",
+    "rv64ui-p-slt",
+    "rv64ui-p-slti",
+    "rv64ui-p-sltiu",
+    "rv64ui-p-sltu",
+    "rv64ui-p-sra",
+    "rv64ui-p-srai",
+    "rv64ui-p-sraiw",
+    "rv64ui-p-sraw",
+    "rv64ui-p-srl",
+    "rv64ui-p-srli",
+    "rv64ui-p-srliw",
+    "rv64ui-p-srlw",
+    "rv64ui-p-sub",
+    "rv64ui-p-subw",
+    "rv64ui-p-xor",
+    "rv64ui-p-xori",
+]
+
 riscvTestMemory = [
 	"rv32ui-p-lb",
 	"rv32ui-p-lbu",
@@ -43,6 +83,22 @@ riscvTestMemory = [
 	"rv32ui-p-sh",
 	"rv32ui-p-sw"
 ]
+
+riscv64TestMemory = [
+    "rv64ui-p-lb",
+    "rv64ui-p-lbu",
+    "rv64ui-p-lh",
+    "rv64ui-p-lhu",
+    "rv64ui-p-lui",
+    "rv64ui-p-lw",
+    "rv64ui-p-lwu",
+    "rv64ui-p-ld",
+    "rv64ui-p-sb",
+    "rv64ui-p-sh",
+    "rv64ui-p-sw",
+    "rv64ui-p-sd",
+]
+
 
 riscvTestAmo = [
     "rv32ua-p-amoswap_w",
@@ -55,6 +111,28 @@ riscvTestAmo = [
     "rv32ua-p-amominu_w",
     "rv32ua-p-amomin_w",
 ]
+
+riscv64TestAmo = [
+    "rv64ua-p-amoadd_d",
+    "rv64ua-p-amoand_d",
+    "rv64ua-p-amomax_d",
+    "rv64ua-p-amomaxu_d",
+    "rv64ua-p-amomin_d",
+    "rv64ua-p-amominu_d",
+    "rv64ua-p-amoor_d",
+    "rv64ua-p-amoswap_d",
+    "rv64ua-p-amoxor_d",
+    "rv64ua-p-amoadd_w",
+    "rv64ua-p-amoand_w",
+    "rv64ua-p-amomaxu_w",
+    "rv64ua-p-amomax_w",
+    "rv64ua-p-amomin_w",
+    "rv64ua-p-amominu_w",
+    "rv64ua-p-amoor_w",
+    "rv64ua-p-amoswap_w",
+    "rv64ua-p-amoxor_w",
+]
+
 
 riscvTestFloat = [
     "rv32uf-p-fmadd",
@@ -96,6 +174,36 @@ riscvTestDiv = [
 	"rv32um-p-divu",
 	"rv32um-p-rem",
 	"rv32um-p-remu"
+]
+
+
+riscv64TestMul = [
+    "rv64um-p-mul",
+    "rv64um-p-mulh",
+    "rv64um-p-mulhsu",
+    "rv64um-p-mulhu",
+    "rv64um-p-mulw",
+]
+
+riscv64TestDiv = [
+    "rv64um-p-div",
+    "rv64um-p-divu",
+    "rv64um-p-rem",
+    "rv64um-p-remu",
+    "rv64um-p-divuw",
+    "rv64um-p-divw",
+    "rv64um-p-remuw",
+    "rv64um-p-remw",
+]
+
+
+
+riscv32TestRvc = [
+    "rv32uc-p-rvc",
+]
+
+riscv64TestRvc = [
+    "rv64uc-p-rvc",
 ]
 
 def listPrefix(prefix, l):
@@ -206,16 +314,252 @@ riscvArch32Priv = listPrefix("rv32i_m/privilege/", [
     "misalign-sw-01",
 ])
 
-arch="rv32im"
+
+
+
+
+
+riscvArch64i = listPrefix("rv64i_m/I/", [
+    "add-01",
+    "addi-01",
+    "addiw-01",
+    "addw-01",
+    "and-01",
+    "andi-01",
+    "auipc-01",
+    "beq-01",
+    "bge-01",
+    "bgeu-01",
+    "blt-01",
+    "bltu-01",
+    "bne-01",
+    "fence-01",
+    "jal-01",
+    "jalr-01",
+    "lb-align-01",
+    "lbu-align-01",
+    "ld-align-01",
+    "lh-align-01",
+    "lhu-align-01",
+    "lui-01",
+    "lw-align-01",
+    "lwu-align-01",
+    "or-01",
+    "ori-01",
+    "sb-align-01",
+    "sd-align-01",
+    "sh-align-01",
+    "sll-01",
+    "slli-01",
+    "slliw-01",
+    "sllw-01",
+    "slt-01",
+    "slti-01",
+    "sltiu-01",
+    "sltu-01",
+    "sra-01",
+    "srai-01",
+    "sraiw-01",
+    "sraw-01",
+    "srl-01",
+    "srli-01",
+    "srliw-01",
+    "srlw-01",
+    "sub-01",
+    "subw-01",
+    "sw-align-01",
+    "xor-01",
+    "xori-01",
+])
+
+riscvArch64M = listPrefix("rv64i_m/M/", [
+    "div-01",
+    "divu-01",
+    "divuw-01",
+    "divw-01",
+    "mul-01",
+    "mulh-01",
+    "mulhsu-01",
+    "mulhu-01",
+    "mulw-01",
+    "rem-01",
+    "remu-01",
+    "remuw-01",
+    "remw-01",
+])
+
+riscvArch64Zifencei = listPrefix("rv64i_m/Zifencei/", [
+    "Fencei",
+])
+
+riscvArch64C = listPrefix("rv64i_m/C/", [
+    "cadd-01",
+    "caddi-01",
+    "caddi16sp-01",
+    "caddi4spn-01",
+    "caddiw-01",
+    "caddw-01",
+    "cand-01",
+    "candi-01",
+    "cbeqz-01",
+    "cbnez-01",
+    "cebreak-01",
+    "cj-01",
+    "cjalr-01",
+    "cjr-01",
+    "cld-01",
+    "cldsp-01",
+    "cli-01",
+    "clui-01",
+    "clw-01",
+    "clwsp-01",
+    "cmv-01",
+    "cnop-01",
+    "cor-01",
+    "csd-01",
+    "csdsp-01",
+    "cslli-01",
+    "csrai-01",
+    "csrli-01",
+    "csub-01",
+    "csubw-01",
+    "csw-01",
+    "cswsp-01",
+    "cxor-01",
+])
+
+riscvArch64Priv = listPrefix("rv64i_m/privilege/", [
+    "ebreak",
+    "ecall",
+    "misalign1-jalr-01",
+    "misalign2-jalr-01",
+    "misalign-beq-01",
+    "misalign-bge-01",
+    "misalign-bgeu-01",
+    "misalign-blt-01",
+    "misalign-bltu-01",
+    "misalign-bne-01",
+    "misalign-jal-01",
+    "misalign-ld-01",
+    "misalign-lh-01",
+    "misalign-lhu-01",
+    "misalign-lw-01",
+    "misalign-lwu-01",
+    "misalign-sd-01",
+    "misalign-sh-01",
+    "misalign-sw-01",
+])
+
+
+riscvArch32C = listPrefix("rv32i_m/C/", [
+    "caddi16sp-01",
+    "cxor-01",
+    "cnop-01",
+    "cslli-01",
+    "cmv-01",
+    "clwsp-01",
+    "csrai-01",
+    "cj-01",
+    "cand-01",
+    "cebreak-01",
+    "cli-01",
+    "csub-01",
+    "caddi4spn-01",
+    "cbnez-01",
+    "clw-01",
+    "csw-01",
+    "candi-01",
+    "cswsp-01",
+    "cjalr-01",
+    "caddi-01",
+    "clui-01",
+    "cadd-01",
+    "cbeqz-01",
+    "cjr-01",
+    "csrli-01",
+    "cor-01",
+    "cjal-01",
+])
+
+riscvArch64C = listPrefix("rv64i_m/C/", [
+    "caddi16sp-01",
+    "csubw-01",
+    "csdsp-01",
+    "cxor-01",
+    "cnop-01",
+    "cslli-01",
+    "cmv-01",
+    "clwsp-01",
+    "csrai-01",
+    "cj-01",
+    "cand-01",
+    "cebreak-01",
+    "cldsp-01",
+    "cli-01",
+    "csub-01",
+    "caddi4spn-01",
+    "cbnez-01",
+    "caddw-01",
+    "csd-01",
+    "clw-01",
+    "caddiw-01",
+    "csw-01",
+    "candi-01",
+    "cswsp-01",
+    "cjalr-01",
+    "caddi-01",
+    "cld-01",
+    "clui-01",
+    "cadd-01",
+    "cbeqz-01",
+    "cjr-01",
+    "csrli-01",
+    "cor-01",
+])
+
+
+file = open('../../../../nax.h',mode='r')
+naxHeader = file.read()
+file.close()
+import re
+
+def getInt(key):
+    return int(re.findall(key + " (\d+)", naxHeader)[0])
+
+def getBoolean(key):
+    return len(re.findall(key + " true", naxHeader)) != 0
+
+
+xlen = getInt("XLEN")
+rvc = getBoolean("RVC")
+
+
+
+if xlen == 64:
+    arch="rv64im"
+    archLinux="rv64ima"
+else:
+    arch="rv32im"
+    archLinux="rv32ima"
+
+if rvc:
+    arch += "ac"
+    archLinux += "c"
+
+
 
 naxSoftware = [
-	["lsu", "baremetal/lsu/build/lsu.elf"],
+	["lsu", "baremetal/lsu/build/rv32im/lsu.elf"],
 ]
+
+nax64Software = []
 
 naxSoftwareRegular = [
-    "machine", "supervisor", "mmu_sv32", "dhrystone"
+    "machine", "supervisor", "mmu_sv32", "dhrystone", "coremark"
 ]
-
+nax64SoftwareRegular = [
+    "machine", "supervisor",  "mmu_sv39", "dhrystone", "coremark",
+]
 
 freertos = ["blocktim", "countsem", "EventGroupsDemo", "flop", "integer", "QPeek",
             "QueueSet", "recmutex", "semtest", "TaskNotify", "dynamic",
@@ -227,8 +571,10 @@ for e in naxSoftwareRegular:
 for e in freertos:
     naxSoftware.append(["freertos/" + e, f"baremetal/freertosDemo/build/{e}/{arch}/freertosDemo.elf"])
 
+for e in nax64SoftwareRegular:
+    nax64Software.append([e, f"baremetal/{e}/build/{arch}/{e}.elf"])
 
-naxSoftware.append(["coremark", f"baremetal/coremark/coremark_{arch}.elf"])
+# naxSoftware.append(["coremark", f"baremetal/coremark/coremark_{arch}.elf"])
 
 tests = []
 testsFast = []
@@ -236,7 +582,7 @@ ouputs = []
 
 with open('tests.mk', 'w') as f:
 
-    def rvTest(name, elf=None, timeout=10000, passs="pass", start="test_2"):
+    def rvTest(name, elf=None, timeout=10000, passs="pass", start="test_2", startAdd = 0):
         if not elf:
             elf = name
         outputDir = "output/riscv_tests/" + name
@@ -251,22 +597,13 @@ with open('tests.mk', 'w') as f:
             "--output-dir", outputDir,
             "--load-elf", f"../../../../ext/NaxSoftware/riscv-tests/{elf}",
             "--start-symbol", start,
+            "--start-add", str(startAdd),
             "--pass-symbol", passs,
             "--fail-symbol", "fail",
             "--timeout", str(timeout),
            "${ARGS}"
         ]))
         f.write(f"\n\n")
-
-
-
-    for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv + riscvTestAmo:
-        rvTest(name)
-
-
-    rvTest("rv32ua-p-lrsc_1234", elf="rv32ua-p-lrsc", timeout=300000, passs="test_5")
-    rvTest("rv32ua-p-lrsc_6", elf="rv32ua-p-lrsc", timeout=100000, start="test_6")
-
 
     def rvArch(name, elf=None, timeout=1000000, passs="pass"):
         if not elf:
@@ -288,14 +625,13 @@ with open('tests.mk', 'w') as f:
         ]))
         f.write(f"\n\n")
 
-    for name in riscvArch32i + riscvArch32M + riscvArch32Zifencei:
-        rvArch(name)
-
-    for spec in naxSoftware:
+    def regularSoftware(spec):
         outputDir = "output/nax/" + spec[0]
         rule = outputDir +"/PASS"
         tests.append(rule)
         ouputs.append(outputDir)
+        if spec[0] in naxSoftwareRegular:
+            testsFast.append(rule)
         f.write(f"{outputDir}/PASS:\n")
         f.write("\t" + " ".join([
             "obj_dir/VNaxRiscv",
@@ -305,9 +641,100 @@ with open('tests.mk', 'w') as f:
             "--start-symbol", "_start",
             "--pass-symbol", "pass",
             "--fail-symbol", "fail",
+            "--no-putc-flush",
            "${ARGS}"
         ]))
         f.write(f"\n\n")
+
+
+    if xlen == 64:
+        for name in riscv64_tests + riscv64TestMemory + riscv64TestMul + riscv64TestDiv + riscv64TestAmo:
+            rvTest(name)
+
+        if rvc:
+            for name in riscv64TestRvc:
+                rvTest(name, startAdd=-8)
+
+
+        for name in riscvArch64i + riscvArch64M + riscvArch64Zifencei:
+            rvArch(name)
+
+        if rvc:
+            for name in riscvArch64C:
+                rvArch(name)
+
+        for spec in nax64Software:
+            regularSoftware(spec)
+
+
+
+
+    if xlen == 32:
+        for name in riscv_tests + riscvTestMemory + riscvTestMul + riscvTestDiv + riscvTestAmo:
+            rvTest(name)
+
+        if rvc:
+            for name in riscv32TestRvc:
+                rvTest(name, startAdd=-8)
+
+        rvTest("rv32ua-p-lrsc_1234", elf="rv32ua-p-lrsc", timeout=300000, passs="test_5")
+        rvTest("rv32ua-p-lrsc_6", elf="rv32ua-p-lrsc", timeout=100000, start="test_6")
+
+        for name in riscvArch32i + riscvArch32M + riscvArch32Zifencei:
+            rvArch(name)
+
+        if rvc:
+            for name in riscvArch32C:
+                rvArch(name)
+
+        for spec in naxSoftware:
+            regularSoftware(spec)
+
+
+
+    for i in range(4):
+        outputDir = "output/nax/buildroot/run" + str(i)
+        rule = outputDir +"/PASS"
+        imagePath = "../../../../ext/NaxSoftware/buildroot/images/" + archLinux
+
+        tests.append(rule)
+        ouputs.append(outputDir)
+        f.write(f"{outputDir}/PASS:\n")
+        f.write("\t" + " ".join([
+        f"""./obj_dir/VNaxRiscv \\
+           --seed {i}                  \\
+           --name buildroot_run{i}    \\
+           --output-dir  {outputDir}   \\
+           --load-bin {imagePath}/fw_jump.bin,0x80000000 \\
+           --load-bin {imagePath}/linux.dtb,0x80F80000 \\
+           --load-bin {imagePath}/Image,0x80400000 \\
+           --load-bin {imagePath}/rootfs.cpio,0x81000000 \\
+           --no-stdin                  \\
+           --no-putc-flush          \\
+           --getc "buildroot login" \\
+           --putc "root" \\
+           --getc "#" \\
+           --putc "cat /proc/cpuinfo" \\
+           --getc "#" \\
+           --putc "echo 1+2+3*4 | bc" \\
+           --getc "#" \\
+           --putc "micropython" \\
+           --getc ">>> " \\
+           --putc "import math" \\
+           --getc ">>> " \\
+           --putc "math.sin(math.pi/4)" \\
+           --getc ">>> " \\
+           --putc "from sys import exit" \\
+           --getc ">>> " \\
+           --putc "exit()" \\
+           --getc "#" \\
+           --putc "ls /" \\
+           --getc "#" \\
+           --success \\
+           ${{ARGS}} """
+        ]))
+        f.write(f"\n\n")
+
 
 
     f.write(f"""TESTS_COUNT={len(tests)}\n""")
