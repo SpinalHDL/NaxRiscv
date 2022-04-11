@@ -11,18 +11,16 @@ import spinal.lib.Flow
 import spinal.lib.pipeline.Stageable
 
 //This is a simple skeleton to ease the implementation of simple ExecutionUnit elements. It assume a single writeback and a single completion
-abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean) extends Plugin with WakeRobService with WakeRegFileService { //TODO sharing of non static wakes ?
+abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean) extends Plugin { //TODO sharing of non static wakes ?
   withPrefix(euId)
   val SEL = Stageable(Bool())
 
   def euCompletionAt : Int = euWritebackAt
   def euWritebackAt : Int
 
-  override def wakeRobs = if(!staticLatency) List(logic.wake.rob) else Nil
-  override def wakeRegFile = if(!staticLatency) List(logic.wake.rf) else Nil
-
+  var _setup : Setup = null
   class Setup extends Area {
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = findService[ExecutionUnitBase](_.euId == euId)
     eu.retain()
 
     def add(microOp: MicroOp, srcKeys: List[SrcKeys], decoding: DecodeListType) = {
@@ -34,32 +32,35 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
       }) eu.setStaticWake(microOp, euWritebackAt)
       eu.addDecoding(microOp, decoding :+ (SEL -> True))
       if (srcKeys.nonEmpty) {
-        getService[SrcPlugin](euId).specify(microOp, srcKeys)
+        findService[SrcPlugin](_.euId == euId).specify(microOp, srcKeys)
       }
     }
 
     eu.setDecodingDefault(SEL, False)
+
+    val intFormat = findService[IntFormatPlugin](_.euId == euId)
+    val intFormatPort = intFormat.access(euWritebackAt, 1 - staticLatency.toInt)
+    _setup = this
+
+    def signExtend(op : MicroOp, bitId : Int) = intFormat.signExtend(intFormatPort, op, 31)
   }
 
   class Logic extends Area with PostInitCallback{
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = findService[ExecutionUnitBase](_.euId == euId)
     val decode = getService[DecoderService]
 
     val wbStage = eu.getExecute(euWritebackAt)
-    val wb = eu.newWriteback(IntRegFile, RD, wbStage, if(staticLatency) 0 else 1)
+    val wb = _setup.intFormatPort
     wb.valid := wbStage(SEL)
 
     val wake = !staticLatency generate new Area{
-      val fire = wbStage.isFireing && wbStage(SEL)
-      val rob = Flow(WakeRob())
-      val rf = Flow(WakeRegFile(decode.PHYS_RD, needBypass = false))
+      val wakeRobsSel    = eu.newWakeRobsSelAt(euWritebackAt)
+      val wakeRegFileSel = eu.newWakeRegFileSelAt(euWritebackAt)
 
-      rob.valid := fire && wbStage(decode.WRITE_RD)
-      rob.robId := wbStage(ROB.ID)
-
-      rf.valid := fire && wbStage(decode.WRITE_RD)
-      rf.physical := wbStage(decode.PHYS_RD)
+      wakeRobsSel    := wbStage(SEL)
+      wakeRegFileSel := wbStage(SEL)
     }
+
     override def postInitCallback() = {eu.release() ; this}
 
     class ExecuteArea(id : Int) extends Area{

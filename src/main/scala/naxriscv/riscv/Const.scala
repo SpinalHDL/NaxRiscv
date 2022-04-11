@@ -1,6 +1,7 @@
 package naxriscv.riscv
 import naxriscv.Global
 import spinal.core._
+import spinal.lib._
 
 object Const {
   def funct7Range = 31 downto 25
@@ -24,13 +25,11 @@ case class IMM(instruction  : Bits) extends Area{
   def z = instruction(19 downto 15)
 
   // sign-extend immediates
-  def i_sext = S(B((19 downto 0) -> i(11)) ## i)
-  def h_sext = S(B((23 downto 0) -> h(7))  ## h)
-  def s_sext = S(B((19 downto 0) -> s(11)) ## s)
-  def b_sext = S(B((18 downto 0) -> b(11)) ## b ## False)
-  def j_sext = S(B((10 downto 0) -> j(19)) ## j ## False)
-
-  assert(Global.XLEN.get == 32)
+  def i_sext = S(i).resize(Global.XLEN)
+  def h_sext = S(h).resize(Global.XLEN)
+  def s_sext = S(s).resize(Global.XLEN)
+  def b_sext = S(b ## False).resize(Global.XLEN)
+  def j_sext = S(j ## False).resize(Global.XLEN)
 }
 
 
@@ -48,10 +47,13 @@ object CSR {
     val BREAKPOINT = 3
     val ECALL_USER = 8
     val ECALL_SUPERVISOR = 9
+    val ECALL_HYPERVISOR = 10
     val ECALL_MACHINE = 11
 
     val INSTRUCTION_ACCESS_FAULT = 1
     val INSTRUCTION_PAGE_FAULT = 12
+
+    def isPageFault(code : UInt) : Bool = List(INSTRUCTION_PAGE_FAULT, LOAD_PAGE_FAULT, STORE_PAGE_FAULT).map(code === U(_)).orR
   }
 
   def misaExt(char: Char) = {
@@ -59,6 +61,14 @@ object CSR {
     assert(c >= 'A' && c <= 'Z')
     1 << c-'A'
   }
+
+  val DCSR      = 0x7B0
+  val DPC       = 0x7B1
+  val TSELECT   = 0x7A0
+  val TDATA1    = 0x7A1
+  val TDATA2    = 0x7A2
+  val TINFO     = 0x7a4
+  val TCONTROL  = 0x7A5
 
   def MVENDORID = 0xF11 // MRO Vendor ID.
   def MARCHID   = 0xF12 // MRO Architecture ID.

@@ -43,10 +43,9 @@ object SrcKeys extends AreaObject {
   }
 }
 
-class SrcPlugin(euId : String) extends Plugin{
+class SrcPlugin(val euId : String,
+                var earlySrc : Boolean = false) extends Plugin{
   withPrefix(euId)
-  override def uniqueIds = List(euId)
-
 
   val spec = mutable.LinkedHashMap[MicroOp, mutable.LinkedHashSet[SrcKeys]]()
   def specify(microOp: MicroOp, keys: List[SrcKeys]) = {
@@ -58,12 +57,12 @@ class SrcPlugin(euId : String) extends Plugin{
   }
 
   val setup = create early new Area{
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = getServicesOf[ExecutionUnitBase].find(_.euId == euId).get
     eu.retain()
   }
 
   val logic = create late new Area{
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = getServicesOf[ExecutionUnitBase].find(_.euId == euId).get
     val ss = SrcStageables
     val sk = SrcKeys
 
@@ -98,20 +97,20 @@ class SrcPlugin(euId : String) extends Plugin{
     }
 
     val src = new Area{
-      val stage = eu.getExecute(0)
+      val stage = eu.getExecute(0 - earlySrc.toInt)
       import stage._
 
       val imm = new IMM(Frontend.MICRO_OP)
-      ss.SRC1 := SRC1_CTRL.muxListDc[SInt](src1Keys.map {
+      if(src1Keys.nonEmpty) ss.SRC1 := SRC1_CTRL.muxListDc[SInt](src1Keys.map {
         case sk.SRC1.RF => src1ToEnum(sk.SRC1.RF) -> S(stage(eu(IntRegFile, RS1)))
-        case sk.SRC1.U  => src1ToEnum(sk.SRC1.U ) -> S(imm.u)
+        case sk.SRC1.U  => src1ToEnum(sk.SRC1.U ) -> S(imm.u).resize(XLEN)
       })
 
-      ss.SRC2 := SRC2_CTRL.muxListDc[SInt](src2Keys.map {
+      if(src2Keys.nonEmpty) ss.SRC2 := SRC2_CTRL.muxListDc[SInt](src2Keys.map {
         case sk.SRC2.RF => src2ToEnum(sk.SRC2.RF) -> S(stage(eu(IntRegFile, RS2)))
         case sk.SRC2.I  => src2ToEnum(sk.SRC2.I ) -> imm.i_sext
         case sk.SRC2.S  => src2ToEnum(sk.SRC2.S ) -> imm.s_sext
-        case sk.SRC2.PC => src2ToEnum(sk.SRC2.PC) -> S(stage(PC))
+        case sk.SRC2.PC => src2ToEnum(sk.SRC2.PC) -> S(stage(PC)).resize(XLEN bits)
       })
     }
 

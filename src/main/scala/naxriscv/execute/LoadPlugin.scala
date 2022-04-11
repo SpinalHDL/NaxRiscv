@@ -9,16 +9,18 @@ import spinal.core._
 import spinal.lib.pipeline.Stageable
 import naxriscv.Global._
 
+import scala.collection.mutable.ArrayBuffer
+
 object LoadPlugin extends AreaObject{
   val SEL      = Stageable(Bool())
   val UNSIGNED = Stageable(Bool())
   val LR       = Stageable(Bool())
 }
 
-class LoadPlugin(euId : String) extends Plugin{
+class LoadPlugin(val euId : String) extends Plugin{
   import LoadPlugin._
   val setup = create early new Area {
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = findService[ExecutionUnitBase](_.euId == euId)
     val lsu = getService[LsuPlugin]
     eu.retain()
 
@@ -30,12 +32,13 @@ class LoadPlugin(euId : String) extends Plugin{
       eu.addMicroOp(microOp)
       eu.addDecoding(microOp, decoding :+ (SEL -> True))
       if (srcKeys.nonEmpty) {
-        getService[SrcPlugin](euId).specify(microOp, srcKeys)
+        findService[SrcPlugin](_.euId == euId).specify(microOp, srcKeys)
       }
     }
 
     val sk = SrcKeys
-    val loads = List(Rvi.LB , Rvi.LH , Rvi.LW , Rvi.LBU, Rvi.LHU)
+    val loads = ArrayBuffer(Rvi.LB , Rvi.LH , Rvi.LW , Rvi.LBU, Rvi.LHU)
+    if(XLEN.get == 64) loads ++= List(Rvi.LD, Rvi.LWU)
 
     for(op <- loads) add(op, List(sk.Op.ADD, sk.SRC1.RF, sk.SRC2.I), List(LR -> False))
     add(Rvi.LR,  List(sk.Op.SRC1, sk.SRC1.RF),  List(LR -> True))
@@ -52,7 +55,7 @@ class LoadPlugin(euId : String) extends Plugin{
     setup.port.valid := isFireing && SEL
     setup.port.robId := ROB.ID
     setup.port.lqId := lsu.keys.LSU_ID.resized
-    setup.port.address := U(SrcStageables.ADD_SUB)
+    setup.port.address := U(SrcStageables.ADD_SUB).resized
     setup.port.size := U(func3(1 downto 0))
     setup.port.unsigned := func3(2)
     setup.port.physicalRd := decoder.PHYS_RD
@@ -64,7 +67,7 @@ class LoadPlugin(euId : String) extends Plugin{
   }
 
   val earlyPc = create late new Area{
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = findService[ExecutionUnitBase](_.euId == euId)
     val stage = eu.pipeline.fetch(eu.pipeline.fetch.size-2)
     setup.port.earlySample := stage.isReady
     setup.port.earlyPc := stage(PC)

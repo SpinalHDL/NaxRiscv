@@ -1,5 +1,7 @@
 package naxriscv.execute
 
+import naxriscv.Global.XLEN
+import naxriscv.frontend.RfDependencyPlugin
 import naxriscv.{DecodeListType, Frontend, ROB}
 import naxriscv.interfaces.{DecoderService, MicroOp, RS2}
 import naxriscv.lsu.LsuPlugin
@@ -8,17 +10,20 @@ import naxriscv.utilities._
 import spinal.core._
 import spinal.lib.pipeline.Stageable
 
+import scala.collection.mutable.ArrayBuffer
+
 object StorePlugin extends AreaObject{
   val SEL = Stageable(Bool())
   val AMO = Stageable(Bool())
   val SC = Stageable(Bool())
 }
 
-class StorePlugin(euId : String) extends Plugin{
+class StorePlugin(val euId : String) extends Plugin{
   import StorePlugin._
   val setup = create early new Area {
-    val eu = getService[ExecutionUnitBase](euId)
+    val eu = findService[ExecutionUnitBase](_.euId == euId)
     val lsu = getService[LsuPlugin]
+    val rfDep = getService[RfDependencyPlugin]
     eu.retain()
 
     val port = lsu.newStorePort()
@@ -29,16 +34,16 @@ class StorePlugin(euId : String) extends Plugin{
       eu.addMicroOp(microOp)
       eu.addDecoding(microOp, decoding :+ (SEL -> True))
       if (srcKeys.nonEmpty) {
-        getService[SrcPlugin](euId).specify(microOp, srcKeys)
+        findService[SrcPlugin](_.euId == euId).specify(microOp, srcKeys)
       }
     }
 
     val sk = SrcKeys
     val srcOps = List(sk.Op.ADD, sk.SRC1.RF, sk.SRC2.S)
-    add(Rvi.SB , srcOps, List(AMO -> False, SC -> False))
-    add(Rvi.SH , srcOps, List(AMO -> False, SC -> False))
-    add(Rvi.SW , srcOps, List(AMO -> False, SC -> False))
+    val stores = ArrayBuffer(Rvi.SB, Rvi.SH, Rvi.SW)
+    if(XLEN.get == 64) stores ++= List(Rvi.SD)
 
+    for(store <- stores) add(store, srcOps, List(AMO -> False, SC -> False))
 
     val amos = List(
       Rvi.AMOSWAP, Rvi.AMOADD, Rvi.AMOXOR, Rvi.AMOAND, Rvi.AMOOR,
@@ -46,6 +51,9 @@ class StorePlugin(euId : String) extends Plugin{
     )
     for(amo <- amos) add(amo, List(sk.Op.SRC1, sk.SRC1.RF), List(AMO -> True, SC -> False))
     add(Rvi.SC, List(sk.Op.SRC1, sk.SRC1.RF), List(AMO -> False, SC -> True))
+
+    val all = stores ++ amos ++ List(Rvi.SC)
+    for(op <- all) rfDep.issueSkipRs(op, 1) //Handled by the LSU in oder to improve address checking
   }
 
   val logic = create late new Area{
@@ -56,8 +64,7 @@ class StorePlugin(euId : String) extends Plugin{
     import stage._
     val func3 = Frontend.MICRO_OP(Const.funct3Range)
     setup.port.valid := isFireing && SEL
-    setup.port.address := U(SrcStageables.ADD_SUB)
-    setup.port.data    := eu(IntRegFile, RS2)
+    setup.port.address := U(SrcStageables.ADD_SUB).resized
     setup.port.sqId := lsu.keys.LSU_ID.resized
     setup.port.robId := ROB.ID
     setup.port.size := U(func3(1 downto 0))

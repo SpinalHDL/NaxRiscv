@@ -1,5 +1,6 @@
 package naxriscv.misc
 
+import naxriscv.Global._
 import naxriscv._
 import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService, PulseHandshake}
 import naxriscv.utilities.Plugin
@@ -11,14 +12,18 @@ import scala.collection.mutable.ArrayBuffer
 
 case class StaticAddressTranslationParameter(rspAt : Int)
 
-class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with AddressTranslationService{
-  override def preWidth = Global.XLEN.get
-  override def postWidth = Global.XLEN.get
+class StaticAddressTranslationPlugin( var physicalWidth : Int,
+                                      var ioRange : UInt => Bool,
+                                      var fetchRange : UInt => Bool) extends Plugin with AddressTranslationService{
   override def withTranslation = true
 
-  Global.PC_WIDTH.set(preWidth)
-  Global.PC_TRANSLATED_WIDTH.set(postWidth)
-
+  create config {
+    PHYSICAL_WIDTH.set(physicalWidth)
+    VIRTUAL_WIDTH.set((PHYSICAL_WIDTH.get + 1) min XLEN.get)
+    VIRTUAL_EXT_WIDTH.set(VIRTUAL_WIDTH.get +  (VIRTUAL_WIDTH < XLEN).toInt)
+    PC_WIDTH.set(VIRTUAL_EXT_WIDTH)
+    TVAL_WIDTH.set(VIRTUAL_EXT_WIDTH)
+  }
   case class Spec(stages: Seq[Stage], preAddress: Stageable[UInt], p: StaticAddressTranslationParameter, rsp : AddressTranslationRsp)
   val specs = ArrayBuffer[Spec]()
   override def newStorage(pAny: Any) : Any = "dummy <3"
@@ -32,7 +37,7 @@ class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with
                          portSpec: Any,
                          storageSpec: Any): AddressTranslationRsp = {
     val p = portSpec.asInstanceOf[StaticAddressTranslationParameter]
-    specs.addRet(new Spec(stages, preAddress, p, new AddressTranslationRsp(this, 0, stages(p.rspAt)){
+    specs.addRet(new Spec(stages, preAddress, p, new AddressTranslationRsp(this, 0, stages(p.rspAt), wayCount = 0){
       import rspStage._
       import keys._
 
@@ -43,25 +48,20 @@ class StaticAddressTranslationPlugin(ioRange : UInt => Bool) extends Plugin with
       ALLOW_READ := True
       ALLOW_WRITE := True
       PAGE_FAULT := False
+      ACCESS_FAULT := False
       wake := True
+
+      ALLOW_EXECUTE clearWhen(!fetchRange(TRANSLATED))
+      pipelineLock.release()
     })).rsp
   }
 
   val setup = create early new Area{
-    val invalidatePort = PulseHandshake()
-    invalidatePort.served := RegNext(invalidatePort.request) init(False)
+    val invalidatePort = PulseHandshake().setIdleAll()
+    invalidatePort.served setWhen(RegNext(invalidatePort.request) init(False))
   }
 
   val logic = create late new Area{
     lock.await()
-
-//    val ports = for(spec <- specs) yield new Area{
-//      import spec._
-//      val stage = stages(spec.p.rspAt)
-//      import stage._
-//
-//      spec.rsp.TRANSLATED := spec.preAddress
-//      spec.rsp.IO := ioRange(spec.rsp.TRANSLATED)
-//    }
   }
 }

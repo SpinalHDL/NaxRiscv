@@ -10,7 +10,7 @@ import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
 
 import scala.collection.mutable.ArrayBuffer
 
-case class RegFileReadParameter(withReady : Boolean)
+case class RegFileReadParameter(withReady : Boolean, forceNoBypass : Boolean)
 case class RegFileWriteParameter(withReady : Boolean)
 
 
@@ -21,10 +21,11 @@ class RegFileAsync(addressWidth    : Int,
                    readsParameter  : Seq[RegFileReadParameter],
                    writesParameter : Seq[RegFileWriteParameter],
                    bypasseCount    : Int,
-                   headZero        : Boolean) extends Component {
+                   headZero        : Boolean,
+                   asyncReadBySyncReadRevertedClk : Boolean = false) extends Component {
   val io = new Bundle {
     val writes = Vec(writesParameter.map(p => slave(RegFileWrite(addressWidth, dataWidth, p.withReady))))
-    val reads = Vec(readsParameter.map(p => slave(RegFileRead(addressWidth, dataWidth, p.withReady, 0))))
+    val reads = Vec(readsParameter.map(p => slave(RegFileRead(addressWidth, dataWidth, p.withReady, 0, p.forceNoBypass))))
     val bypasses = Vec.fill(bypasseCount)(slave(RegFileBypass(addressWidth, dataWidth)))
   }
 
@@ -33,8 +34,9 @@ class RegFileAsync(addressWidth    : Int,
   val readPortCount  = io.reads.count(!_.withReady)
   val banks = for(bankId <- 0 until bankCount) yield new Area{
     val ram = Mem.fill((1 << addressWidth)/bankCount)(Bits(dataWidth bits))
+    def asyncRead = if(asyncReadBySyncReadRevertedClk) ram.readAsyncPortBySyncReadRevertedClk else ram.readAsyncPort
     val writePort = Seq.fill(writePortCount)(ram.writePort)
-    val readPort = Seq.fill(readPortCount)(ram.readAsyncPort)
+    val readPort = Seq.fill(readPortCount)(asyncRead)
   }
   io.reads.foreach(e => assert(!e.withReady))
   io.writes.foreach(e => assert(!e.withReady))
@@ -56,9 +58,9 @@ class RegFileAsync(addressWidth    : Int,
       r.data := port.data
     }
 
-    val bypass = new Area{
+    val bypass = !r.forceNoBypass generate new Area{
       val hits = io.bypasses.map(b => b.valid && b.address === r.address)
-      val hitsValue = MuxOH.or(hits, io.bypasses.map(_.data))
+      val hitsValue = MuxOH.mux(hits, io.bypasses.map(_.data))
       when(hits.orR){
         r.data := hitsValue
       }
@@ -74,7 +76,6 @@ class RegFileAsync(addressWidth    : Int,
       port.address := 0
       port.data := 0
     }
-
   }
 }
 
@@ -89,7 +90,7 @@ object RegFileAsyncSynth extends App{
     addressWidth    = 6,
     dataWidth       = 32,
     bankCount       = 1,
-    readsParameter  = Seq.fill(4)(RegFileReadParameter(withReady = false)),
+    readsParameter  = Seq.fill(4)(RegFileReadParameter(withReady = false, forceNoBypass = false)),
     writesParameter = Seq.fill(1)(RegFileWriteParameter(withReady = false)),
     bypasseCount    = 0,
     headZero        = true
@@ -115,22 +116,21 @@ Artix 7 -> 538 Mhz 176 LUT 585 FF
 
 
 
-class RegFilePlugin(spec : RegfileSpec,
-                    physicalDepth : Int,
-                    bankCount : Int) extends Plugin with RegfileService{
-  override def uniqueIds = List(spec)
+class RegFilePlugin(var spec : RegfileSpec,
+                    var physicalDepth : Int,
+                    var bankCount : Int,
+                    var asyncReadBySyncReadRevertedClk : Boolean = false) extends Plugin with RegfileService{
   override def getPhysicalDepth = physicalDepth
-
-  assert(isPow2(bankCount))
+  override def rfSpec = spec
 
   val lock = Lock()
-  val addressWidth = log2Up(physicalDepth)
-  val dataWidth = spec.width
+  def addressWidth = log2Up(physicalDepth)
+  def dataWidth = spec.width
   val reads = ArrayBuffer[RegFileRead]()
   val writes = ArrayBuffer[RegFileWrite]()
   val bypasses = ArrayBuffer[RegFileBypass]()
 
-  override def newRead(withReady : Boolean) = reads.addRet(RegFileRead(addressWidth, dataWidth, withReady, 0))
+  override def newRead(withReady : Boolean, forceNoBypass : Boolean) = reads.addRet(RegFileRead(addressWidth, dataWidth, withReady, 0, forceNoBypass))
   override def newWrite(withReady : Boolean, latency : Int) = writes.addRet(RegFileWrite(addressWidth, dataWidth, withReady, latency))
   override def newBypass() : RegFileBypass = bypasses.addRet(RegFileBypass(addressWidth, dataWidth))
 
@@ -142,6 +142,7 @@ class RegFilePlugin(spec : RegfileSpec,
 
   val logic = create late new Area{
     lock.await()
+    assert(isPow2(bankCount))
 
     val writeBypasses = for(write <- writes; if write.latency == 0) yield new Area{
       val port = newBypass()
@@ -154,10 +155,11 @@ class RegFilePlugin(spec : RegfileSpec,
       addressWidth    = addressWidth,
       dataWidth       = dataWidth,
       bankCount       = bankCount,
-      readsParameter  = reads.map(e => RegFileReadParameter(withReady = e.withReady)),
+      readsParameter  = reads.map(e => RegFileReadParameter(withReady = e.withReady, e.forceNoBypass)),
       writesParameter = writes.map(e => RegFileWriteParameter(withReady = e.withReady)),
       bypasseCount    = bypasses.size,
-      headZero        = spec.x0AlwaysZero
+      headZero        = spec.x0AlwaysZero,
+      asyncReadBySyncReadRevertedClk = asyncReadBySyncReadRevertedClk
     )
 
     (regfile.io.reads, reads).zipped.foreach(_ <> _)

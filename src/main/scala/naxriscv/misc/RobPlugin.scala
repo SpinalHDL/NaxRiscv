@@ -13,10 +13,14 @@ import spinal.lib.pipeline.Stageable
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
-class RobPlugin(completionWithReg : Boolean = false) extends Plugin with RobService{
+class RobPlugin(var robSize : Int,
+                var completionWithReg : Boolean = false) extends Plugin with RobService{
 
-//  override val ROB_DEPENDENCY = Stageable(UInt(robDepth bits))
-//  override def robDepth = depth
+  create config {
+    ROB.SIZE.set(robSize)
+  }
+
+
   case class Completion(bus : Flow[RobCompletion])
   val completions = ArrayBuffer[Completion]()
 
@@ -55,7 +59,7 @@ class RobPlugin(completionWithReg : Boolean = false) extends Plugin with RobServ
     val frontend = getService[FrontendPlugin]
 
     val completionReg = completionWithReg generate new Area {
-      val valids = Reg(Bits(ROB.SIZE bits)) init (0) //TODO this maybe optimized using distributed ram, also this may improve the commit stage path
+      val valids = Reg(Bits(ROB.SIZE bits)) init (0)
       for (p <- robLineMaskPort) {
         p.mask := valids.subdivideIn(ROB.COLS bits).read(p.line(ROB.lineRange))
       }
@@ -120,7 +124,7 @@ class RobPlugin(completionWithReg : Boolean = false) extends Plugin with RobServ
       val keys = mutable.LinkedHashSet[Stageable[Data]]()
       keys ++= readAsyncs.map(_.key)
       val e = for(key <- keys; if widthOf(key) != 0) yield new Area{
-        if(key.isNamed) this.setPartialName(key.getName())
+        val k = key
         val wl = writes.filter(_.key == key)
         val ral = readAsyncs.filter(_.key == key)
         if(wl.isEmpty) SpinalError(s"RobPlugin has not writes for ${key}")
@@ -174,6 +178,12 @@ class RobPlugin(completionWithReg : Boolean = false) extends Plugin with RobServ
             val sliceRange = log2Up(writeSizeMax) - 1 downto log2Up(e.size*e.skipFactor)
             e.rsp.assignFromBits(cat.subdivideIn(widthOf(e.rsp) bits).read(e.robId(sliceRange)))
           }
+        }
+      }
+
+      for(x <- e) {
+        if(x.k.isNamed) {
+          x.setPartialName(x.k.getName())
         }
       }
     }

@@ -6,22 +6,22 @@ import naxriscv.fetch.{AlignerPlugin, FetchPlugin}
 import naxriscv.interfaces.JumpService
 import naxriscv.prediction.Prediction._
 import naxriscv.utilities.Plugin
-import spinal.core._
+import spinal.core.{ReadUnderWritePolicy, _}
 import spinal.lib._
 import spinal.lib.pipeline.Stageable
 
-class BtbPlugin(entries : Int,
-                hashWidth : Int = 16,
-                readAt : Int = 0,
-                hitAt : Int = 1,
-                jumpAt : Int = 2) extends Plugin with FetchWordPrediction{
+class BtbPlugin(var entries : Int,
+                var hashWidth : Int = 16,
+                var readAt : Int = 0,
+                var hitAt : Int = 1,
+                var jumpAt : Int = 2) extends Plugin with FetchWordPrediction{
 
   val setup = create early new Area{
     val fetch = getService[FetchPlugin]
     val jump = getService[JumpService]
     val branchContext = getService[BranchContextPlugin]
     val priority = JumpService.Priorities.FETCH_WORD(jumpAt, true)
-    val btbJump = jump.createJumpInterface(priority)
+    val btbJump = jump.createJumpInterface(priority, aggregationPriority = (jumpAt < 2).toInt)
     val historyPush = getService[HistoryPlugin].createPushPort(priority, 1)
     val aligned = getService[AlignerPlugin]
 
@@ -77,7 +77,7 @@ class BtbPlugin(entries : Int,
     val readRsp = new Area{
       val stage = fetch.getStage(readAt+1)
       import stage._
-      stage(ENTRY) := mem.readSync(readCmd.entryAddress, readCmd.stage.isReady)
+      stage(ENTRY) := mem.readSync(readCmd.entryAddress, readCmd.stage.isReady, readUnderWrite = readFirst)
       KeepAttribute(stage(ENTRY))
     }
 

@@ -106,6 +106,9 @@ class Pipeline extends Area{
     val clFlushNextHit = mutable.LinkedHashMap[ConnectionLogic, Bool]()
 
     def propagateRequirements(stage : Stage): Unit ={
+      if(stage.arbitration.isRemoved != null){
+        stage.arbitration.isRemoved := stage.isFlushed
+      }
       if(stage.request.halts.nonEmpty){
         stage.arbitration.propagateReady = true
         stage.isReady //Force creation

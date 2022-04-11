@@ -3,7 +3,7 @@ package naxriscv.misc
 import naxriscv.Global
 import spinal.core._
 import spinal.lib._
-import naxriscv.interfaces._
+import naxriscv.interfaces.{CsrRamService, _}
 import naxriscv.utilities.Plugin
 import spinal.core.fiber.Handle
 
@@ -15,15 +15,15 @@ class CsrRamPlugin extends Plugin with CsrRamService with InitCycles {
   val writes = ArrayBuffer[Handle[CsrRamWrite]]()
 
   override def ramAllocate(entries: Int = 1) : CsrRamAllocation= allocations.addRet(new CsrRamAllocation(entries))
-  override def ramReadPort() : Handle[CsrRamRead] = reads.addRet(Handle(CsrRamRead(setup.addressWidth, Global.XLEN.get)))
-  override def ramWritePort()  : Handle[CsrRamWrite] = writes.addRet(Handle(CsrRamWrite(setup.addressWidth, Global.XLEN.get)))
+  override def ramReadPort(priority : Int) : Handle[CsrRamRead] = reads.addRet(Handle(CsrRamRead(setup.addressWidth, Global.XLEN.get, priority)))
+  override def ramWritePort(priority : Int)  : Handle[CsrRamWrite] = writes.addRet(Handle(CsrRamWrite(setup.addressWidth, Global.XLEN.get, priority)))
 
   override def initCycles = 1 << (setup.addressWidth+1)
 
   val setup = create late new Area{
     allocationLock.await()
 
-    val initPort = ramWritePort()
+    val initPort = ramWritePort(CsrRamService.priority.INIT)
 
     val sorted = allocations.sortBy(_.entriesLog2).reverse
     var offset = 0
@@ -39,6 +39,10 @@ class CsrRamPlugin extends Plugin with CsrRamService with InitCycles {
 
   val logic = create late new Area{
     portLock.await()
+    val ws = writes.sortBy(_.priority).reverse
+    val rs = reads.sortBy(_.priority).reverse
+    writes.clear(); writes ++= ws
+    reads.clear() ; reads  ++= rs
 
     val addressWidth = setup.addressWidth
     val mem = Mem.fill(1 << addressWidth)(Bits(Global.XLEN bits))
@@ -56,7 +60,7 @@ class CsrRamPlugin extends Plugin with CsrRamService with InitCycles {
     }
 
     val writeLogic = new Area{
-      val hits = writes.map(_.valid)
+      val hits = writes.map(_.valid).asBits
       val hit = hits.orR
       val oh = OHMasking.first(hits)
       val sel = OHToUInt(oh)
@@ -65,12 +69,12 @@ class CsrRamPlugin extends Plugin with CsrRamService with InitCycles {
       port.valid := hit
       port.address := writes.map(_.address).read(sel)
       port.data := writes.map(_.data).read(sel)
-      (writes, oh).zipped.foreach(_.ready :=  _)
+      (writes, oh.asBools).zipped.foreach(_.ready :=  _)
     }
 
 
     val readLogic = new Area{
-      val hits = reads.map(_.valid)
+      val hits = reads.map(_.valid).asBits
       val hit = hits.orR
       val oh = OHMasking.first(hits)
       val sel = OHToUInt(oh)
@@ -78,7 +82,7 @@ class CsrRamPlugin extends Plugin with CsrRamService with InitCycles {
 
 
       port.address := reads.map(_.address).read(sel)
-      (reads, oh).zipped.foreach(_.ready := _)
+      (reads, oh.asBools).zipped.foreach(_.ready := _)
       reads.foreach(_.data := port.data)
     }
   }

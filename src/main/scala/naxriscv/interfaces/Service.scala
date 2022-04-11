@@ -30,7 +30,7 @@ case class JumpCmd(pcWidth : Int) extends Bundle{
   val pc = UInt(pcWidth bits)
 }
 trait JumpService extends Service{
-  def createJumpInterface(priority : Int) : Flow[JumpCmd] //High priority win
+  def createJumpInterface(priority : Int, aggregationPriority : Int = 0) : Flow[JumpCmd] //High priority win
 }
 
 trait InitCycles extends Service{
@@ -45,7 +45,8 @@ case class EuGroup(eus : Seq[ExecuteUnitService],
 case class DecoderTrap() extends Bundle{
   val cause = UInt(4 bits)
   val epc   = UInt(PC_WIDTH bits)
-  val tval  = Bits(XLEN bits)
+  val tval  = Bits(TVAL_WIDTH bits)
+  val debugEnter = RV_DEBUG.get() generate Bool()
 }
 
 trait DecoderService extends Service with LockedService {
@@ -77,6 +78,9 @@ trait DecoderService extends Service with LockedService {
   def trapHalt() : Unit
   def trapRaise() : Unit
   def trapReady() : Bool
+
+  //Used by the debug trigger module to implement hardware breakpoints (trigger in the frontend.decoded stage)
+  def debugEnter(slotId : Int) : Unit
 }
 
 trait RobService extends Service{
@@ -129,7 +133,7 @@ case class RegFileWrite(addressWidth : Int, dataWidth : Int, withReady : Boolean
   }
 }
 
-case class RegFileRead(addressWidth : Int, dataWidth : Int, withReady : Boolean, latency : Int) extends Bundle with IMasterSlave{
+case class RegFileRead(addressWidth : Int, dataWidth : Int, withReady : Boolean, latency : Int, forceNoBypass : Boolean) extends Bundle with IMasterSlave{
   val valid = Bool()
   val ready = withReady generate Bool()
   val address = UInt(addressWidth bits)
@@ -152,9 +156,10 @@ case class RegFileBypass(addressWidth : Int, dataWidth : Int) extends Bundle wit
 }
 
 trait RegfileService extends Service{
+  def rfSpec : RegfileSpec
   def getPhysicalDepth : Int
 
-  def newRead(withReady : Boolean) : RegFileRead
+  def newRead(withReady : Boolean, forceNoBypass : Boolean = false) : RegFileRead
   def newWrite(withReady : Boolean, latency : Int) : RegFileWrite
   def newBypass() : RegFileBypass
 
@@ -170,7 +175,7 @@ case class RescheduleEvent(causeWidth : Int) extends Bundle{
   val robIdNext  = ROB.ID()
   val trap       = Bool()
   val cause      = UInt(causeWidth bits)
-  val tval       = Bits(Global.XLEN bits)
+  val tval       = Bits(TVAL_WIDTH bits)
   val reason     = ScheduleReason.hardType()
 }
 
@@ -200,14 +205,17 @@ trait CommitService  extends Service{
 }
 
 //TODO reduce area usage if physRdType isn't needed by some execution units
-case class ExecutionUnitPush(physRdType : Stageable[UInt], withReady : Boolean, withValid : Boolean = true) extends Bundle{
+case class ExecutionUnitPush(physRdType : Stageable[UInt], withReady : Boolean, contextKeys : Seq[Stageable[_ <: Data]], withValid : Boolean = true) extends Bundle{
   val valid = withValid generate Bool()
   val ready = withReady generate Bool()
   val robId = ROB.ID()
   val physRd = physRdType()
+  val context = contextKeys.map(_.craft())
+
+  def getContext[T <: Data](key : Stageable[T]) : T = context(contextKeys.indexOf(key)).asInstanceOf[T]
 
   def toStream ={
-    val ret = Stream(ExecutionUnitPush(physRdType, false, false))
+    val ret = Stream(ExecutionUnitPush(physRdType, false, contextKeys, false))
     ret.valid := valid
     ready := ret.ready
     ret.payload := this
@@ -215,7 +223,7 @@ case class ExecutionUnitPush(physRdType : Stageable[UInt], withReady : Boolean, 
   }
 
   def toFlow = {
-    val ret = Flow(ExecutionUnitPush(physRdType, false, false))
+    val ret = Flow(ExecutionUnitPush(physRdType, false, contextKeys, false))
     ret.valid := valid && (if(withReady) ready else True)
     ret.payload := this
     ret
@@ -281,6 +289,7 @@ object ScheduleReason{
   val hardType = Stageable(UInt(8 bits))
   val TRAP = 0x01
   val ENV = 0x02
+  val LOAD_HIT_MISS_PREDICTED = 0x03
   val BRANCH = 0x10
   val JUMP = 0x11
   val STORE_TO_LOAD_HAZARD = 0x20
@@ -291,7 +300,7 @@ case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int, caus
   val trap       = (canTrap && canJump) generate Bool()
   val pcTarget   = canJump generate UInt(pcWidth bits)
   val cause      = canTrap generate UInt(causeWidth bits)
-  val tval       = canTrap generate Bits(Global.XLEN bits)
+  val tval       = canTrap generate Bits(TVAL_WIDTH bits)
   val skipCommit = Bool() //Want to skip commit for exceptions, but not for [jump, ebreak, redo]
   val reason     = ScheduleReason.hardType()
 
@@ -306,6 +315,7 @@ case class ScheduleCmd(canTrap : Boolean, canJump : Boolean, pcWidth : Int, caus
 case class RobWait() extends Area with OverridedEqualsHashCode {
   val ID = Stageable(ROB.ID)
   val ENABLE = Stageable(Bool())
+  val ENABLE_UNSKIPED = Stageable(Bool())
 }
 
 trait IssueService extends Service with LockedService {
@@ -335,14 +345,18 @@ trait WakeWithBypassService extends Service{
   def wakeRobsWithBypass : Seq[Flow[UInt]]
 }
 
-class AddressTranslationRsp(s : AddressTranslationService, wakesCount : Int, val rspStage : Stage) extends Area{
+class AddressTranslationRsp(s : AddressTranslationService, wakesCount : Int, val rspStage : Stage, val wayCount : Int) extends Area{
   val keys = new Area {
     setName("MMU")
-    val TRANSLATED = Stageable(UInt(s.postWidth bits))
+    val TRANSLATED = Stageable(UInt(PHYSICAL_WIDTH bits))
     val IO = Stageable(Bool())
     val REDO = Stageable(Bool())
     val ALLOW_READ, ALLOW_WRITE, ALLOW_EXECUTE = Stageable(Bool())
     val PAGE_FAULT = Stageable(Bool())
+    val ACCESS_FAULT = Stageable(Bool())
+    val WAYS_OH  = Stageable(Bits(wayCount bits))
+    val WAYS_PHYSICAL  = Stageable(Vec.fill(wayCount)(UInt(PHYSICAL_WIDTH bits)))
+    val BYPASS_TRANSLATION = Stageable(Bool())
   }
   val wake = Bool()
   val pipelineLock = Lock().retain()
@@ -355,9 +369,6 @@ object AddressTranslationPortUsage{
 }
 
 trait AddressTranslationService extends Service with LockedImpl {
-  def preWidth : Int
-  def postWidth : Int
-
   def newStorage(pAny: Any) : Any
   def newTranslationPort(stages: Seq[Stage],
                          preAddress: Stageable[UInt],
@@ -366,7 +377,7 @@ trait AddressTranslationService extends Service with LockedImpl {
                          storageSpec: Any): AddressTranslationRsp
 
   def withTranslation : Boolean
-  def invalidatePort : PulseHandshake
+  def invalidatePort : PulseHandshake[NoData, NoData]
 }
 
 class CsrSpec(val csrFilter : Any){
@@ -383,7 +394,7 @@ case class CsrOnDecode (override val csrFilter : Any, priority : Int, body : () 
 
 case class CsrRamSpec(override val csrFilter : Any, alloc : CsrRamAllocation) extends CsrSpec(csrFilter)
 
-case class CsrListFilter(mapping : List[Int]) extends Nameable
+case class CsrListFilter(mapping : Seq[Int]) extends Nameable
 trait CsrService extends Service with LockedImpl{
   val spec = ArrayBuffer[CsrSpec]()
   def onRead (csrFilter : Any, onlyOnFire : Boolean)(body : => Unit) = spec += CsrOnRead(csrFilter, onlyOnFire, () => body)
@@ -459,7 +470,7 @@ class CsrRamAllocation(val entries : Int){
 
   val entriesLog2 = 1 << log2Up(entries)
 }
-case class CsrRamRead(addressWidth : Int, dataWidth : Int) extends Bundle{
+case class CsrRamRead(addressWidth : Int, dataWidth : Int, priority : Int) extends Bundle{
   val valid, ready = Bool()
   val address = UInt(addressWidth bits)
   val data = Bits(dataWidth bits) //One cycle after fired
@@ -467,7 +478,7 @@ case class CsrRamRead(addressWidth : Int, dataWidth : Int) extends Bundle{
   def fire = valid && ready
 }
 
-case class CsrRamWrite(addressWidth : Int, dataWidth : Int) extends Bundle{
+case class CsrRamWrite(addressWidth : Int, dataWidth : Int, priority : Int) extends Bundle{
   val valid, ready = Bool()
   val address = UInt(addressWidth bits)
   val data = Bits(dataWidth bits)
@@ -475,11 +486,21 @@ case class CsrRamWrite(addressWidth : Int, dataWidth : Int) extends Bundle{
   def fire = valid && ready
 }
 
+
+object CsrRamService{
+  //Priorities are arranged in a way to improve ports.ready timings
+  val priority = new {
+    val INIT    = 0
+    val TRAP    = 1
+    val COUNTER = 2
+    val CSR     = 3  //This is the very critical path
+  }
+}
 //usefull for, for instance, mscratch scratch mtvec stvec mepc sepc mtval stval satp pmp stuff
 trait CsrRamService extends Service {
   def ramAllocate(entries : Int) : CsrRamAllocation
-  def ramReadPort() : Handle[CsrRamRead]
-  def ramWritePort() : Handle[CsrRamWrite]
+  def ramReadPort(priority : Int) : Handle[CsrRamRead]
+  def ramWritePort(priority : Int) : Handle[CsrRamWrite]
   val allocationLock = Lock()
   val portLock = Lock()
 }
@@ -516,15 +537,38 @@ trait PerformanceCounterService extends Service with LockedImpl{
   def createEventPort(id : Int) : Bool
 }
 
-case class PulseHandshake() extends Bundle{
+object PulseHandshake{
+  def apply() : PulseHandshake[NoData, NoData] = PulseHandshake(NoData(), NoData())
+  def apply[T <: Data, T2 <: Data](cmdType : HardType[T], rspType : HardType[T2]) : PulseHandshake[T, T2] = new PulseHandshake(cmdType, rspType)
+}
+
+class PulseHandshake[T <: Data, T2 <: Data](cmdType : HardType[T], rspType : HardType[T2]) extends Bundle with IMasterSlave {
   val request = Bool()
   val served  = Bool()
+  val cmd = cmdType()
+  val rsp = rspType()
 
-  def idle(): this.type ={
+
+  override def asMaster() = {
+    out(request, cmd)
+    in(served, rsp)
+  }
+
+  def setIdleAll(): this.type ={
     request := False
     served := False
+    cmd.assignDontCare()
+    rsp.assignDontCare()
     this
   }
+
+  def setIdle(): this.type ={
+    request := False
+    cmd.assignDontCare()
+    this
+  }
+
+  def isPending() : Bool = RegInit(False) setWhen(request) clearWhen(served)
 }
 
 trait PostCommitBusy extends Service{

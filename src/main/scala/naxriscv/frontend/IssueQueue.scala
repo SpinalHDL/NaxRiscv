@@ -111,7 +111,7 @@ class IssueQueue[T <: Data](val p : IssueQueueParameter, slotContextType : HardT
   val selector = for((schedule, scheduleId) <- io.schedules.zipWithIndex) yield new Area{
     val sp = p.schedules(scheduleId)
     val slotsValid = B((sp.eventOffset until p.slotCount by sp.eventFactor).map(i => slots(i).ready && slots(i).sel(sp.selId)))
-    val selOh = OHMasking.firstV2(slotsValid, firstOrder =  LutInputs.get/2)
+    val selOh = OHMasking.firstV2(slotsValid, firstOrder =  LutInputs.get)
 
     schedule.valid := slotsValid.orR && running
     schedule.event := selOh

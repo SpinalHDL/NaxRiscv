@@ -1,13 +1,14 @@
 package naxriscv.frontend
 
-import naxriscv.Frontend.{DISPATCH_MASK}
-import naxriscv.{Frontend, Global, ROB, riscv}
+import naxriscv.Frontend.DISPATCH_MASK
+import naxriscv.{DecodeList, Frontend, Global, ROB, riscv}
 import naxriscv.compatibility.MultiPortWritesSymplifier
-import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, RegfileService, RegfileSpec, WakeRegFileService, WakeWithBypassService}
+import naxriscv.interfaces.{CommitService, DecoderService, InitCycles, IssueService, MicroOp, RegfileService, RegfileSpec, WakeRegFileService, WakeWithBypassService}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
 import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
+import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -119,16 +120,37 @@ Artix 7 -> 379 Mhz 180 LUT 303 FF
 class RfDependencyPlugin() extends Plugin with InitCycles{
   override def initCycles = logic.entryCount
 
-  val setup = create early new Area{
-    val frontend = getService[FrontendPlugin]
+  case class IssueSkipSpec(microOp: MicroOp, rsId : Int)
+  val issueSkipSpecs = ArrayBuffer[IssueSkipSpec]()
+  def issueSkipRs(microOp: MicroOp, rsId : Int): Unit ={
+    issueSkipSpecs += IssueSkipSpec(microOp, rsId)
+  }
+
+  def getRsWait(rsId : Int) = setup.waits(rsId)
+
+  val retains = create early new Area{
+    getService[FrontendPlugin].retain()
+    getService[IssueService].retain()
+    getService[DecoderService].retain()
+  }
+
+  val setup = create late new Area{
     val issue    = getService[IssueService]
     val decoder  = getService[DecoderService]
-    frontend.retain()
-    issue.retain()
 
     val waits = List.fill(decoder.rsCount)(issue.newRobDependency())
+    val SKIP = List.fill(decoder.rsCount)(Stageable(Bool()))
+
+    for(rsId <- 0 until decoder.rsCount){
+      decoder.addMicroOpDecodingDefault(SKIP(rsId), False)
+    }
+    val skipGroupe = issueSkipSpecs.groupByLinked(_.rsId)
+    for((rsId, specs) <- skipGroupe; spec <- specs){
+      decoder.addMicroOpDecoding(spec.microOp, DecodeList(SKIP(rsId) -> True))
+    }
 
     issue.release()
+    decoder.release()
   }
 
   val logic = create late new Area{
@@ -137,6 +159,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
     val wakeIds = getServicesOf[WakeRegFileService].flatMap(_.wakeRegFile)
     val stage = frontend.pipeline.dispatch
     import stage._
+
 
     val entryCount = decoder.rsPhysicalDepthMax
 
@@ -185,7 +208,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
           val port = impl.io.reads(slotId*decoder.rsCount+rsId)
           port.cmd.valid := isValid && (DISPATCH_MASK, slotId) && useRs
           port.cmd.payload := stage(decoder.PHYS_RS(rsId), slotId)
-          (setup.waits(rsId).ENABLE, slotId) := port.rsp.enable
+          (setup.waits(rsId).ENABLE_UNSKIPED, slotId) := port.rsp.enable
           (setup.waits(rsId).ID    , slotId) := port.rsp.rob
 
           //Slot write bypass
@@ -194,18 +217,19 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
             val useRd = (decoder.WRITE_RD, priorId) && (DISPATCH_MASK, priorId)
             val writeRd = (decoder.ARCH_RD, priorId)
             when(useRd && writeRd === archRs){
-              (setup.waits(rsId).ENABLE, slotId) := True
+              (setup.waits(rsId).ENABLE_UNSKIPED, slotId) := True
               (setup.waits(rsId).ID    , slotId) := ROB.ID | priorId
             }
           }
           for(wake <- wakeIds; if wake.needBypass){
             when(wake.valid && wake.physical === port.cmd.payload){
-              (setup.waits(rsId).ENABLE, slotId) := False
+              (setup.waits(rsId).ENABLE_UNSKIPED, slotId) := False
             }
           }
           when(!useRs){
-            (setup.waits(rsId).ENABLE, slotId) := False
+            (setup.waits(rsId).ENABLE_UNSKIPED, slotId) := False
           }
+          (setup.waits(rsId).ENABLE, slotId) := (setup.waits(rsId).ENABLE_UNSKIPED, slotId) && !(setup.SKIP(rsId), slotId)
         }
       }
     }

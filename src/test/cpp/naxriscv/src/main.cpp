@@ -34,10 +34,20 @@ using namespace std;
 
 #define VL_RANDOM_I_WIDTH(w) (VL_RANDOM_I() & (1 << w)-1)
 
+class SimElement{
+public:
+    virtual ~SimElement(){}
+    virtual void onReset(){}
+    virtual void postReset(){}
+    virtual void preCycle(){}
+    virtual void postCycle(){}
+};
+
 #include "type.h"
 #include "memory.h"
 #include "elf.h"
 #include "nax.h"
+#include "jtag.h"
 #define u64 uint64_t
 #define u8 uint8_t
 
@@ -45,7 +55,12 @@ using namespace std;
 #include <getopt.h>
 
 #define RvAddress u32
+
+#if XLEN == 32
 #define RvData u32
+#else
+#define RvData u64
+#endif
 
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
 
@@ -75,11 +90,19 @@ void breakMe(){
     int a = 0;
 }
 
+#if XLEN == 32
 #define assertEq(message, x,ref) if((RvData)(x) != (RvData)(ref)) {\
 	printf("\n*** %s DUT=%x REF=%x ***\n\n",message,(RvData)x,(RvData)ref);\
 	breakMe();\
 	failure();\
 }
+#else
+#define assertEq(message, x,ref) if((RvData)(x) != (RvData)(ref)) {\
+	printf("\n*** %s DUT=%lx REF=%lx ***\n\n",message,(RvData)x,(RvData)ref);\
+	breakMe();\
+	failure();\
+}
+#endif
 
 #define assertTrue(message, x) if(!(x)) {\
     printf("\n*** %s ***\n\n",message);\
@@ -137,6 +160,10 @@ int mkpath(std::string s,mode_t mode)
 #define MACHINE_EXTERNAL_INTERRUPT_CTRL (BASE+0x10)
 #define SUPERVISOR_EXTERNAL_INTERRUPT_CTRL (BASE + 0x18)
 #define GETC (BASE + 0x40)
+#define STATS_CAPTURE_ENABLE (BASE + 0x50)
+#define PUT_DEC (BASE + 0x60)
+#define INCR_COUNTER (BASE + 0x70)
+
 
 #define MM_FAULT_ADDRESS 0x00001230
 #define IO_FAULT_ADDRESS 0x1FFFFFF0
@@ -154,9 +181,36 @@ bool statsPrint = false;
 bool statsPrintHist = false;
 bool traceGem5 = false;
 bool spike_debug = false;
+bool spike_enabled = true;
+bool timeout_enabled = true;
 bool simMaster = false;
 bool simSlave = false;
+bool noStdIn = false;
+bool putcFlush = true;
 
+
+class TestSchedule{
+public:
+    virtual void activate() = 0;
+};
+
+
+queue <TestSchedule*> testScheduleQueue;
+
+void testScheduleQueueNext(){
+    if(testScheduleQueue.empty()) return;
+    auto e = testScheduleQueue.front();
+    testScheduleQueue.pop();
+    e->activate();
+}
+
+
+
+inline bool ends_with(std::string const & value, std::string const & ending)
+{
+    if (ending.size() > value.size()) return false;
+    return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
+}
 
 void simMasterGetC(char c);
 
@@ -173,14 +227,7 @@ bool stdinNonEmpty(){
 
 
 
-class SimElement{
-public:
-	virtual ~SimElement(){}
-	virtual void onReset(){}
-	virtual void postReset(){}
-	virtual void preCycle(){}
-	virtual void postCycle(){}
-};
+
 
 class Soc : public SimElement{
 public:
@@ -188,6 +235,9 @@ public:
     VNaxRiscv* nax;
     u64 clintCmp = 0;
     queue <char> customCin;
+    string putcHistory = "";
+    string *putcTarget = NULL;
+    RvData incrValue = 0;
 
     Soc(VNaxRiscv* nax){
         this->nax = nax;
@@ -206,8 +256,19 @@ public:
 
     virtual int peripheralWrite(u64 address, uint32_t length, uint8_t *data){
         switch(address){
-        case PUTC: printf("%c", *data); fflush(stdout); break;
-        case PUT_HEX: printf("%lx", *((u64*)data)); fflush(stdout); break;
+        case PUTC: {
+            printf("%c", *data); if(putcFlush) fflush(stdout);
+            putcHistory += (char)(*data);
+            if(putcTarget){
+                if(ends_with(putcHistory, *putcTarget)){
+                    putcTarget = NULL;
+                    testScheduleQueueNext();
+                    putcHistory = "";
+                }
+            }
+        }break;
+        case PUT_HEX: printf("%x", *((u32*)data)); if(putcFlush) fflush(stdout); break;
+        case PUT_DEC: printf("%d", *((u32*)data)); if(putcFlush) fflush(stdout); break;
         case MACHINE_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_machine_external = *data & 1;  break;
         #if SUPERVISOR == 1
         case SUPERVISOR_EXTERNAL_INTERRUPT_CTRL: nax->PrivilegedPlugin_io_int_supervisor_external = *data & 1;  break;
@@ -215,6 +276,8 @@ public:
         case CLINT_BASE: nax->PrivilegedPlugin_io_int_machine_software = *data & 1;  break;
         case CLINT_CMP_ADDR: memcpy(&clintCmp, data, length); /*printf("CMPA=%lx\n", clintCmp);*/ break;
         case CLINT_CMP_ADDR+4: memcpy(((char*)&clintCmp)+4, data, length); /*printf("CMPB=%lx\n", clintCmp);*/  break;
+        case INCR_COUNTER: incrValue += *((RvData*) data);break;
+//        case STATS_CAPTURE_ENABLE: whitebox->statsCaptureEnable = *data & 1; break;
         default: return 1; break;
         }
         return 0;
@@ -223,7 +286,7 @@ public:
     virtual int peripheralRead(u64 address, uint32_t length, uint8_t *data){
         switch(address){
         case GETC:{
-            if(!simSlave && stdinNonEmpty()){
+            if(!simSlave && !noStdIn && stdinNonEmpty()){
                 char c;
                 auto dummy = read(0, &c, 1);
                 memset(data, 0, length);
@@ -249,6 +312,7 @@ public:
         } break;
         case CLINT_CMP_ADDR:  memcpy(data, &clintCmp, length); break;
         case CLINT_CMP_ADDR+4:memcpy(data, ((char*)&clintCmp) + 4, length); break;
+        case INCR_COUNTER: memcpy(data, ((char*)&incrValue), length); break;
         default: return 1; break;
         }
         return 0;
@@ -272,18 +336,67 @@ public:
 };
 
 
+Soc *soc;
+
+class WaitPutc : public TestSchedule{
+public:
+    WaitPutc(string putc) : putc(putc){}
+    string putc;
+    void activate() {
+        soc->putcTarget = &putc;
+    }
+};
+
+
+class DoSuccess: public TestSchedule{
+public:
+    void activate() {
+        success();
+    }
+};
+
+
+
+class DoGetc : public TestSchedule{
+public:
+    string getc;
+    DoGetc(string getc) : getc(getc){}
+    void activate() {
+        for(char e : getc){
+            soc->customCin.push(e);
+        }
+        soc->customCin.push('\n');
+        testScheduleQueueNext();
+    }
+};
+
+
+class WithMemoryLatency{
+public:
+    virtual void setLatency(int cycles) = 0;
+};
 
 #define FETCH_MEM_DATA_BYTES (FETCH_MEM_DATA_BITS/8)
 
-class FetchCached : public SimElement{
+class FetchCached : public SimElement, public WithMemoryLatency{
 public:
 	bool error_next = false;
 	u64 pendingCount = 0;
 	u64 address;
+	u64 time;
 	bool stall;
 
     VNaxRiscv* nax;
     Soc *soc;
+
+    u32 readyTrigger = 100;
+    u32 latency = 2;
+    void setLatency(int cycles){
+        latency = cycles;
+    }
+    void setBandwidth(float ratio){
+        readyTrigger = 128*ratio;
+    }
 
 	FetchCached(VNaxRiscv* nax, Soc *soc, bool stall){
 		this->nax = nax;
@@ -301,18 +414,19 @@ public:
 			assertEq("FETCH MISSALIGNED", nax->FetchCachePlugin_mem_cmd_payload_address & (FETCH_MEM_DATA_BYTES-1),0);
 			pendingCount = FETCH_LINE_BYTES;
 			address = nax->FetchCachePlugin_mem_cmd_payload_address;
+			time = main_time + latency;
 		}
 	}
 
 	virtual void postCycle(){
 		nax->FetchCachePlugin_mem_rsp_valid = 0;
-		if(pendingCount != 0 && (!stall || VL_RANDOM_I_WIDTH(7) < 100)){
+		if(pendingCount != 0 && (!stall || VL_RANDOM_I_WIDTH(7) < readyTrigger && time <= main_time)){
 			nax->FetchCachePlugin_mem_rsp_payload_error = soc->memoryRead(address, FETCH_MEM_DATA_BYTES, (u8*)&nax->FetchCachePlugin_mem_rsp_payload_data);
 			pendingCount-=FETCH_MEM_DATA_BYTES;
 			address = address + FETCH_MEM_DATA_BYTES;
 			nax->FetchCachePlugin_mem_rsp_valid = 1;
 		}
-		if(stall) nax->FetchCachePlugin_mem_cmd_ready = VL_RANDOM_I_WIDTH(7) < 100 && pendingCount == 0;
+		if(stall) nax->FetchCachePlugin_mem_cmd_ready = VL_RANDOM_I_WIDTH(7) < readyTrigger && pendingCount == 0;
 	}
 };
 
@@ -323,6 +437,8 @@ public:
     u64 beats;
     u64 address;
     int id;
+
+    u64 time;
 };
 
 class DataCachedWriteChannel{
@@ -339,10 +455,12 @@ public:
     u64 bytes;
     u64 address;
     char data[DATA_LINE_BYTES];
+
+    u64 time;
 };
 
 
-class DataCached : public SimElement{
+class DataCached : public SimElement, public WithMemoryLatency{
 public:
     vector<DataCachedReadChannel> readChannels;
     DataCachedWriteChannel writeCmdChannel;
@@ -353,6 +471,15 @@ public:
     VNaxRiscv* nax;
     Soc *soc;
     DataCachedReadChannel *chLock = NULL;
+
+    u32 readyTrigger = 100;
+    u32 latency = 2;
+    void setLatency(int cycles){
+        latency = cycles;
+    }
+    void setBandwidth(float ratio){
+        readyTrigger = 128*ratio;
+    }
 
     DataCached(VNaxRiscv* nax, Soc *soc, bool stall){
         this->nax = nax;
@@ -373,6 +500,8 @@ public:
         }
     }
 
+
+
     virtual void onReset(){
         nax->DataCachePlugin_mem_read_cmd_ready = 1;
         nax->DataCachePlugin_mem_read_rsp_valid = 0;
@@ -388,30 +517,31 @@ public:
             int id = nax->DataCachePlugin_mem_read_cmd_payload_id;
 #endif
             assertEq("CHANNEL BUSY", readChannels[id].beats, 0);
-            readChannels[id].beats = DATA_LINE_BYTES/DATA_MEM_DATA_BYTES;
+            readChannels[id].beats   = DATA_LINE_BYTES/DATA_MEM_DATA_BYTES;
             readChannels[id].address = nax->DataCachePlugin_mem_read_cmd_payload_address;
+            readChannels[id].time    = main_time + latency;
         }
 
         if (nax->DataCachePlugin_mem_write_cmd_valid && nax->DataCachePlugin_mem_write_cmd_ready) {
 #if DATA_CACHE_WRITEBACK_COUNT == 1
             int id = 0;
 #else
-            int id = nax->DataCachePlugin_mem_write_cmd_payload_id;
+            int id = nax->DataCachePlugin_mem_write_cmd_payload_fragment_id;
 #endif
             if(!writeCmdChannel.bytes){
                 writeCmdChannel.id = id;
-                writeCmdChannel.address = nax->DataCachePlugin_mem_write_cmd_payload_address;
+                writeCmdChannel.address = nax->DataCachePlugin_mem_write_cmd_payload_fragment_address;
             }
             assert(id == writeCmdChannel.id);
-            assert(writeCmdChannel.address == nax->DataCachePlugin_mem_write_cmd_payload_address);
-            assert(nax->DataCachePlugin_mem_write_cmd_payload_mask == (1 << DATA_MEM_DATA_BYTES)-1);
+            assert(writeCmdChannel.address == nax->DataCachePlugin_mem_write_cmd_payload_fragment_address);
 
-            memcpy(writeCmdChannel.buffer + writeCmdChannel.bytes, &nax->DataCachePlugin_mem_write_cmd_payload_data, DATA_MEM_DATA_BYTES);
+            memcpy(writeCmdChannel.buffer + writeCmdChannel.bytes, &nax->DataCachePlugin_mem_write_cmd_payload_fragment_data, DATA_MEM_DATA_BYTES);
 
             writeCmdChannel.bytes += DATA_MEM_DATA_BYTES;
             if(writeCmdChannel.bytes == DATA_LINE_BYTES){
                 writeRspChannels[id].address = writeCmdChannel.address;
                 writeRspChannels[id].bytes = writeCmdChannel.bytes;
+                writeRspChannels[id].time = main_time + latency;
                 writeRspChannels[id].valid = true;
                 memcpy(writeRspChannels[id].data, writeCmdChannel.buffer, writeCmdChannel.bytes);
                 writeCmdChannel.bytes = 0;
@@ -423,11 +553,11 @@ public:
     virtual void postCycle(){
         // Generate read responses
         nax->DataCachePlugin_mem_read_rsp_valid = 0;
-        if(!stall || VL_RANDOM_I_WIDTH(7) < 100){
+        if(!stall || VL_RANDOM_I_WIDTH(7) < readyTrigger){
             if(chLock == NULL){
                 int id = VL_RANDOM_I_WIDTH(7) % DATA_CACHE_REFILL_COUNT;
                 for(int i = 0;i < DATA_CACHE_REFILL_COUNT; i++){
-                    if(readChannels[id].beats != 0){
+                    if(readChannels[id].beats != 0 && readChannels[id].time <= main_time){
                         chLock = &readChannels[id];
                         break;
                     }
@@ -448,15 +578,15 @@ public:
                 }
             }
         }
-        if(stall) nax->DataCachePlugin_mem_read_cmd_ready = VL_RANDOM_I_WIDTH(7) < 100;
+        if(stall) nax->DataCachePlugin_mem_read_cmd_ready = VL_RANDOM_I_WIDTH(7) < readyTrigger;
 
         // Generate write responses
         nax->DataCachePlugin_mem_write_rsp_valid = 0;
-        if(!stall || VL_RANDOM_I_WIDTH(7) < 100){
+        if(!stall || VL_RANDOM_I_WIDTH(7) < readyTrigger){
             DataCachedWriteRspChannel *ch = NULL;
             int id = VL_RANDOM_I_WIDTH(7) % DATA_CACHE_WRITEBACK_COUNT;
             for(int i = 0;i < DATA_CACHE_WRITEBACK_COUNT; i++){
-                if(writeRspChannels[id].valid != 0){
+                if(writeRspChannels[id].valid != 0 && writeRspChannels[id].time <= main_time){
                     ch = &writeRspChannels[id];
                     break;
                 }
@@ -472,7 +602,7 @@ public:
 #endif
             }
         }
-        if(stall) nax->DataCachePlugin_mem_write_cmd_ready = VL_RANDOM_I_WIDTH(7) < 100;
+        if(stall) nax->DataCachePlugin_mem_write_cmd_ready = VL_RANDOM_I_WIDTH(7) < readyTrigger;
     }
 };
 //TODO randomize buses when not valid ^
@@ -561,6 +691,7 @@ public:
 
 
 #include "processor.h"
+#include "mmu.h"
 #include "simif.h"
 
 
@@ -579,7 +710,7 @@ public:
     // used for MMIO addresses
     virtual bool mmio_load(reg_t addr, size_t len, uint8_t* bytes)  {
 //        printf("mmio_load %lx %ld\n", addr, len);
-        if(addr < 0x10000000) return false;
+        if(addr < 0x10000000 || addr > 0x20000000) return false;
         assertTrue("missing mmio\n", !mmioDut.empty());
         auto dut = mmioDut.front();
         assertEq("mmio write\n", dut.write, false);
@@ -591,7 +722,7 @@ public:
     }
     virtual bool mmio_store(reg_t addr, size_t len, const uint8_t* bytes)  {
 //        printf("mmio_store %lx %ld\n", addr, len);
-        if(addr < 0x10000000) return false;
+        if(addr < 0x10000000 || addr > 0x20000000) return false;
         assertTrue("missing mmio\n", !mmioDut.empty());
         auto dut = mmioDut.front();
         assertEq("mmio write\n", dut.write, true);
@@ -607,21 +738,21 @@ public:
     }
 
     virtual const char* get_symbol(uint64_t addr)  {
-        printf("get_symbol %lx\n", addr);
+//        printf("get_symbol %lx\n", addr);
         return NULL;
     }
 };
 
 class RobCtx{
 public:
-    IData pc;
+    RvData pc;
     bool integerWriteValid;
     RvData integerWriteData;
 
     bool csrValid;
     bool csrWriteDone;
     bool csrReadDone;
-    RvData csrAddress;
+    int  csrAddress;
     RvData csrWriteData;
     RvData csrReadData;
 
@@ -671,6 +802,7 @@ public:
     u64 branchMiss = 0;
     u64 jumpMiss = 0;
     u64 storeToLoadHazard = 0;
+    u64 loadHitMissPredicted = 0;
 
     map<RvData, u64> branchMissHist;
     map<RvData, u64> jumpMissHist;
@@ -687,6 +819,7 @@ public:
         ss << tab << "branch miss       " << branchMiss <<  endl;
         ss << tab << "jump miss         " << jumpMiss <<  endl;
         ss << tab << "storeToLoadHazard " << storeToLoadHazard <<  endl;
+        ss << tab << "loadHitMiss       " << loadHitMissPredicted << endl;
         if(hist){
             u64 branchCount = 0;
             ss << tab << "branch miss from :" << endl;
@@ -714,6 +847,7 @@ public:
 };
 
 #define REASON_TRAP 0x01
+#define LOAD_HIT_MISS_PREDICTED 0x03
 #define REASON_BRANCH 0x10
 #define REASON_JUMP 0x11
 #define REASON_STORE_TO_LOAD_HAZARD 0x20
@@ -727,7 +861,7 @@ public:
     FetchCtx fetchCtx[4096];
     OpCtx opCtx[4096];
     int sqToOp[256];
-    IData *robToPc[DISPATCH_COUNT];
+    RvData *robToPc[DISPATCH_COUNT];
     CData *integer_write_valid[INTEGER_WRITE_COUNT];
     CData *integer_write_robId[INTEGER_WRITE_COUNT];
     CData *rob_completions_valid[ROB_COMPLETIONS_PORTS];
@@ -739,9 +873,9 @@ public:
     SData *decoded_fetch_id[DISPATCH_COUNT];
     SData *allocated_fetch_id[DISPATCH_COUNT];
     IData *decoded_instruction[DISPATCH_COUNT];
-    IData *decoded_pc[DISPATCH_COUNT];
+    RvData *decoded_pc[DISPATCH_COUNT];
     CData *dispatch_mask[DISPATCH_COUNT];
-    IData *integer_write_data[INTEGER_WRITE_COUNT];
+    RvData *integer_write_data[INTEGER_WRITE_COUNT];
     ofstream gem5;
     disassembler_t disasm;
     bool gem5Enable = false;
@@ -940,6 +1074,7 @@ public:
                     stats.jumpMissHist[pc] += 1;
                 } break;
                 case REASON_STORE_TO_LOAD_HAZARD: stats.storeToLoadHazard += 1; break;
+                case LOAD_HIT_MISS_PREDICTED: stats.loadHitMissPredicted += 1; break;
                 }
             }
         }
@@ -1013,6 +1148,7 @@ enum ARG
     ARG_LOAD_ELF,
     ARG_LOAD_BIN,
     ARG_START_SYMBOL,
+    ARG_START_ADD,
     ARG_PASS_SYMBOL,
     ARG_FAIL_SYMBOL,
     ARG_OUTPUT_DIR,
@@ -1032,8 +1168,17 @@ enum ARG
     ARG_STATS_TOGGLE_SYMBOL,
     ARG_TRACE_GEM5,
     ARG_SPIKE_DEBUG,
+    ARG_SPIKE_DISABLED,
+    ARG_TIMEOUT_DISABLED,
+    ARG_MEMORY_LATENCY,
     ARG_SIM_MASTER,
     ARG_SIM_SLAVE,
+    ARG_SIM_SLAVE_DELAY,
+    ARG_NO_STDIN,
+    ARG_NO_PUTC_FLUSH,
+    ARG_PUTC,
+    ARG_GETC,
+    ARG_SUCCESS,
     ARG_HELP,
 };
 
@@ -1045,6 +1190,7 @@ static const struct option long_options[] =
     { "load-elf", required_argument, 0, ARG_LOAD_ELF },
     { "load-bin", required_argument, 0, ARG_LOAD_BIN },
     { "start-symbol", required_argument, 0, ARG_START_SYMBOL },
+    { "start-add", required_argument, 0, ARG_START_ADD },
     { "pass-symbol", required_argument, 0, ARG_PASS_SYMBOL },
     { "fail-symbol", required_argument, 0, ARG_FAIL_SYMBOL },
     { "output-dir", required_argument, 0, ARG_OUTPUT_DIR },
@@ -1064,39 +1210,62 @@ static const struct option long_options[] =
     { "stats-toggle-symbol", required_argument, 0, ARG_STATS_TOGGLE_SYMBOL },
     { "trace-gem5", no_argument, 0, ARG_TRACE_GEM5 },
     { "spike-debug", no_argument, 0, ARG_SPIKE_DEBUG },
+    { "spike-disabled", no_argument, 0, ARG_SPIKE_DISABLED},
+    { "timeout-disabled", no_argument, 0, ARG_TIMEOUT_DISABLED},
+    { "memory-latency", required_argument, 0, ARG_MEMORY_LATENCY },
     { "sim-master", no_argument, 0, ARG_SIM_MASTER },
     { "sim-slave", no_argument, 0, ARG_SIM_SLAVE },
+    { "sim-slave-delay", required_argument, 0, ARG_SIM_SLAVE_DELAY },
+    { "no-stdin", no_argument, 0, ARG_NO_STDIN },
+    { "no-putc-flush", no_argument, 0, ARG_NO_PUTC_FLUSH },
+    { "putc", required_argument, 0, ARG_PUTC },
+    { "getc", required_argument, 0, ARG_GETC },
+    { "success", no_argument, 0, ARG_SUCCESS },
     0
 };
 
 
 string helpString = R"(
 --help                  : Print this
---load-hex              : Load a hex file in the simulation memory
---load-elf              : Load a elf file in the simulation memory
+
+Simulation setup
+--load-bin=FILE,ADDRESS : Load a binary file in the simulation memory at the given hexadecimal address. ex file,80000000
+--load-hex=FILE         : Load a hex file in the simulation memory
+--load-elf=FILE         : Load a elf file in the simulation memory
 --start-symbol=SYMBOL   : Force the CPU to boot at the given elf symbol
 --pass-symbol=SYMBOL    : The simulation will pass when the given elf symbol execute
 --fail-symbol=SYMBOL    : The simulation will fail when the given elf symbol execute
---output-dir=DIR        : Path to where every traces will be written
---name=STRING           : Test name reported when on exit (not very useful XD)
 --timeout=INT           : Simulation time before failure (~number of cycles x 2)
---progress=PERIOD       : Will print the simulation speed each period seconds
 --seed=INT              : Seed used to initialize randomizers
+--memory-latency=CYCLES : Specify the minimal memory latency from cmd to the first rsp beat
+--no-stdin              : Do not redirect the terminal stdin to the simulated getc
+--no-putc-flush         : The sim will not flush the terminal stdout after each sim putc
+--name=STRING           : Test name reported when on exit (not very useful XD)
+
+Simulation tracing / probing
+--output-dir=DIR        : Path to where every traces will be written
+--progress=PERIOD       : Will print the simulation speed each period seconds
 --trace                 : Enable FST wave capture
 --trace-start-time=INT  : Add a time to which the FST should start capturing
 --trace-stop-time=INT   : Add a time to which the FST should stop capturng
 --trace-sporadic=RATIO  : Specify that periodically the FST capture a bit of the wave
 --trace-ref             : Store the spike execution traces in a file
---spike-debug           : Enable spike debug mode (more verbose traces)
 --stats-print           : Print some stats about the CPU execution at the end of the sim
 --stats-print-all       : Print all the stats possible (including which branches had miss)
 --stats-start-symbol=SY : Specify at which elf symbol the stats should start capturing
 --stats-stop-symbol=SYM : Specify at which elf symbol the stats should stop capturing
 --stats-toggle-symbol=S : Specify at which elf symbol the stats should change its capture state
 --trace-gem5            : Enable capture of the pipeline timings as a gem5 trace, readable with github konata
+--spike-debug           : Enable spike debug mode (more verbose traces)
 --sim-master            : The simulation will wait a sim-slave to connect and then run until pass/fail
 --sim-slave             : The simulation will connect to a sim-master and then run behind it
                           When the sim-master fail, then the sim-slave will run to that point with trace enabled
+--sim-slave-delay=TIME  : For the sim-slave, specify how much behind the sim-master it has to be.
+
+Directed test argument : Used, for instance, to automate the shell interactions in the linux regression
+--putc=STRING          : Send the given string to the sim getc
+--getc=STRING          : Wait the sim to putc the given string
+--success              : Quit the simulation successfully
 )";
 
 u64 startPc = 0x80000000l;
@@ -1122,9 +1291,9 @@ sim_wrap *wrap;
 state_t *state;
 FILE *fptr;
 VNaxRiscv *top;
-Soc *soc;
 NaxWhitebox *whitebox;
 vector<SimElement*> simElements;
+//map<RvData, u64> pageFaultSinceFenceVma;
 
 u64 statsStartAt = -1;
 u64 statsStopAt = -1;
@@ -1143,9 +1312,10 @@ int cycleSinceLastCommit = 0;
 std::chrono::high_resolution_clock::time_point progressLast;
 vluint64_t progressMainTimeLast = 0;
 
-u64 simSlaveTraceDuration = 50000;
+u64 simSlaveTraceDuration = 100000;
 u64 simMasterTime = 0;
 bool simMasterFailed = false;
+
 
 
 void parseArgFirst(int argc, char** argv){
@@ -1179,12 +1349,22 @@ void parseArgFirst(int argc, char** argv){
             case ARG_TRACE_GEM5: traceGem5 = true; break;
             case ARG_HELP: cout << helpString; exit(0); break;
             case ARG_SPIKE_DEBUG: spike_debug = true; break;
+            case ARG_SPIKE_DISABLED : spike_enabled = false; break;
+            case ARG_TIMEOUT_DISABLED : timeout_enabled = false; break;
             case ARG_SIM_MASTER: simMaster = true; break;
             case ARG_SIM_SLAVE: simSlave = true; trace_enable = false; break;
+            case ARG_SIM_SLAVE_DELAY: simSlaveTraceDuration = stol(optarg); break;
+            case ARG_NO_PUTC_FLUSH: putcFlush = false;  break;
+            case ARG_GETC: testScheduleQueue.push(new WaitPutc(string(optarg))); break;
+            case ARG_PUTC: testScheduleQueue.push(new DoGetc(string(optarg))); break;
+            case ARG_SUCCESS: testScheduleQueue.push(new DoSuccess()); break;
+            case ARG_NO_STDIN: noStdIn = true; break;
+            case ARG_MEMORY_LATENCY:
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_LOAD_BIN:
             case ARG_START_SYMBOL:
+            case ARG_START_ADD:
             case ARG_PASS_SYMBOL:
             case ARG_FAIL_SYMBOL:
             case ARG_STATS_START_SYMBOL:
@@ -1233,6 +1413,7 @@ void parseArgsSecond(int argc, char** argv){
                 soc->memory.loadBin(string(path), address);
             }break;
             case ARG_START_SYMBOL: startPc = elf->getSymbolAddress(optarg); break;
+            case ARG_START_ADD: startPc += stol(optarg); break;
             case ARG_PASS_SYMBOL: {
                 u64 addr = elf->getSymbolAddress(optarg);
                 addPcEvent(addr, [&](RvData pc){ success();});
@@ -1251,6 +1432,13 @@ void parseArgsSecond(int argc, char** argv){
             case ARG_STATS_TOGGLE_SYMBOL: statsToggleAt = elf->getSymbolAddress(optarg); whitebox->statsCaptureEnable = false; break;
             case ARG_STATS_START_SYMBOL: statsStartAt = elf->getSymbolAddress(optarg); whitebox->statsCaptureEnable = false; break;
             case ARG_STATS_STOP_SYMBOL: statsStopAt = elf->getSymbolAddress(optarg); break;
+            case ARG_MEMORY_LATENCY:{
+                for(auto e : simElements){
+                    if(auto v = dynamic_cast<WithMemoryLatency*>(e)) {
+                       v->setLatency(stoi(optarg));
+                    }
+                }
+            }break;
             default:  break;
         }
     }
@@ -1286,11 +1474,17 @@ void spikeInit(){
     fptr = trace_ref ? fopen((outputDir + "/spike.log").c_str(),"w") : NULL;
     std::ofstream outfile ("/dev/null",std::ofstream::binary);
     wrap = new sim_wrap();
-
-    proc = new processor_t("RV32IMA", "MSU", "", wrap, 0, false, fptr, outfile);
+    string isa;
+    #if XLEN==32
+    isa += "RV32I";
+    #else
+    isa += "RV64I";
+    #endif
+    isa += "MA";
+    if(RVC) isa += "C";
+    proc = new processor_t(isa.c_str(), "MSU", "", wrap, 0, false, fptr, outfile);
     if(trace_ref) proc->enable_log_commits();
     if(spike_debug) proc->debug = true;
-    proc->wfi_as_nop = true;
     proc->set_pmp_num(0);
     state = proc->get_state();
 }
@@ -1309,6 +1503,15 @@ void rtlInit(){
     simElements.push_back(new DataCached(top, soc, true));
     simElements.push_back(new LsuPeripheral(top, soc, &wrap->mmioDut, true));
     simElements.push_back(whitebox);
+#ifdef EMBEDDED_JTAG
+    simElements.push_back(new Jtag(
+        &top->EmbeddedJtagPlugin_logic_jtag_tms,
+        &top->EmbeddedJtagPlugin_logic_jtag_tdi,
+        &top->EmbeddedJtagPlugin_logic_jtag_tdo,
+        &top->EmbeddedJtagPlugin_logic_jtag_tck,
+        8
+    ));
+#endif
 #ifdef ALLOCATOR_CHECKS
     simElements.push_back(new NaxAllocatorChecker(top->NaxRiscv));
 #endif
@@ -1426,17 +1629,8 @@ void spikeStep(RobCtx & robCtx){
         }
     }
 
-    //Run spike for one instruction
-    auto spike_commit_count = state->commit_count;
-    int credit = 10;
-    do{
-        proc->step(1);
-        if(credit == 0){
-            printf("Spike execution isn't progressing ??\n");
-            failure();
-        }
-        credit--;
-    } while(spike_commit_count == state->commit_count);
+    //Run spike for one commit or trap
+    proc->step(1);
     state->mip->unlogged_write_with_mask(-1, 0);
 
     //Sync back some CSR
@@ -1452,6 +1646,39 @@ void spikeStep(RobCtx & robCtx){
             state->minstret->unlogged_write(backup+2);
             break;
             break;
+        }
+    }
+}
+
+void spikeSyncTrap(){
+    if(top->NaxRiscv->trap_fire){
+        bool interrupt = top->NaxRiscv->trap_interrupt;
+        int code = top->NaxRiscv->trap_code;
+        bool pageFault = !interrupt && (code == 12 || code == 13 || code == 15);
+        int mask = 1 << code;
+
+        if(pageFault){
+            auto mmu = proc->get_mmu();
+            mmu->flush_tlb();
+            mmu->fault_fetch = code == 12;
+            mmu->fault_load  = code == 13;
+            mmu->fault_store = code == 15;
+            mmu->fault_address = top->NaxRiscv->trap_tval;
+        }
+        if(interrupt) state->mip->write_with_mask(mask, mask);
+        proc->step(1);
+        if(interrupt) state->mip->write_with_mask(mask, 0);
+        if(pageFault){
+            auto mmu = proc->get_mmu();
+            mmu->fault_fetch = false;
+            mmu->fault_load  = false;
+            mmu->fault_store = false;
+        }
+
+        traps_since_commit += 1;
+        if(traps_since_commit > 10){
+            cout << "DUT is blocked in a endless trap cycle of death" << endl;
+            failure();
         }
     }
 }
@@ -1528,6 +1755,7 @@ void simLoop(){
         top->clk = 0;
 
         for(SimElement* simElement : simElements) simElement->onReset();
+        testScheduleQueueNext();
         while (!Verilated::gotFinish()) {
             if(simMaster && main_time % 50000 == 0){
                 simMasterMainTime();
@@ -1579,7 +1807,7 @@ void simLoop(){
             } else {
                 for(SimElement* simElement : simElements) simElement->preCycle();
 
-                if(cycleSinceLastCommit == 2000){
+                if(timeout_enabled && cycleSinceLastCommit == 10000){
                     printf("NO PROGRESS the cpu hasn't commited anything since too long\n");
                     failure();
                 }
@@ -1595,40 +1823,42 @@ void simLoop(){
                         traps_since_commit = 0;
     //                        printf("Commit %d %x\n", robId, whitebox->robCtx[robId].pc);
 
-                        spikeStep(robCtx);
+                        RvData pc = state->pc;
+                        if(spike_enabled) spikeStep(robCtx);
 
     //                        cout << state->minstret.get()->read() << endl;
-                        RvData pc = state->last_inst_pc;
                         last_commit_pc = pc;
-                        assertEq("MISSMATCH PC", whitebox->robCtx[robId].pc,  pc);
-                        for (auto item : state->log_reg_write) {
-                            if (item.first == 0)
-                              continue;
+                        if(spike_enabled) {
+                            assertEq("MISSMATCH PC", whitebox->robCtx[robId].pc,  pc);
+                            for (auto item : state->log_reg_write) {
+                                if (item.first == 0)
+                                  continue;
 
-                            int rd = item.first >> 4;
-                            switch (item.first & 0xf) {
-                            case 0: { //integer
-                                assertTrue("INTEGER WRITE MISSING", whitebox->robCtx[robId].integerWriteValid);
-                                assertEq("INTEGER WRITE DATA", whitebox->robCtx[robId].integerWriteData, item.second.v[0]);
-                            } break;
-                            case 4:{ //CSR
-                                u64 inst = state->last_inst.bits();
-                                switch(inst){
-                                case 0x30200073: //MRET
-                                case 0x10200073: //SRET
-                                case 0x00200073: //URET
-                                    break;
-                                default:
-                                    assertTrue("CSR WRITE MISSING", whitebox->robCtx[robId].csrWriteDone);
-                                    assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
-    //                                    assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
-                                    break;
+                                int rd = item.first >> 4;
+                                switch (item.first & 0xf) {
+                                case 0: { //integer
+                                    assertTrue("INTEGER WRITE MISSING", whitebox->robCtx[robId].integerWriteValid);
+                                    assertEq("INTEGER WRITE DATA", whitebox->robCtx[robId].integerWriteData, item.second.v[0]);
+                                } break;
+                                case 4:{ //CSR
+                                    u64 inst = state->last_inst.bits();
+                                    switch(inst){
+                                    case 0x30200073: //MRET
+                                    case 0x10200073: //SRET
+                                    case 0x00200073: //URET
+                                        break;
+                                    default:
+                                        assertTrue("CSR WRITE MISSING", whitebox->robCtx[robId].csrWriteDone);
+                                        assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
+        //                                    assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
+                                        break;
+                                    }
+                                } break;
+                                default: {
+                                    printf("??? unknown spike trace");
+                                    failure();
+                                } break;
                                 }
-                            } break;
-                            default: {
-                                printf("??? unknown spike trace");
-                                failure();
-                            } break;
                             }
                         }
 
@@ -1640,7 +1870,7 @@ void simLoop(){
 
                         if(pc == statsToggleAt) {
                             whitebox->statsCaptureEnable = !whitebox->statsCaptureEnable;
-                            cout << "Stats capture " << whitebox->statsCaptureEnable << " at " << main_time << endl;
+                            //cout << "Stats capture " << whitebox->statsCaptureEnable << " at " << main_time << endl;
                         }
                         if(pc == statsStartAt) whitebox->statsCaptureEnable = true;
                         if(pc == statsStopAt) whitebox->statsCaptureEnable = false;
@@ -1648,21 +1878,7 @@ void simLoop(){
                     }
                 }
 
-                if(top->NaxRiscv->trap_fire){
-                    bool interrupt = top->NaxRiscv->trap_interrupt;
-                    int code = top->NaxRiscv->trap_code;
-                    int mask = 1 << code;
-    //                    cout << "DUT TRAP " << interrupt << " " << code << endl;
-                    if(interrupt) state->mip->write_with_mask(mask, mask);
-                    proc->step(1);
-                    if(interrupt) state->mip->write_with_mask(mask, 0);
-
-                    traps_since_commit += 1;
-                    if(traps_since_commit > 10){
-                        cout << "DUT is blocked in a endless trap cycle of death" << endl;
-                        failure();
-                    }
-                }
+                if(spike_enabled) spikeSyncTrap();
 
                 top->eval();
                 for(SimElement* simElement : simElements) simElement->postCycle();

@@ -1,7 +1,7 @@
 package naxriscv.lsu
 
 import naxriscv.Global
-import naxriscv.Global.XLEN
+import naxriscv.Global.{PHYSICAL_WIDTH, VIRTUAL_EXT_WIDTH, XLEN}
 import naxriscv.interfaces.{AddressTranslationService, LockedImpl, PerformanceCounterService}
 import spinal.core._
 import spinal.lib._
@@ -12,40 +12,43 @@ import scala.collection.mutable.ArrayBuffer
 
 
 
-class DataCachePlugin(val memDataWidth : Int,
-                      val cacheSize: Int,
-                      val wayCount: Int,
-                      val refillCount : Int,
-                      val writebackCount : Int,
-                      val lineSize: Int = 64,
-                      val loadReadAt: Int = 0,
-                      val loadTranslatedAt : Int = 1,
-                      val loadHitsAt: Int = 1,
-                      val loadHitAt: Int = 1,
-                      val loadBankMuxesAt: Int = 1,
-                      val loadBankMuxAt: Int = 2,
-                      val loadControlAt: Int = 2,
-                      val loadRspAt: Int = 2,
-                      val storeReadAt: Int = 0,
-                      val storeHitsAt: Int = 1,
-                      val storeHitAt: Int = 1,
-                      val storeControlAt: Int = 2,
-                      val storeRspAt: Int = 2,
-                      val reducedBankWidth : Boolean = false
+class DataCachePlugin(var memDataWidth : Int,
+                      var cacheSize: Int,
+                      var wayCount: Int,
+                      var refillCount : Int,
+                      var writebackCount : Int,
+                      var lineSize: Int = 64,
+                      var loadRefillCheckEarly : Boolean = true,
+                      var storeRefillCheckEarly : Boolean = true,
+                      var loadReadBanksAt: Int = 0,
+                      var loadReadTagsAt: Int = 1,
+                      var loadTranslatedAt : Int = 1,
+                      var loadHitsAt: Int = 1,
+                      var loadHitAt: Int = 2,
+                      var loadBankMuxesAt: Int = 1,
+                      var loadBankMuxAt: Int = 2,
+                      var loadControlAt: Int = 2,
+                      var loadRspAt: Int = 2,
+                      var storeReadBanksAt: Int = 0,
+                      var storeReadTagsAt: Int = 1,
+                      var storeHitsAt: Int = 1,
+                      var storeHitAt: Int = 1,
+                      var storeControlAt: Int = 2,
+                      var storeRspAt: Int = 2,
+                      var tagsReadAsync : Boolean = true,
+                      var reducedBankWidth : Boolean = false
                      ) extends Plugin with LockedImpl{
   def loadRspLatency = loadRspAt
   def storeRspLatency = storeRspAt
 
   def storeRspHazardFreeLatency = (storeControlAt+1)-storeRspAt
-  def loadCmdHazardFreeLatency = (loadReadAt)
+  def loadCmdHazardFreeLatency = (loadReadBanksAt)
 
-  val waySize = cacheSize/wayCount
-  val linePerWay = waySize/lineSize
+  def waySize = cacheSize/wayCount
+  def linePerWay = waySize/lineSize
   def lineRange = log2Up(linePerWay*lineSize) -1 downto log2Up(lineSize)
 
-  val cpuDataWidth = XLEN.get
-  def preTranslationWidth : Int = getService[AddressTranslationService].preWidth
-  def postTranslationWidth : Int = getService[AddressTranslationService].postWidth
+  def cpuDataWidth = XLEN.get
 
   def writebackBusy = setup.writebackBusy
 
@@ -54,8 +57,8 @@ class DataCachePlugin(val memDataWidth : Int,
   def newLoadPort(priority : Int): DataLoadPort = {
     loadPorts.addRet(LoadPortSpec(
       DataLoadPort(
-        preTranslationWidth  = preTranslationWidth,
-        postTranslationWidth = postTranslationWidth,
+        preTranslationWidth  = VIRTUAL_EXT_WIDTH,
+        postTranslationWidth = PHYSICAL_WIDTH,
         dataWidth     = cpuDataWidth,
         refillCount   = refillCount,
         rspAt         = loadRspAt,
@@ -69,12 +72,12 @@ class DataCachePlugin(val memDataWidth : Int,
   val storePorts = ArrayBuffer[StorePortSpec]()
   def newStorePort(): DataStorePort = {
     storePorts.addRet(StorePortSpec(DataStorePort(
-      postTranslationWidth = postTranslationWidth,
+      postTranslationWidth = PHYSICAL_WIDTH,
       dataWidth     = cpuDataWidth,
       refillCount   = refillCount
     ))).port
   }
-  
+
   def refillCompletions = setup.refillCompletions
 
   def lockPort = setup.lockPort
@@ -108,22 +111,27 @@ class DataCachePlugin(val memDataWidth : Int,
       cpuDataWidth    = cpuDataWidth,
       refillCount     = refillCount,
       writebackCount  = writebackCount,
-      preTranslationWidth    = preTranslationWidth,
-      postTranslationWidth   = postTranslationWidth,
+      preTranslationWidth    = VIRTUAL_EXT_WIDTH,
+      postTranslationWidth   = PHYSICAL_WIDTH,
       lineSize         = lineSize,
+      loadRefillCheckEarly  = loadRefillCheckEarly,
+      storeRefillCheckEarly = storeRefillCheckEarly,
+      loadReadBanksAt  = loadReadBanksAt,
+      loadReadTagsAt   = loadReadTagsAt,
       loadTranslatedAt = loadTranslatedAt,
-      loadReadAt       = loadReadAt,
       loadHitsAt       = loadHitsAt,
       loadHitAt        = loadHitAt,
       loadBankMuxesAt  = loadBankMuxesAt,
       loadBankMuxAt    = loadBankMuxAt,
       loadControlAt    = loadControlAt,
       loadRspAt        = loadRspAt,
-      storeReadAt      = storeReadAt,
+      storeReadBanksAt = storeReadBanksAt,
+      storeReadTagsAt  = storeReadTagsAt,
       storeHitsAt      = storeHitsAt,
       storeHitAt       = storeHitAt,
       storeControlAt   = storeControlAt,
       storeRspAt       = storeRspAt,
+      tagsReadAsync    = tagsReadAsync,
       reducedBankWidth = reducedBankWidth
     )
 

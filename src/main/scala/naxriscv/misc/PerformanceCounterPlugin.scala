@@ -2,7 +2,7 @@ package naxriscv.misc
 
 import naxriscv.Global._
 import naxriscv.execute.CsrAccessPlugin
-import naxriscv.interfaces.{CommitService, CsrListFilter, LockedImpl, PerformanceCounterService, ScheduleReason}
+import naxriscv.interfaces.{CommitService, CsrListFilter, CsrRamService, LockedImpl, PerformanceCounterService, ScheduleReason}
 import naxriscv.riscv.CSR
 import spinal.core._
 import spinal.lib._
@@ -12,9 +12,9 @@ import spinal.lib.fsm._
 import scala.collection.mutable.ArrayBuffer
 
 
-class PerformanceCounterPlugin(additionalCounterCount : Int,
-                               bufferWidth : Int = 7) extends Plugin with PerformanceCounterService{
-  val counterCount = 2 + (if(additionalCounterCount != 0) additionalCounterCount + 1 else 0)
+class PerformanceCounterPlugin(var additionalCounterCount : Int,
+                               var bufferWidth : Int = 7) extends Plugin with PerformanceCounterService{
+  def counterCount = 2 + (if(additionalCounterCount != 0) additionalCounterCount + 1 else 0)
 
   case class Spec(id : Int, event : Bool)
   val specs = ArrayBuffer[Spec]()
@@ -27,8 +27,8 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
     csr.retain()
 
     val withHigh = XLEN.get == 32
-    val readPort = ram.ramReadPort()
-    val writePort = ram.ramWritePort()
+    val readPort = ram.ramReadPort(CsrRamService.priority.COUNTER)
+    val writePort = ram.ramWritePort(CsrRamService.priority.COUNTER)
     val allocation = ram.ramAllocate(entries = counterCount*(if(withHigh) 2 else 1))
   }
 
@@ -98,7 +98,7 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
     val fsm = new StateMachine{
       val IDLE, READ_LOW, CALC, WRITE_LOW = new State
       val READ_HIGH, WRITE_HIGH = withHigh generate new State
-      val CSR_WRITE = new State
+      val CSR_WRITE, CSR_WRITE_COMPLETION = new State
       setEntry(IDLE)
 
       val csrReadCmd, flusherCmd = Stream(new Bundle {
@@ -152,7 +152,7 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
         writePort.address := allocation.getAddress(csrWriteCmd.address.resized)
         if(withHigh) writePort.address(log2Up(counterCount)) := csrWriteCmd.high
         writePort.data := csr.onWriteBits
-        when(!csrWriteCmd.high) {
+        when(if(withHigh) !csrWriteCmd.high else True) {
           whenIndexed(counters, csrWriteCmd.address) { slot =>
             if(!slot.dummy) {
               slot.value := csr.onWriteBits.asUInt.resized
@@ -162,9 +162,13 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
         }
         ignoreNextCommit setWhen(csrWriteCmd.address === 2) // && (if(withHigh) !csrWriteCmd.high else True)
         when(writePort.ready){
-          csrWriteCmd.ready := True
-          goto(IDLE)
+          goto(CSR_WRITE_COMPLETION)
         }
+      }
+
+      CSR_WRITE_COMPLETION whenIsActive {
+        csrWriteCmd.ready := True
+        goto(IDLE)
       }
 
       READ_LOW.whenIsActive{
@@ -209,7 +213,7 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
       }
 
 
-      WRITE_HIGH whenIsActive{
+      if(withHigh) WRITE_HIGH whenIsActive{
         writePort.valid := True
         writePort.address(log2Up(counterCount)) := True
         writePort.data := B(result >> 32)
@@ -252,7 +256,7 @@ class PerformanceCounterPlugin(additionalCounterCount : Int,
     val csrWrite = new Area{
       val fired = RegInit(False) setWhen(fsm.csrWriteCmd.fire)
       fsm.csrWriteCmd.address := csr.onWriteAddress(0, log2Up(counterCount) bits)
-      fsm.csrWriteCmd.high := csr.onWriteAddress(7)
+      if(withHigh) fsm.csrWriteCmd.high := csr.onWriteAddress(7)
       fsm.csrWriteCmd.valid := False
 
       csr.onWrite(csrFilter, false){
