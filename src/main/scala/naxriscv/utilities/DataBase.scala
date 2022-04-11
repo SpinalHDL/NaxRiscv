@@ -5,41 +5,50 @@ import spinal.core.{BitCount, ScopeProperty}
 
 import scala.collection.mutable
 
-class Thing[T]
-class DataBase{
-  val storage = mutable.LinkedHashMap[Thing[_ <: Any], Any]()
-  def update[T](key : Thing[T], value : T) = storage.update(key, value)
-  def apply[T](key : Thing[T]) : T = storage.apply(key).asInstanceOf[T]
-}
+object ScopedThing{
+  implicit def toValue[T](p : ScopedThing[T]) : T = p.get()
 
-object NaxThing{
-  def apply[T] = new NaxThing[T]
-
-  implicit def toValue[T](p : NaxThing[T]) : T = p.get()
-
-  class NaxPropertyInt(p: NaxThing[Int]) {
+  class ThingIntPimper(p: ScopedThing[Int]) {
     def bits = BitCount(p.get())
   }
-  implicit def toBits(p: NaxThing[Int]) : NaxPropertyInt = new NaxPropertyInt(p)
+  implicit def thingIntPimperFunc(p: ScopedThing[Int]) : ThingIntPimper = new ThingIntPimper(p)
 }
 
-class NaxThing[T] extends Thing[T]{
-  def get() : T = NaxScope.get.apply(this)
-  def set(value : T) = NaxScope.update(this, value)
+class ScopedThing[T](dataBase: ScopeProperty[DataBase]){
+  def get() : T = dataBase.get.apply(this)
+  def set(value : T) = dataBase.update(this, value)
 }
 
-object NaxParameter {
-  def apply[T] = new NaxThing[T]
+class DataBase{
+  val storage = mutable.LinkedHashMap[ScopedThing[_ <: Any], Any]()
+  def update[T](key : ScopedThing[T], value : T) = storage.update(key, value)
+  def apply[T](key : ScopedThing[T]) : T = storage.apply(key).asInstanceOf[T]
 }
 
-object NaxScope extends ScopeProperty[DataBase]{
-  def create(xlen : Int) : DataBase = {
-    this.set(new DataBase)
+class DataBaseScope extends ScopeProperty[DataBase]{
+
+}
+
+
+
+
+//NaxRiscv elaboration assume it is running into a loaded NaxScope
+object NaxScope extends DataBaseScope{
+  def init(xlen : Int) = {
     Global.XLEN.set(xlen)
     Global.RVF.set(false)
     Global.RVD.set(false)
     Global.RV_DEBUG.set(false)
-    this.get
   }
 }
+
+//This can be used to globaly store anything in a NaxScope
+class NaxThing[T] extends ScopedThing[T](NaxScope)
+
+//The only purpose of this is to make usercode pretty <3
+object NaxParameter {
+  def apply[T] = new NaxThing[T]
+}
+
+
 

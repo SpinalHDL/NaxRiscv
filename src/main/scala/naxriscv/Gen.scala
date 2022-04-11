@@ -23,10 +23,13 @@ import scala.collection.mutable.ArrayBuffer
 import scala.sys.exit
 
 
-class NaxRiscv(xlen : Int,
-               plugins : Seq[Plugin]) extends Component{
-  NaxScope.create(xlen = xlen)
-  val framework = new Framework(plugins)
+class NaxRiscv(val xlen : Int,
+               val plugins : Seq[Plugin]) extends Component{
+  val database = new DataBase
+  val framework = NaxScope(database) on {
+    NaxScope.init(xlen)    //Initialize a few global parameters
+    new Framework(plugins) //Will run the generation asynchronously
+  }
 }
 
 object Config{
