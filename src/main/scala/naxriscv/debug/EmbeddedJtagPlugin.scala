@@ -5,7 +5,7 @@ import naxriscv.misc.PrivilegedPlugin
 import naxriscv.utilities._
 import spinal.core._
 import spinal.core.fiber.Handle
-import spinal.lib.com.jtag.{Jtag, JtagTapInstructionCtrl}
+import spinal.lib.com.jtag.{Jtag, JtagTapFactory, JtagTapInstructionCtrl}
 import spinal.lib.slave
 
 class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
@@ -113,3 +113,30 @@ break main
 continue
  */
 
+/*
+
+#jtag newtap $_CHIPNAME dummy2 -irlen 5 -expected-id 0x10005FFF
+jtag newtap $_CHIPNAME cpu -irlen 6 -expected-id 0x10003FFF
+#jtag newtap $_CHIPNAME dummy1 -irlen 4 -expected-id 0x10004FFF
+
+      val jtag1 = Jtag()
+      val tap1 = logic.jtagCd on JtagTapFactory(jtag1, instructionWidth = 4)
+      val idcodeArea1 = logic.jtagCd on tap1.idcode(B"x10004FFF")(1)
+
+      val jtag2 = Jtag()
+      val tap2 = logic.jtagCd on JtagTapFactory(jtag2, instructionWidth = 5)
+      val idcodeArea2 = logic.jtagCd on tap2.idcode(B"x10005FFF")(1)
+
+      jtag1.tck := jtag.tck
+      logic.io.jtag.tck := jtag.tck
+      jtag2.tck := jtag.tck
+
+      jtag1.tms := jtag.tms
+      logic.io.jtag.tms := jtag.tms
+      jtag2.tms := jtag.tms
+
+      jtag1.tdi := jtag.tdi
+      logic.io.jtag.tdi := jtag1.tdo
+      jtag2.tdi := logic.io.jtag.tdo
+      jtag.tdo := jtag2.tdo
+ */
