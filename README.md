@@ -14,6 +14,7 @@ An RISC-V core currently characterised by :
 - Hardware refilled MMU (SV32, SV39)
 - Load to use latency of 3 cycles via the speculative cache hit predictor 
 - Pipeline visualisation via verilator simulation and Konata (gem5 file format)
+- JTAG / OpenOCD / GDB support by implementing the RISCV External Debug Support v. 0.13.2
 
 To test the project, see the "Running Verilator simulation" section
 
