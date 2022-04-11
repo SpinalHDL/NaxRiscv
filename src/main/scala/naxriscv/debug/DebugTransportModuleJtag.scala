@@ -2,7 +2,7 @@ package naxriscv.debug
 
 import spinal.core._
 import spinal.lib._
-import spinal.lib.com.jtag.{Jtag, JtagTapFactory, JtagTapFunctions}
+import spinal.lib.com.jtag.{Jtag, JtagTapFactory, JtagTapFunctions, JtagTapInstructionCtrl}
 
 case class DebugTransportModuleParameter(addressWidth : Int,
                                          version : Int,
@@ -18,7 +18,6 @@ class DebugTransportModuleJtag(p : DebugTransportModuleParameter,
     val dmiCmd = Flow(DebugCmd(addressWidth))
     val dmiRsp = Flow(DebugRsp())
 
-    val idcodeArea = tap.idcode(B"x10002FFF")(1)
     val dtmcs = tap.readAndWriteWithEvents(Bits(32 bits), Bits(32 bits))(0x10)
     val dmi   = tap.readAndWriteWithEvents(DebugCapture(addressWidth), DebugUpdate(addressWidth))(0x11)
 
@@ -81,18 +80,13 @@ class DebugTransportModuleJtag(p : DebugTransportModuleParameter,
 
   val systemLogic = debugCd on new Area{
     val bus = DebugBus(addressWidth)
-    val x = jtagLogic.dmiCmd.ccToggle(
+    val cmd = jtagLogic.dmiCmd.ccToggle(
       pushClock = jtagCd,
       popClock = debugCd,
       withOutputM2sPipe = false
     ).toStream.m2sPipe()
 
-    val counter = Reg(UInt(1 bits)) init(0) //TODO remove this (DEBUG)
-    counter := 0
-    when(x.valid) {
-      counter := counter + 1
-    }
-    bus.cmd << x.haltWhen(!counter.msb)
+    bus.cmd << cmd
 
     jtagLogic.dmiRsp << bus.rsp.ccToggle(
       pushClock = debugCd,
@@ -111,6 +105,7 @@ case class DebugTransportModuleJtagTap(p : DebugTransportModuleParameter,
   val jtagCd = ClockDomain(io.jtag.tck)
 
   val tap = jtagCd on JtagTapFactory(io.jtag, instructionWidth = 5)
+  val idcodeArea = jtagCd on tap.idcode(B"x10002FFF")(1)
   val logic = new DebugTransportModuleJtag(
     p       = p,
     tap     = tap,
@@ -119,4 +114,46 @@ case class DebugTransportModuleJtagTap(p : DebugTransportModuleParameter,
   )
 
   io.bus <> logic.systemLogic.bus
+}
+
+case class DebugTransportModuleTunneled(p : DebugTransportModuleParameter,
+                                        jtagCd : ClockDomain,
+                                        debugCd : ClockDomain) extends Component{
+  val io = new Bundle {
+    val instruction = slave(JtagTapInstructionCtrl())
+    val bus = master(DebugBus(p.addressWidth))
+  }
+
+  val tap = jtagCd on new JtagTunnel(io.instruction, instructionWidth = 6)
+//  val idcodeArea = tap.idcode(B"x10002FFF")(1)
+  val logic = new DebugTransportModuleJtag(
+    p       = p,
+    tap     = tap,
+    jtagCd  = jtagCd,
+    debugCd = debugCd
+  )
+
+  io.bus <> logic.systemLogic.bus
+}
+
+case class DebugTransportModuleJtagTapWithTunnel(p : DebugTransportModuleParameter,
+                                                 debugCd : ClockDomain) extends Component{
+  val io = new Bundle {
+    val jtag = slave(Jtag())
+    val bus = master(DebugBus(p.addressWidth))
+  }
+
+  val jtagCd = ClockDomain(io.jtag.tck)
+
+  val tap = jtagCd on JtagTapFactory(io.jtag, instructionWidth = 6)
+  val idcodeArea = jtagCd on tap.idcode(B"x10003FFF")(1)
+  val tunnel = DebugTransportModuleTunneled(
+    p       = p,
+    jtagCd  = jtagCd,
+    debugCd = debugCd
+  )
+  tap.map(tunnel.io.instruction, 0x23)
+
+
+  io.bus <> tunnel.io.bus
 }

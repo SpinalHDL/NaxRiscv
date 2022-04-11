@@ -87,6 +87,10 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
   override def trapRaise() = setup.trapRaise := True
   override def trapReady() = setup.trapReady
 
+  override def debugEnter(slotId: Int) = {
+    setup.debugEnter(slotId) := True
+  }
+
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     frontend.retain()
@@ -99,6 +103,8 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
     val trapHalt = False
     val trapRaise = False
     val trapReady = Bool()
+    val debugEnter = Vec.fill(DECODE_COUNT)(False)
+    
     val keys = new Area {
       setName("")
       val plugins = getServicesOf[RegfileService]
@@ -203,7 +209,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       for((r, s) <- resourceToStageable){
         s := encodings.resourceToSpec(r).build(INSTRUCTION_DECOMPRESSED, encodings.all)
       }
-      setup.keys.TRAP := MASK_ALIGNED && (!setup.keys.LEGAL || FETCH_FAULT || setup.trapRaise)
+      setup.keys.TRAP := MASK_ALIGNED && (!setup.keys.LEGAL || FETCH_FAULT || setup.trapRaise || setup.debugEnter(i))
       DECODED_MASK := MASK_ALIGNED && !stage(0 to i)(setup.keys.TRAP).orR
       if(!isServiceAvailable[DecoderPrediction]) DISPATCH_MASK := DECODED_MASK
 
@@ -225,6 +231,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       val fetchFaultReg = RegNextWhen(getAll(FETCH_FAULT), !trigged)
       val fetchFaultPageReg = RegNextWhen(getAll(FETCH_FAULT_PAGE), !trigged)
       val fetchFaultSliceReg = RegNextWhen(getAll(FETCH_FAULT_SLICE), !trigged)
+      val debugEnterReg = RegNextWhen(setup.debugEnter, !trigged)
       val epcReg   = RegNextWhen(getAll(PC), !trigged)
       val instReg = RegNextWhen(getAll(INSTRUCTION_ALIGNED), !trigged)
       val oh = OHMasking.first(exceptionReg)
@@ -232,6 +239,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       val fetchFault      = OHMux.or(oh, fetchFaultReg)
       val fetchFaultPage  = OHMux.or(oh, fetchFaultPageReg)
       val fetchFaultSlice = OHMux.or(oh, fetchFaultSliceReg)
+      val debugEnter      = OHMux.or(oh, debugEnterReg)
       val pc              = OHMux.or(oh, epcReg)
 
       val pipelineEmpty = !frontend.isBusyAfterDecode() && commit.isRobEmpty
@@ -244,6 +252,7 @@ class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
       setup.trapReady := isValid && pipelineEmpty
       setup.exceptionPort.valid := doIt
       setup.exceptionPort.epc   := pc
+      if(RV_DEBUG) setup.exceptionPort.debugEnter := debugEnter
       when(fetchFault){
         when(fetchFaultPage){
           setup.exceptionPort.cause := CSR.MCAUSE_ENUM.INSTRUCTION_PAGE_FAULT

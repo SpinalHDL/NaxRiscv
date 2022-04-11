@@ -46,6 +46,7 @@ case class DecoderTrap() extends Bundle{
   val cause = UInt(4 bits)
   val epc   = UInt(PC_WIDTH bits)
   val tval  = Bits(TVAL_WIDTH bits)
+  val debugEnter = RV_DEBUG.get() generate Bool()
 }
 
 trait DecoderService extends Service with LockedService {
@@ -77,6 +78,9 @@ trait DecoderService extends Service with LockedService {
   def trapHalt() : Unit
   def trapRaise() : Unit
   def trapReady() : Bool
+
+  //Used by the debug trigger module to implement hardware breakpoints (trigger in the frontend.decoded stage)
+  def debugEnter(slotId : Int) : Unit
 }
 
 trait RobService extends Service{
@@ -373,7 +377,7 @@ trait AddressTranslationService extends Service with LockedImpl {
                          storageSpec: Any): AddressTranslationRsp
 
   def withTranslation : Boolean
-  def invalidatePort : PulseHandshake[NoData]
+  def invalidatePort : PulseHandshake[NoData, NoData]
 }
 
 class CsrSpec(val csrFilter : Any){
@@ -390,7 +394,7 @@ case class CsrOnDecode (override val csrFilter : Any, priority : Int, body : () 
 
 case class CsrRamSpec(override val csrFilter : Any, alloc : CsrRamAllocation) extends CsrSpec(csrFilter)
 
-case class CsrListFilter(mapping : List[Int]) extends Nameable
+case class CsrListFilter(mapping : Seq[Int]) extends Nameable
 trait CsrService extends Service with LockedImpl{
   val spec = ArrayBuffer[CsrSpec]()
   def onRead (csrFilter : Any, onlyOnFire : Boolean)(body : => Unit) = spec += CsrOnRead(csrFilter, onlyOnFire, () => body)
@@ -533,27 +537,34 @@ trait PerformanceCounterService extends Service with LockedImpl{
   def createEventPort(id : Int) : Bool
 }
 
-case class PulseHandshake[T <: Data](payloadType : HardType[T] = NoData()) extends Bundle with IMasterSlave {
+object PulseHandshake{
+  def apply() : PulseHandshake[NoData, NoData] = PulseHandshake(NoData(), NoData())
+  def apply[T <: Data, T2 <: Data](cmdType : HardType[T], rspType : HardType[T2]) : PulseHandshake[T, T2] = new PulseHandshake(cmdType, rspType)
+}
+
+class PulseHandshake[T <: Data, T2 <: Data](cmdType : HardType[T], rspType : HardType[T2]) extends Bundle with IMasterSlave {
   val request = Bool()
   val served  = Bool()
-  val payload = payloadType()
+  val cmd = cmdType()
+  val rsp = rspType()
 
 
   override def asMaster() = {
-    out(request, payload)
-    in(served)
+    out(request, cmd)
+    in(served, rsp)
   }
 
   def setIdleAll(): this.type ={
     request := False
     served := False
-    payload.assignDontCare()
+    cmd.assignDontCare()
+    rsp.assignDontCare()
     this
   }
 
   def setIdle(): this.type ={
     request := False
-    payload.assignDontCare()
+    cmd.assignDontCare()
     this
   }
 

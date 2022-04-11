@@ -14,6 +14,7 @@ import naxriscv.utilities._
 import spinal.lib.LatencyAnalysis
 import spinal.lib.bus.amba4.axi.Axi4SpecRenamer
 import spinal.lib.bus.amba4.axilite.AxiLite4SpecRenamer
+import spinal.lib.bus.misc.SizeMapping
 import spinal.lib.eda.bench.Rtl
 import spinal.lib.misc.WishboneClint
 import spinal.lib.misc.plic.WishbonePlic
@@ -22,10 +23,13 @@ import scala.collection.mutable.ArrayBuffer
 import scala.sys.exit
 
 
-class NaxRiscv(xlen : Int,
-               plugins : Seq[Plugin]) extends Component{
-  NaxScope.create(xlen = xlen)
-  val framework = new Framework(plugins)
+class NaxRiscv(val xlen : Int,
+               val plugins : Seq[Plugin]) extends Component{
+  val database = new DataBase
+  val framework = NaxScope(database) on {
+    NaxScope.init(xlen)    //Initialize a few global parameters
+    new Framework(plugins) //Will run the generation asynchronously
+  }
 }
 
 object Config{
@@ -42,7 +46,11 @@ object Config{
               withDistributedRam : Boolean = true,
               xlen : Int = 32,
               withLoadStore : Boolean = true,
-              withEmbeddedJtag : Boolean = false,
+              withDebug : Boolean = false,
+              withEmbeddedJtagTap : Boolean = false,
+              withEmbeddedJtagInstruction : Boolean = false,
+              jtagTunneled : Boolean = false,
+              debugTriggers : Int = 0,
               branchCount : Int = 16): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
     plugins += new DocPlugin()
@@ -59,11 +67,15 @@ object Config{
         physicalWidth = 32
       )
     })
-    if(withEmbeddedJtag) plugins += new EmbeddedJtagPlugin(DebugTransportModuleParameter(
-      addressWidth = 7,
-      version      = 1,
-      idle         = 7
-    ))
+    if(withEmbeddedJtagTap || withEmbeddedJtagInstruction) plugins += new EmbeddedJtagPlugin(
+      p = DebugTransportModuleParameter(
+        addressWidth = 7,
+        version      = 1,
+        idle         = 7
+      ),
+      withTunneling = jtagTunneled,
+      withTap = withEmbeddedJtagTap
+    )
 
     //FETCH
     plugins += new FetchPlugin()
@@ -221,7 +233,13 @@ object Config{
     )
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
     plugins += new CsrRamPlugin()
-    plugins += new PrivilegedPlugin(PrivilegedConfig.full.copy(withRdTime = withRdTime, withSupervisor = withSupervisor))
+    plugins += new PrivilegedPlugin(PrivilegedConfig.full.copy(
+      withRdTime = withRdTime,
+      withSupervisor = withSupervisor,
+      withDebug = withDebug,
+      debugTriggers = debugTriggers,
+      debugVector = SizeMapping(0x100, 0x10*4)
+    ))
     if(withPerfCounters) plugins += new PerformanceCounterPlugin(
       additionalCounterCount = 4,
       bufferWidth            = 6
@@ -311,10 +329,13 @@ object Gen extends App{
       withRdTime = false,
       aluCount    = 2,
       decodeCount = 2,
+      debugTriggers = 4,
       withRvc = false,
       withLoadStore = true,
-      withMmu = true,
-      withEmbeddedJtag = false
+      withMmu = true
+//      withDebug = true,
+//      withEmbeddedJtagTap = true,
+//      jtagTunneled = true
     )
   }
 
@@ -335,7 +356,7 @@ object Gen extends App{
   {
     def wrapper[T <: Component](c: T) = {
       c.afterElaboration(c.getAllIo.foreach(_.addTag(crossClockDomain)))
-      c.afterElaboration(Rtl.ffIo(c)); c
+      c.afterElaboration(Rtl.xorOutputs(Rtl.ffIo(c))); c
     }
     val spinalConfig = SpinalConfig(inlineRom = true)
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
@@ -361,7 +382,10 @@ object Gen64 extends App{
       withRdTime = false,
       aluCount    = 2,
       decodeCount = 2,
-      withRvc = false
+      withRvc = true,
+      withDebug = true,
+      withEmbeddedJtagTap = true,
+      debugTriggers = 4
     )
     l.foreach{
 //      case p : ExecutionUnitBase if p.euId == "EU1" => p.readPhysRsFromQueue = true
@@ -388,6 +412,7 @@ object Gen64 extends App{
 
   {
     def wrapper[T <: Component](c: T) = {
+      c.afterElaboration(c.getAllIo.foreach(_.addTag(crossClockDomain)))
       c.afterElaboration(Rtl.xorOutputs(Rtl.ffIo(c))); c
     }
     val spinalConfig = SpinalConfig(inlineRom = true)

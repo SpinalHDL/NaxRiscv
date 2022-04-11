@@ -6,6 +6,7 @@ import naxriscv.lsu._
 import naxriscv.misc._
 import naxriscv.utilities._
 import naxriscv.compatibility.{EnforceSyncRamPhase, MultiPortWritesSymplifier}
+import naxriscv.debug.EmbeddedJtagPlugin
 import naxriscv.platform.ScalaInterpreter.evaluate
 import spinal.core._
 import spinal.lib._
@@ -15,6 +16,7 @@ import spinal.lib.bus.misc.SizeMapping
 import spinal.lib.misc.{AxiLite4Clint, WishboneClint}
 import spinal.lib.misc.plic.{AxiLite4Plic, WishbonePlic}
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 
@@ -41,6 +43,14 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component
     val dbus = cpu.framework.getService[DataCacheAxi4].logic.axi.toIo()
     Axi4SpecRenamer(ibus)
     Axi4SpecRenamer(dbus)
+
+    plugins.foreach{
+      case p : EmbeddedJtagPlugin => {
+        if(p.withTap) p.logic.jtag.toIo().setName("jtag")
+        else p.logic.jtagInstruction.toIo().setName("jtag_instruction")
+      }
+      case _ =>
+    }
 
 //    val ibus = cpu.framework.getService[FetchAxi4].logic.axiRam
 //    val dbus = cpu.framework.getService[DataCacheAxi4].logic.axi
@@ -85,19 +95,29 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component
 }
 
 object LitexGen extends App{
-
   var netlistDirectory = "."
   var netlistName = "NaxRiscvLitex"
   var resetVector = 0l
   var xlen = 32
+  var jtagTap = false
+  var jtagInstruction = false
+  var debug = false
   val files = ArrayBuffer[String]()
+  val scalaArgs = ArrayBuffer[String]()
   assert(new scopt.OptionParser[Unit]("NaxRiscv") {
     help("help").text("prints this usage text")
     opt[String]("netlist-directory") action { (v, c) => netlistDirectory = v }
     opt[String]("netlist-name") action { (v, c) => netlistName = v }
     opt[String]("scala-file") unbounded() action  { (v, c) => files += v }
+    opt[String]("scala-args") unbounded() action  { (v, c) =>
+      val elements = v.split(",").map(_.split("="))
+      for(e <- elements) scalaArgs += s"""args("${e(0)}") = ${e(1)}"""
+    }
     opt[Long]("reset-vector") action  { (v, c) => resetVector = v }
     opt[Int]("xlen") action  { (v, c) => xlen = v }
+    opt[Unit]("with-jtag-tap") action  { (v, c) => jtagTap = true }
+    opt[Unit]("with-jtag-instruction") action  { (v, c) => jtagInstruction = true }
+    opt[Unit]("with-debug") action  { (v, c) => debug = true }
   }.parse(args))
 
   val spinalConfig = SpinalConfig(inlineRom = true, targetDirectory = netlistDirectory)
@@ -107,7 +127,6 @@ object LitexGen extends App{
 
   spinalConfig.generateVerilog {
 
-
     val codes = ArrayBuffer[String]()
     codes +=
       s"""
@@ -116,7 +135,13 @@ object LitexGen extends App{
          |import spinal.lib.bus.misc.SizeMapping
          |val plugins = ArrayBuffer[Plugin]()
          |val resetVector = ${resetVector}l
+         |val args = scala.collection.mutable.LinkedHashMap[String, Any]()
          |val xlen = ${xlen}
+         |val jtagTap = ${jtagTap}
+         |val jtagInstruction = ${jtagInstruction}
+         |val debug = ${debug}
+         |def arg[T](key : String, default : T) = args.getOrElse(key, default).asInstanceOf[T]
+         |${scalaArgs.mkString("\n")}
          |""".stripMargin
     codes ++= files.map(scala.io.Source.fromFile(_).mkString)
     codes += "plugins\n"
@@ -164,6 +189,12 @@ py3tftp -p 69
 picocom -b 115200 /dev/ttyUSB1 --imap lfcrlf
 
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet  --build --load
+
+python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=32 --scala-args='rvc=true,alu-count=1,decode-count=1' --with-jtag-tap --build --load
+
+python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=32 --scala-args='rvc=true,alu-count=1,decode-count=1' --with-jtag-instruction --build --load
+
+Error opening terminal: vt100.
 
 export DISPLAY=:0
 twm &

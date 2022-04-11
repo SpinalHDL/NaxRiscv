@@ -13,6 +13,8 @@ import naxriscv.prediction.HistoryPlugin
 import spinal.lib.bus.amba4.axi.{Axi4Config, Axi4ReadOnly}
 import spinal.lib.bus.amba4.axilite.{AxiLite4Config, AxiLite4ReadOnly}
 
+import scala.collection.mutable.ArrayBuffer
+
 case class FetchL1Cmd(physicalWidth : Int) extends Bundle{
   val address = UInt(physicalWidth bits)
   val io      = Bool()
@@ -135,6 +137,11 @@ case class FetchL1Bus(physicalWidth : Int,
 
 }
 
+case class FetchBypassSpec(stageId : Int) extends Area{
+  val valid = Stageable(Bool())
+  val data =  Stageable(WORD)
+}
+
 class FetchCachePlugin(var cacheSize : Int,
                        var wayCount : Int,
                        var memDataWidth : Int,
@@ -169,6 +176,9 @@ class FetchCachePlugin(var cacheSize : Int,
   ))
   def invalidatePort = setup.invalidatePort
 
+  val bypassesSpec = ArrayBuffer[FetchBypassSpec]()
+  def createBypass(stageId : Int = controlAt) = bypassesSpec.addRet(new FetchBypassSpec(stageId))
+
   val setup = create early new Area{
     val pipeline = getService[FetchPlugin]
     val translation = getService[AddressTranslationService]
@@ -180,7 +190,7 @@ class FetchCachePlugin(var cacheSize : Int,
     val redoJump = getService[PcPlugin].createJumpInterface(priority)
     val historyJump = withHistory generate getService[HistoryPlugin].createJumpPort(priority)
     val refillEvent = getServiceOption[PerformanceCounterService].map(_.createEventPort(refillEventId))
-    val invalidatePort = PulseHandshake(NoData).setIdleAll
+    val invalidatePort = PulseHandshake().setIdleAll
 
 
     val translationStorage = translation.newStorage(translationStorageParameter)
@@ -313,11 +323,23 @@ class FetchCachePlugin(var cacheSize : Int,
 
 
     val refill = new Area {
+      val start = new Area{
+        val valid = False
+        val address = UInt(PHYSICAL_WIDTH bits)
+        val isIo = Bool()
+      }
+    
       val fire = False
       val valid = RegInit(False) clearWhen (fire)
       val address = KeepAttribute(Reg(UInt(PHYSICAL_WIDTH bits)))
       val isIo = Reg(Bool())
       val hadError = RegInit(False)
+      
+      when(!valid){
+        valid setWhen(start.valid)
+        address := start.address
+        isIo := start.isIo
+      }
 
       invalidate.canStart clearWhen(valid)
 
@@ -420,6 +442,9 @@ class FetchCachePlugin(var cacheSize : Int,
         WORD_FAULT := (B(WAYS_HITS) & B(WAYS_TAGS.map(_.error))).orR || WORD_FAULT_PAGE || tpk.ACCESS_FAULT
         WORD_FAULT_PAGE := tpk.PAGE_FAULT || !tpk.ALLOW_EXECUTE
 
+
+
+
         val redoIt = False
         when(redoIt){
           setup.redoJump.valid := True
@@ -428,16 +453,28 @@ class FetchCachePlugin(var cacheSize : Int,
         }
 
         when(isValid) {
-          when(tpk.REDO){
+          when(tpk.REDO) {
             redoIt := True
-          } elsewhen(!WORD_FAULT_PAGE && !tpk.ACCESS_FAULT && !WAYS_HIT) {
-            redoIt         := True
-            refill.valid   := True
-            refill.address := tpk.TRANSLATED
-            refill.isIo    := tpk.IO
+          } elsewhen (!WORD_FAULT_PAGE && !tpk.ACCESS_FAULT && !WAYS_HIT) {
+            redoIt := True
+            refill.start.valid := True
           }
         }
+        refill.start.address := tpk.TRANSLATED
+        refill.start.isIo := tpk.IO
 
+        val bypass = if(bypassesSpec.nonEmpty)  new Area {
+          val hits = B(bypassesSpec.map(e => controlStage(e.valid)))
+          val hit = hits.orR
+          val value = OhMux.or(hits, bypassesSpec.map(e => controlStage(e.data)),bypassIfSingle = true)
+          when(hit) {
+            WORD_FAULT := False
+            WORD_FAULT_PAGE := False
+            WORD := value
+            redoIt := False
+            refill.start.valid := False
+          }
+        }
 
         setup.pipeline.getStage(0).haltIt(!translationPort.wake)
 

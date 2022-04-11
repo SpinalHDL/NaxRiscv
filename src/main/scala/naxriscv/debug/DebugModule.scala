@@ -1,8 +1,11 @@
 package naxriscv.debug
 
+import naxriscv.Global
+import naxriscv.Global.XLEN
 import naxriscv.interfaces.PulseHandshake
 import spinal.core._
 import spinal.lib._
+import spinal.lib.fsm._
 
 case class DebugModuleParameter(version : Int,
                                 harts : Int,
@@ -25,9 +28,13 @@ case class DebugHartToDm() extends Bundle{
   val data = Bits(32 bits)
 }
 
+case class DebugHartHalt() extends Bundle{
+  val exception = Bool()
+}
 case class DebugHartBus() extends Bundle with IMasterSlave {
   val halted, running, unavailable = Bool()
-  val resume, halt = PulseHandshake()
+  val resume = PulseHandshake()
+  val halt = PulseHandshake(NoData(), DebugHartHalt())
 
   val dmToHart = Flow(DebugDmToHart())
   val hartToDm = Flow(DebugHartToDm())
@@ -44,7 +51,15 @@ object DebugModuleCmdErr extends SpinalEnum(binarySequential){
   val NONE, BUSY, NOT_SUPPORTED, EXCEPTION, HALT_RESUME, BUS, OTHER = newElement()
 }
 
+object DebugModule{
+  val CSR_DATA = 0x7B4
+  def csrr(dataId : Int, regId : UInt) = B(0x00002073 | (CSR_DATA + dataId << 20), 32 bits) | (regId.asBits << 7).resized
+  def csrw(dataId : Int, regId : UInt) = B(0x00001073 | (CSR_DATA + dataId << 20), 32 bits) | (regId.asBits << 15).resized
+  def ebreak() = B(0x00100073, 32 bits)
+}
+
 case class DebugModule(p : DebugModuleParameter) extends Component{
+  import DebugModule._
   val io = new Bundle {
     val ctrl = slave(DebugBus(7))
     val ndmreset = out Bool()
@@ -80,8 +95,14 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
       io.ndmreset := ndmreset
     }
 
+
+    val toHarts = Flow(DebugDmToHart()).setIdle()
+    val fromHarts = Flow(DebugHartToDm())
+    fromHarts.valid := io.harts.map(_.hartToDm.valid).orR
+    fromHarts.payload := MuxOH.or(io.harts.map(_.hartToDm.valid), io.harts.map(_.hartToDm.payload), bypassIfSingle = true)
     val harts = for(hartId <- 0 until p.harts) yield new Area{
       val bus = io.harts(hartId)
+      bus.dmToHart << toHarts
       val resumeReady = !bus.resume.isPending()
     }
 
@@ -116,11 +137,172 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
       val sbaccess   = factory.read(U(2, 3 bits), 0x38, 17)
     }
 
+    val progbufX = new Area{
+      val trigged = io.ctrl.cmd.valid && io.ctrl.cmd.write && (io.ctrl.cmd.address & 0x70) === 0x20
+      when(trigged){
+        factory.cmdToRsp.error := False
+        toHarts.valid   := True
+        toHarts.op      := DebugDmToHartOp.INSTRUCTION
+        toHarts.address := io.ctrl.cmd.address.resized
+        toHarts.data    := io.ctrl.cmd.data
+      }
+    }
+
+    val dataX = new Area{
+      val readMem = Mem.fill(p.datacount)(Bits(32 bits))
+      readMem.write(
+        address = fromHarts.address.resized,
+        data = fromHarts.data,
+        enable = fromHarts.valid
+      )
+
+      val trigged = False
+      val cmdAddress = (io.ctrl.cmd.address - 4).resize(log2Up(p.datacount) bits)
+      when(io.ctrl.cmd.valid && io.ctrl.cmd.address >= 0x04 &&  io.ctrl.cmd.address < 0x04 + p.datacount){
+        trigged := True
+
+        toHarts.valid   setWhen(io.ctrl.cmd.write)
+        toHarts.op      := DebugDmToHartOp.DATA
+        toHarts.address := cmdAddress.resized
+        toHarts.data    := io.ctrl.cmd.data
+
+        factory.cmdToRsp.error := False
+        factory.cmdToRsp.data := readMem.readAsync(cmdAddress.resized)
+      }
+    }
+
     val abstractcs = new Area{
       val dataCount = factory.read(U(p.datacount, 4 bits), 0x16, 0)
-      val cmdErr = factory.createReadAndClearOnSet(DebugModuleCmdErr(), 0x16, 8) //TODO
-      val busy = factory.createReadOnly(Bool(), 0x16, 12) init(False) //TODO
+      val cmdErr = factory.createReadAndClearOnSet(DebugModuleCmdErr(), 0x16, 8) init(DebugModuleCmdErr.NONE)
+      val busy = factory.createReadOnly(Bool(), 0x16, 12) init(False)
       val progBufSize = factory.read(U(p.progBufSize, 5 bits), 0x16, 24)
+
+      val noError = cmdErr === DebugModuleCmdErr.NONE
+      toHarts.valid clearWhen(busy)
+    }
+
+    val abstractAuto = new Area{
+      val autoexecdata = factory.createReadAndWrite(Bits(p.datacount bits), 0x18, 0) init(0)
+      val autoexecProgbuf = factory.createReadAndWrite(Bits(p.progBufSize bits), 0x18, 16) init(0)
+
+      val trigger = progbufX.trigged && autoexecProgbuf(io.ctrl.cmd.address.resized) || dataX.trigged && autoexecdata(dataX.cmdAddress.resized)
+    }
+
+    val command = new StateMachine{
+      val IDLE, DECODE, READ_REG, WRITE_REG, READ_REG_EBREAK, READ_REG_START, WAIT_DONE, POST_EXEC, POST_EXEC_WAIT = new State()
+
+      setEntry(IDLE)
+
+      val commandRequest = factory.isWriting(0x17)
+      val data = factory.createWriteOnly(Bits(32 bits), 0x17)
+      val access = new Area{
+        case class Args() extends Bundle{
+          val regno = UInt(16 bits)
+          val write = Bool()
+          val transfer = Bool()
+          val postExec = Bool()
+          val aarpostincrement = Bool()
+          val aarsize = UInt(3 bits)
+        }
+        val args = data.as(Args())
+        val notSupported = args.aarsize > log2Up(Global.XLEN/8) || args.aarpostincrement || args.regno(5, 11 bits) =/= 0x1000 >> 5
+      }
+
+      val selected = new Area{
+        val hart = Reg(UInt(log2Up(p.harts) bits))
+        val running = io.harts.map(_.running).read(hart)
+        val halted = io.harts.map(_.halted).read(hart)
+        val completion = halted.rise(False)
+      }
+
+      val request = commandRequest || abstractAuto.trigger
+      when(request && abstractcs.busy && abstractcs.noError){
+        abstractcs.cmdErr := DebugModuleCmdErr.BUSY
+      }
+      when(io.harts.map(e => e.halt.served && e.halt.rsp.exception).orR){
+        abstractcs.cmdErr := DebugModuleCmdErr.EXCEPTION
+      }
+      when(abstractcs.busy && (progbufX.trigged || dataX.trigged) && abstractcs.noError){
+        abstractcs.cmdErr := DebugModuleCmdErr.BUSY
+      }
+
+      IDLE.onEntry(
+        abstractcs.busy := False
+      )
+      IDLE.whenIsActive{
+        when(request && abstractcs.noError) {
+          when(!selected.halted){
+            abstractcs.cmdErr := DebugModuleCmdErr.HALT_RESUME
+          } otherwise {
+            selected.hart := dmcontrol.hartSel.resized
+            abstractcs.busy := True
+            goto(DECODE)
+          }
+        }
+      }
+      DECODE.whenIsActive{
+        goto(IDLE)
+        switch(data(31 downto 24)) {
+          is(0) { //access register
+            when(access.notSupported) {
+              abstractcs.cmdErr := DebugModuleCmdErr.NOT_SUPPORTED
+            } otherwise {
+              when(access.args.postExec){
+                goto(POST_EXEC)
+              }
+              when(access.args.transfer) {
+                when(access.args.write) {
+                  goto(WRITE_REG)
+                } otherwise {
+                  goto(READ_REG)
+                }
+              }
+            }
+          }
+          default{
+            abstractcs.cmdErr := DebugModuleCmdErr.NOT_SUPPORTED
+          }
+        }
+      }
+
+      def writeInstruction(states : (State, State))(address : Int, instruction : Bits): Unit ={
+        states._1 whenIsActive {
+          toHarts.valid := True
+          toHarts.op := DebugDmToHartOp.INSTRUCTION
+          toHarts.address := address
+          toHarts.data := instruction
+          goto(states._2)
+        }
+      }
+      def startInstruction(states : (State, State)) (at : Int) : Unit ={
+        states._1.whenIsActive{
+          toHarts.valid := True
+          toHarts.op := DebugDmToHartOp.EXECUTE
+          toHarts.address := at
+          goto(states._2)
+        }
+      }
+      writeInstruction(WRITE_REG     -> READ_REG_EBREAK) (12, csrr(0, access.args.regno(4 downto 0)))
+      writeInstruction(READ_REG      -> READ_REG_EBREAK) (12, csrw(0, access.args.regno(4 downto 0)))
+      writeInstruction(READ_REG_EBREAK -> READ_REG_START ) (13, ebreak())
+      startInstruction(READ_REG_START  -> WAIT_DONE      ) (12)
+
+
+      WAIT_DONE.whenIsActive{
+        when(selected.completion){
+          goto(IDLE)
+          when(access.args.postExec){
+            goto (POST_EXEC)
+          }
+        }
+      }
+
+      startInstruction(POST_EXEC  -> POST_EXEC_WAIT      ) (0)
+      POST_EXEC_WAIT.whenIsActive{
+        when(selected.completion) {
+          goto(IDLE)
+        }
+      }
     }
   }
 

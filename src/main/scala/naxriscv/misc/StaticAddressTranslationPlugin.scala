@@ -57,7 +57,7 @@ class StaticAddressTranslationPlugin( var physicalWidth : Int,
   }
 
   val setup = create early new Area{
-    val invalidatePort = PulseHandshake(NoData).setIdleAll()
+    val invalidatePort = PulseHandshake().setIdleAll()
     invalidatePort.served setWhen(RegNext(invalidatePort.request) init(False))
   }
 

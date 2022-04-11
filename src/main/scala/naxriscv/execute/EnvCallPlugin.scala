@@ -162,7 +162,7 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
       if(lsuPort != null) {
         LSU_FLUSH whenIsActive {
           lsuPort.request := True
-          lsuPort.payload.withFree := flushData
+          lsuPort.cmd.withFree := flushData
           goto(WAIT_LSU)
         }
 
