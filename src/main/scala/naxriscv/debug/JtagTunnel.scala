@@ -9,7 +9,6 @@ class JtagTunnel(ctrl : JtagTapInstructionCtrl, instructionWidth : Int) extends 
   val shiftBuffer = Reg(Bits(instructionWidth + 7 + 1 bits))
   val instruction = Reg(Bits(instructionWidth bits))
 
-  val counter = Reg(UInt(2 bits))
 
   val sendCapture = False
   val sendShift   = False
@@ -22,15 +21,10 @@ class JtagTunnel(ctrl : JtagTapInstructionCtrl, instructionWidth : Int) extends 
   when(ctrl.enable){
     when(ctrl.capture){
       sendCapture := True
-      counter := 0
     }
     when(ctrl.shift){
       shiftBuffer := (ctrl.tdi ## shiftBuffer) >> 1
-      when(counter =/= 3) {
-        counter := counter + 1
-      } otherwise {
-        sendShift := True
-      }
+      sendShift := True
     }
     when(ctrl.update){
       when(!shiftBuffer.msb){
@@ -41,12 +35,16 @@ class JtagTunnel(ctrl : JtagTapInstructionCtrl, instructionWidth : Int) extends 
     }
   }
 
-  val tdoBuffer = RegNext(False) //Don't ask me why XDXD
-  ctrl.tdo := tdoBuffer
+  //Basicaly, with JTAG, especialy if you are in a chain, the only reference you have in a dr-scan is when it finish,
+  //as you may have some extra dr-scan cycle at the beggining to propagate through the chaine
+  val tdiBuffer = Delay(ctrl.tdi, 1+7+1)
+  val tdoBuffer = False
+  val tdoShifter = Delay(tdoBuffer, 4)
+  ctrl.tdo := tdoShifter
 
   def map(userCtrl : JtagTapInstructionCtrl, instructionId : Int): Unit ={
     val hit = instruction === instructionId
-    userCtrl.tdi     := ctrl.tdi
+    userCtrl.tdi     := tdiBuffer
     userCtrl.enable  := hit
     userCtrl.capture := hit && sendCapture
     userCtrl.shift   := hit && sendShift
@@ -69,17 +67,6 @@ class JtagTunnel(ctrl : JtagTapInstructionCtrl, instructionWidth : Int) extends 
     val area = new JtagTapInstructionReadWrite(captureData, updateData, captureReady)
     map(area.ctrl, instructionId)
     updateValid := area.ctrl.enable && area.ctrl.update
-    val counter = Reg(UInt(log2Up(widthOf(captureData) + 1) bits))
-    when(area.ctrl.capture){
-      counter := 0
-    }
-    when(counter =/= widthOf(captureData)){
-      when(area.ctrl.shift) {
-        counter := counter + 1
-      }
-    } otherwise {
-      area.ctrl.shift := False
-    }
     area
   }
 
