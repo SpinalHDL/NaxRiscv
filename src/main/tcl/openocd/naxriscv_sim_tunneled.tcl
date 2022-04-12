@@ -13,7 +13,10 @@ $_TARGETNAME.0 configure -work-area-phys 0x70000000 -work-area-size 10000 -work-
 riscv use_bscan_tunnel 6 1
 
 init
-halt
+echo "Reset halt"
+reset halt
+echo "Done"
+
 
 #mww 0x80000000 0x01000593
 #mww 0x80000004 0x01100593

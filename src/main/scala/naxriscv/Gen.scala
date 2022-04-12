@@ -325,18 +325,23 @@ object Config{
 object Gen extends App{
   LutInputs.set(6)
   def plugins = {
-    Config.plugins(
+    val l = Config.plugins(
       withRdTime = false,
       aluCount    = 2,
       decodeCount = 2,
       debugTriggers = 4,
       withRvc = false,
       withLoadStore = true,
-      withMmu = true
-//      withDebug = true,
-//      withEmbeddedJtagTap = true,
-//      jtagTunneled = true
+      withMmu = true,
+      withDebug = true,
+      withEmbeddedJtagTap = true,
+      jtagTunneled = true
     )
+    l.foreach{
+      case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))
+      case _ =>
+    }
+    l
   }
 
   {
@@ -388,7 +393,7 @@ object Gen64 extends App{
       debugTriggers = 4
     )
     l.foreach{
-//      case p : ExecutionUnitBase if p.euId == "EU1" => p.readPhysRsFromQueue = true
+      case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))
       case _ =>
     }
 //    Tweek.euWritebackAt(l, "ALU0", 1)

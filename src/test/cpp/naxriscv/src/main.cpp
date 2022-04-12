@@ -36,6 +36,7 @@ using namespace std;
 
 class SimElement{
 public:
+    bool withoutReset = false;
     virtual ~SimElement(){}
     virtual void onReset(){}
     virtual void postReset(){}
@@ -1509,7 +1510,7 @@ void rtlInit(){
         &top->EmbeddedJtagPlugin_logic_jtag_tdi,
         &top->EmbeddedJtagPlugin_logic_jtag_tdo,
         &top->EmbeddedJtagPlugin_logic_jtag_tck,
-        8
+        2
     ));
 #endif
 #ifdef ALLOCATOR_CHECKS
@@ -1801,87 +1802,96 @@ void simLoop(){
             }
             top->clk = !top->clk;
             top->reset = (main_time < 10) ? 1 : 0;
+            #ifdef EMBEDDED_JTAG
+                top->debug_reset = top->reset;
+                if(top->EmbeddedJtagPlugin_logic_ndmreset) {
+                    if(!top->reset){
+                        for(SimElement* simElement : simElements) simElement->onReset();
+                    }
+                    top->reset = 1;
+                }
+            #endif
             if(main_time < 11 && startPc != 0x80000000) top->NaxRiscv->PcPlugin_logic_fetchPc_pcReg = startPc;
-            if(!top->clk || top->reset){
+            if(!top->clk){
                 top->eval();
             } else {
-                for(SimElement* simElement : simElements) simElement->preCycle();
+                for(SimElement* simElement : simElements) if(!top->reset || simElement->withoutReset) simElement->preCycle();
+                if(!top->reset) {
+                    if(timeout_enabled && cycleSinceLastCommit == 10000){
+                        printf("NO PROGRESS the cpu hasn't commited anything since too long\n");
+                        failure();
+                    }
+                    cycleSinceLastCommit += 1;
 
-                if(timeout_enabled && cycleSinceLastCommit == 10000){
-                    printf("NO PROGRESS the cpu hasn't commited anything since too long\n");
-                    failure();
-                }
-                cycleSinceLastCommit += 1;
+                    for(int i = 0;i < COMMIT_COUNT;i++){
+                        if(CHECK_BIT(topInternal->commit_mask, i)){
+                            cycleSinceLastCommit = 0;
+                            int robId = topInternal->commit_robId + i;
+                            auto &robCtx = whitebox->robCtx[robId];
+                            robIdChecked = robId;
+                            commits += 1;
+                            traps_since_commit = 0;
+        //                        printf("Commit %d %x\n", robId, whitebox->robCtx[robId].pc);
 
-                for(int i = 0;i < COMMIT_COUNT;i++){
-                    if(CHECK_BIT(topInternal->commit_mask, i)){
-                        cycleSinceLastCommit = 0;
-                        int robId = topInternal->commit_robId + i;
-                        auto &robCtx = whitebox->robCtx[robId];
-                        robIdChecked = robId;
-                        commits += 1;
-                        traps_since_commit = 0;
-    //                        printf("Commit %d %x\n", robId, whitebox->robCtx[robId].pc);
+                            RvData pc = state->pc;
+                            if(spike_enabled) spikeStep(robCtx);
 
-                        RvData pc = state->pc;
-                        if(spike_enabled) spikeStep(robCtx);
+        //                        cout << state->minstret.get()->read() << endl;
+                            last_commit_pc = pc;
+                            if(spike_enabled) {
+                                assertEq("MISSMATCH PC", whitebox->robCtx[robId].pc,  pc);
+                                for (auto item : state->log_reg_write) {
+                                    if (item.first == 0)
+                                      continue;
 
-    //                        cout << state->minstret.get()->read() << endl;
-                        last_commit_pc = pc;
-                        if(spike_enabled) {
-                            assertEq("MISSMATCH PC", whitebox->robCtx[robId].pc,  pc);
-                            for (auto item : state->log_reg_write) {
-                                if (item.first == 0)
-                                  continue;
-
-                                int rd = item.first >> 4;
-                                switch (item.first & 0xf) {
-                                case 0: { //integer
-                                    assertTrue("INTEGER WRITE MISSING", whitebox->robCtx[robId].integerWriteValid);
-                                    assertEq("INTEGER WRITE DATA", whitebox->robCtx[robId].integerWriteData, item.second.v[0]);
-                                } break;
-                                case 4:{ //CSR
-                                    u64 inst = state->last_inst.bits();
-                                    switch(inst){
-                                    case 0x30200073: //MRET
-                                    case 0x10200073: //SRET
-                                    case 0x00200073: //URET
-                                        break;
-                                    default:
-                                        assertTrue("CSR WRITE MISSING", whitebox->robCtx[robId].csrWriteDone);
-                                        assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
-        //                                    assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
-                                        break;
+                                    int rd = item.first >> 4;
+                                    switch (item.first & 0xf) {
+                                    case 0: { //integer
+                                        assertTrue("INTEGER WRITE MISSING", whitebox->robCtx[robId].integerWriteValid);
+                                        assertEq("INTEGER WRITE DATA", whitebox->robCtx[robId].integerWriteData, item.second.v[0]);
+                                    } break;
+                                    case 4:{ //CSR
+                                        u64 inst = state->last_inst.bits();
+                                        switch(inst){
+                                        case 0x30200073: //MRET
+                                        case 0x10200073: //SRET
+                                        case 0x00200073: //URET
+                                            break;
+                                        default:
+                                            assertTrue("CSR WRITE MISSING", whitebox->robCtx[robId].csrWriteDone);
+                                            assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
+            //                                    assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
+                                            break;
+                                        }
+                                    } break;
+                                    default: {
+                                        printf("??? unknown spike trace");
+                                        failure();
+                                    } break;
                                     }
-                                } break;
-                                default: {
-                                    printf("??? unknown spike trace");
-                                    failure();
-                                } break;
                                 }
                             }
-                        }
 
-                        if(pcToEvent.count(pc) != 0){
-                            for(auto event : pcToEvent[pc]){
-                                event(pc);
+                            if(pcToEvent.count(pc) != 0){
+                                for(auto event : pcToEvent[pc]){
+                                    event(pc);
+                                }
                             }
-                        }
 
-                        if(pc == statsToggleAt) {
-                            whitebox->statsCaptureEnable = !whitebox->statsCaptureEnable;
-                            //cout << "Stats capture " << whitebox->statsCaptureEnable << " at " << main_time << endl;
+                            if(pc == statsToggleAt) {
+                                whitebox->statsCaptureEnable = !whitebox->statsCaptureEnable;
+                                //cout << "Stats capture " << whitebox->statsCaptureEnable << " at " << main_time << endl;
+                            }
+                            if(pc == statsStartAt) whitebox->statsCaptureEnable = true;
+                            if(pc == statsStopAt) whitebox->statsCaptureEnable = false;
+                            whitebox->robCtx[robId].clear();
                         }
-                        if(pc == statsStartAt) whitebox->statsCaptureEnable = true;
-                        if(pc == statsStopAt) whitebox->statsCaptureEnable = false;
-                        whitebox->robCtx[robId].clear();
                     }
+
+                    if(spike_enabled) spikeSyncTrap();
                 }
-
-                if(spike_enabled) spikeSyncTrap();
-
                 top->eval();
-                for(SimElement* simElement : simElements) simElement->postCycle();
+                for(SimElement* simElement : simElements) if(!top->reset || simElement->withoutReset) simElement->postCycle();
             }
         }
     }catch (const successException e) {

@@ -48,6 +48,7 @@ public:
 		*tdo = 0;
 		*tck = 0;
 		state = 0;
+		withoutReset = true;
 
 		//---- Create the socket. The three arguments are: ----//
 		// 1) Internet domain 2) Stream socket 3) Default protocol (TCP in this case) //

@@ -164,14 +164,14 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       fetch.getStage(0).haltIt(!running)
 
       bus.hartToDm.setIdle()
-      bus.halt.served := False
+      bus.haltRsp.valid := False
       bus.resume.served := False
 
       bus.halted := halted
       bus.running := running
-      bus.unavailable := False
+      bus.unavailable := RegNext(ClockDomain.current.isResetActive)
 
-      val doHalt = RegInit(False) setWhen(bus.halt.request) clearWhen(bus.halt.served)
+      val doHalt = RegInit(False) setWhen(bus.haltReq && bus.running && !setup.debugMode) clearWhen(bus.haltRsp.valid)
       val doResume = bus.resume.isPending()
 
       val fetchBypass = new Area{
@@ -293,7 +293,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
           }
 
           always{
-            when(bus.halt.served){
+            when(bus.haltRsp.valid){
               goto(IDLE)
             }
           }
@@ -714,7 +714,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         val dcause = p.withDebug generate Reg(UInt(3 bits))
         val debugException = p.withDebug generate RegInit(False)
         if(p.withDebug){
-          setup.debugBus.halt.rsp.exception := debugException
+          setup.debugBus.haltRsp.exception := debugException
         }
       }
 
@@ -871,7 +871,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
           setup.privilege  := 3
           setup.debugMode  := True
           debug.halted := True
-          debug.bus.halt.served := True
+          debug.bus.haltRsp.valid := True
           goto(IDLE)
         }
         DPC_READ.whenIsActive{

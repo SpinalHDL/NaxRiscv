@@ -34,16 +34,18 @@ case class DebugHartHalt() extends Bundle{
 case class DebugHartBus() extends Bundle with IMasterSlave {
   val halted, running, unavailable = Bool()
   val resume = PulseHandshake()
-  val halt = PulseHandshake(NoData(), DebugHartHalt())
+  val haltReq = Bool()
+  val haltRsp = Flow(DebugHartHalt())
 
   val dmToHart = Flow(DebugDmToHart())
   val hartToDm = Flow(DebugHartToDm())
 
   override def asMaster() = {
     in(halted, running, unavailable)
-    master(resume, halt)
+    master(resume)
     master(dmToHart)
-    slave(hartToDm)
+    slave(hartToDm, haltRsp)
+    out(haltReq)
   }
 }
 
@@ -80,16 +82,19 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
 
       val hartSelNew = factory.nonStopWrite(UInt(20 bits), 6)
       val hartSel = factory.createReadAndWrite(UInt(20 bits), 0x10, 6) init(0)
-      val haltReq = factory.setOnSet(False, 0x10, 31)
-      val resumeReq = factory.setOnSet(False, 0x10, 30) clearWhen(haltReq)
+      val haltSet = factory.setOnSet(False, 0x10, 31)
+      val haltClear = factory.setOnClear(False, 0x10, 31)
+      val resumeReq = factory.setOnSet(False, 0x10, 30) clearWhen(haltSet)
 
-      io.harts.foreach{bus =>
+
+      val harts = for((bus, hartId) <- io.harts.zipWithIndex) yield new Area{
+        val haltReq = RegInit(False)
+        bus.haltReq := haltReq
         bus.resume.setIdle()
-        bus.halt.setIdle()
-      }
-      io.harts.onSel(hartSelNew, relaxedWidth = true){bus =>
-        bus.resume.request := resumeReq
-        bus.halt.request := haltReq
+        when(hartSelNew === hartId){
+          haltReq := (haltReq || haltSet) && !haltClear
+          bus.resume.request := resumeReq
+        }
       }
 
       io.ndmreset := ndmreset
@@ -219,7 +224,7 @@ case class DebugModule(p : DebugModuleParameter) extends Component{
       when(request && abstractcs.busy && abstractcs.noError){
         abstractcs.cmdErr := DebugModuleCmdErr.BUSY
       }
-      when(io.harts.map(e => e.halt.served && e.halt.rsp.exception).orR){
+      when(io.harts.map(e => e.haltRsp.valid && e.haltRsp.exception).orR){
         abstractcs.cmdErr := DebugModuleCmdErr.EXCEPTION
       }
       when(abstractcs.busy && (progbufX.trigged || dataX.trigged) && abstractcs.noError){

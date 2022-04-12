@@ -48,6 +48,7 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component
       case p : EmbeddedJtagPlugin => {
         if(p.withTap) p.logic.jtag.toIo().setName("jtag")
         else p.logic.jtagInstruction.toIo().setName("jtag_instruction")
+        p.logic.ndmreset.toIo().setName("debug_ndmreset")
       }
       case _ =>
     }

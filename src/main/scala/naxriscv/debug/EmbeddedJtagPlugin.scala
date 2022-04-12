@@ -10,15 +10,19 @@ import spinal.lib.slave
 
 class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
                          var withTap : Boolean = true,
-                         var withTunneling : Boolean = false,
-                         val noTapCd : Handle[ClockDomain] = Handle[ClockDomain].setName("jtagCd")) extends Plugin{
+                         var withTunneling : Boolean = false) extends Plugin{
+
+  val debugCd = Handle[ClockDomain].setName("debugCd")
+  val noTapCd = Handle[ClockDomain].setName("jtagCd")
+
   val setup = create early new Area{
     getService[DocPlugin].property("EMBEDDED_JTAG","1")
   }
 
-  val logic = create late new Area{
+  val logic = create late debugCd(new Area{
     val jtag = withTap generate slave(Jtag())
     val jtagInstruction = !withTap generate slave(JtagTapInstructionCtrl())
+
     val dm = DebugModule(
       DebugModuleParameter(
         version = p.version + 1,
@@ -27,6 +31,8 @@ class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
         datacount   = Global.XLEN/32
       )
     )
+    val ndmreset = dm.io.ndmreset.toIo()
+
     val dmiDirect = if(withTap && !withTunneling) new Area {
       val logic = DebugTransportModuleJtagTap(
         p.copy(addressWidth = 7),
@@ -54,7 +60,7 @@ class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
     }
 
     getService[PrivilegedPlugin].setup.debugBus.setAsDirectionLess <> dm.io.harts(0)
-  }
+  })
 }
 
 
@@ -87,6 +93,9 @@ reg a1 0
 reg a2 0
 reg pc 0x40f00000
 resume
+
+load_image /media/data/open/riscv/VexRiscvOoo/ext/NaxSoftware/baremetal/dhrystone/build/rv32im/dhrystone.bin 0x80000000
+
 
 #echo [load_image /media/data/open/riscv/litex/standalone_nax/images/arty_a7.dts 0x40f00000]
 #echo [load_image /media/data/open/riscv/litex/standalone_nax/images/raw 0x40f00000]
