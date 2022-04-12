@@ -1833,13 +1833,23 @@ void simLoop(){
                             traps_since_commit = 0;
         //                        printf("Commit %d %x\n", robId, whitebox->robCtx[robId].pc);
 
-                            RvData pc = state->pc;
-                            if(spike_enabled) spikeStep(robCtx);
 
-        //                        cout << state->minstret.get()->read() << endl;
-                            last_commit_pc = pc;
+
+                            RvData pc = robCtx.pc;
+                            if(!spike_enabled){
+                                last_commit_pc = pc;
+                                if(pcToEvent.count(pc) != 0){
+                                    for(auto event : pcToEvent[pc]){
+                                        event(pc);
+                                    }
+                                }
+                            }
                             if(spike_enabled) {
-                                assertEq("MISSMATCH PC", whitebox->robCtx[robId].pc,  pc);
+                                RvData spike_pc = state->pc;
+                                spikeStep(robCtx);
+                                last_commit_pc = pc;
+
+                                assertEq("MISSMATCH PC", spike_pc,  pc);
                                 for (auto item : state->log_reg_write) {
                                     if (item.first == 0)
                                       continue;

@@ -23,7 +23,7 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
     val eu = findService[ExecutionUnitBase](_.euId == euId)
     eu.retain()
 
-    def add(microOp: MicroOp, srcKeys: List[SrcKeys], decoding: DecodeListType) = {
+    def add(microOp: MicroOp, srcKeys: List[SrcKeys] = Nil, decoding: DecodeListType = Nil) = {
       eu.addMicroOp(microOp)
       eu.setStaticCompletion(microOp, euCompletionAt)
       if (staticLatency && microOp.resources.exists{
@@ -63,8 +63,8 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
 
     override def postInitCallback() = {eu.release() ; this}
 
-    class ExecuteArea(id : Int) extends Area{
-      val stage = eu.getExecute(id)
+    class ExecuteArea(stageId : Int) extends Area{
+      val stage = eu.getExecute(stageId)
     }
   }
 
