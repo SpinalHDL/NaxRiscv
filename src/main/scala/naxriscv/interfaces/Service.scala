@@ -46,7 +46,7 @@ case class DecoderTrap() extends Bundle{
   val cause = UInt(4 bits)
   val epc   = UInt(PC_WIDTH bits)
   val tval  = Bits(TVAL_WIDTH bits)
-  val debugEnter = RV_DEBUG.get() generate Bool()
+  val debugEnter = RV_DEBUG.get generate Bool()
 }
 
 trait DecoderService extends Service with LockedService {

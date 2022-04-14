@@ -20,7 +20,7 @@ class DataBase{
 }
 
 class ScopedThing[T](dataBase: ScopeProperty[DataBase]){
-  def get() : T = dataBase.get.apply(this)
+  def get : T = dataBase.get.apply(this)
   def set(value : T) = dataBase.update(this, value)
 }
 
@@ -29,7 +29,7 @@ class ScopedHandle[T](dataBase: ScopeProperty[DataBase]) extends Area{
   var defaultLanda : Option[() => T] = None
   def setDefault(v : => T): this.type = { defaultLanda = Some(() => v) ; this }
   def getHandle() : Handle[T] = dataBase.get.getElseUpdate(thing, new Handle[T].setCompositeName(this))
-  def get() : T = {
+  def get : T = {
     val h = getHandle()
     if(!h.isLoaded && defaultLanda.nonEmpty) h.load(defaultLanda.get())
     h.get
@@ -40,18 +40,18 @@ class ScopedHandle[T](dataBase: ScopeProperty[DataBase]) extends Area{
 
 //A few implicit to make things smooth
 object ScopedThing{
-  implicit def toValue[T](p : ScopedThing[T]) : T = p.get()
+  implicit def toValue[T](p : ScopedThing[T]) : T = p.get
 
   class ThingIntPimper(p: ScopedThing[Int]) {
-    def bits = BitCount(p.get())
+    def bits = BitCount(p.get)
   }
   implicit def thingIntPimperFunc(p: ScopedThing[Int]) : ThingIntPimper = new ThingIntPimper(p)
 }
 object ScopedHandle{
-  implicit def toValue[T](p : ScopedHandle[T]) : T = p.get()
+  implicit def toValue[T](p : ScopedHandle[T]) : T = p.get
 
   class ScopedHandleIntPimper(p: ScopedHandle[Int]) {
-    def bits = BitCount(p.get())
+    def bits = BitCount(p.get)
   }
   implicit def thingIntPimperFunc(p: ScopedHandle[Int]) : ScopedHandleIntPimper = new ScopedHandleIntPimper(p)
 }

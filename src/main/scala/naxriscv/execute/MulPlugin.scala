@@ -56,7 +56,7 @@ class MulPlugin(val euId : String,
   }
 
   override val logic = create late new Logic{
-    val splits = MulSpliter.splits(XLEN.get() + 1, XLEN.get() + 1, splitWidthA, splitWidthB, true, true)
+    val splits = MulSpliter.splits(XLEN.get + 1, XLEN.get + 1, splitWidthA, splitWidthB, true, true)
     val finalWidth = XLEN*2+2
     val sum1Takes = splits.takeWhile(e => e.offsetC + e.widthC <= sum1WidthMax).size
     val sum2Takes = splits.takeWhile(e => e.offsetC + e.widthC <= sum2WidthMax).size-sum1Takes
