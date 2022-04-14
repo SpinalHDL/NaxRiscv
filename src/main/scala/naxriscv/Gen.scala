@@ -23,13 +23,9 @@ import scala.collection.mutable.ArrayBuffer
 import scala.sys.exit
 
 
-class NaxRiscv(val xlen : Int,
-               val plugins : Seq[Plugin]) extends Component{
+class NaxRiscv(val plugins : Seq[Plugin]) extends Component{
   val database = new DataBase
-  val framework = NaxScope(database) on {
-    NaxScope.init(xlen)    //Initialize a few global parameters
-    new Framework(plugins) //Will run the generation asynchronously
-  }
+  val framework = NaxScope(database) on new Framework(plugins) //Will run the generation asynchronously
 }
 
 object Config{
@@ -125,7 +121,7 @@ object Config{
       enabled = withRvc,
       pipelined = withRvc
     )
-    plugins += new DecoderPlugin()
+    plugins += new DecoderPlugin(xlen)
     plugins += new RfTranslationPlugin()
     plugins += new RfDependencyPlugin()
     plugins += new RfAllocationPlugin(riscv.IntRegFile)
@@ -248,7 +244,7 @@ object Config{
     //EXECUTION UNITES
     plugins += new ExecutionUnitBase("ALU0")
     plugins += new IntFormatPlugin("ALU0")
-    plugins += new SrcPlugin("ALU0", earlySrc = true)
+    plugins += new SrcPlugin("ALU0")
     plugins += new IntAluPlugin("ALU0", aluStage = 0)
     plugins += new ShiftPlugin("ALU0" , aluStage = 0)
     if(aluCount > 1) plugins += new BranchPlugin("ALU0")
@@ -257,7 +253,7 @@ object Config{
 
     plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1, readPhysRsFromQueue = true)
     plugins += new IntFormatPlugin("EU1")
-    plugins += new SrcPlugin("EU1", earlySrc = true)
+    plugins += new SrcPlugin("EU1")
     plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
     plugins += new DivPlugin("EU1", writebackAt = 2)
     //    plugins += new IntAluPlugin("EU1")
@@ -350,7 +346,7 @@ object Gen extends App{
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
     //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
 
-    val report = spinalConfig.generateVerilog(new NaxRiscv(xlen = 32, plugins))
+    val report = spinalConfig.generateVerilog(new NaxRiscv(plugins))
     val doc = report.toplevel.framework.getService[DocPlugin]
     doc.genC()
 
@@ -368,7 +364,7 @@ object Gen extends App{
     spinalConfig.addStandardMemBlackboxing(blackboxByteEnables)
     spinalConfig.addTransformationPhase(new EnforceSyncRamPhase)
 
-    spinalConfig.generateVerilog(wrapper(new NaxRiscv(xlen = 32, plugins).setDefinitionName("NaxRiscvSynt")))
+    spinalConfig.generateVerilog(wrapper(new NaxRiscv(plugins).setDefinitionName("NaxRiscvSynt")))
   }
 }
 
@@ -407,7 +403,7 @@ object Gen64 extends App{
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
     //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
 
-    val report = spinalConfig.generateVerilog(new NaxRiscv(xlen = 64, plugins))
+    val report = spinalConfig.generateVerilog(new NaxRiscv(plugins))
     val doc = report.toplevel.framework.getService[DocPlugin]
     doc.genC()
 
@@ -425,7 +421,7 @@ object Gen64 extends App{
     spinalConfig.addStandardMemBlackboxing(blackboxByteEnables)
     spinalConfig.addTransformationPhase(new EnforceSyncRamPhase)
 
-    spinalConfig.generateVerilog(wrapper(new NaxRiscv(xlen = 64, plugins).setDefinitionName("NaxRiscvSynt")))
+    spinalConfig.generateVerilog(wrapper(new NaxRiscv(plugins).setDefinitionName("NaxRiscvSynt")))
   }
 }
 

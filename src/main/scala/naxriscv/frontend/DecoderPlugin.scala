@@ -25,8 +25,12 @@ object DecoderPlugin extends AreaRoot{
 }
 
 
-class DecoderPlugin() extends Plugin with DecoderService with LockedImpl{
+class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedImpl{
   import DecoderPlugin.OP_ID
+
+  create config{
+    XLEN.set(xlen)
+  }
 
   val euToMicroOps = LinkedHashMap[ExecuteUnitService, ArrayBuffer[MicroOp]]()
   val microOps = LinkedHashSet[MicroOp]()

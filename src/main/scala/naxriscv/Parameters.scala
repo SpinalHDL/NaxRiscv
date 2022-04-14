@@ -42,9 +42,9 @@ object Global extends AreaRoot {
 //  val TRAP_CAUSE_WIDTH = NaxParameter[Handle[Int]]
   val XLEN = NaxParameter[Int]
   val RVC = NaxParameter[Boolean]
-  val RVF = NaxParameter[Boolean]
-  val RVD = NaxParameter[Boolean]
-  val RV_DEBUG = NaxParameter[Boolean]
+  val RVF = NaxParameter[Boolean].setDefault(false)
+  val RVD = NaxParameter[Boolean].setDefault(false)
+  val RV_DEBUG = NaxParameter[Boolean].setDefault(false)
 
   val PC_WIDTH = NaxParameter[Int]
   val PC = Stageable(UInt(PC_WIDTH bits))

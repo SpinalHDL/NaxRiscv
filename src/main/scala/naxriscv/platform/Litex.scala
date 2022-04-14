@@ -34,7 +34,6 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component
   plugins += new LsuPeripheralAxiLite4()
 
   val cpu = new NaxRiscv(
-    xlen = xlen,
     plugins
   )
 

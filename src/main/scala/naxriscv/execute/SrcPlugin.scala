@@ -44,7 +44,7 @@ object SrcKeys extends AreaObject {
 }
 
 class SrcPlugin(val euId : String,
-                var earlySrc : Boolean = false) extends Plugin{
+                var earlySrc : Boolean = true) extends Plugin{
   withPrefix(euId)
 
   val spec = mutable.LinkedHashMap[MicroOp, mutable.LinkedHashSet[SrcKeys]]()
