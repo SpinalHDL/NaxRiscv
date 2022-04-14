@@ -333,9 +333,9 @@ object Gen extends App{
       withRvc = false,
       withLoadStore = true,
       withMmu = true,
-      withDebug = true,
-      withEmbeddedJtagTap = true,
-      jtagTunneled = true
+      withDebug = false,
+      withEmbeddedJtagTap = false,
+      jtagTunneled = false
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))
@@ -387,9 +387,9 @@ object Gen64 extends App{
       withRdTime = false,
       aluCount    = 2,
       decodeCount = 2,
-      withRvc = true,
-      withDebug = true,
-      withEmbeddedJtagTap = true,
+      withRvc = false,
+      withDebug = false,
+      withEmbeddedJtagTap = false,
       debugTriggers = 4
     )
     l.foreach{
@@ -511,7 +511,7 @@ checkLq => 6.8slack 550 LUT (16lq/16sq)
  */
 
 /*
-obj_dir/VNaxRiscv --name dhrystone --output-dir output/nax/dhrystone --load-elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/rv32im/dhrystone.elf --start-symbol _start --pass-symbol pass --fail-symbol fail --stats-print --stats-toggle-symbol sim_time
+obj_dir/VNaxRiscv --name dhrystone --output-dir output/nax/dhrystone --load-elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/rv32im/dhrystone.elf --start-symbol _start  --stats-print --stats-toggle-symbol sim_time
 obj_dir/VNaxRiscv --name coremark --output-dir output/nax/coremark --load-elf ../../../../ext/NaxSoftware/baremetal/coremark/build/rv32im/coremark.elf --start-symbol _start --pass-symbol pass  --stats-print-all --stats-toggle-symbol sim_time
 obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/play/build/rv32im/play.elf --start-symbol _start --pass-symbol pass --fail-symbol fail --trace --trace-ref --stats-print-all
 obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/freertosDemo/integer/rv32im/freertosDemo.elf --start-symbol _start --pass-symbol c_pass --fail-symbol c_fail --stats-print-all

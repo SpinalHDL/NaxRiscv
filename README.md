@@ -25,6 +25,12 @@ There is a Read The Doc hosted here :
 
 https://spinalhdl.github.io/NaxRiscv-Rtd/main/NaxRiscv/introduction/index.html
 
+# Performances / Area
+
+See :
+
+https://spinalhdl.github.io/NaxRiscv-Rtd/main/NaxRiscv/performance/index.html
+
 # Running on hardware
 
 NaxRiscv is currently integrated into https://github.com/enjoy-digital/litex. For instance to run it on the Nexys video board, you can : 
