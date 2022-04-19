@@ -45,10 +45,11 @@ class IntFormatPlugin(val euId : String) extends Plugin{
     val stages = for(group <- grouped.values) yield new Area{
       val writeLatency = group.map(_.writeLatency).min
       val stageId = group.head.stageId
+      val stage = eu.getExecute(stageId)
 
-      val wb = eu.newWriteback(IntRegFile, RD, eu.getExecute(stageId), writeLatency)
+      val wb = eu.newWriteback(IntRegFile, RD, stage, writeLatency)
       val hits = B(group.map(_.port.valid))
-      wb.valid := hits.orR
+      wb.valid := stage.isValid && hits.orR
 
       val signExtendsGroups = group.flatMap(_.signExtends).groupByLinked(_.bitId).map(_._2)
       val raw = MuxOH.or(hits, group.map(_.port.payload), true)
@@ -61,7 +62,7 @@ class IntFormatPlugin(val euId : String) extends Plugin{
         for(e <- seg){
           eu.addDecoding(e.op, DecodeList(DO_IT -> True))
         }
-        when(eu.getExecute(stageId)(DO_IT)){
+        when(stage(DO_IT)){
           wb.payload(Global.XLEN.get-1 downto bitId+1) := (default -> raw(bitId))
         }
       }
