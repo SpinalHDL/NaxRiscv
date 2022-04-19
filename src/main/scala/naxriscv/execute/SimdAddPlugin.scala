@@ -5,8 +5,9 @@ import spinal.lib._
 import naxriscv._
 import naxriscv.riscv._
 import naxriscv.riscv.IntRegFile
-import naxriscv.interfaces.{RS1, RS2}
+import naxriscv.interfaces.{RD, RS1, RS2, RfResource}
 import naxriscv.utilities.Plugin
+import spinal.lib.pipeline.Stageable
 
 //This plugin example will add a new instruction named SIMD_ADD which do the following :
 //
@@ -90,6 +91,55 @@ object SimdAddNaxGen extends App{
   val report = spinalConfig.generateVerilog(new NaxRiscv(plugins))
   report.toplevel.framework.getService[DocPlugin].genC()
 }
+
+object SimdAddRawPlugin{
+  val SEL = Stageable(Bool()) //Will be used to identify when
+  val ADD4 = IntRegFile.TypeR(M"0000000----------000-----0001011")
+}
+
+class SimdAddRawPlugin(euId : String) extends Plugin {
+  import SimdAddRawPlugin._
+  val setup = create early new Area{
+    val eu = findService[ExecutionUnitBase](_.euId == euId)
+    eu.retain() //We don't want the EU to generate itself before we are done with it
+
+    //Specify all the ADD4 requirements
+    eu.addMicroOp(ADD4)
+    eu.setStaticCompletion(ADD4, 0)
+    eu.setStaticWake(ADD4, 0)
+    eu.setDecodingDefault(SEL, False)
+    eu.addDecoding(ADD4, SEL, True)
+
+    //IntFormatPlugin provide a shared point to write into the register file with some optional carry extensions
+    val intFormat = findService[IntFormatPlugin](_.euId == euId)
+    val writeback = intFormat.access(stageId = 0, writeLatency = 0)
+  }
+
+  val logic = create late new Area{
+    val eu = setup.eu
+    val writeback = setup.writeback
+    val stage = eu.getExecute(0)
+
+    //Get the RISC-V RS1/RS2 values from the register file
+    val rs1 = stage(eu(IntRegFile, RS1)).asUInt
+    val rs2 = stage(eu(IntRegFile, RS2)).asUInt
+
+    //Do some computation
+    val rd = UInt(32 bits)
+    rd( 7 downto  0) := rs1( 7 downto  0) + rs2( 7 downto  0)
+    rd(16 downto  8) := rs1(16 downto  8) + rs2(16 downto  8)
+    rd(23 downto 16) := rs1(23 downto 16) + rs2(23 downto 16)
+    rd(31 downto 24) := rs1(31 downto 24) + rs2(31 downto 24)
+
+    //Provide the computation value for the writeback
+    writeback.valid   := stage(SEL)
+    writeback.payload := rd.asBits
+
+    //Now the EU has every requirements set for the generation (from this plugin perspective)
+    eu.release()
+  }
+}
+
 
 
 /*

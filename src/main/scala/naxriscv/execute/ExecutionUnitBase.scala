@@ -131,6 +131,11 @@ class ExecutionUnitBase(val euId : String,
     }
   }
 
+  def addDecoding(microOp: MicroOp, key : Stageable[_ <: BaseType], value : Any) : Unit = {
+    val op = Masked(microOp.key)
+    getDecodingSpec(key).addNeeds(op, Masked(value))
+  }
+
   val setup = create early new Area{
     getService[DecoderService].retain()
     getServicesOf[RegfileService].foreach(_.retain())
