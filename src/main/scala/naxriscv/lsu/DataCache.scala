@@ -461,12 +461,12 @@ class DataCache(val cacheSize: Int,
     val write = mem.writePort.setIdle()
     val loadRead = new Area{
       val cmd = Flow(mem.addressType)
-      val rsp = mem.readSync(cmd.payload, cmd.valid)
+      val rsp = if(tagsReadAsync) mem.readAsync(cmd.payload) else mem.readSync(cmd.payload, cmd.valid)
       KeepAttribute(rsp)
     }
     val storeRead = new Area{
       val cmd = Flow(mem.addressType)
-      val rsp = mem.readSync(cmd.payload, cmd.valid)
+      val rsp = if(tagsReadAsync) mem.readAsync(cmd.payload) else mem.readSync(cmd.payload, cmd.valid)
       KeepAttribute(rsp)
     }
     val writeLast = write.stage()
@@ -889,11 +889,11 @@ class DataCache(val cacheSize: Int,
       }
 
 
-      status.loadRead.cmd.valid := !readBanksStage.isStuck
-      status.loadRead.cmd.payload := readBanksStage(ADDRESS_PRE_TRANSLATION)(lineRange)
-      pipeline.stages(loadReadBanksAt + 1)(STATUS) := status.loadRead.rsp
+      status.loadRead.cmd.valid := !readTagsStage.isStuck
+      status.loadRead.cmd.payload := readTagsStage(ADDRESS_PRE_TRANSLATION)(lineRange)
+      pipeline.stages(loadReadTagsAt + (!tagsReadAsync).toInt)(STATUS) := status.loadRead.rsp
 
-      val statusBypassOn = (loadReadBanksAt + 1 until loadControlAt).map(pipeline.stages(_))
+      val statusBypassOn = (loadReadTagsAt + (!tagsReadAsync).toInt until loadControlAt).map(pipeline.stages(_))
       statusBypassOn.foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION, stage == statusBypassOn.head))
     }
 
@@ -1051,12 +1051,12 @@ class DataCache(val cacheSize: Int,
         WAYS_HIT := B(WAYS_HITS).orR
       }
 
-      status.storeRead.cmd.valid := !readBanksStage.isStuck
-      status.storeRead.cmd.payload := readBanksStage(ADDRESS_POST_TRANSLATION)(lineRange)
-      pipeline.stages(storeReadBanksAt + 1)(STATUS) := status.storeRead.rsp
+      status.storeRead.cmd.valid := !readTagsStage.isStuck
+      status.storeRead.cmd.payload := readTagsStage(ADDRESS_POST_TRANSLATION)(lineRange)
+      pipeline.stages(storeReadTagsAt + (!tagsReadAsync).toInt)(STATUS) := status.storeRead.rsp
 
 
-      val statusBypassOn = (storeReadBanksAt + 1 until storeControlAt).map(pipeline.stages(_))
+      val statusBypassOn = (storeReadTagsAt + (!tagsReadAsync).toInt until storeControlAt).map(pipeline.stages(_))
       statusBypassOn.foreach(stage => status.bypass(stage, ADDRESS_POST_TRANSLATION,  stage == statusBypassOn.head))
     }
 
