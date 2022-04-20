@@ -45,7 +45,7 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
     def add(microOp: MicroOp, decoding: DecodeListType) = {
       eu.addMicroOp(microOp)
       eu.addDecoding(microOp, decoding)
-      eu.setStaticCompletion(microOp, rescheduleAt)
+      eu.setCompletion(microOp, rescheduleAt)
     }
 
     List(ECALL, EBREAK, XRET, WFI, FENCE, FENCE_I, FENCE_VMA, FLUSH_DATA).foreach(eu.setDecodingDefault(_, False))

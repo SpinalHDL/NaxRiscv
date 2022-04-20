@@ -105,7 +105,7 @@ class SimdAddRawPlugin(euId : String) extends Plugin {
 
     //Specify all the ADD4 requirements
     eu.addMicroOp(ADD4)
-    eu.setStaticCompletion(ADD4, 0)
+    eu.setCompletion(ADD4, 0)
     eu.setStaticWake(ADD4, 0)
     eu.setDecodingDefault(SEL, False)
     eu.addDecoding(ADD4, SEL, True)

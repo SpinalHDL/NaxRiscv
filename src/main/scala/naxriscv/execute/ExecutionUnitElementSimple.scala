@@ -25,7 +25,7 @@ abstract class ExecutionUnitElementSimple(euId : String, staticLatency : Boolean
 
     def add(microOp: MicroOp, srcKeys: List[SrcKeys] = Nil, decoding: DecodeListType = Nil) = {
       eu.addMicroOp(microOp)
-      eu.setStaticCompletion(microOp, euCompletionAt)
+      eu.setCompletion(microOp, euCompletionAt)
       if (staticLatency && microOp.resources.exists{
         case RfResource(_, RD) => true
         case _ => false

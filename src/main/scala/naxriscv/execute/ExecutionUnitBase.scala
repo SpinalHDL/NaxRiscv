@@ -56,11 +56,11 @@ class ExecutionUnitBase(val euId : String,
   def getStageable(r : RfResource) : Stageable[Bits] = {
     rfStageables.getOrElseUpdate(r, Stageable(Bits(r.rf.width bits)).setName(s"${r.rf.getName()}_${r.access.getName()}"))
   }
-  def getExecute(id : Int) : Stage = {
-    if(id >= 0){
-      idToexecuteStages.getOrElseUpdate(id, new Stage().setCompositeName(pipeline, s"execute_$id"))
+  def getExecute(stageId : Int) : Stage = {
+    if(stageId >= 0){
+      idToexecuteStages.getOrElseUpdate(stageId, new Stage().setCompositeName(pipeline, s"execute_$stageId"))
     } else {
-      setup.fetch.reverse(-id)
+      setup.fetch.reverse(-stageId)
     }
   }
   def addRobStageable(s : Stageable[_ <: Data]) = robStageable += s
@@ -87,16 +87,16 @@ class ExecutionUnitBase(val euId : String,
     setDecodingDefault(sel, False)
   }
   val stagesCompletions = mutable.LinkedHashMap[Int, StageCompletionSpec]()
-  def setStaticCompletion(microOp: MicroOp, completionStage : Int): Unit ={
-    val completion = stagesCompletions.getOrElseUpdate(completionStage, new StageCompletionSpec(completionStage))
+  def setCompletion(microOp: MicroOp, stageId : Int): Unit ={
+    val completion = stagesCompletions.getOrElseUpdate(stageId, new StageCompletionSpec(stageId))
     completion.microOps += microOp
     addDecoding(microOp, DecodeList(completion.sel -> True))
   }
 
 
   val staticLatenciesStorage = ArrayBuffer[StaticLatency]()
-  def setStaticWake(microOp: MicroOp, latency : Int): Unit ={
-    staticLatenciesStorage += StaticLatency(microOp, latency)
+  def setStaticWake(microOp: MicroOp, stageId : Int): Unit ={
+    staticLatenciesStorage += StaticLatency(microOp, stageId)
   }
 
   override def addMicroOp(microOp: MicroOp) = {
@@ -106,13 +106,13 @@ class ExecutionUnitBase(val euId : String,
   def addMicroOp(microOp: MicroOp, completionStage : Int) = {
     getService[DecoderService].addEuOp(this, microOp)
     microOps += microOp
-    setStaticCompletion(microOp,  completionStage)
+    setCompletion(microOp,  completionStage)
   }
   def add(microOp: MicroOp) ={
     addMicroOp(microOp)
     new {
       def completionStage(stage : Int) : this.type = {
-        setStaticCompletion(microOp,  stage)
+        setCompletion(microOp,  stage)
         this
       }
     }
