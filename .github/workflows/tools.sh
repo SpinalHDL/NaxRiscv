@@ -26,7 +26,7 @@ install_spike(){
   cd $NAXRISCV/ext/riscv-isa-sim
   mkdir build
   cd build
-  ../configure --prefix=$RISCV --enable-commitlog --without-boost-asio 
+  ../configure --prefix=$RISCV --enable-commitlog --without-boost --without-boost-asio --without-boost-regex
   make -j$(nproc)
   g++ --shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/lib  -o package.so spike.o  libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
 }
