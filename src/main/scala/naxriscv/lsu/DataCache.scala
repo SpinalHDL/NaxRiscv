@@ -4,6 +4,7 @@ import naxriscv.utilities.{AddressToMask, Reservation}
 import spinal.core._
 import spinal.lib._
 import spinal.lib.bus.amba4.axi.{Axi4, Axi4Config}
+import spinal.lib.bus.bmb.{Bmb, BmbAccessParameter, BmbParameter, BmbSourceParameter}
 import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline.{Pipeline, Stage, Stageable, StageableOffsetNone}
 
@@ -92,10 +93,14 @@ case class DataStoreRsp(addressWidth : Int, refillCount : Int) extends Bundle {
 
 case class DataMemBusParameter( addressWidth: Int,
                                 dataWidth: Int,
-                                readIdWidth: Int,
-                                writeIdWidth: Int,
+                                readIdCount : Int,
+                                writeIdCount : Int,
                                 lineSize: Int,
-                                withReducedBandwidth : Boolean)
+                                withReducedBandwidth : Boolean){
+
+  val readIdWidth = log2Up(readIdCount)
+  val writeIdWidth = log2Up(writeIdCount)
+}
 
 case class DataMemReadCmd(p : DataMemBusParameter) extends Bundle {
   val id = UInt(p.readIdWidth bits)
@@ -141,6 +146,33 @@ case class DataMemReadBus(p : DataMemBusParameter) extends Bundle with IMasterSl
     rsp.error := ret.rsp.error
     rspOutputStream.ready :=  (if(p.withReducedBandwidth) rspOutputStream.ready else True)
   }.ret
+
+  def toBmb(): Bmb = new Composite(this, "toBmb"){
+    val bmbConfig = BmbAccessParameter(
+      addressWidth = p.addressWidth,
+      dataWidth    = p.dataWidth
+    ).addSources(p.readIdCount, BmbSourceParameter(
+      contextWidth     = 0,
+      lengthWidth      = log2Up(p.lineSize),
+      alignment        = BmbParameter.BurstAlignement.LENGTH,
+      canWrite         = false,
+      withCachedRead   = true
+    ))
+
+    val bmb = Bmb(bmbConfig)
+    bmb.cmd.arbitrationFrom(cmd)
+    bmb.cmd.setRead()
+    bmb.cmd.address := cmd.address
+    bmb.cmd.length := p.lineSize-1
+    bmb.cmd.source := cmd.id
+    bmb.cmd.last := True
+
+    rsp.arbitrationFrom(bmb.rsp)
+    rsp.id    := bmb.rsp.source
+    rsp.data  := bmb.rsp.data
+    rsp.error := bmb.rsp.isError
+  }.bmb
+
 }
 
 case class DataMemWriteCmd(p : DataMemBusParameter) extends Bundle {
@@ -188,6 +220,36 @@ case class DataMemWriteBus(p : DataMemBusParameter) extends Bundle with IMasterS
 
     self.rsp << ret.rsp
   }.ret
+
+
+  def toBmb(): Bmb = new Composite(this, "toBmb"){
+    val bmbConfig = BmbAccessParameter(
+      addressWidth = p.addressWidth,
+      dataWidth    = p.dataWidth
+    ).addSources(p.readIdCount, BmbSourceParameter(
+      contextWidth     = 0,
+      lengthWidth      = log2Up(p.lineSize),
+      alignment        = BmbParameter.BurstAlignement.LENGTH,
+      canRead         = false,
+      withCachedRead   = true
+    ))
+
+    val bmb = Bmb(bmbConfig)
+    bmb.cmd.arbitrationFrom(cmd)
+    bmb.cmd.setWrite()
+    bmb.cmd.address := cmd.address
+    bmb.cmd.length := p.lineSize-1
+    bmb.cmd.source := cmd.id
+    bmb.cmd.data := cmd.data
+    bmb.cmd.last := cmd.last
+    bmb.cmd.mask.setAll()
+
+
+    bmb.rsp.ready := True
+    rsp.valid := bmb.rsp.valid
+    rsp.id    := bmb.rsp.source
+    rsp.error := bmb.rsp.isError
+  }.bmb
 }
 
 
@@ -213,7 +275,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
   }.ret
 
 
-    def toAxi4(): Axi4 = new Composite(this, "toAxi4"){
+  def toAxi4(): Axi4 = new Composite(this, "toAxi4"){
     val idWidth = p.readIdWidth max p.writeIdWidth
 
     val axiConfig = Axi4Config(
@@ -277,7 +339,6 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
     write.rsp.error := !axi.b.isOKAY()
     axi.b.ready     :=  True
   }.axi
-
 }
 
 
@@ -314,8 +375,8 @@ class DataCache(val cacheSize: Int,
   val memParameter = DataMemBusParameter(
     addressWidth  = postTranslationWidth,
     dataWidth     = memDataWidth,
-    readIdWidth   = log2Up(refillCount),
-    writeIdWidth  = log2Up(writebackCount),
+    readIdCount   = refillCount,
+    writeIdCount  = writebackCount,
     lineSize      = lineSize,
     withReducedBandwidth = false
   )

@@ -20,6 +20,7 @@ import naxriscv.misc.RobPlugin
 import spinal.core.fiber.Handle
 import spinal.lib.bus.amba4.axi.{Axi4, Axi4Config}
 import spinal.lib.bus.amba4.axilite.{AxiLite4, AxiLite4Config}
+import spinal.lib.bus.bmb.{Bmb, BmbAccessParameter, BmbParameter, BmbSourceParameter}
 import spinal.lib.fsm._
 
 object LsuUtils{
@@ -123,6 +124,31 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
     axi.b.ready    := True
     axi.r.ready    := True
   }.axi
+
+  def toBmb(): Bmb = new Composite(this, "toBmb"){
+    val bmbConfig = BmbAccessParameter(
+      addressWidth = p.addressWidth,
+      dataWidth    = p.dataWidth
+    ).addSources(1, BmbSourceParameter(
+      contextWidth     = 0,
+      lengthWidth      = log2Up(XLEN/8),
+      alignment        = BmbParameter.BurstAlignement.LENGTH
+    ))
+
+    val bmb = Bmb(bmbConfig)
+    bmb.cmd.arbitrationFrom(cmd)
+    bmb.cmd.setWrite()
+    bmb.cmd.address := cmd.address
+    bmb.cmd.length := ((U(1) << cmd.size)-1).resized
+    bmb.cmd.data := cmd.data
+    bmb.cmd.mask := cmd.mask
+    bmb.cmd.last := True
+
+    bmb.rsp.ready := True
+    rsp.valid := bmb.rsp.valid
+    rsp.data  := bmb.rsp.data
+    rsp.error := bmb.rsp.isError
+  }.bmb
 }
 
 case class LsuFlushPayload() extends Bundle{
@@ -669,7 +695,7 @@ class LsuPlugin(var lqSize: Int,
           HIT_SPECULATION := False //TODO maybe True by default for better perf ?
 
           val loadBypass = if(loadToCacheBypass) new Area {
-            assert(loadPorts.size == 1, "Not suported yet")
+            assert(loadPorts.size == 1, s"Not suported yet (${loadPorts.size} lsu load ports")
             val port = loadPorts.head.port
             val portPush = push.head
             isValid setWhen(port.valid)

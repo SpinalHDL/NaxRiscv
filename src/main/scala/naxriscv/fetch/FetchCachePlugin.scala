@@ -12,6 +12,7 @@ import naxriscv.Fetch._
 import naxriscv.prediction.HistoryPlugin
 import spinal.lib.bus.amba4.axi.{Axi4Config, Axi4ReadOnly}
 import spinal.lib.bus.amba4.axilite.{AxiLite4Config, AxiLite4ReadOnly}
+import spinal.lib.bus.bmb.{Bmb, BmbAccessParameter, BmbParameter, BmbSourceParameter}
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -52,6 +53,8 @@ case class FetchL1Bus(physicalWidth : Int,
 
     rsp.valid := io.rsp.valid || ram.rsp.valid
     rsp.payload := selIo ? io.rsp.payload | ram.rsp.payload
+    io.rsp.ready := rsp.ready
+    ram.rsp.ready := rsp.ready
 
     val ret = (io, ram)
   }.ret
@@ -110,6 +113,32 @@ case class FetchL1Bus(physicalWidth : Int,
     rsp.error := !axi.r.isOKAY()
     axi.r.ready := (if(withBackPresure) rsp.ready else True)
   }.axi
+
+
+  def toBmb(): Bmb = new Composite(this, "toBmb"){
+    val bmbConfig = BmbAccessParameter(
+      addressWidth = physicalWidth,
+      dataWidth    = dataWidth
+    ).addSources(1, BmbSourceParameter(
+      contextWidth     = 0,
+      lengthWidth      = log2Up(lineSize),
+      alignment        = BmbParameter.BurstAlignement.LENGTH,
+      canWrite         = false,
+      withCachedRead   = true
+    ))
+
+    val bmb = Bmb(bmbConfig)
+    bmb.cmd.arbitrationFrom(cmd)
+    bmb.cmd.setRead()
+    bmb.cmd.address := cmd.address
+    bmb.cmd.length := lineSize-1
+    bmb.cmd.last := True
+
+
+    rsp.arbitrationFrom(bmb.rsp)
+    rsp.data  := bmb.rsp.data
+    rsp.error := bmb.rsp.isError
+  }.bmb
 
   def toAxiLite4(): AxiLite4ReadOnly = new Composite(this, "toAxi4"){
     val axiConfig = AxiLite4Config(
