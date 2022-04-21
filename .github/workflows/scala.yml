@@ -57,7 +57,7 @@ jobs:
 
       - name: Install cached tools
         if: steps.tools.outputs.cache-hit != 'true'
-        run: source tools.sh && install_cached
+        run: source .github/workflows/tools.sh && install_cached
 
       - name: Install uncached tools
         run: source .github/workflows/tools.sh && install_uncached
