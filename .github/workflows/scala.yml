@@ -25,6 +25,9 @@ jobs:
           java-version: '11'
           distribution: 'temurin'
 
+      - name: Install packages
+        run: source .github/workflows/tools.sh && install_packages
+
       - name: Install uncached tools
         run: source .github/workflows/tools.sh && install_tools
 

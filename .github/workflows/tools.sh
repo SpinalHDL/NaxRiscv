@@ -44,14 +44,14 @@ install_gdown(){
 }
 
 install_packages(){
-  sudo apt install -y zlib1g-dev libboost-dev
+  sudo apt install -y zlib1g-dev libboost-dev device-tree-compiler
 }
 
 install_tools(){
   export NAXRISCV=${PWD}
-  install_gdown
-  install_NaxSoftware
   install_spike
   install_elfio
   install_verilator
+  install_gdown
+  install_NaxSoftware
 }
