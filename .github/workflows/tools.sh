@@ -43,9 +43,8 @@ install_packages(){
 
 install_tools(){
   export NAXRISCV=${PWD}
-  install_NaxSoftware()
-  install_spike()
-  install_elfio()
-  install_verilator()
-
+  install_NaxSoftware
+  install_spike
+  install_elfio
+  install_verilator
 }
