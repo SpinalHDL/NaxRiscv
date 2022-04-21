@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 
 import subprocess
+import random
+import os
+
+if os.getenv("NAXRISCV_SEED"):
+    random.seed(os.getenv("NAXRISCV_SEED"))
 
 
 riscv_tests = [
@@ -517,8 +522,25 @@ riscvArch64C = listPrefix("rv64i_m/C/", [
     "cor-01",
 ])
 
+import os
 
-file = open('../../../../nax.h',mode='r')
+naxriscv_gen_folder = os.getenv('NAXRISCV_GEN_FOLDER')
+naxriscv_header = os.getenv('NAXRISCV_HEADER')
+naxriscv_header_path = naxriscv_header if naxriscv_header else naxriscv_gen_folder+"/nax.h" if naxriscv_gen_folder else '../../../../nax.h'
+
+naxriscv_software = os.getenv('NAXRISCV_SOFTWARE')
+if not naxriscv_software:
+    naxriscv_software = '../../../../ext/NaxSoftware'
+
+freertos_count = 4
+linux_count = 1
+
+if os.getenv('FREERTOS_COUNT'):
+    freertos_count = int(os.getenv('FREERTOS_COUNT'))
+if os.getenv('LINUX_COUNT'):
+    linux_count = int(os.getenv('LINUX_COUNT'))
+
+file = open(naxriscv_header_path,mode='r')
 naxHeader = file.read()
 file.close()
 import re
@@ -568,7 +590,8 @@ freertos = ["blocktim", "countsem", "EventGroupsDemo", "flop", "integer", "QPeek
 for e in naxSoftwareRegular:
     naxSoftware.append([e, f"baremetal/{e}/build/{arch}/{e}.elf"])
 
-for e in freertos:
+
+for e in random.sample(freertos, freertos_count):
     naxSoftware.append(["freertos/" + e, f"baremetal/freertosDemo/build/{e}/{arch}/freertosDemo.elf"])
 
 for e in nax64SoftwareRegular:
@@ -595,12 +618,13 @@ with open('tests.mk', 'w') as f:
             "obj_dir/VNaxRiscv",
             "--name", name,
             "--output-dir", outputDir,
-            "--load-elf", f"../../../../ext/NaxSoftware/riscv-tests/{elf}",
+            "--load-elf", f"{naxriscv_software}/riscv-tests/{elf}",
             "--start-symbol", start,
             "--start-add", str(startAdd),
             "--pass-symbol", passs,
             "--fail-symbol", "fail",
             "--timeout", str(timeout),
+            "--seed", str(random.randint(0, 100000000)),
            "${ARGS}"
         ]))
         f.write(f"\n\n")
@@ -618,9 +642,10 @@ with open('tests.mk', 'w') as f:
             "obj_dir/VNaxRiscv",
             "--name", name,
             "--output-dir", outputDir,
-            "--load-elf", f"../../../../ext/NaxSoftware/riscv-arch-test/{elf}.elf",
+            "--load-elf", f"{naxriscv_software}/riscv-arch-test/{elf}.elf",
             "--pass-symbol", passs,
             "--timeout", str(timeout),
+            "--seed", str(random.randint(0, 100000000)),
            "${ARGS}"
         ]))
         f.write(f"\n\n")
@@ -637,11 +662,12 @@ with open('tests.mk', 'w') as f:
             "obj_dir/VNaxRiscv",
             "--name", spec[0],
             "--output-dir", outputDir,
-            "--load-elf", f"../../../../ext/NaxSoftware/{spec[1]}",
+            "--load-elf", f"{naxriscv_software}/{spec[1]}",
             "--start-symbol", "_start",
             "--pass-symbol", "pass",
             "--fail-symbol", "fail",
             "--no-putc-flush",
+            "--seed", str(random.randint(0, 100000000)),
            "${ARGS}"
         ]))
         f.write(f"\n\n")
@@ -692,10 +718,10 @@ with open('tests.mk', 'w') as f:
 
 
 
-    for i in range(4):
+    for i in range(linux_count):
         outputDir = "output/nax/buildroot/run" + str(i)
         rule = outputDir +"/PASS"
-        imagePath = "../../../../ext/NaxSoftware/buildroot/images/" + archLinux
+        imagePath = f"{naxriscv_software}/buildroot/images/" + archLinux
 
         tests.append(rule)
         ouputs.append(outputDir)
@@ -711,6 +737,7 @@ with open('tests.mk', 'w') as f:
            --load-bin {imagePath}/rootfs.cpio,0x81000000 \\
            --no-stdin                  \\
            --no-putc-flush          \\
+           --seed={str(random.randint(0, 100000000))} \\
            --getc "buildroot login" \\
            --putc "root" \\
            --getc "#" \\

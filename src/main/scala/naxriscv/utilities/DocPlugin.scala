@@ -7,9 +7,8 @@ class DocPlugin extends Plugin {
   val properties = mutable.LinkedHashMap[String, Any]();
   def property(key : String, value : Any) = properties(key) = value
 
-  def genC(file : String = "nax.h"): Unit ={
-    val file = new File("nax.h")
-    val writer = new PrintWriter(file)
+  def genC(path : String = "nax.h"): Unit ={
+    val writer = new PrintWriter(path)
 
     writer.println("#pragma once\n")
     for(p <- properties){
