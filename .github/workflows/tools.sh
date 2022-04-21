@@ -17,7 +17,8 @@ install_verilator(){
 
 
 install_NaxSoftware(){
-  (cd ext/NaxSoftware && ./init.sh)
+  echo ${PWD}
+  (cd $NAXRISCV/ext/NaxSoftware  && ls && ./init.sh)
 }
 
 install_spike(){
