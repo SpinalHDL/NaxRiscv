@@ -49,7 +49,7 @@ install_packages(){
 
 install_tools(){
   export NAXRISCV=${PWD}
-  install_gdown()
+  install_gdown
   install_NaxSoftware
   install_spike
   install_elfio
