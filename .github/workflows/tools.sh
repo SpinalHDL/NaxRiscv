@@ -52,7 +52,7 @@ install_uncached(){
   install_gdown
   install_NaxSoftware
 
-  mkdir $NAXRISCV/ext/riscv-isa-sim/build
+  mkdir -p $NAXRISCV/ext/riscv-isa-sim/build
   cp -f ~/tools/spike.so $NAXRISCV/ext/riscv-isa-sim/build/package.so
 }
 
