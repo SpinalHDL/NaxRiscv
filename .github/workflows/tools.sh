@@ -53,7 +53,9 @@ install_uncached(){
   install_elfio
   install_gdown
   install_NaxSoftware
-  cp -f ~/tools/spike.so $NAXRISCV/ext/riscv-isa-sim/package.so
+
+  mkdir $NAXRISCV/ext/riscv-isa-sim/build
+  cp -f ~/tools/spike.so $NAXRISCV/ext/riscv-isa-sim/build/package.so
 }
 
 install_cached(){
