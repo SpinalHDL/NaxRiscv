@@ -18,6 +18,8 @@ install_verilator(){
 
 install_NaxSoftware(){
   echo ${PWD}
+  ls $NAXRISCV
+  ls $NAXRISCV/ext
   (cd $NAXRISCV/ext/NaxSoftware  && ls && ./init.sh)
 }
 
