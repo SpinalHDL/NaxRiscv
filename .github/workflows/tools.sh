@@ -29,6 +29,7 @@ install_spike(){
   ../configure --prefix=$RISCV --enable-commitlog --without-boost --without-boost-asio --without-boost-regex
   make -j$(nproc)
   g++ --shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/lib  -o package.so spike.o  libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
+  cp -f package.so ~/tools/spike.so
 }
 
 install_elfio(){
@@ -47,11 +48,16 @@ install_packages(){
   sudo apt install -y zlib1g-dev libboost-all-dev libboost-dev libasio-dev device-tree-compiler
 }
 
-install_tools(){
+install_uncached(){
   export NAXRISCV=${PWD}
-  install_spike
   install_elfio
-  install_verilator
   install_gdown
   install_NaxSoftware
+  cp -f ~/tools/spike.so $NAXRISCV/ext/riscv-isa-sim/package.so
+}
+
+install_cached(){
+  export NAXRISCV=${PWD}
+  (install_spike)
+  (install_verilator)
 }

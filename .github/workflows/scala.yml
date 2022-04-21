@@ -28,8 +28,39 @@ jobs:
       - name: Install packages
         run: source .github/workflows/tools.sh && install_packages
 
+      - name: Cache pip
+        uses: actions/cache@v2
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-v2
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Cache SBT
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.ivy2/cache
+            ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt') }}
+
+      - name: Cache tools
+        id: tools
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/tools
+          key: ${{ runner.os }}-tools_v4
+
+      - name: Setup env
+        run: echo "$HOME/tools/bin" >> $GITHUB_PATH
+
+      - name: Install cached tools
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: source tools.sh && install_cached
+
       - name: Install uncached tools
-        run: source .github/workflows/tools.sh && install_tools
+        run: source .github/workflows/tools.sh && install_uncached
 
       - name: Install SpinalHDL
         run: (cd .. && git clone https://github.com/SpinalHDL/SpinalHDL.git -b dev)
