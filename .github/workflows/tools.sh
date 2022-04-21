@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 install_verilator(){
   sudo apt install -y git make autoconf g++ flex libfl-dev bison  # First time prerequisites
@@ -18,8 +18,7 @@ install_verilator(){
 
 install_NaxSoftware(){
   echo ${PWD}
-  ls $NAXRISCV
-  ls $NAXRISCV/ext
+  ls $NAXRISCV/ext/NaxSoftware
   (cd $NAXRISCV/ext/NaxSoftware  && ls && ./init.sh)
 }
 
