@@ -39,12 +39,17 @@ install_elfio(){
   cd ..
 }
 
+install_gdown(){
+  pip install gdown
+}
+
 install_packages(){
   sudo apt install -y zlib1g-dev libboost-dev
 }
 
 install_tools(){
   export NAXRISCV=${PWD}
+  install_gdown()
   install_NaxSoftware
   install_spike
   install_elfio
