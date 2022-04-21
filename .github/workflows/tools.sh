@@ -17,9 +17,7 @@ install_verilator(){
 
 
 install_NaxSoftware(){
-  echo ${PWD}
-  ls $NAXRISCV/ext/NaxSoftware
-  (cd $NAXRISCV/ext/NaxSoftware  && ls && ./init.sh)
+  (cd $NAXRISCV/ext/NaxSoftware  && ./init.sh)
 }
 
 install_spike(){
@@ -60,6 +58,7 @@ install_uncached(){
 
 install_cached(){
   export NAXRISCV=${PWD}
+  mkdir -p ~/tools
   (install_spike)
   (install_verilator)
 }
