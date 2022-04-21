@@ -17,6 +17,7 @@ trait Plugin extends Area with Service{
 
   val framework = Handle[Framework]()
   val configsHandles = ArrayBuffer[Handle[_]]()
+  val earlyHandles = ArrayBuffer[Handle[_]]()
 
   def create = new {
     def config[T](body : => T) : Handle[T] = {
@@ -33,7 +34,7 @@ trait Plugin extends Area with Service{
       h
     }
     def early[T](body : => T) : Handle[T] = {
-      Handle{
+      val h = Handle{
         framework.buildLock.retain()
         val ret = framework.rework {
           framework.earlyLock.await()
@@ -42,6 +43,8 @@ trait Plugin extends Area with Service{
         framework.buildLock.release()
         ret
       }
+      earlyHandles += h
+      h
     }
     def late[T](body : => T) : Handle[T] = {
       Handle{
@@ -72,6 +75,7 @@ class FrameworkConfig(){
 }
 
 class Framework(val plugins : Seq[Plugin]) extends Area{
+  val services = plugins ++ plugins.flatMap(_.getSubServices())
   val configLock = Lock()
   val earlyLock = Lock()
   val lateLock = Lock()
@@ -82,16 +86,14 @@ class Framework(val plugins : Seq[Plugin]) extends Area{
   lateLock.retain()
 
   plugins.foreach(_.framework.load(this)) // Will schedule all plugins early tasks
+
   configLock.release()
   plugins.foreach(_.configsHandles.foreach(_.await()))
+
   earlyLock.release()
+  plugins.foreach(_.earlyHandles.foreach(_.await()))
+  lateLock.release()
 
-  val lateUnlocker = Handle{
-    //Will run after all plugins early tasks spawned
-    lateLock.release()
-  }
-
-  val services = plugins ++ plugins.flatMap(_.getSubServices())
 
   def getServicesOf[T <: Service : ClassTag] : Seq[T] = {
     val clazz = (classTag[T].runtimeClass)
