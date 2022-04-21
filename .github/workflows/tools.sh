@@ -44,7 +44,7 @@ install_gdown(){
 }
 
 install_packages(){
-  sudo apt install -y zlib1g-dev libboost-all-dev device-tree-compiler
+  sudo apt install -y zlib1g-dev libboost-all-dev libboost-dev libasio-dev device-tree-compiler
 }
 
 install_tools(){
