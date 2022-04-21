@@ -24,7 +24,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Install uncached tools
-        run: source github/workflows/tools.sh && install_tools
+        run: source .github/workflows/tools.sh && install_tools
 
       - name: Install SpinalHDL
         run: (cd .. && git clone https://github.com/SpinalHDL/SpinalHDL.git -b dev)
