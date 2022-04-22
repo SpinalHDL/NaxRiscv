@@ -28,6 +28,7 @@ install_spike(){
   make -j$(nproc)
   g++ --shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/lib  -o package.so spike.o  libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
   cp -f package.so ~/tools/spike.so
+  cp -f config.h ~/tools/spike.h
 }
 
 install_elfio(){
@@ -54,6 +55,7 @@ install_uncached(){
 
   mkdir -p $NAXRISCV/ext/riscv-isa-sim/build
   cp -f ~/tools/spike.so $NAXRISCV/ext/riscv-isa-sim/build/package.so
+  cp -f ~/tools/spike.h $NAXRISCV/ext/riscv-isa-sim/build/config.h
 }
 
 install_cached(){
