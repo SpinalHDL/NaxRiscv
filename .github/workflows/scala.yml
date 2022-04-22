@@ -69,4 +69,4 @@ jobs:
         run: sbt clean compile
 
       - name: Test
-        run: sbt "runMain naxriscv.Gen" && cd src/test/cpp/naxriscv && ./testsGen.py && make compile && make test-fast && make test-report
+        run: sbt test
