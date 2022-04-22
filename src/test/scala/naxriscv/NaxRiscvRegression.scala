@@ -59,15 +59,15 @@ class MultithreadedFunSuite(threadCount : Int) extends AnyFunSuite {
 }
 
 
-class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRISCV_REGRESSION_THREAD_COUNT", "0").toInt){
+class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRISCV_REGRESSION_THREAD_COUNT", "1").toInt){
 
   var seed = sys.env.getOrElse("NAXRISCV_SEED", Random.nextInt(100000000).toString).toInt
   println("SEED="+seed)
 
   def doTest(name : String,
              plugins : => Seq[Plugin],
-             linuxCount : Int = sys.env.getOrElse("LINUX_COUNT", "1").toInt,
-             freertosCount : Int = sys.env.getOrElse("FREERTOS_COUNT", "1").toInt,
+             linuxCount : Int = sys.env.getOrElse("LINUX_COUNT", "0").toInt,
+             freertosCount : Int = sys.env.getOrElse("FREERTOS_COUNT", "0").toInt,
              threadCount : Int = 1,
              seed : Int = Random.nextInt()): Unit ={
     testMp(name){
