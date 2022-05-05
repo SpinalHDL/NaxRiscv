@@ -1849,7 +1849,7 @@ void simLoop(){
                                 spikeStep(robCtx);
                                 last_commit_pc = pc;
 
-                                assertEq("MISSMATCH PC", spike_pc,  pc);
+                                assertEq("MISSMATCH PC", pc, spike_pc);
                                 for (auto item : state->log_reg_write) {
                                     if (item.first == 0)
                                       continue;
