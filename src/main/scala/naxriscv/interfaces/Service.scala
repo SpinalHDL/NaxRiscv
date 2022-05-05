@@ -170,9 +170,9 @@ trait RegfileService extends Service{
 }
 
 
-case class RescheduleEvent(causeWidth : Int) extends Bundle{
+case class RescheduleEvent(causeWidth : Int, onCommit : Boolean) extends Bundle{
   val robId      = ROB.ID()
-  val robIdNext  = ROB.ID()
+  val robIdNext  = onCommit generate ROB.ID()
   val trap       = Bool()
   val cause      = UInt(causeWidth bits)
   val tval       = Bits(TVAL_WIDTH bits)
@@ -196,7 +196,9 @@ trait CommitService  extends Service{
   def onCommit() : CommitEvent
 //  def onCommitLine() : Flow[CommitEvent]
   def newSchedulePort(canTrap : Boolean, canJump : Boolean, causeWidth : Int = 4) : Flow[ScheduleCmd]
-  def reschedulingPort() : Flow[RescheduleEvent]
+  def reschedulingPort(onCommit : Boolean) : Flow[RescheduleEvent]
+  def hasPendingRescheduling() : Bool
+  def hasPendingTrapRescheduling() : Bool
   def freePort() : Flow[CommitFree]
   def nextCommitRobId : UInt
   def currentCommitRobId : UInt

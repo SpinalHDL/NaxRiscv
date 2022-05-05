@@ -175,7 +175,7 @@ class ExecutionUnitBase(val euId : String,
 
     val rob = getService[RobService]
     val decoder = getService[DecoderService]
-    val flush = getService[CommitService].reschedulingPort().valid
+    val flush = getService[CommitService].reschedulingPort(onCommit = true).valid
     val euGroup = decoder.euGroups.find(_.eus.contains(ExecutionUnitBase.this)).get
     val sf = euGroup.eus.size
     val so = euGroup.eus.indexOf(ExecutionUnitBase.this)

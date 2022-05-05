@@ -326,7 +326,7 @@ class LsuPlugin(var lqSize: Int,
     val cpuWordToRfWordRange = log2Up(wordBytes)-1 downto log2Up(wordBytes) //useless for now
     val memToCpuRange = log2Up(cache.memDataWidth/8)-1 downto log2Up(wordBytes)
 
-    val rescheduling = commit.reschedulingPort
+    val rescheduling = commit.reschedulingPort(onCommit = true)
 
     val allocStage = frontend.pipeline.dispatch
     for(slotId <- 0 until Frontend.DISPATCH_COUNT){

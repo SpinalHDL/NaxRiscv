@@ -1,5 +1,6 @@
 package naxriscv.prediction
 
+import naxriscv.Frontend.DISPATCH_COUNT
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.fetch.{AlignerPlugin, FetchPlugin, PcPlugin}
 import naxriscv.frontend.FrontendPlugin
@@ -126,10 +127,29 @@ class HistoryPlugin(var historyFetchBypass : Boolean = true) extends Plugin{
       }
 
 
-      when(commit.reschedulingPort().valid){
-        onFetch.valueNext := onCommit.valueNext
-        historyPushSpecs.foreach(_.update(onCommit.valueNext))
+      val rescheduleFlush = new Area{
+        val event = commit.reschedulingPort(onCommit = false)
+
+        val instHistory = rob.readAsyncSingle(keys.BRANCH_HISTORY, event.robId)
+        val isConditionalBranch = rob.readAsyncSingle(IS_BRANCH,  event.robId)
+        val isTaken = rob.readAsyncSingle(branchContext.keys.BRANCH_TAKEN, event.robId)
+        val newHistory = isConditionalBranch ? (instHistory.dropHigh(1) ## isTaken) | instHistory
+        when(event.valid){
+          onFetch.valueNext := newHistory
+          historyPushSpecs.foreach(_.update(newHistory))
+        }
       }
+    }
+
+    val robHistory = new Area {
+      val stage = frontend.pipeline.allocated
+      rob.write(
+        key = keys.BRANCH_HISTORY,
+        size = DISPATCH_COUNT,
+        value = (0 until Frontend.DISPATCH_COUNT).map(stage(keys.BRANCH_HISTORY, _)),
+        robId = stage(ROB.ID),
+        enable = stage.isFireing
+      )
     }
 
     Verilator.public(onCommit.value)

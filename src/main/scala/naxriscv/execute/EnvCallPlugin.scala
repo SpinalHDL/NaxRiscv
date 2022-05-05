@@ -139,7 +139,7 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
       }
 
       RESCHEDULE whenIsActive{
-        when(commit.reschedulingPort().valid){
+        when(commit.reschedulingPort(onCommit = true).valid){
           goto(VMA_FETCH_FLUSH)
         }
       }
