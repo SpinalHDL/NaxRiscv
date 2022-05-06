@@ -113,13 +113,14 @@ class BranchContextPlugin(var branchCount : Int,
       val event = commit.onCommit()
       val isBranch = rob.readAsync(BRANCH_SEL, Global.COMMIT_COUNT, event.robId)
       val isBranchCommit = (0 until Global.COMMIT_COUNT).map(slotId => event.mask(slotId) && isBranch(slotId))
-      ptr.commited := ptr.commited + CountOne(isBranchCommit)
+      val commitedNext = ptr.commited + CountOne(isBranchCommit)
+      ptr.commited := commitedNext
     }
 
     val onReschedule = new Area{
-      val event = RegNext(commit.reschedulingPort.valid) init(False)
+      val event = commit.reschedulingPort(onCommit = true).valid
       when(event){
-        ptr.alloc := ptr.commited
+        ptr.alloc := onCommit.commitedNext
       }
     }
 

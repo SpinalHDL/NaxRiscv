@@ -552,7 +552,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
     })
     val reschedule = rescheduleUnbuffered.stage()
 
-    val cr = commit.reschedulingPort()
+    val cr = commit.reschedulingPort(onCommit = true)
     rescheduleUnbuffered.valid := cr.valid && cr.trap
     rescheduleUnbuffered.cause := cr.cause
     rescheduleUnbuffered.epc   := rob.readAsyncSingle(Global.PC, cr.robId)
@@ -940,7 +940,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
         goto(IDLE)
       }
-      fetch.getStage(0).haltIt(rescheduleUnbuffered.valid || !isActive(IDLE))
+      fetch.getStage(0).haltIt(!isActive(IDLE) || commit.hasPendingTrapRescheduling())
     }
 
 

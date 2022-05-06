@@ -248,8 +248,9 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
 
       val pipelineEmpty = !frontend.isBusyAfterDecode() && commit.isRobEmpty
       val doIt = trigged && pipelineEmpty
+      val doItAgain = RegNext(doIt) init(False) //As the fetch stage isn't halted durring the first doit, we clean up a eventualy fetch stage(1)
 
-      flushIt(doIt)
+      flushIt(doIt || doItAgain)
       haltIt(trigged)
       haltIt(setup.trapHalt && !setup.trapRaise)
 

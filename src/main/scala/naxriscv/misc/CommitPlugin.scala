@@ -32,11 +32,13 @@ class CommitPlugin(var commitCount : Int,
       pcWidth = PC_WIDTH
     )
   ))
-  override def reschedulingPort() = logic.commit.reschedulePort
+  override def reschedulingPort(onCommit : Boolean) = if(onCommit) logic.commit.reschedulePort else logic.reschedule.reschedulePort
   override def freePort() = logic.free.port
   override def nextCommitRobId = logic.commit.headNext
   override def currentCommitRobId = logic.commit.head
   override def isRobEmpty = setup.isRobEmpty
+  override def hasPendingRescheduling(): Bool = logic.reschedule.valid
+  override def hasPendingTrapRescheduling(): Bool = logic.reschedule.valid && logic.reschedule.trap
 
   //  TRAP_CAUSE_WIDTH.set(Handle())
   override def rescheduleCauseWidth = {
@@ -54,7 +56,6 @@ class CommitPlugin(var commitCount : Int,
 
   val logic = create late new Area {
     val rob = getService[RobService]
-//    TRAP_CAUSE_WIDTH.load((completions.map(_.causeWidth) :+ 4).max)
 
     val ptr = new Area {
       val alloc, commit, free = Reg(UInt(ROB.ID_WIDTH + 1 bits)) init (0)
@@ -92,6 +93,7 @@ class CommitPlugin(var commitCount : Int,
     }
 
     val reschedule = new Area {
+      val fresh    = RegNext(False) init(False)
       val valid    = Reg(Bool()) init(False)
       val trap     = Reg(Bool())
       val skipCommit = Reg(Bool())
@@ -123,6 +125,7 @@ class CommitPlugin(var commitCount : Int,
         when(hits.orR){
           val canTrap = (0 until completions.size).filter(completions(_).canTrap)
           val canJump = (0 until completions.size).filter(completions(_).canJump)
+          fresh      := True
           valid      := True
           robId      := MuxOH.or(hits, completions.map(_.robId))
           trap       := MuxOH.or(hits, completions.map(_.isTrap))
@@ -133,6 +136,17 @@ class CommitPlugin(var commitCount : Int,
           skipCommit := MuxOH.or(canTrap.map(hits(_)), canTrap.map(completions(_).skipCommit))
         }
       }
+
+      setup.jump.valid := fresh && !trap
+      setup.jump.pc    := pcTarget
+
+      val reschedulePort = Flow(RescheduleEvent(rescheduleCauseWidth, onCommit = false))
+      reschedulePort.valid     := fresh
+      reschedulePort.robId     := robId
+      reschedulePort.trap      := trap
+      reschedulePort.cause     := cause
+      reschedulePort.tval      := tval
+      reschedulePort.reason    := reason
     }
 
     val commit = new Area {
@@ -152,7 +166,7 @@ class CommitPlugin(var commitCount : Int,
       lineEvent.mask := active ^ maskComb
       lineEvent.robId := ptr.commit.resized
 
-      val reschedulePort = Flow(RescheduleEvent(rescheduleCauseWidth))
+      val reschedulePort = Flow(RescheduleEvent(rescheduleCauseWidth, onCommit = true))
       reschedulePort.valid     := rescheduleHit
       reschedulePort.robId     := reschedule.robId
       reschedulePort.robIdNext := ptr.allocNext.resized
@@ -166,8 +180,6 @@ class CommitPlugin(var commitCount : Int,
       val headNext = CombInit(head)
       head := (ptr.commit + OHToUInt(OHMasking.first(active & mask))).resized
 
-      setup.jump.valid := rescheduleHit
-      setup.jump.pc    := reschedule.pcTarget //TODO another target for trap
       reschedule.valid clearWhen(rescheduleHit)
 
       var continue = True
@@ -202,7 +214,7 @@ class CommitPlugin(var commitCount : Int,
         when(lineCommited){
           ptr.commitNext := ptr.commit + ROB.COLS
         }
-        when(setup.jump.valid){
+        when(rescheduleHit){
           ptr.commitNext := ptr.allocNext
           headNext := ptr.allocNext.resized
         }

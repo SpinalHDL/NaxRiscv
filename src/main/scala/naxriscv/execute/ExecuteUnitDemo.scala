@@ -46,7 +46,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
 
     val rob = getService[RobService]
     val decoder = getService[DecoderService]
-    val flush = getService[CommitService].reschedulingPort().valid
+    val flush = getService[CommitService].reschedulingPort(onCommit = true).valid
 
     val pushPort = ExecutionUnitPush(physRdType = decoder.PHYS_RD, contextKeys = Nil, withReady = true)
     val euGroup = decoder.euGroups.find(_.eus.contains(ExecuteUnitDemo.this)).get

@@ -101,7 +101,7 @@ class DispatchPlugin(var slotCount : Int = 0,
     val eusSel = groups.map(g => g.eus.map(_ -> g.sel)).flatten
 
 
-    val rescheduling = commit.reschedulingPort
+    val reschedulingCommit = commit.reschedulingPort(onCommit = true)
 
     val globalStaticLatencies = new Area{
       val raw = eus.flatMap(_.staticLatencies())
@@ -165,10 +165,10 @@ class DispatchPlugin(var slotCount : Int = 0,
         current := current + Frontend.DISPATCH_COUNT
       }
 
-      queue.io.clear := rescheduling.valid
-      when(rescheduling.valid){
-        next := rescheduling.robIdNext - slotCount + Frontend.DISPATCH_COUNT
-        current := rescheduling.robIdNext - slotCount
+      queue.io.clear := reschedulingCommit.valid
+      when(reschedulingCommit.valid){
+        next := reschedulingCommit.robIdNext - slotCount + Frontend.DISPATCH_COUNT
+        current := reschedulingCommit.robIdNext - slotCount
       }
     }
 
@@ -285,7 +285,7 @@ class DispatchPlugin(var slotCount : Int = 0,
         euPort.getContext(key).assignFrom(euStage(key))
       }
 
-      stagesList.last.flushIt(rescheduling.valid, root = false)
+      stagesList.last.flushIt(reschedulingCommit.valid, root = false)
 
 
       def self = this

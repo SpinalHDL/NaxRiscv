@@ -58,7 +58,9 @@ class FrontendPlugin() extends Plugin with LockedImpl{
   pipeline.setCompositeName(this)
 
   val builder = create late new Area{
-    pipeline.dispatch.flushIt(getService[CommitService].reschedulingPort().valid)
+    val commit = getService[CommitService]
+    pipeline.dispatch.flushIt(commit.reschedulingPort(onCommit = false).valid)
+    pipeline.allocated.haltIt(commit.hasPendingRescheduling())
 
     lock.await()
     pipeline.isBusy := (pipeline.stagesSet - pipeline.aligned).map(_.isValid).toList.orR

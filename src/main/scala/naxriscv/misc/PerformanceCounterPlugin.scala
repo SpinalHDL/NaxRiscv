@@ -37,7 +37,7 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
     val s = setup.get
     import s._
 
-    val reschedule = getService[CommitService].reschedulingPort()
+    val reschedule = getService[CommitService].reschedulingPort(onCommit = true)
     val branchMissEvent = createEventPort(PerformanceCounterService.BRANCH_MISS)
     branchMissEvent := RegNext(reschedule.valid && reschedule.reason === ScheduleReason.BRANCH) init(False)
 
