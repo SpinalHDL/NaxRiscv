@@ -6,7 +6,6 @@ git clone https://github.com/SpinalHDL/SpinalHDL.git --recursive
 git clone https://github.com/SpinalHDL/NaxRiscv.git --recursive
 cd NaxRiscv
 export NAXRISCV=${PWD}
-pip install gdown
 (cd ext/NaxSoftware && ./init.sh)
 
 # Building riscv-isa-sim (spike), used as a golden model during the sim to check the dut behaviour (lock-step)

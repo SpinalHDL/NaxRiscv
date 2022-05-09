@@ -39,10 +39,6 @@ install_elfio(){
   cd ..
 }
 
-install_gdown(){
-  pip install gdown
-}
-
 install_packages(){
   sudo apt install -y zlib1g-dev libboost-all-dev libboost-dev libasio-dev device-tree-compiler
 }
@@ -50,7 +46,6 @@ install_packages(){
 install_uncached(){
   export NAXRISCV=${PWD}
   install_elfio
-  install_gdown
   install_NaxSoftware
 
   mkdir -p $NAXRISCV/ext/riscv-isa-sim/build
