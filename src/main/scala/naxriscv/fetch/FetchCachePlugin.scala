@@ -224,8 +224,6 @@ class FetchCachePlugin(var cacheSize : Int,
 
     val translationStorage = translation.newStorage(translationStorageParameter)
 
-    mem.flatten.filter(_.isOutput).foreach(_.assignDontCare())
-
     val doc = getService[DocPlugin]
     doc.property("FETCH_MEM_DATA_BITS", memDataWidth)
     doc.property("FETCH_LINE_BYTES", lineSize)
@@ -404,7 +402,7 @@ class FetchCachePlugin(var cacheSize : Int,
         }
       }
 
-
+      mem.rsp.ready := True
       when(mem.rsp.valid) {
         wordIndex := (wordIndex + 1).resized
         hadError.setWhen(mem.rsp.error)
