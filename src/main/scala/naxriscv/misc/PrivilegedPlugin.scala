@@ -955,6 +955,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
 
     doc.property("SUPERVISOR", p.withSupervisor.toInt)
+    doc.property("TVAL_WIDTH", widthOf(reschedule.tval))
 
     frontend.release()
     fetch.release()

@@ -1664,7 +1664,7 @@ void spikeSyncTrap(){
             mmu->fault_fetch = code == 12;
             mmu->fault_load  = code == 13;
             mmu->fault_store = code == 15;
-            mmu->fault_address = top->NaxRiscv->trap_tval;
+            mmu->fault_address = ((((s64)top->NaxRiscv->trap_tval) << (64-TVAL_WIDTH)) >> (64-TVAL_WIDTH));
         }
         if(interrupt) state->mip->write_with_mask(mask, mask);
         proc->step(1);
