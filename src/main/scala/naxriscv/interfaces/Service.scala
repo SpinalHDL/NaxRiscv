@@ -65,7 +65,7 @@ trait DecoderService extends Service with LockedService {
   def ARCH_RS(id : RfRead)  : Stageable[UInt]
   def PHYS_RS(id : RfRead)  : Stageable[UInt]
 
-  def WRITE_RD(rf : RegfileSpec) : Stageable[Bool]
+  def WRITE_RD : Stageable[Bool]
   def PHYS_RD  : Stageable[UInt]
   def PHYS_RD_FREE : Stageable[UInt]
   def ARCH_RD  : Stageable[UInt]

@@ -105,7 +105,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
 
       val result = Result()
       result.robId := input.robId
-      result.writeRd := rob.readAsyncSingle(decoder.WRITE_RD(riscv.IntRegFile), input.robId, sf, so)
+      result.writeRd := rob.readAsyncSingle(decoder.WRITE_RD, input.robId, sf, so)
       result.rd := rob.readAsyncSingle(decoder.PHYS_RD, input.robId, sf, so)
       result.value.assignDontCare()
 

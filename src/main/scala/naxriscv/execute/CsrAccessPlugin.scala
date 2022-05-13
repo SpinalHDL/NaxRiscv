@@ -148,7 +148,7 @@ class CsrAccessPlugin(val euId: String)(var writebackAt: Int) extends ExecutionU
         val immZero = imm.z === 0
         val srcZero = CSR_IMM ? immZero otherwise MICRO_OP(Const.rs1Range) === 0
         val csrWrite = !(CSR_MASK && srcZero)
-        val csrRead  = !(!CSR_MASK && !decoder.WRITE_RD(riscv.IntRegFile))
+        val csrRead  = !(!CSR_MASK && !decoder.WRITE_RD)
         val sels = grouped.map(e => e._1 -> Bool().setName("COMB_CSR_" + filterToName(e._1)))
         for((filter, sel) <- sels) sel := (filter match {
           case filter : Int           => MICRO_OP(Const.csrRange) === filter

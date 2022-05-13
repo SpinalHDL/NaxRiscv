@@ -50,7 +50,7 @@ class RfAllocationPlugin(var rf : RegfileSpec,
 
       allocator.io.pop.fire := stage.isFireing
       for (slotId <- 0 until DISPATCH_COUNT) {
-        allocator.io.pop.mask(slotId) := (DISPATCH_MASK, slotId) && (decoder.WRITE_RD(rf), slotId)
+        allocator.io.pop.mask(slotId) := (DISPATCH_MASK, slotId) && (decoder.WRITE_RD, slotId)
         (decoder.PHYS_RD, slotId) := allocator.io.pop.values(slotId)
       }
     }
@@ -58,7 +58,7 @@ class RfAllocationPlugin(var rf : RegfileSpec,
     val push = new Area {
       val event = commit.freePort()
       val mask = rob.readAsync(DISPATCH_MASK, COMMIT_COUNT, event.robId)
-      val writeRd = rob.readAsync(decoder.WRITE_RD(rf), COMMIT_COUNT, event.robId)
+      val writeRd = rob.readAsync(decoder.WRITE_RD, COMMIT_COUNT, event.robId)
       val physicalRdNew = rob.readAsync(decoder.PHYS_RD, COMMIT_COUNT, event.robId)
       val physicalRdOld = rob.readAsync(decoder.PHYS_RD_FREE, COMMIT_COUNT, event.robId)
       for (slotId <- 0 until Global.COMMIT_COUNT) {
