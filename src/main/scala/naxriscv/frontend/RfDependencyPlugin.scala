@@ -117,7 +117,7 @@ Artix 7 -> 379 Mhz 180 LUT 303 FF
  */
 
 //Tracking depedeancies using physical registers avoid rollbacks, but require arch to phys translation first
-class RfDependencyPlugin() extends Plugin with InitCycles{
+class RfDependencyPlugin(val spec : RegfileSpec) extends Plugin with InitCycles{
   override def initCycles = logic.entryCount
 
   case class IssueSkipSpec(microOp: MicroOp, rsId : Int)

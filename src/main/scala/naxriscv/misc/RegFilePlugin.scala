@@ -58,7 +58,7 @@ class RegFileAsync(addressWidth    : Int,
       r.data := port.data
     }
 
-    val bypass = !r.forceNoBypass generate new Area{
+    val bypass = (!r.forceNoBypass && bypasseCount != 0) generate new Area{
       val hits = io.bypasses.map(b => b.valid && b.address === r.address)
       val hitsValue = MuxOH.mux(hits, io.bypasses.map(_.data))
       when(hits.orR){
@@ -120,6 +120,8 @@ class RegFilePlugin(var spec : RegfileSpec,
                     var physicalDepth : Int,
                     var bankCount : Int,
                     var asyncReadBySyncReadRevertedClk : Boolean = false) extends Plugin with RegfileService{
+  withPrefix(spec.getName())
+
   override def getPhysicalDepth = physicalDepth
   override def rfSpec = spec
 

@@ -94,6 +94,17 @@ reg a2 0
 reg pc 0x40f00000
 resume
 
+load_image /media/data/open/riscv/litex/buildroot_9ef54b7d/output/images/Image 0x40000000
+load_image /media/data/open/riscv/litex/standalone_nax/images/rv32.dtb 0x40ef0000
+load_image /media/data/open/riscv/litex/buildroot_9ef54b7d/output/images/rootfs.cpio 0x41000000
+load_image /media/data/open/riscv/litex/standalone_nax/images/opensbi.bin 0x40f00000
+reg a0 0
+reg a1 0
+reg a2 0
+reg pc 0x40f00000
+resume
+
+
 load_image /media/data/open/riscv/VexRiscvOoo/ext/NaxSoftware/baremetal/dhrystone/build/rv32im/dhrystone.bin 0x80000000
 
 

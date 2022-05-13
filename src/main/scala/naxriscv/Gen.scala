@@ -7,6 +7,7 @@ import naxriscv.frontend._
 import naxriscv.fetch._
 import naxriscv.misc._
 import naxriscv.execute._
+import naxriscv.execute.fpu.FpuExecute
 import naxriscv.fetch._
 import naxriscv.lsu._
 import naxriscv.prediction._
@@ -47,8 +48,13 @@ object Config{
               withEmbeddedJtagInstruction : Boolean = false,
               jtagTunneled : Boolean = false,
               debugTriggers : Int = 0,
-              branchCount : Int = 16): ArrayBuffer[Plugin] ={
+              branchCount : Int = 16,
+              withFloat  : Boolean = false,
+              withDouble : Boolean = false): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
+
+    val fpu = withFloat || withDouble
+
     plugins += new DocPlugin()
     plugins += (withMmu match {
       case false => new StaticAddressTranslationPlugin(
@@ -122,8 +128,8 @@ object Config{
       pipelined = withRvc
     )
     plugins += new DecoderPlugin(xlen)
-    plugins += new RfTranslationPlugin()
-    plugins += new RfDependencyPlugin()
+    plugins += new RfTranslationPlugin(riscv.IntRegFile)
+    plugins += new RfDependencyPlugin(riscv.IntRegFile)
     plugins += new RfAllocationPlugin(riscv.IntRegFile)
     plugins += new DispatchPlugin(
       slotCount = 32
@@ -268,6 +274,15 @@ object Config{
       writebackAt = 2
     )
 
+    if(fpu){
+      plugins += new FpuExecute("EU1")
+      plugins += new RegFilePlugin(
+        spec = riscv.FloatRegFile,
+        physicalDepth = 64,
+        bankCount = 1
+      )
+    }
+
     //    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
     //    plugins += new SrcPlugin("EU2")
     //    plugins += new LoadPlugin("EU2")
@@ -386,7 +401,9 @@ object Gen64 extends App{
       withRvc = false,
       withDebug = false,
       withEmbeddedJtagTap = false,
-      debugTriggers = 4
+      debugTriggers = 4,
+      withFloat = true,
+      withDouble = true
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))

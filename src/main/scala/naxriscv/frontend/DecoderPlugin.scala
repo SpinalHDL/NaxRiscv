@@ -4,7 +4,7 @@ import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.Fetch._
-import naxriscv.interfaces.{AddressTranslationService, CommitService, DecoderTrap, DecoderService, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, Resource, RfRead, RfResource, RobService, SingleDecoding}
+import naxriscv.interfaces.{AddressTranslationService, CommitService, DecoderService, DecoderTrap, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, RegfileSpec, Resource, RfRead, RfResource, RobService, SingleDecoding}
 import naxriscv.prediction.DecoderPrediction
 import naxriscv.riscv.{CSR, Const}
 import spinal.lib.pipeline.Connection.{DIRECT, M2S}
@@ -80,7 +80,7 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
   override def READ_RS(id: RfRead) : Stageable[Bool] = READ_RS(rsToId(id))
   override def ARCH_RS(id: RfRead) : Stageable[UInt] = ARCH_RS(rsToId(id))
   override def PHYS_RS(id: RfRead) : Stageable[UInt] = PHYS_RS(rsToId(id))
-  override def WRITE_RD : Stageable[Bool] = setup.keys.WRITE_RD
+  override def WRITE_RD(rf : RegfileSpec) : Stageable[Bool] = setup.keys.WRITE_RD
   override def ARCH_RD : Stageable[UInt] = setup.keys.ARCH_RD
   override def PHYS_RD : Stageable[UInt] = setup.keys.PHYS_RD
   override def PHYS_RD_FREE : Stageable[UInt] = setup.keys.PHYS_RD_FREE

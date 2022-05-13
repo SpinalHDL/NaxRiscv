@@ -29,10 +29,10 @@ case class TranslatorRead[T <: Data](payloadType : HardType[T], depth : Int) ext
 }
 
 class TranslatorWithRollback[T <: Data](payloadType : HardType[T],
-                                             depth : Int,
-                                             commitPorts : Int,
-                                             writePorts : Int,
-                                             readPorts : Int) extends Component {
+                                        depth : Int,
+                                        commitPorts : Int,
+                                        writePorts : Int,
+                                        readPorts : Int) extends Component {
   val io = new Bundle {
     val rollback = in Bool()
     val writes = Vec.fill(writePorts)(slave(Flow(TranslatorUpdate(payloadType,depth))))
@@ -108,8 +108,8 @@ object TranslatorWithRollback extends App{
 }
 
 
-class RfTranslationPlugin() extends Plugin with InitCycles {
-  override def initCycles = 32
+class RfTranslationPlugin(val spec : RegfileSpec) extends Plugin with InitCycles {
+  override def initCycles = spec.sizeArch
 
   val setup = create early new Area{
     getService[FrontendPlugin].retain()
@@ -128,7 +128,7 @@ class RfTranslationPlugin() extends Plugin with InitCycles {
     val entryCount = decoder.rsPhysicalDepthMax
     val impl = new TranslatorWithRollback(
       payloadType = UInt(log2Up(entryCount) bits),
-      depth       = 32,
+      depth       = spec.sizeArch,
       commitPorts = COMMIT_COUNT,
       writePorts  = DISPATCH_COUNT,
       readPorts   = DISPATCH_COUNT*(decoder.rsCount+1)
@@ -140,12 +140,6 @@ class RfTranslationPlugin() extends Plugin with InitCycles {
       impl.io.writes(slotId).valid := isFireing && (DISPATCH_MASK, slotId) && (decoder.WRITE_RD, slotId)
       impl.io.writes(slotId).address := stage(decoder.ARCH_RD, slotId)
       impl.io.writes(slotId).data := stage(decoder.PHYS_RD, slotId)
-      // Bypass, but now it is done in the sub comonent
-      //      for(otherId <- slotId+1 until DISPATCH_COUNT) {
-      //        when(impl.io.writes(otherId).valid && stage(decoder.ARCH_RD, otherId) === stage(decoder.ARCH_RD, slotId)){
-      //          impl.io.writes(slotId).valid := False
-      //        }
-      //      }
     }
 
     val onCommit = new Area{
@@ -163,7 +157,7 @@ class RfTranslationPlugin() extends Plugin with InitCycles {
 
     val init = new Area {
       assert(isPow2(entryCount))
-      val counter = Reg(UInt(log2Up(32*2) bits)) init (0)
+      val counter = Reg(UInt(log2Up(spec.sizeArch)+1 bits)) init (0)
       val busy = !counter.msb
 
       when(busy) {

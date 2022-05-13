@@ -58,3 +58,23 @@ object IntRegFile extends RegfileSpec with AreaObject {
 }
 
 
+object FloatRegFile extends RegfileSpec with AreaObject {
+  override def sizeArch = 32
+  override def width = if(Global.RVD) 64 else 32
+  override def x0AlwaysZero = false
+  override def getName() = "float"
+
+  def TypeR(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(RS1, RS2, RD).map(this -> _)
+  )
+
+  def TypeILQ(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(RS1, RD).map(this -> _) :+ LQ :+ PC_READ //PC_READ is used to reschedule a load which had some store hazard
+  )
+  def TypeSSQ(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(RS1, RS2).map(this -> _) :+ SQ
+  )
+}

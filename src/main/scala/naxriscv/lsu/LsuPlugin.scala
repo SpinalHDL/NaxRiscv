@@ -4,7 +4,7 @@ import naxriscv.Frontend.{DECODE_COUNT, DISPATCH_COUNT, DISPATCH_MASK}
 import naxriscv.{Fetch, Frontend, Global, ROB}
 import naxriscv.frontend.{DispatchPlugin, FrontendPlugin, RfDependencyPlugin}
 import naxriscv.interfaces._
-import naxriscv.riscv.{AtomicAlu, CSR, Rvi}
+import naxriscv.riscv.{AtomicAlu, CSR, IntRegFile, Rvi}
 import naxriscv.utilities.{AddressToMask, DocPlugin, Plugin}
 import spinal.core._
 import spinal.lib._
@@ -224,7 +224,7 @@ class LsuPlugin(var lqSize: Int,
     val decoder = getService[DecoderService]
     val frontend = getService[FrontendPlugin]
     val cache = getService[DataCachePlugin]
-    val regfile = getService[RegfileService]
+    val regfile = findService[RegfileService](_.rfSpec == IntRegFile)
     val commit = getService[CommitService]
     val translation = getService[AddressTranslationService]
     val doc = getService[DocPlugin]
