@@ -9,6 +9,7 @@ import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
 import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
+import spinal.lib.pipeline.StageableOffset
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -137,9 +138,10 @@ class RfTranslationPlugin(val spec : RegfileSpec) extends Plugin with InitCycles
     impl.io.rollback := getService[CommitService].reschedulingPort(onCommit = true).valid
 
     val writes = for(slotId <- 0 until DISPATCH_COUNT) {
-      impl.io.writes(slotId).valid := isFireing && (DISPATCH_MASK, slotId) && (decoder.WRITE_RD, slotId)
-      impl.io.writes(slotId).address := stage(decoder.ARCH_RD, slotId)
-      impl.io.writes(slotId).data := stage(decoder.PHYS_RD, slotId)
+      implicit val offset = StageableOffset(slotId)
+      impl.io.writes(slotId).valid   := isFireing && DISPATCH_MASK && decoder.WRITE_RD && decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)
+      impl.io.writes(slotId).address := decoder.ARCH_RD
+      impl.io.writes(slotId).data    := decoder.PHYS_RD
     }
 
     val onCommit = new Area{
@@ -147,9 +149,10 @@ class RfTranslationPlugin(val spec : RegfileSpec) extends Plugin with InitCycles
       val writeRd = rob.readAsync(decoder.WRITE_RD, COMMIT_COUNT, event.robId)
       val physRd = rob.readAsync(decoder.PHYS_RD, COMMIT_COUNT, event.robId)
       val archRd = rob.readAsync(decoder.ARCH_RD, COMMIT_COUNT, event.robId)
+      val regfileRd = rob.readAsync(decoder.REGFILE_RD, COMMIT_COUNT, event.robId)
       for(slotId <- 0 until COMMIT_COUNT){
         val port = impl.io.commits(slotId)
-        port.valid := event.mask(slotId) && writeRd(slotId)
+        port.valid := event.mask(slotId) && writeRd(slotId) && regfileRd(slotId) === decoder.REGFILE_RD.rfToId(spec)
         port.address := archRd(slotId)
         port.data := physRd(slotId)
       }
@@ -175,19 +178,28 @@ class RfTranslationPlugin(val spec : RegfileSpec) extends Plugin with InitCycles
 
     val translation = new Area{
       for(slotId <- 0 until DISPATCH_COUNT) {
+        implicit val _ = StageableOffset(slotId)
         val portRd = impl.io.reads(slotId*(1+decoder.rsCount))
         val archRd = stage(decoder.ARCH_RD, slotId)
-        portRd.cmd.valid := (decoder.WRITE_RD, slotId)
+        val rdHit = decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)
+        portRd.cmd.valid := decoder.WRITE_RD && rdHit
         portRd.cmd.payload := archRd
-        (decoder.PHYS_RD_FREE, slotId) := portRd.rsp.payload
+        if(!decoder.PHYS_RD_FREE.hasAssignement) decoder.PHYS_RD_FREE.assignDontCare()
+        when(rdHit) {
+          decoder.PHYS_RD_FREE := portRd.rsp.payload
+        }
 
         val rs = for(rsId <- 0 until decoder.rsCount) yield new Area{
           val id = rsId
           val port = impl.io.reads(slotId*(1+decoder.rsCount)+rsId+1)
           val archRs = stage(decoder.ARCH_RS(rsId), slotId)
-          port.cmd.valid := (decoder.READ_RS(rsId), slotId)
+          val hit = decoder.REGFILE_RS(rsId) === decoder.REGFILE_RS(rsId).rfToId(spec)
+          port.cmd.valid := decoder.READ_RS(rsId) && hit
           port.cmd.payload := archRs
-          (decoder.PHYS_RS(rsId), slotId) := port.rsp.payload
+          if(!decoder.PHYS_RS(rsId).hasAssignement) decoder.PHYS_RS(rsId).assignDontCare()
+          when(hit) {
+            decoder.PHYS_RS(rsId) := port.rsp.payload
+          }
         }
 
         //Slot bypass
@@ -195,11 +207,11 @@ class RfTranslationPlugin(val spec : RegfileSpec) extends Plugin with InitCycles
           val useRd = (decoder.WRITE_RD, priorId) && (DISPATCH_MASK, priorId)
           val writeRd = (decoder.ARCH_RD, priorId)
           when(useRd && writeRd === archRd){
-            (decoder.PHYS_RD_FREE, slotId) := stage(decoder.PHYS_RD, priorId)
+            decoder.PHYS_RD_FREE := stage(decoder.PHYS_RD, priorId)
           }
           for(e <- rs){
             when(useRd && writeRd === e.archRs){
-              (decoder.PHYS_RS(e.id), slotId) := stage(decoder.PHYS_RD, priorId)
+              decoder.PHYS_RS(e.id) := stage(decoder.PHYS_RD, priorId)
             }
           }
         }

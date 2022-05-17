@@ -4,7 +4,7 @@ import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.Fetch._
-import naxriscv.interfaces.{AddressTranslationService, CommitService, DecoderService, DecoderTrap, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegfileService, RegfileSpec, Resource, RfRead, RfResource, RobService, SingleDecoding}
+import naxriscv.interfaces.{AddressTranslationService, CommitService, DecoderService, DecoderTrap, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegFileSel, RegfileService, RegfileSpec, Resource, RfRead, RfResource, RobService, SingleDecoding}
 import naxriscv.prediction.DecoderPrediction
 import naxriscv.riscv.{CSR, Const}
 import spinal.lib.pipeline.Connection.{DIRECT, M2S}
@@ -91,6 +91,10 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
   override def trapRaise() = setup.trapRaise := True
   override def trapReady() = setup.trapReady
 
+  override def REGFILE_RD = setup.keys.REGFILE_RD
+  override def REGFILE_RS(id: Int) : RegFileSel = setup.keys.REGFILE_RS(id)
+  override def REGFILE_RS(id: RfRead) : RegFileSel = REGFILE_RS(rsToId(id))
+
   override def debugEnter(slotId: Int) = {
     setup.debugEnter(slotId) := True
   }
@@ -120,6 +124,10 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       val PHYS_RD_FREE = Stageable(UInt(log2Up(physicalMax) bits))
       val READ_RS = List.fill(rsCount)(Stageable(Bool()))
       val WRITE_RD = Stageable(Bool())
+      val regfileSelWidth = log2Up(getServicesOf[RegfileService].size)
+      def regFileSelType() = RegFileSel(getServicesOf[RegfileService].zipWithIndex.map(e => e._2 -> e._1.rfSpec).toMapLinked(), regfileSelWidth)
+      val REGFILE_RD = regFileSelType()
+      val REGFILE_RS =  List.fill(rsCount)(regFileSelType())
       val LEGAL = Stageable(Bool())
       val TRAP = Stageable(Bool())
     }
@@ -173,15 +181,26 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       val one = Masked(1,1)
       val zero = Masked(0,1)
       val readRs1, readRs2, writeRd = new DecodingSpec(Bool()).setDefault(zero)
+      val regfileRs1, regfileRs2, regfileRd = new DecodingSpec(REGFILE_RD())
       val resourceToSpec = resourceToStageable.keys.map(_ -> new DecodingSpec(Bool()).setDefault(zero)).toMap
+      val regfileSelMask = (1 << setup.keys.regfileSelWidth)-1
       for(e <- singleDecodings){
         val key = Masked(e.key)
         all += key
         e.resources.foreach {
           case r: RfResource => r.access match {
-            case RS1 => readRs1.addNeeds(key, one)
-            case RS2 => readRs2.addNeeds(key, one)
-            case RD =>  writeRd.addNeeds(key, one)
+            case RS1 => {
+              readRs1.addNeeds(key, one)
+              regfileRs1.addNeeds(key, Masked(REGFILE_RS(0).rfToId(r.rf), regfileSelMask))
+            }
+            case RS2 => {
+              readRs2.addNeeds(key, one)
+              regfileRs2.addNeeds(key, Masked(REGFILE_RS(1).rfToId(r.rf), regfileSelMask))
+            }
+            case RD =>  {
+              writeRd.addNeeds(key, one)
+              regfileRd.addNeeds(key, Masked(REGFILE_RD.rfToId(r.rf), regfileSelMask))
+            }
           }
           case PC_READ =>
           case INSTRUCTION_SIZE =>
@@ -204,9 +223,14 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       implicit val offset = StageableOffset(i)
       val rdZero = INSTRUCTION_DECOMPRESSED(Const.rdRange) === 0
       setup.keys.LEGAL := Symplify(INSTRUCTION_DECOMPRESSED, encodings.all) && !INSTRUCTION_ILLEGAL
+      setup.keys.REGFILE_RS(0) := encodings.regfileRs1.build(INSTRUCTION_DECOMPRESSED, encodings.all)
+      setup.keys.REGFILE_RS(1) := encodings.regfileRs2.build(INSTRUCTION_DECOMPRESSED, encodings.all)
+      setup.keys.REGFILE_RD := encodings.regfileRd.build(INSTRUCTION_DECOMPRESSED, encodings.all)
       setup.keys.READ_RS(0) := encodings.readRs1.build(INSTRUCTION_DECOMPRESSED, encodings.all)
       setup.keys.READ_RS(1) := encodings.readRs2.build(INSTRUCTION_DECOMPRESSED, encodings.all)
-      setup.keys.WRITE_RD   := encodings.writeRd.build(INSTRUCTION_DECOMPRESSED, encodings.all) && !rdZero
+
+      val x0AlwaysZero = setup.keys.REGFILE_RD.muxListDc(REGFILE_RD.idToRf.toSeq.map(e => e._1 -> Bool(e._2.x0AlwaysZero)))
+      setup.keys.WRITE_RD   := encodings.writeRd.build(INSTRUCTION_DECOMPRESSED, encodings.all) && !(rdZero && x0AlwaysZero)
       for (group <- euGroups) {
         group.sel := encodings.groups(group).build(INSTRUCTION_DECOMPRESSED, encodings.all)
       }
@@ -305,11 +329,13 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       writeLine(setup.keys.PHYS_RD)
       writeLine(setup.keys.PHYS_RD_FREE)
       writeLine(setup.keys.ARCH_RD)
+      writeLine(setup.keys.REGFILE_RD)
 
       for(i <- 0 until rsCount) {
         writeLine(setup.keys.READ_RS(i))
         writeLine(setup.keys.PHYS_RS(i))
         writeLine(setup.keys.ARCH_RS(i))
+        writeLine(setup.keys.REGFILE_RS(i))
       }
 
       writeLine(DISPATCH_MASK)

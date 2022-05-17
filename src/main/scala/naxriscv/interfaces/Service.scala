@@ -12,6 +12,7 @@ import spinal.core.fiber.{Handle, Lock}
 import spinal.lib.logic.Masked
 import spinal.lib.pipeline.Stageable
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 
@@ -49,6 +50,12 @@ case class DecoderTrap() extends Bundle{
   val debugEnter = RV_DEBUG.get generate Bool()
 }
 
+
+case class RegFileSel(idToRf : mutable.LinkedHashMap[Int, RegfileSpec], width : Int) extends Stageable(UInt(width bits)){
+  val rfToId = idToRf.toList.map(_.swap).toMapLinked()
+}
+
+
 trait DecoderService extends Service with LockedService {
   def addEuOp(fu: ExecuteUnitService, microOp : MicroOp) : Unit
   def addResourceDecoding(resource : Resource, stageable : Stageable[Bool])
@@ -69,6 +76,10 @@ trait DecoderService extends Service with LockedService {
   def PHYS_RD  : Stageable[UInt]
   def PHYS_RD_FREE : Stageable[UInt]
   def ARCH_RD  : Stageable[UInt]
+
+  def REGFILE_RD : RegFileSel
+  def REGFILE_RS(id : Int) : RegFileSel
+  def REGFILE_RS(id : RfRead) : RegFileSel
 
   def rsCount  : Int
   def rsPhysicalDepthMax : Int

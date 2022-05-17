@@ -281,6 +281,10 @@ object Config{
         physicalDepth = 64,
         bankCount = 1
       )
+
+      plugins += new RfAllocationPlugin(riscv.FloatRegFile)
+      plugins += new RfTranslationPlugin(riscv.FloatRegFile)
+//      plugins += new RfDependencyPlugin(riscv.IntRegFile)
     }
 
     //    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)

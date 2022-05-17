@@ -1,5 +1,6 @@
 package spinal.lib.pipeline
 
+import naxriscv.utilities.Misc
 import spinal.core._
 import spinal.lib._
 
@@ -16,6 +17,10 @@ class Pipeline extends Area{
   val connections = ArrayBuffer[ConnectionModel]()
   val joins = ArrayBuffer[ConnectionModel]() //Not implemented yet
   val forks = ArrayBuffer[ConnectionModel]() //Not implemented yet
+
+//  val internals = new Area{
+//    val keyToDefault = mutable.LinkedHashMap[StageableKey, Data]()
+//  }
 
   def newStage() : Stage = {
     val s = new Stage
@@ -58,6 +63,17 @@ class Pipeline extends Area{
     rec(over)
   }
 
+//  def default(key : StageableKey) : Data = {
+//    internals.keyToDefault.getOrElseUpdate(key, Misc.outsideCondScope{
+//      key.stageable()
+//    })
+//  }
+//  def default[T <: Data](key : Stageable[T]) : T = {
+//    default(StageableKey(key.asInstanceOf[Stageable[Data]], null)).asInstanceOf[T]
+//  }
+//  def default[T <: Data](key : Stageable[T], key2 : Any) : T = {
+//    default(StageableKey(key.asInstanceOf[Stageable[Data]], key2)).asInstanceOf[T]
+//  }
 
   def build(): Unit = {
     implicit def internalsImplicit(stage : Stage) = stage.internals

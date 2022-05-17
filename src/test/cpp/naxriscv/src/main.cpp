@@ -1098,7 +1098,7 @@ public:
     CData *push_payload[COMMIT_COUNT];
     CData *pop_values[DISPATCH_COUNT];
 
-    NaxAllocatorChecker(VNaxRiscv_NaxRiscv* nax): dut(nax->RfAllocationPlugin_logic_allocator),
+    NaxAllocatorChecker(VNaxRiscv_NaxRiscv* nax): dut(nax->integer_RfAllocationPlugin_logic_allocator),
         push_valid{MAP_INIT(&dut->io_push_,  COMMIT_COUNT, _valid)},
         push_payload{MAP_INIT(&dut->io_push_,  COMMIT_COUNT, _payload)},
         pop_values{MAP_INIT(&dut->io_pop_values_,  DISPATCH_COUNT, )} {

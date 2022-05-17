@@ -47,3 +47,8 @@ class FpuExecute(euId : String) extends Plugin{
     eu.release()
   }
 }
+
+//TODO FPU list
+/*
+- There maybe a few duplicate rob read during onCommit / onFree
+ */
