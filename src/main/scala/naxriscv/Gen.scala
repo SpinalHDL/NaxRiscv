@@ -284,7 +284,7 @@ object Config{
 
       plugins += new RfAllocationPlugin(riscv.FloatRegFile)
       plugins += new RfTranslationPlugin(riscv.FloatRegFile)
-//      plugins += new RfDependencyPlugin(riscv.IntRegFile)
+//      plugins += new RfDependencyPlugin(riscv.FloatRegFile)
     }
 
     //    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)

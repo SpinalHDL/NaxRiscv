@@ -214,11 +214,15 @@ class ExecutionUnitBase(val euId : String,
       val port = ExecutionUnitPush(
         withReady = staticLatenciesStorage.isEmpty,
         physRdType = decoder.PHYS_RD,
+        regfileRdType = decoder.REGFILE_RD,
         contextKeys = contextKeys
       )
       stage.valid := port.valid
       stage(ROB.ID) := port.robId
-      if(implementRd) stage(decoder.PHYS_RD) := port.physRd
+      if(implementRd) {
+        stage(decoder.PHYS_RD) := port.physRd
+        stage(decoder.REGFILE_RD) := port.regfileRd
+      }
       if(port.withReady) port.ready := stage.isReady
 
       if (readPhysRsFromQueue) for(e <- rfReads) {
@@ -325,9 +329,10 @@ class ExecutionUnitBase(val euId : String,
       val logic = for((stageId, group) <- grouped) yield new Area{
         val stage = executeStages(stageId)
         val fire = stage.isFireing && group.map(_.sel).orR
-        val rf = Flow(WakeRegFile(decoder.PHYS_RD, needBypass = false))
+        val rf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false))
 
         rf.valid := fire && stage(decoder.WRITE_RD)
+        rf.regfile := stage(decoder.REGFILE_RD)
         rf.physical := stage(decoder.PHYS_RD)
       }
     }

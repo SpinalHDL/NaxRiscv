@@ -126,7 +126,7 @@ class RfTranslationPlugin(val spec : RegfileSpec) extends Plugin with InitCycles
     val stage = frontend.pipeline.allocated
     import stage._
 
-    val entryCount = decoder.rsPhysicalDepthMax
+    val entryCount = findService[RegfileService](_.rfSpec == spec).getPhysicalDepth
     val impl = new TranslatorWithRollback(
       payloadType = UInt(log2Up(entryCount) bits),
       depth       = spec.sizeArch,

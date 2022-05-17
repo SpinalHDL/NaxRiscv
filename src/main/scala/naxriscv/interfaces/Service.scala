@@ -81,7 +81,7 @@ trait DecoderService extends Service with LockedService {
   def REGFILE_RS(id : Int) : RegFileSel
   def REGFILE_RS(id : RfRead) : RegFileSel
 
-  def rsCount  : Int
+  def rsCount  : Int //TODO FPU not universal
   def rsPhysicalDepthMax : Int
   def getTrap() : Flow[DecoderTrap]
 
@@ -218,17 +218,18 @@ trait CommitService  extends Service{
 }
 
 //TODO reduce area usage if physRdType isn't needed by some execution units
-case class ExecutionUnitPush(physRdType : Stageable[UInt], withReady : Boolean, contextKeys : Seq[Stageable[_ <: Data]], withValid : Boolean = true) extends Bundle{
+case class ExecutionUnitPush(physRdType : Stageable[UInt], regfileRdType : Stageable[UInt], withReady : Boolean, contextKeys : Seq[Stageable[_ <: Data]], withValid : Boolean = true) extends Bundle{
   val valid = withValid generate Bool()
   val ready = withReady generate Bool()
   val robId = ROB.ID()
   val physRd = physRdType()
+  val regfileRd = regfileRdType()
   val context = contextKeys.map(_.craft())
 
   def getContext[T <: Data](key : Stageable[T]) : T = context(contextKeys.indexOf(key)).asInstanceOf[T]
 
   def toStream ={
-    val ret = Stream(ExecutionUnitPush(physRdType, false, contextKeys, false))
+    val ret = Stream(ExecutionUnitPush(physRdType, regfileRdType, false, contextKeys, false))
     ret.valid := valid
     ready := ret.ready
     ret.payload := this
@@ -236,7 +237,7 @@ case class ExecutionUnitPush(physRdType : Stageable[UInt], withReady : Boolean, 
   }
 
   def toFlow = {
-    val ret = Flow(ExecutionUnitPush(physRdType, false, contextKeys, false))
+    val ret = Flow(ExecutionUnitPush(physRdType, regfileRdType, false, contextKeys, false))
     ret.valid := valid && (if(withReady) ready else True)
     ret.payload := this
     ret
@@ -341,7 +342,8 @@ case class WakeRob() extends Bundle {
   val robId = ROB.ID()
 }
 
-case class WakeRegFile(physicalType : HardType[UInt], needBypass : Boolean) extends Bundle {
+case class WakeRegFile(regfileType : HardType[UInt], physicalType : HardType[UInt], needBypass : Boolean) extends Bundle {
+  val regfile = regfileType()
   val physical = physicalType()
 }
 

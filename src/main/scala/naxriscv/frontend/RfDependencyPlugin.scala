@@ -8,7 +8,7 @@ import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
 import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
-import spinal.lib.pipeline.Stageable
+import spinal.lib.pipeline.{Stageable, StageableOffset}
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -41,6 +41,7 @@ class DependencyStorage(physDepth : Int,
                         commitPorts : Int,
                         writePorts : Int,
                         readPorts : Int) extends Component {
+  assert(isPow2(physDepth))
   val io = new Bundle {
     val writes = Vec.fill(writePorts)(slave(Flow(DependencyUpdate(physDepth, robDepth))))
     val commits = Vec.fill(commitPorts)(slave(Flow(DependencyCommit(physDepth))))
@@ -118,7 +119,7 @@ Artix 7 -> 379 Mhz 180 LUT 303 FF
 
 //Tracking depedeancies using physical registers avoid rollbacks, but require arch to phys translation first
 class RfDependencyPlugin(val spec : RegfileSpec) extends Plugin with InitCycles{
-  override def initCycles = logic.entryCount
+  override def initCycles = logic.forRf.map(_.entryCount).max
 
   case class IssueSkipSpec(microOp: MicroOp, rsId : Int)
   val issueSkipSpecs = ArrayBuffer[IssueSkipSpec]()
@@ -161,41 +162,43 @@ class RfDependencyPlugin(val spec : RegfileSpec) extends Plugin with InitCycles{
     import stage._
 
 
-    val entryCount = decoder.rsPhysicalDepthMax
+    val forRf = for(rf <- getServicesOf[RegfileService]) yield new Area{
+      val spec = rf.rfSpec
+      val entryCount = rf.getPhysicalDepth
+      val impl = new DependencyStorage(
+        robDepth = ROB.SIZE,
+        physDepth = entryCount,
+        commitPorts = wakeIds.size,
+        writePorts = Global.COMMIT_COUNT,
+        readPorts = Frontend.DISPATCH_COUNT * decoder.rsCount //TODO FPU less rs count for int reg file (no RS3 (fpu))
+      )
 
-    val impl = new DependencyStorage(
-      robDepth    = ROB.SIZE,
-      physDepth   = entryCount,
-      commitPorts = wakeIds.size,
-      writePorts  = Global.COMMIT_COUNT,
-      readPorts   = Frontend.DISPATCH_COUNT*decoder.rsCount
-    )
+      //Write
+      for (slotId <- 0 until Frontend.DISPATCH_COUNT) {
+        val port = impl.io.writes(slotId)
+        port.valid := stage.isFireing && (decoder.WRITE_RD, slotId) && (DISPATCH_MASK, slotId) && (decoder.REGFILE_RD, slotId) === decoder.REGFILE_RD.rfToId(rf.rfSpec)
+        port.physical := stage(decoder.PHYS_RD, slotId)
+        port.robId := ROB.ID | slotId
+      }
 
-    //Write
-    for(slotId <- 0 until Frontend.DISPATCH_COUNT) {
-      val port = impl.io.writes(slotId)
-      port.valid := stage.isFireing && (decoder.WRITE_RD, slotId) && (DISPATCH_MASK, slotId)
-      port.physical := stage(decoder.PHYS_RD, slotId)
-      port.robId := ROB.ID | slotId
-    }
+      //Commit
+      for ((event, port) <- (wakeIds, impl.io.commits).zipped) {
+        port.valid := event.valid && event.regfile === decoder.REGFILE_RD.rfToId(rf.rfSpec) //TODO FPU staticaly filter interface able to write the given RF
+        port.physical := event.physical
+      }
 
-    //Commit
-    for((event, port) <- (wakeIds, impl.io.commits).zipped){
-      port.valid := event.valid
-      port.physical := event.physical
-    }
+      val init = new Area {
+        assert(isPow2(entryCount))
+        val counter = Reg(UInt(log2Up(entryCount * 2) bits)) init (0)
+        val busy = !counter.msb
 
-    val init = new Area{
-      assert(isPow2(entryCount))
-      val counter = Reg(UInt(log2Up(entryCount*2) bits)) init (0)
-      val busy = !counter.msb
+        when(busy) {
+          val port = impl.io.commits.head
+          port.valid := True
+          port.physical := counter.resized
 
-      when(busy) {
-        val port = impl.io.commits.head
-        port.valid := True
-        port.physical := counter.resized
-
-        counter := counter + 1
+          counter := counter + 1
+        }
       }
     }
 
@@ -203,26 +206,35 @@ class RfDependencyPlugin(val spec : RegfileSpec) extends Plugin with InitCycles{
     val dependency = new Area{
       for(slotId <- 0 until Frontend.DISPATCH_COUNT) {
         for(rsId <- 0 until decoder.rsCount) {
+          val rsRfSpecs = getServicesOf[RegfileService].map(_.rfSpec)
           val archRs = (decoder.ARCH_RS(rsId), slotId)
           val useRs = (decoder.READ_RS(rsId), slotId)
-          val port = impl.io.reads(slotId*decoder.rsCount+rsId)
-          port.cmd.valid := isValid && (DISPATCH_MASK, slotId) && useRs
-          port.cmd.payload := stage(decoder.PHYS_RS(rsId), slotId)
-          (setup.waits(rsId).ENABLE_UNSKIPED, slotId) := port.rsp.enable
-          (setup.waits(rsId).ID    , slotId) := port.rsp.rob
+          val rfs = for(rfSpec <- rsRfSpecs) yield new Area{
+            val rf = rfSpec
+            val port = forRf.find(_.spec == rf).get.impl.io.reads(slotId*decoder.rsCount+rsId)
+            port.cmd.valid := isValid && (DISPATCH_MASK, slotId) && useRs
+            port.cmd.payload := stage(decoder.PHYS_RS(rsId), slotId)
+          }
+
+          val rsp = stage(decoder.REGFILE_RS(rsId), slotId).muxListDc(rsRfSpecs.map{rf =>
+            decoder.REGFILE_RS(rsId).rfToId(rf) -> rfs.find(_.rf == rf).get.port.rsp
+          })
+          (setup.waits(rsId).ENABLE_UNSKIPED, slotId) := rsp.enable
+          (setup.waits(rsId).ID    , slotId) := rsp.rob
 
           //Slot write bypass
           //TODO maybe the bypass of the RfTranslationPlugin can be ignored ?
           for(priorId <- 0 until slotId){
             val useRd = (decoder.WRITE_RD, priorId) && (DISPATCH_MASK, priorId)
             val writeRd = (decoder.ARCH_RD, priorId)
-            when(useRd && writeRd === archRs){
+            val sameRegfile = (decoder.REGFILE_RD, priorId) === (decoder.REGFILE_RS(rsId), slotId)
+            when(useRd && sameRegfile && writeRd === archRs){
               (setup.waits(rsId).ENABLE_UNSKIPED, slotId) := True
               (setup.waits(rsId).ID    , slotId) := ROB.ID | priorId
             }
           }
           for(wake <- wakeIds; if wake.needBypass){
-            when(wake.valid && wake.physical === port.cmd.payload){
+            when(wake.valid && wake.physical === stage(decoder.PHYS_RS(rsId), slotId) && wake.regfile === (decoder.REGFILE_RS(rsId), slotId)){
               (setup.waits(rsId).ENABLE_UNSKIPED, slotId) := False
             }
           }

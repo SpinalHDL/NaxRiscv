@@ -75,6 +75,7 @@ class StorePlugin(val euId : String) extends Plugin{
     setup.port.swap := Frontend.MICRO_OP(27)
     setup.port.op  := Frontend.MICRO_OP(29, 3 bits)
     setup.port.physicalRd := decoder.PHYS_RD
+    setup.port.regfileRd := decoder.REGFILE_RD
     setup.port.writeRd := decoder.WRITE_RD
     eu.release()
   }

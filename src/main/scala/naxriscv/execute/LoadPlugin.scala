@@ -61,6 +61,7 @@ class LoadPlugin(val euId : String) extends Plugin{
     setup.port.size := U(func3(1 downto 0))
     setup.port.unsigned := func3(2)
     setup.port.physicalRd := decoder.PHYS_RD
+    setup.port.regfileRd := decoder.REGFILE_RD
     setup.port.writeRd := decoder.WRITE_RD
     setup.port.pc := PC
     setup.port.lr := LR
