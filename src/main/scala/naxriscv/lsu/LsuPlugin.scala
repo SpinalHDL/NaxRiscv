@@ -308,7 +308,7 @@ class LsuPlugin(var lqSize: Int,
       val YOUNGER_LOAD_ROB        = Stageable(ROB.ID)
       val YOUNGER_LOAD_RESCHEDULE = Stageable(Bool())
 
-      val HIT_SPECULATION = Stageable(Bool())
+      val HIT_SPECULATION, HIT_SPECULATION_WRITE_RD = Stageable(Bool())
       val HIT_SPECULATION_COUNTER = Stageable(SInt(hitPredictionCounterWidth bits))
       val LOAD_FRESH      = Stageable(Bool())
       val LOAD_FRESH_PC   = Stageable(PC())
@@ -721,6 +721,8 @@ class LsuPlugin(var lqSize: Int,
             assert(loadPorts.size == 1, s"Not suported yet (${loadPorts.size} lsu load ports")
             val port = loadPorts.head.port
             val portPush = push.head
+
+            HIT_SPECULATION_WRITE_RD := port.writeRd
             isValid setWhen(port.valid)
             when(!arbitration.output.valid){
               LQ_SEL                  := port.lqId
@@ -736,7 +738,7 @@ class LsuPlugin(var lqSize: Int,
                 case false => False
               })
 
-              HIT_SPECULATION := portPush.hitPrediction.likelyToHit
+              HIT_SPECULATION := portPush.hitPrediction.likelyToHit //Keep in mind, HIT_SPECULATION is only for request comming from the LoadPlugin directly
               when(port.valid && isFireing){
                 for(reg <- regs) when(portPush.oh(reg.id)){
                   reg.waitOn.cacheRsp := True
@@ -746,6 +748,11 @@ class LsuPlugin(var lqSize: Int,
 
             LOAD_FRESH_PC := portPush.spec.port.pc
             HIT_SPECULATION_COUNTER := portPush.hitPrediction.read.rsp.counter
+          }
+
+          if(!loadToCacheBypass){
+            HIT_SPECULATION := ???
+            HIT_SPECULATION_WRITE_RD := ???
           }
 
           SQCHECK_END_ID  := mem.sqAlloc.readAsync(LQ_SEL)
@@ -851,7 +858,7 @@ class LsuPlugin(var lqSize: Int,
           wakeRob.robId := ROB.ID
 
           val wakeRf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = true))
-          wakeRf.valid    := isFireing && HIT_SPECULATION
+          wakeRf.valid    := isFireing && HIT_SPECULATION && HIT_SPECULATION_WRITE_RD
           wakeRf.physical := decoder.PHYS_RD
           wakeRf.regfile  := decoder.REGFILE_RD
         }
