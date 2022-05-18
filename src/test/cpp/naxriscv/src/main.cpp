@@ -1482,6 +1482,12 @@ void spikeInit(){
     isa += "RV64I";
     #endif
     isa += "MA";
+    #ifdef RVF
+    isa += "F";
+    #endif
+    #ifdef RVD
+    isa += "D";
+    #endif
     if(RVC) isa += "C";
     proc = new processor_t(isa.c_str(), "MSU", "", wrap, 0, false, fptr, outfile);
     if(trace_ref) proc->enable_log_commits();
@@ -1860,6 +1866,11 @@ void simLoop(){
                                         assertTrue("INTEGER WRITE MISSING", whitebox->robCtx[robId].integerWriteValid);
                                         assertEq("INTEGER WRITE DATA", whitebox->robCtx[robId].integerWriteData, item.second.v[0]);
                                     } break;
+                                    case 1: { //float
+                                        //TODO FPU track float writes
+//                                        assertTrue("INTEGER WRITE MISSING", whitebox->robCtx[robId].integerWriteValid);
+//                                        assertEq("INTEGER WRITE DATA", whitebox->robCtx[robId].integerWriteData, item.second.v[0]);
+                                    } break;
                                     case 4:{ //CSR
                                         u64 inst = state->last_inst.bits();
                                         switch(inst){
@@ -1868,14 +1879,16 @@ void simLoop(){
                                         case 0x00200073: //URET
                                             break;
                                         default:
-                                            assertTrue("CSR WRITE MISSING", whitebox->robCtx[robId].csrWriteDone);
-                                            assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
-            //                                    assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
+                                            if(inst & 0x7F == 0x73 && inst & 0x3000 != 0){
+                                                assertTrue("CSR WRITE MISSING", whitebox->robCtx[robId].csrWriteDone);
+                                                assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
+//                                                assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
+                                            }
                                             break;
                                         }
                                     } break;
                                     default: {
-                                        printf("??? unknown spike trace");
+                                        printf("??? unknown spike trace %lx\n", item.first & 0xf);
                                         failure();
                                     } break;
                                     }

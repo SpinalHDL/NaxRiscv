@@ -115,6 +115,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
     addMisa('I')
     if(RVC) addMisa('C')
+    if(RVF) addMisa('F')
+    if(RVD) addMisa('D')
     if(p.withUser) addMisa('U')
     if(p.withSupervisor) addMisa('S')
 
@@ -399,6 +401,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       val mstatus = new Area{
         val mie, mpie = RegInit(False)
         val mpp = RegInit(U"00")
+        val fs = RVF.get generate RegInit(U"00")
       }
       val mip = new Area{
         val meip = RegNext(io.int.machine.external) init(False)
@@ -439,6 +442,9 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       csr.readWrite(CSR.MSTATUS, 11 -> mstatus.mpp, 7 -> mstatus.mpie, 3 -> mstatus.mie)
       csr.read     (CSR.MIP, 11 -> mip.meip, 7 -> mip.mtip, 3 -> mip.msip)
       csr.readWrite(CSR.MIE, 11 -> mie.meie, 7 -> mie.mtie, 3 -> mie.msie)
+      //TODO FPU manage dirty
+      //TODO FPU trap illegal instruction if FPU instruction and "00"
+      if(RVF) csr.readWrite(CSR.MSTATUS, 13 -> mstatus.fs)
 
       if(p.withSupervisor) {
         for((id, enable) <- medeleg.mapping) csr.readWrite(CSR.MEDELEG, id -> enable)
@@ -488,6 +494,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       csr.readWrite(CSR.SCAUSE, XLEN-1 -> cause.interrupt, 0 -> cause.code)
 
       for(offset <- List(CSR.MSTATUS, CSR.SSTATUS))  csr.readWrite(offset, 8 -> sstatus.spp, 5 -> sstatus.spie, 1 -> sstatus.sie)
+      if(RVF) csr.readWrite(CSR.SSTATUS, 13 -> machine.mstatus.fs)
 
       def mapMie(machineCsr : Int, supervisorCsr : Int, bitId : Int, reg : Bool, machineDeleg : Bool, sWrite : Boolean = true): Unit ={
         csr.read(reg, machineCsr, bitId)

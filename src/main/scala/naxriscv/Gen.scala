@@ -257,25 +257,26 @@ object Config{
     //    plugins += new LoadPlugin("ALU0")
     //    plugins += new StorePlugin("ALU0")
 
-    plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1, readPhysRsFromQueue = true)
-    plugins += new IntFormatPlugin("EU1")
-    plugins += new SrcPlugin("EU1")
-    plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
-    plugins += new DivPlugin("EU1", writebackAt = 2)
-    //    plugins += new IntAluPlugin("EU1")
-    //    plugins += new ShiftPlugin("EU1")
-    if(aluCount == 1) plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
+    plugins += new ExecutionUnitBase("EU0", writebackCountMax = 1, readPhysRsFromQueue = true)
+    plugins += new IntFormatPlugin("EU0")
+    plugins += new SrcPlugin("EU0")
+    plugins += new MulPlugin("EU0", writebackAt = 2, staticLatency = false)
+    plugins += new DivPlugin("EU0", writebackAt = 2)
+    //    plugins += new IntAluPlugin("EU0")
+    //    plugins += new ShiftPlugin("EU0")
+    if(aluCount == 1) plugins += new BranchPlugin("EU0", writebackAt = 2, staticLatency = false)
     if(withLoadStore) {
-      plugins += new LoadPlugin("EU1")
-      plugins += new StorePlugin("EU1")
+      plugins += new LoadPlugin("EU0")
+      plugins += new StorePlugin("EU0")
     }
-    plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
-    plugins += new CsrAccessPlugin("EU1")(
+    plugins += new EnvCallPlugin("EU0")(rescheduleAt = 2)
+    plugins += new CsrAccessPlugin("EU0")(
       writebackAt = 2
     )
 
     if(fpu){
-      plugins += new FpuExecute("EU1")
+      plugins += new ExecutionUnitBase("FPU0", writebackCountMax = 0, readPhysRsFromQueue = true)
+      plugins += new FpuExecute("FPU0")
       plugins += new RegFilePlugin(
         spec = riscv.FloatRegFile,
         physicalDepth = 64,
