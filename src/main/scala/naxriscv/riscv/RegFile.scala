@@ -71,10 +71,10 @@ object FloatRegFile extends RegfileSpec with AreaObject {
 
   def TypeILQ(key : MaskedLiteral) = SingleDecoding(
     key = key,
-    resources = List(RS1, RD).map(this -> _) :+ LQ :+ PC_READ //PC_READ is used to reschedule a load which had some store hazard
+    resources = List(IntRegFile -> RS1, FloatRegFile -> RD, LQ, PC_READ) //PC_READ is used to reschedule a load which had some store hazard
   )
   def TypeSSQ(key : MaskedLiteral) = SingleDecoding(
     key = key,
-    resources = List(RS1, RS2).map(this -> _) :+ SQ
+    resources = List(IntRegFile -> RS1, FloatRegFile -> RS2, SQ)
   )
 }
