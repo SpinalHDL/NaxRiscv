@@ -63,6 +63,8 @@ public:
 #define RvData u64
 #endif
 
+#define RvFloat u64
+
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
 
 #define CALL(x,y,z) MAP_ ## x(y,z)
@@ -749,6 +751,8 @@ public:
     RvData pc;
     bool integerWriteValid;
     RvData integerWriteData;
+    bool floatWriteValid;
+    RvFloat floatWriteData;
 
     bool csrValid;
     bool csrWriteDone;
@@ -762,6 +766,7 @@ public:
 
     void clear(){
         integerWriteValid = false;
+        floatWriteValid = false;
         csrValid = false;
         csrWriteDone = false;
         csrReadDone = false;
@@ -865,6 +870,8 @@ public:
     RvData *robToPc[DISPATCH_COUNT];
     CData *integer_write_valid[INTEGER_WRITE_COUNT];
     CData *integer_write_robId[INTEGER_WRITE_COUNT];
+    CData *float_write_valid[FLOAT_WRITE_COUNT];
+    CData *float_write_robId[FLOAT_WRITE_COUNT];
     CData *rob_completions_valid[ROB_COMPLETIONS_PORTS];
     CData *rob_completions_payload[ROB_COMPLETIONS_PORTS];
     CData *issue_valid[ISSUE_PORTS];
@@ -877,6 +884,7 @@ public:
     RvData *decoded_pc[DISPATCH_COUNT];
     CData *dispatch_mask[DISPATCH_COUNT];
     RvData *integer_write_data[INTEGER_WRITE_COUNT];
+    RvFloat *float_write_data[FLOAT_WRITE_COUNT];
     ofstream gem5;
     disassembler_t disasm;
     bool gem5Enable = false;
@@ -891,6 +899,9 @@ public:
             integer_write_valid{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _valid)},
             integer_write_robId{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _robId)},
             integer_write_data{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _data)},
+            float_write_valid{MAP_INIT(&nax->float_write_,  FLOAT_WRITE_COUNT, _valid)},
+            float_write_robId{MAP_INIT(&nax->float_write_,  FLOAT_WRITE_COUNT, _robId)},
+            float_write_data{MAP_INIT(&nax->float_write_,  FLOAT_WRITE_COUNT, _data)},
             rob_completions_valid{MAP_INIT(&nax->RobPlugin_logic_whitebox_completionsPorts_,  ROB_COMPLETIONS_PORTS, _valid)},
             rob_completions_payload{MAP_INIT(&nax->RobPlugin_logic_whitebox_completionsPorts_,  ROB_COMPLETIONS_PORTS, _payload_id)},
             issue_valid{MAP_INIT(&nax->DispatchPlugin_logic_whitebox_issuePorts_,  ISSUE_PORTS, _valid)},
@@ -953,6 +964,15 @@ public:
             }
         }
 
+
+        for(int i = 0;i < FLOAT_WRITE_COUNT;i++){
+            if(*float_write_valid[i]){
+                auto robId = *float_write_robId[i];
+//                printf("RF write rob=%d %d at %ld\n", robId, *float_write_data[i], main_time);
+                robCtx[robId].floatWriteValid = true;
+                robCtx[robId].floatWriteData = *float_write_data[i];
+            }
+        }
 
         if(nax->FetchPlugin_stages_1_isFirstCycle){
             auto fetchId = nax->FetchPlugin_stages_1_FETCH_ID;
@@ -1868,8 +1888,11 @@ void simLoop(){
                                     } break;
                                     case 1: { //float
                                         //TODO FPU track float writes
-//                                        assertTrue("INTEGER WRITE MISSING", whitebox->robCtx[robId].integerWriteValid);
-//                                        assertEq("INTEGER WRITE DATA", whitebox->robCtx[robId].integerWriteData, item.second.v[0]);
+                                        assertTrue("FLOAT WRITE MISSING", whitebox->robCtx[robId].floatWriteValid);
+                                        if(whitebox->robCtx[robId].floatWriteData != item.second.v[0]){
+                                            printf("\n*** FLOAT WRITE DATA DUT=%lx REF=%lx ***\n\n", (u64)whitebox->robCtx[robId].floatWriteData, (u64) item.second.v[0]);\
+                                            failure();
+                                        }
                                     } break;
                                     case 4:{ //CSR
                                         u64 inst = state->last_inst.bits();

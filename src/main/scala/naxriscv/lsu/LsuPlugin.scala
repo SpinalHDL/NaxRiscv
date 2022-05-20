@@ -243,7 +243,7 @@ class LsuPlugin(var lqSize: Int,
     val decoder = getService[DecoderService]
     val frontend = getService[FrontendPlugin]
     val cache = getService[DataCachePlugin]
-    val regfile = findService[RegfileService](_.rfSpec == IntRegFile)
+    val regfiles = getServicesOf[RegfileService]
     val commit = getService[CommitService]
     val translation = getService[AddressTranslationService]
     val doc = getService[DocPlugin]
@@ -267,8 +267,13 @@ class LsuPlugin(var lqSize: Int,
     dispatch.fenceYounger(Rvi.SC)
     dispatch.fenceOlder  (Rvi.SC)
 
-    val rfRead = regfile.newRead(withReady = false, forceNoBypass = true)
-    val rfWrite = regfile.newWrite(withReady = false, latency = 0)
+
+    class RegfilePorts(regfile : RegfileService) extends Area{
+      val read = regfile.newRead(withReady = false, forceNoBypass = true)
+      val write = regfile.newWrite(withReady = false, latency = 0)
+    }
+    val regfilePorts = (for(regfile <- regfiles) yield regfile.rfSpec -> new RegfilePorts(regfile)).toMapLinked()
+
     val cacheLoad = cache.newLoadPort(priority = 0)
     val cacheStore = cache.newStorePort()
     val specialCompletion = rob.newRobCompletion()
@@ -470,6 +475,7 @@ class LsuPlugin(var lqSize: Int,
           val requested = Reg(Bool())
           val inRf  = Reg(Bool())
           val physical = Reg(decoder.PHYS_RS(1))
+          val regfile = Reg(decoder.REGFILE_RS(1))
 
           val inRfDelay  = RegNext(inRf)
 
@@ -493,6 +499,7 @@ class LsuPlugin(var lqSize: Int,
         val amo = Mem.fill(sqSize)(Bool())
         val sc = Mem.fill(sqSize)(Bool())
         val dataRfAddress = Mem.fill(sqSize)(decoder.PHYS_RS(1))
+        val regfileRs = Mem.fill(sqSize)(decoder.REGFILE_RS(1))
 
         //Only one AMO/SC can be schedule at once, so we can store things in simple registers
         val swap = Reg(Bool())
@@ -523,7 +530,7 @@ class LsuPlugin(var lqSize: Int,
 
       val rfWake = Handle(new Area{
         val ports = getServicesOf[WakeRegFileService].flatMap(_.wakeRegFile).map(_.stage())
-        for(reg <- regs) reg.data.wake := ports.map(w => w.valid && w.physical === reg.data.physical).orR
+        for(reg <- regs) reg.data.wake := ports.map(w => w.valid && w.physical === reg.data.physical && w.regfile === reg.data.regfile).orR
       })
     }
 
@@ -906,10 +913,13 @@ class LsuPlugin(var lqSize: Int,
 //            default -> rspShifted //W
 //          )
 
-          setup.rfWrite.valid   := isValid && WRITE_RD
-          setup.rfWrite.address := decoder.PHYS_RD
-          setup.rfWrite.data    := rspFormated
-          setup.rfWrite.robId   := ROB.ID
+
+          for((spec, regfile) <- setup.regfilePorts) {
+            regfile.write.valid   := isValid && WRITE_RD && decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)
+            regfile.write.address := decoder.PHYS_RD
+            regfile.write.data    := rspFormated
+            regfile.write.robId   := ROB.ID
+          }
 
           LOAD_WRITE_FAILURE := specialOverride && !tpk.IO
         }
@@ -1120,6 +1130,10 @@ class LsuPlugin(var lqSize: Int,
                 address = SQ_ID,
                 data = allocStage(decoder.PHYS_RS(1), slotId)
               )
+              mem.regfileRs.write(
+                address = SQ_ID,
+                data = allocStage(decoder.REGFILE_RS(1), slotId)
+              )
             }
             when(ptr.isFull(alloc)){
               full := True
@@ -1147,6 +1161,7 @@ class LsuPlugin(var lqSize: Int,
               val rsWait = getService[RfDependencyPlugin].getRsWait(1)
               reg.data.inRf  := !OhMux.or(hits, apply(0 until Frontend.DISPATCH_COUNT)(rsWait.ENABLE_UNSKIPED))
               reg.data.physical :=  OhMux.or(hits, apply(0 until Frontend.DISPATCH_COUNT)(decoder.PHYS_RS(1)))
+              reg.data.regfile :=  OhMux.or(hits, apply(0 until Frontend.DISPATCH_COUNT)(decoder.REGFILE_RS(1)))
               reg.data.inRfDelay := False
             }
           }
@@ -1346,13 +1361,17 @@ class LsuPlugin(var lqSize: Int,
           import stage._
 
           val rfAddress = mem.dataRfAddress.readAsync(SQ_SEL)
-          setup.rfRead.valid   := isValid
-          setup.rfRead.address := rfAddress
+          val rfSel = mem.regfileRs.readAsync(SQ_SEL)
+
+          for(regfile <- setup.regfilePorts.values) {
+            regfile.read.valid   := isValid //Not precise
+            regfile.read.address := rfAddress
+          }
 
           val writePort = mem.word.writePort
           writePort.valid   := isFireing
           writePort.address := SQ_SEL
-          writePort.data    := setup.rfRead.data
+          writePort.data    := rfSel.muxListDc(decoder.REGFILE_RS(1).idToRf.map(e => e._1 -> setup.regfilePorts(e._2).read.data).toSeq)
           whenMasked(regs, SQ_SEL_OH){ reg =>
             reg.data.loaded := True
           }
@@ -1648,9 +1667,13 @@ class LsuPlugin(var lqSize: Int,
 
         setup.specialTrap.valid := peripheralBus.rsp.error
 
-        setup.rfWrite.valid                := loadWriteRd
-        setup.rfWrite.address              := loadPhysRd //TODO FPU manage multiple regfile
-        setup.rfWrite.robId                := robId
+
+        for((spec, regfile) <- setup.regfilePorts) {
+          regfile.write.valid   := loadWriteRd && loadRegfileRd === decoder.REGFILE_RD.rfToId(spec)
+          regfile.write.address := loadPhysRd
+          regfile.write.robId   := robId
+        }
+
         load.pipeline.cacheRsp.rspAddress  := loadAddress.resized
         load.pipeline.cacheRsp.rspSize     := loadSize
         load.pipeline.cacheRsp.rspRaw      := peripheralBus.rsp.data
@@ -1720,15 +1743,16 @@ class LsuPlugin(var lqSize: Int,
           load.pipeline.cacheRsp.specialOverride := True
           readed := load.pipeline.cacheRsp.rspFormated
 
-          setup.rfWrite.address      := sq.mem.physRd //TODO FPU manage multiple regfile
-          setup.rfWrite.robId        := robId
+          val rfWrite = setup.regfilePorts(IntRegFile).write
+          rfWrite.address      := sq.mem.physRd //TODO FPU manage multiple regfile
+          rfWrite.robId        := robId
 
           load.pipeline.cacheRsp.rspAddress  := storeAddress.resized
           load.pipeline.cacheRsp.rspSize     := storeSize
           if(XLEN.get == 64) load.pipeline.cacheRsp.rspUnsigned := False
 
           when(rsp.fire){
-            setup.rfWrite.valid        setWhen(sq.mem.writeRd)
+            rfWrite.valid        setWhen(sq.mem.writeRd)
             when(rsp.redo){
               goto(IDLE)
             } elsewhen (rsp.fault) {
@@ -1757,11 +1781,12 @@ class LsuPlugin(var lqSize: Int,
           load.pipeline.hitSpeculation.wakeRf.physical := sq.mem.physRd
           load.pipeline.hitSpeculation.wakeRf.regfile  := sq.mem.regfileRd
 
-          setup.rfWrite.valid      setWhen(storeSc && sq.mem.writeRd) //TODO FPU manage multiple reg file
-          setup.rfWrite.address := sq.mem.physRd
-          setup.rfWrite.robId   := robId
-          setup.rfWrite.data    := 0
-          setup.rfWrite.data(0) := !reservationHit
+          val rfWrite = setup.regfilePorts(IntRegFile).write
+          rfWrite.valid      setWhen(storeSc && sq.mem.writeRd) //TODO FPU manage multiple reg file
+          rfWrite.address := sq.mem.physRd
+          rfWrite.robId   := robId
+          rfWrite.data    := 0
+          rfWrite.data(0) := !reservationHit
           goto(SYNC)
         }
 
