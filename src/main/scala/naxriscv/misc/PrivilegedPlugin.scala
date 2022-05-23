@@ -570,7 +570,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       if(p.withDebug) rescheduleUnbuffered.debugEnter := dt.debugEnter
     }
 
-    assert(!rescheduleUnbuffered.isStall)
+//    assert(!rescheduleUnbuffered.isStall)
 
 
     val targetMachine = True
