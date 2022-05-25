@@ -433,6 +433,7 @@ class LsuPlugin(var lqSize: Int,
         val writeLast = writePort.stage()
       }
 
+      //If LQ ptr do not start anymore at 0 after a trap / reschedule, please update speculateHitTrapRecovered
       val ptr = new Area{
         val alloc, free = Reg(UInt(log2Up(lqSize) + 1 bits)) init (0)
         val allocReal = U(alloc.dropHigh(1))
@@ -549,6 +550,9 @@ class LsuPlugin(var lqSize: Int,
         }
       }
 
+
+      val hadSpeculativeHitTrap = False
+      val speculateHitTrapRecovered = False
       val push = for(s <- loadPorts) yield new Area{
         val spec = s
         import spec._
@@ -728,6 +732,7 @@ class LsuPlugin(var lqSize: Int,
             assert(loadPorts.size == 1, s"Not suported yet (${loadPorts.size} lsu load ports")
             val port = loadPorts.head.port
             val portPush = push.head
+            val speculativeHitPredictionDisabled = RegInit(False) setWhen(hadSpeculativeHitTrap) clearWhen(speculateHitTrapRecovered)
 
             HIT_SPECULATION_WRITE_RD := port.writeRd
             isValid setWhen(port.valid)
@@ -745,7 +750,7 @@ class LsuPlugin(var lqSize: Int,
                 case false => False
               })
 
-              HIT_SPECULATION := portPush.hitPrediction.likelyToHit //Keep in mind, HIT_SPECULATION is only for request comming from the LoadPlugin directly
+              HIT_SPECULATION := portPush.hitPrediction.likelyToHit && !speculativeHitPredictionDisabled//Keep in mind, HIT_SPECULATION is only for request comming from the LoadPlugin directly
               when(port.valid && isFireing){
                 for(reg <- regs) when(portPush.oh(reg.id)){
                   reg.waitOn.cacheRsp := True
@@ -987,6 +992,7 @@ class LsuPlugin(var lqSize: Int,
             } elsewhen(stage(tpk.REDO)){
               onRegs(_.waitOn.translationWakeAnySet := True)
             } elsewhen(rsp.redo) {
+              hadSpeculativeHitTrap setWhen(HIT_SPECULATION)
               when(rsp.refillSlotAny) {
                 onRegs(_.waitOn.cacheRefillAnySet := True)
               } otherwise {
@@ -1015,6 +1021,7 @@ class LsuPlugin(var lqSize: Int,
           KeepAttribute(doCompletion)
           val success = doCompletion && !rsp.redo
           when(success){
+            speculateHitTrapRecovered := LQ_SEL === 0 //Assume LQ_ID restart at 0 after a trap
             hitSpeculationTrap := False
             setup.loadCompletion.valid := True
             when(LR){
