@@ -411,8 +411,8 @@ object Gen64 extends App{
       withDebug = false,
       withEmbeddedJtagTap = false,
       debugTriggers = 4,
-      withFloat = false,
-      withDouble = false
+      withFloat = true,
+      withDouble = true
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))

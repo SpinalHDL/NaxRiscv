@@ -80,6 +80,9 @@ public:
 #define MAP_6(prefix, postfix) MAP_5(prefix, postfix), prefix ## 5 ## postfix
 #define MAP_7(prefix, postfix) MAP_6(prefix, postfix), prefix ## 6 ## postfix
 #define MAP_8(prefix, postfix) MAP_7(prefix, postfix), prefix ## 7 ## postfix
+#define MAP_9(prefix, postfix) MAP_8(prefix, postfix), prefix ## 8 ## postfix
+#define MAP_10(prefix, postfix) MAP_9(prefix, postfix), prefix ## 9 ## postfix
+#define MAP_11(prefix, postfix) MAP_10(prefix, postfix), prefix ## 10 ## postfix
 #define MAP(type, name, prefix, count, postfix) type name[] = {CALL(count, prefix, postfix)};
 #define MAP_INIT(prefix, count, postfix) CALL(count, prefix, postfix)
 

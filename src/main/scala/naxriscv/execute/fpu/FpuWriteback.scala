@@ -20,8 +20,11 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
     val decoder = getService[DecoderService]
     val rf = findService[RegfileService](_.rfSpec == FloatRegFile)
     val floatWrite = rf.newWrite(false, 0)
+    val completion = rob.newRobCompletion()
+
     rob.retain()
   }
+
   val logic = create late new Area{
     val s = setup.get
     import s._
@@ -41,6 +44,9 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
     floatWrite.robId := floatCompletion.robId
     floatWrite.data := floatCompletion.value
     floatWrite.address := physical
+
+    completion.valid := floatCompletion.fire
+    completion.id := floatCompletion.robId
 
     rob.release()
   }
