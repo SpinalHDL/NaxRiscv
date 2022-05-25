@@ -7,7 +7,7 @@ import naxriscv.frontend._
 import naxriscv.fetch._
 import naxriscv.misc._
 import naxriscv.execute._
-import naxriscv.execute.fpu.FpuExecute
+import naxriscv.execute.fpu._
 import naxriscv.fetch._
 import naxriscv.lsu._
 import naxriscv.prediction._
@@ -286,6 +286,9 @@ object Config{
       plugins += new RfAllocationPlugin(riscv.FloatRegFile)
       plugins += new RfTranslationPlugin(riscv.FloatRegFile)
 //      plugins += new RfDependencyPlugin(riscv.FloatRegFile)
+
+      plugins += new FpuWriteback()
+      plugins += new FpuEmbedded()
     }
 
     //    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
@@ -314,6 +317,7 @@ object Config{
       plugins += new IntAluPlugin("ALU1")
       plugins += new ShiftPlugin("ALU1")
       plugins += new BranchPlugin("ALU1")
+      assert(aluCount < 3)
     }
 
 
@@ -407,8 +411,8 @@ object Gen64 extends App{
       withDebug = false,
       withEmbeddedJtagTap = false,
       debugTriggers = 4,
-      withFloat = true,
-      withDouble = true
+      withFloat = false,
+      withDouble = false
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))

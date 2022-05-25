@@ -1,19 +1,22 @@
 package naxriscv.execute.fpu
 
 import naxriscv.Global.{RVD, RVF, XLEN}
-import naxriscv.{DecodeListType, Frontend, ROB}
+import naxriscv.{DecodeList, DecodeListType, Frontend, ROB}
 import naxriscv.execute.{ExecutionUnitBase, SrcKeys, SrcPlugin, SrcStageables}
-import naxriscv.interfaces.{DecoderService, MicroOp}
+import naxriscv.interfaces._
 import naxriscv.lsu.LsuPlugin
-import naxriscv.riscv.{Const, Rvfd, Rvi}
+import naxriscv.riscv.{Const, FloatRegFile, IntRegFile, Rvfd, Rvi}
 import naxriscv.utilities.{DocPlugin, Plugin}
 import spinal.core._
+import spinal.lib._
 import spinal.lib.pipeline._
 
 import scala.collection.mutable.ArrayBuffer
 
-object FpuExecute{
+object FpuExecute extends AreaObject {
   val SEL = Stageable(Bool())
+  val OPCODE = Stageable(FpuOpcode())
+  val FORMAT = Stageable(FpuFormat())
 }
 
 class FpuExecute(euId : String) extends Plugin{
@@ -38,7 +41,10 @@ class FpuExecute(euId : String) extends Plugin{
       eu.addDecoding(microOp, decoding :+ (SEL -> True))
     }
 
-    add(Rvfd.FMUL_D, Nil)
+    add(Rvfd.FMUL_D, DecodeList(OPCODE -> FpuOpcode.MUL, FORMAT -> FpuFormat.DOUBLE))
+    add(Rvfd.FMADD_D, DecodeList(OPCODE -> FpuOpcode.FMA, FORMAT -> FpuFormat.DOUBLE))
+
+    val floatCmd = master(Stream(FpuFloatCmd(RVD, ROB.ID_WIDTH)))
   }
 
   val logic = create late new Area{
@@ -46,6 +52,17 @@ class FpuExecute(euId : String) extends Plugin{
     val stage = eu.getExecute(0)
     import stage._
 
+    val forked = RegInit(False) setWhen(setup.floatCmd.fire) clearWhen(!isStuck)
+    haltIt(setup.floatCmd.isStall)
+    setup.floatCmd.valid := isValid && FpuExecute.SEL && !forked
+    setup.floatCmd.opcode    := OPCODE
+    setup.floatCmd.arg       := 0
+    setup.floatCmd.rs(0)     := eu.apply(FloatRegFile, RS1)
+    setup.floatCmd.rs(1)     := eu.apply(FloatRegFile, RS2)
+    setup.floatCmd.rs(2)     := eu.apply(FloatRegFile, RS3)
+    setup.floatCmd.format    := (if(RVD) stage(FORMAT) else FpuFormat.FLOAT())
+    setup.floatCmd.roundMode := FpuRoundMode.RDN()
+    setup.floatCmd.robId     := ROB.ID
 
     eu.release()
   }
@@ -56,6 +73,9 @@ class FpuExecute(euId : String) extends Plugin{
 //TODO FPU list
 /*
 - There maybe a few duplicate rob read during onCommit / onFree
+- Implement LSU load nan-boxing
+- Do not track renaming of RS3 for the integer regfile
+- FpuWriteback better wakeups (anticipate timings, shave cycles, register file bypass)
  */
 
 

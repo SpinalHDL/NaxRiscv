@@ -84,7 +84,7 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
   override def ARCH_RD : Stageable[UInt] = setup.keys.ARCH_RD
   override def PHYS_RD : Stageable[UInt] = setup.keys.PHYS_RD
   override def PHYS_RD_FREE : Stageable[UInt] = setup.keys.PHYS_RD_FREE
-  override def rsCount = 2
+  override def rsCount = if(RVF) 3 else 2 //This is a bit dirty
   override def rsPhysicalDepthMax = setup.keys.physicalMax
   override def getTrap() = setup.exceptionPort
   override def trapHalt() = setup.trapHalt := True
@@ -180,10 +180,11 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       val all = LinkedHashSet[Masked]()
       val one = Masked(1,1)
       val zero = Masked(0,1)
-      val readRs1, readRs2, writeRd = new DecodingSpec(Bool()).setDefault(zero)
-      val regfileRs1, regfileRs2, regfileRd = new DecodingSpec(REGFILE_RD())
+      val readRs1, readRs2, readRs3, writeRd = new DecodingSpec(Bool()).setDefault(zero)
+      val regfileRs1, regfileRs2, regfileRs3, regfileRd = new DecodingSpec(REGFILE_RD())
       val resourceToSpec = resourceToStageable.keys.map(_ -> new DecodingSpec(Bool()).setDefault(zero)).toMap
       val regfileSelMask = (1 << setup.keys.regfileSelWidth)-1
+      var withRs3 = false
       for(e <- singleDecodings){
         val key = Masked(e.key)
         all += key
@@ -196,6 +197,11 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
             case RS2 => {
               readRs2.addNeeds(key, one)
               regfileRs2.addNeeds(key, Masked(REGFILE_RS(1).rfToId(r.rf), regfileSelMask))
+            }
+            case RS3 => {
+              readRs3.addNeeds(key, one)
+              regfileRs3.addNeeds(key, Masked(REGFILE_RS(2).rfToId(r.rf), regfileSelMask))
+              withRs3 = true
             }
             case RD =>  {
               writeRd.addNeeds(key, one)
@@ -225,9 +231,11 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       setup.keys.LEGAL := Symplify(INSTRUCTION_DECOMPRESSED, encodings.all) && !INSTRUCTION_ILLEGAL
       setup.keys.REGFILE_RS(0) := encodings.regfileRs1.build(INSTRUCTION_DECOMPRESSED, encodings.all)
       setup.keys.REGFILE_RS(1) := encodings.regfileRs2.build(INSTRUCTION_DECOMPRESSED, encodings.all)
+      if(encodings.withRs3) setup.keys.REGFILE_RS(2) := encodings.regfileRs3.build(INSTRUCTION_DECOMPRESSED, encodings.all)
       setup.keys.REGFILE_RD := encodings.regfileRd.build(INSTRUCTION_DECOMPRESSED, encodings.all)
       setup.keys.READ_RS(0) := encodings.readRs1.build(INSTRUCTION_DECOMPRESSED, encodings.all)
       setup.keys.READ_RS(1) := encodings.readRs2.build(INSTRUCTION_DECOMPRESSED, encodings.all)
+      if(encodings.withRs3) setup.keys.READ_RS(2) := encodings.readRs3.build(INSTRUCTION_DECOMPRESSED, encodings.all)
 
       val x0AlwaysZero = setup.keys.REGFILE_RD.muxListDc(REGFILE_RD.idToRf.toSeq.map(e => e._1 -> Bool(e._2.x0AlwaysZero)))
       setup.keys.WRITE_RD   := encodings.writeRd.build(INSTRUCTION_DECOMPRESSED, encodings.all) && !(rdZero && x0AlwaysZero)

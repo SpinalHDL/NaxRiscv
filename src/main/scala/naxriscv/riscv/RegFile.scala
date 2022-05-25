@@ -68,6 +68,11 @@ object FloatRegFile extends RegfileSpec with AreaObject {
     key = key,
     resources = List(RS1, RS2, RD).map(this -> _)
   )
+  def TypeR3(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(RS1, RS2, RS3, RD).map(this -> _)
+  )
+
 
   def TypeILQ(key : MaskedLiteral) = SingleDecoding(
     key = key,
