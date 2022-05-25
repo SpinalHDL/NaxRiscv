@@ -8,6 +8,8 @@ object FloatMode extends SpinalEnum{
   val ZERO, SUBNORMAL, INF, NAN, NORMAL = newElement()
 }
 
+
+
 case class FloatUnpacked(exponentWidth : Int,
                          factorMax: BigInt,
                          factorExp: BigInt) extends Bundle{
