@@ -101,16 +101,19 @@ case class FpuCore(p : FpuParameter) extends Component{
       }
     }
 
-//    class MergeInput() extends Bundle{
-//      val source = Source()
-//      val rd = p.rfAddress()
-//      val value = p.writeFloating()
-//      val scrap = Bool()
-//      val roundMode = FpuRoundMode()
-//      val format = p.withDouble generate FpuFormat()
-//      val NV = Bool()
-//      val DZ = Bool()
-//    }
+    case class MergeInput() extends Bundle{
+      val value = FloatUnpacked(
+        exponentWidth = p.exponentWidth,
+        factorMax = (BigInt(1) << p.mantissaWidth+1) - 1,
+        factorExp = -p.mantissaWidth
+      )
+      val format = FpuFormat()
+      val roundMode = FpuRoundMode()
+      val robId = UInt(p.robIdWidth bits)
+      val scrap = Bool()
+      val NV = Bool()
+      val DZ = Bool()
+    }
 
     val mul = new Pipeline{
       val input = new Stage{
@@ -119,29 +122,70 @@ case class FpuCore(p : FpuParameter) extends Component{
         val hit = CMD.opcode === FpuOpcode.MUL
         valid := frontend.dispatch.isValid && hit
         frontend.dispatch.haltIt(hit && !isReady)
-        io.ports(0).floatCompletion.valid := isValid
-        io.ports(0).floatCompletion.flags := FpuFlags().getZero
-        io.ports(0).floatCompletion.robId := CMD.robId
-        io.ports(0).floatCompletion.value := RS(0).sign ## B(RS(0).exponent + 1) ## RS(0).factor.raw.dropHigh(1)
       }
 
-      val output = new Stage{
-        connect(input, this){M2S()}
+      val mul = new Stage(M2S()){
+        val M1 = insert(input.RS(0).factor.raw.asUInt)
+        val M2 = insert(input.RS(1).factor.raw.asUInt)
+      }
+      val sum1 = new Stage(DIRECT())
+      val sum2 = new Stage(M2S()){
+        val EXP = insert(input.RS(0).exponent +^ input.RS(1).exponent)
+      }
+      val sum3 = new Stage(M2S())
+
+      val spliter = new PipelinedMul(
+        rsA          = mul.M1,
+        rsB          = mul.M2,
+        splitWidthA  = if(p.rvd) 52+1 else 23+1,
+        splitWidthB  = if(p.rvd) 52+1 else 23+1,
+        sum1WidthMax = 18,
+        sum2WidthMax = 18,
+        mulStage     = mul,
+        sum1Stage    = sum1,
+        sum2Stage    = sum2,
+        sum3Stage    = sum3
+      )
+
+      val output = new Stage(M2S()){
+        val stream = Stream(MergeInput())
+        haltIt(!stream.ready)
+        stream.valid     := isValid
+        stream.value.assignDontCare()
+        stream.format    := input.CMD.format
+        stream.roundMode := input.CMD.roundMode
+        stream.robId     := input.CMD.robId
+        stream.scrap     := False
+        stream.NV        := False
+        stream.DZ        := False
       }
     }
 
-//    val backend = new Pipeline{
-//      val merge = new Stage{
-//        val inputs = ArrayBuffer[Stream[MergeInput]]()
-//        inputs += mul.output.)
-//        val arbitrated = StreamArbiterFactory.lowerFirst.noLock.on(inputs).toFlow
-//      }
-//
-//      val output = new Stage{
-//        connect(input, this){M2S()}
-//      }
-//    }
+    val backend = new Pipeline{
+      val merge = new Stage{
+        val inputs = ArrayBuffer[Stream[MergeInput]]()
+        inputs += mul.output.stream
+        val arbitrated = StreamArbiterFactory.lowerFirst.noLock.on(inputs)
+        val VALUE     = insert(arbitrated.value)
+        val FORMAT    = insert(arbitrated.format)
+        val ROUNDMODE = insert(arbitrated.roundMode)
+        val ROBID     = insert(arbitrated.robId)
+        val SCRAP     = insert(arbitrated.scrap)
+        val NV        = insert(arbitrated.NV)
+        val DZ        = insert(arbitrated.DZ)
+        valid := arbitrated.valid
+        arbitrated.ready := isReady
+      }
+
+      val output = new Stage(M2S()){
+        io.ports(0).floatCompletion.valid := isFireing
+        io.ports(0).floatCompletion.flags := FpuFlags().getZero
+        io.ports(0).floatCompletion.robId := merge.ROBID
+        io.ports(0).floatCompletion.value := 0//RS(0).sign ## B(RS(0).exponent + 1) ## RS(0).factor.raw.dropHigh(1)
+      }
+    }
   }
   flt.frontend.build()
   flt.mul.build()
+  flt.backend.build()
 }
