@@ -71,7 +71,7 @@ case class FpuCore(p : FpuParameter) extends Component{
           whenDouble(CMD.format){
             RS.sign := f64.sign
             expRaw := f64.exponent.resized
-            RS.factor.raw := isSubnormal ## f64.mantissa
+            RS.mantissa.raw := isSubnormal ## f64.mantissa
             RS.quiet := f64.mantissa.msb
             manZero := f64.mantissa === 0
             expZero := f64.exponent === 0
@@ -81,7 +81,7 @@ case class FpuCore(p : FpuParameter) extends Component{
             RS.sign := f32.sign
             expRaw := f32.exponent.resized
             RS.quiet := f32.mantissa.msb
-            RS.factor.raw := isSubnormal ## (f32.mantissa << (if (p.rvd) 29 else 0))
+            RS.mantissa.raw := isSubnormal ## (f32.mantissa << (if (p.rvd) 29 else 0))
             manZero := f32.mantissa === 0
             expZero := f32.exponent === 0
             expOne  := f32.exponent.andR
@@ -101,11 +101,12 @@ case class FpuCore(p : FpuParameter) extends Component{
       }
     }
 
+    val mergeMantissaExp = -p.mantissaWidth-1
     case class MergeInput() extends Bundle{
       val value = FloatUnpacked(
-        exponentWidth = p.exponentWidth,
-        factorMax = (BigInt(1) << p.mantissaWidth+1) - 1,
-        factorExp = -p.mantissaWidth
+        exponentWidth = p.exponentWidth+1,
+        factorMax = (BigInt(1) << -mergeMantissaExp+3) - 1,
+        factorExp = mergeMantissaExp
       )
       val format = FpuFormat()
       val roundMode = FpuRoundMode()
@@ -125,39 +126,46 @@ case class FpuCore(p : FpuParameter) extends Component{
       }
 
       val mul = new Stage(M2S()){
-        val M1 = insert(input.RS(0).factor.raw.asUInt)
-        val M2 = insert(input.RS(1).factor.raw.asUInt)
+        val M1 = insert(input.RS(0).mantissa.raw.asUInt)
+        val M2 = insert(input.RS(1).mantissa.raw.asUInt)
       }
       val sum1 = new Stage(DIRECT())
       val sum2 = new Stage(M2S()){
         val EXP = insert(input.RS(0).exponent +^ input.RS(1).exponent)
+        val SIGN = insert(input.RS(0).sign ^ input.RS(1).sign)
       }
-      val sum3 = new Stage(M2S())
+      val sum3 = new Stage(M2S()){
+        val FACTOR_RAW = Stageable(UInt(p.mantissaWidth*2+2 bits))
+        val FACTOR = insert(AFix(FACTOR_RAW) >> p.mantissaWidth*2)
+      }
 
-      val spliter = new PipelinedMul(
-        rsA          = mul.M1,
-        rsB          = mul.M2,
-        splitWidthA  = if(p.rvd) 52+1 else 23+1,
-        splitWidthB  = if(p.rvd) 52+1 else 23+1,
-        sum1WidthMax = 18,
-        sum2WidthMax = 18,
-        mulStage     = mul,
-        sum1Stage    = sum1,
-        sum2Stage    = sum2,
-        sum3Stage    = sum3
-      )
+//      val spliter = new PipelinedMul(
+//        rsA          = mul.M1,
+//        rsB          = mul.M2,
+//        result       = sum3.FACTOR_RAW,
+//        splitWidthA  = if(p.rvd) 52+1 else 23+1,
+//        splitWidthB  = if(p.rvd) 52+1 else 23+1,
+//        sum1WidthMax = 18,
+//        sum2WidthMax = 18,
+//        mulStage     = mul,
+//        sum1Stage    = sum1,
+//        sum2Stage    = sum2,
+//        sum3Stage    = sum3
+//      )
 
       val output = new Stage(M2S()){
         val stream = Stream(MergeInput())
         haltIt(!stream.ready)
-        stream.valid     := isValid
-        stream.value.assignDontCare()
-        stream.format    := input.CMD.format
-        stream.roundMode := input.CMD.roundMode
-        stream.robId     := input.CMD.robId
-        stream.scrap     := False
-        stream.NV        := False
-        stream.DZ        := False
+        stream.valid          := isValid
+        stream.value.sign     := sum2.SIGN
+        stream.value.exponent := sum2.EXP
+        stream.value.mantissa   := this(sum3.FACTOR).truncated() //(spliter.keys.MUL_SUM3 >> mergeMantissaExp-(-p.mantissaWidth*2)).resized
+        stream.format         := input.CMD.format
+        stream.roundMode      := input.CMD.roundMode
+        stream.robId          := input.CMD.robId
+        stream.scrap          := False //TODO
+        stream.NV             := False //TODO
+        stream.DZ             := False //TODO
       }
     }
 

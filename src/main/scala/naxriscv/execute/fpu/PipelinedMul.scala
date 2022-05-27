@@ -28,8 +28,8 @@ class PipelinedMul(rsA : Stageable[UInt],
     val MUL_SLICES2  = Stageable(Vec(splits.drop(sum1Takes).map(e => UInt(e.widthA + e.widthB bits))))
     val MUL_SUM1 = Stageable(UInt(finalWidth bits))
     val MUL_SUM2 = Stageable(UInt(finalWidth bits))
-    val MUL_SUM3 = Stageable(UInt(finalWidth bits))
     val MUL_SLICES3_REDUCED = Stageable(UInt(finalWidth bits))
+    val MUL_RESULT = Stageable(UInt(finalWidth bits))
   }
   import keys._
 
@@ -59,7 +59,7 @@ class PipelinedMul(rsA : Stageable[UInt],
 
   val sum3 = new Area {
     import sum3Stage._
-    MUL_SUM3 := (if(sum3Takes != 0) MUL_SUM2 + MUL_SLICES3_REDUCED else sum3Stage(MUL_SUM2))
+    MUL_RESULT := (if(sum3Takes != 0) MUL_SUM2 + MUL_SLICES3_REDUCED else sum3Stage(MUL_SUM2))
   }
 }
 

@@ -10,14 +10,14 @@ object FloatMode extends SpinalEnum{
 
 
 
-case class FloatUnpacked(exponentWidth : Int,
+case class FloatUnpacked(exponentMax : Int,
                          factorMax: BigInt,
-                         factorExp: BigInt) extends Bundle{
+                         factorExp: Int) extends Bundle{
   val mode = FloatMode()
   val quiet = Bool() // if mode is NAN
   val sign = Bool()
   val exponent = UInt(exponentWidth bits)
-  val factor = new AFix(factorMax, 0, factorExp exp)
+  val mantissa = new AFix(factorMax, 0, factorExp exp)
 }
 
 case class FpuParameter(rvd : Boolean,
