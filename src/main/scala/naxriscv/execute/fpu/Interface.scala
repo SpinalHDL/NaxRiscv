@@ -5,19 +5,32 @@ import spinal.lib._
 
 //https://slideplayer.fr/slide/13631868/83/images/49/e%3D0+et+m%E2%89%A00+%EF%83%A8+N+est+d%C3%A9normalis%C3%A9.jpga
 object FloatMode extends SpinalEnum{
-  val ZERO, SUBNORMAL, INF, NAN, NORMAL = newElement()
+  val ZERO, INF, NAN, NORMAL = newElement()
 }
 
 
 
 case class FloatUnpacked(exponentMax : Int,
+                         exponentMin : Int,
                          factorMax: BigInt,
                          factorExp: Int) extends Bundle{
   val mode = FloatMode()
   val quiet = Bool() // if mode is NAN
   val sign = Bool()
-  val exponent = UInt(exponentWidth bits)
+  val exponent = new AFix(exponentMax, exponentMin, 0 exp)
   val mantissa = new AFix(factorMax, 0, factorExp exp)
+
+  def isNan = mode === FloatMode.NAN
+  def isNormal = mode === FloatMode.NORMAL
+  def isZero = mode === FloatMode.ZERO
+  def isInfinity = mode === FloatMode.INF
+  def isNanSignaling = isNan && !quiet
+
+  def setNormal    = mode := FloatMode.NORMAL
+  def setZero      = mode := FloatMode.ZERO
+  def setInfinity  = mode := FloatMode.INF
+  def setNan       = { mode := FloatMode.NAN; quiet := False }
+  def setNanQuiet  = { mode := FloatMode.NAN; quiet := True }
 }
 
 case class FpuParameter(rvd : Boolean,
