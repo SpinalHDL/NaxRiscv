@@ -208,7 +208,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         val MAN_EXP = insert(merge.VALUE.exponent + MAN_EXP_RAW)
         val EXP_SUBNORMAL = insert(AFix(muxDouble(merge.FORMAT)(S(-1023 - merge.VALUE.factorExp))(S(-127 - merge.VALUE.factorExp))))
         val SUBNORMAL = insert(MAN_EXP <= EXP_SUBNORMAL)
-        val MAN_SHIFT = insert(Mux(!SUBNORMAL, apply(MAN_EXP_RAW).asUInt(), (MAN_EXP_RAW+EXP_SUBNORMAL-MAN_EXP + AFix(1)).asUInt()).resize(log2Up(merge.VALUE.mantissa.bitWidth+p.mantissaWidth+2)))
+        val MAN_SHIFT = insert(Mux(!SUBNORMAL, apply(MAN_EXP_RAW).asUInt(), (EXP_SUBNORMAL-merge.VALUE.exponent + AFix(1)).asUInt()).resize(log2Up(merge.VALUE.mantissa.bitWidth+p.mantissaWidth+2)))
         val MAN_SHIFTED = insert(shiftRightWithScrap(merge.VALUE.mantissa.raw << p.mantissaWidth+2, MAN_SHIFT))
         val MAN_RESULT = insert(MAN_SHIFTED(2, p.mantissaWidth bits))
         val EXP = insert(Mux(!SUBNORMAL, (MAN_EXP - EXP_SUBNORMAL).asUInt, U(0)))
