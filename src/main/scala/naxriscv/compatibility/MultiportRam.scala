@@ -401,6 +401,14 @@ class MemReadAsyncToPhasedReadSyncPhase extends PhaseMemBlackboxing{
 }
 
 
+class MemReadAsyncTagging(tag : SpinalTag) extends PhaseMemBlackboxing{
+  override def doBlackboxing(pc: PhaseContext, typo: MemTopology): Unit = {
+    import typo._
+    if(typo.readsAsync.nonEmpty) {
+      mem.addTag(tag)
+    }
+  }
+}
 
 
 class EnforceSyncRamPhase extends PhaseMemBlackboxing{
