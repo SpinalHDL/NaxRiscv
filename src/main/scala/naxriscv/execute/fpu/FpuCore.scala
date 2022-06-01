@@ -123,7 +123,7 @@ case class FpuCore(p : FpuParameter) extends Component{
       val input = new Stage{
         val CMD = insert(frontend.dispatch(frontend.unpack.CMD))
         val RS  = frontend.unpack.rs.map(rs => insert(frontend.dispatch(rs.RS)))
-        val hit = CMD.opcode === FpuOpcode.MUL
+        val hit = CMD.opcode === FpuOpcode.MUL || CMD.opcode === FpuOpcode.FMA
         valid := frontend.dispatch.isValid && hit
         frontend.dispatch.haltIt(hit && !isReady)
       }
@@ -150,25 +150,41 @@ case class FpuCore(p : FpuParameter) extends Component{
       )
 
       val output = new Stage(DIRECT()){
-        val stream = Stream(MergeInput(logic.result.RESULT))
-        haltIt(!stream.ready)
-        stream.valid     := isValid
-        stream.value     := logic.result.RESULT
-        stream.format    := input.CMD.format
-        stream.roundMode := input.CMD.roundMode
-        stream.robId     := input.CMD.robId
-        stream.NV        := False //TODO
-        stream.DZ        := False //TODO
+        val merge = Stream(MergeInput(logic.result.RESULT))
+        haltIt(!merge.ready && input.CMD.opcode === FpuOpcode.MUL)
+        merge.valid     := isValid && input.CMD.opcode === FpuOpcode.MUL
+        merge.value     := logic.result.RESULT
+        merge.format    := input.CMD.format
+        merge.roundMode := input.CMD.roundMode
+        merge.robId     := input.CMD.robId
+        merge.NV        := False //TODO
+        merge.DZ        := False //TODO
+
+        val add = Stream(new Bundle {
+          val rs1 = logic.result.RESULT()
+          val rs2 = input.RS(2)()
+          val NV = Bool()
+          val cmd = input.CMD()
+        })
+        haltIt(!add.ready && input.CMD.opcode === FpuOpcode.FMA)
+        add.valid     := isValid && input.CMD.opcode === FpuOpcode.FMA
+        add.rs1       := logic.result.RESULT
+        add.rs2       := input.RS(2)
+        add.NV        := False //TODO
+        add.cmd       := input.CMD
       }
     }
 
     val add = new Pipeline{
       val input = new Stage{
-        val CMD = insert(frontend.dispatch(frontend.unpack.CMD))
-        val RS  = frontend.unpack.rs.take(2).map(rs => insert(frontend.dispatch(rs.RS)))
+        val CMD = insert(mul.output.add.valid ? mul.output.add.cmd | frontend.dispatch(frontend.unpack.CMD))
+        val RS1 = insert(mul.output.add.valid ? mul.output.add.rs1 | frontend.dispatch(frontend.unpack.rs(0).RS))
+        val RS2 = insert(mul.output.add.valid ? mul.output.add.rs2 | frontend.dispatch(frontend.unpack.rs(1).RS))
+        val NV = mul.output.add.valid && mul.output.add.NV
         val hit = CMD.opcode === FpuOpcode.ADD
-        valid := frontend.dispatch.isValid && hit
-        frontend.dispatch.haltIt(hit && !isReady)
+        valid := frontend.dispatch.isValid && hit || mul.output.add.valid
+        frontend.dispatch.haltIt(hit && (!isReady || mul.output.add.valid))
+        mul.output.add.ready := isReady
       }
 
       val preShiftStage = new Stage(DIRECT())
@@ -178,8 +194,8 @@ case class FpuCore(p : FpuParameter) extends Component{
 
       val logic : FpuAdd = new FpuAdd(
         pipeline      = this,
-        rs1           = input.RS(0),
-        rs2           = input.RS(1),
+        rs1           = input.RS1,
+        rs2           = input.RS2,
         preShiftStage = preShiftStage,
         shifterStage  = shifterStage,
         mathStage     = mathStage,
@@ -188,8 +204,6 @@ case class FpuCore(p : FpuParameter) extends Component{
 
 
       val resultStage = new Stage(DIRECT()){
-
-
         val bitsIn = widthOf(logic.result.RESULT.mantissa.raw)
         val bitsAvailable = 3+p.mantissaWidth*2
         val bitsRequired = p.mantissaWidth+1+2
@@ -199,10 +213,11 @@ case class FpuCore(p : FpuParameter) extends Component{
         val normalized = FloatUnpacked(
           exponentMax = logic.result.RESULT.exponentMax+ (valuesCount-1)*bitsShift,
           exponentMin = logic.result.RESULT.exponentMin,
-          factorMax   = (BigInt(1) << bitsAvailable)-1,
+          factorMax   = (BigInt(1) << bitsAvailable),
           factorExp   = -p.mantissaWidth*2
         )
 
+//        (logic.result.RESULT.mantissa |<< 1*bitsShift).rounded(rounding=RoundType.CEIL).toAFix(normalized.mantissa)
         val values = (0 until valuesCount).map(i => (logic.result.RESULT.mantissa |<< i*bitsShift).rounded(rounding=RoundType.CEIL).toAFix(normalized.mantissa))
         val filled = (0 until valuesCount).map(i => logic.result.RESULT.mantissa.raw(bitsIn-i*bitsShift-1 downto ((bitsIn-i*bitsShift-bitsShift) max 0)) =/= 0)
         val exponentOffsets = (0 until valuesCount).map(i => AFix(i*bitsShift))
@@ -229,7 +244,7 @@ case class FpuCore(p : FpuParameter) extends Component{
     val backend = new Pipeline{
       val merge = new Stage{
         val inputs = ArrayBuffer[Stream[MergeInput]]()
-        inputs += mul.output.stream
+        inputs += mul.output.merge
         inputs += add.resultStage.stream
         val exponentMin = inputs.map(_.value.exponentMin).min
         val exponentMax = inputs.map(_.value.exponentMax).max
