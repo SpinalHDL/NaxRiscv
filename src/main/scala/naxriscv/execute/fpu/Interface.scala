@@ -17,8 +17,8 @@ case class FloatUnpacked(exponentMax : Int,
   val mode = FloatMode()
   val quiet = Bool() // if mode is NAN
   val sign = Bool()
-  val exponent = new AFix(exponentMax, exponentMin, 0 exp)
-  val mantissa = new AFix(factorMax, 0, factorExp exp)
+  val exponent = new AFix(exponentMax, exponentMin, 0)
+  val mantissa = new AFix(factorMax, 0, factorExp)
 
   def isNan = mode === FloatMode.NAN
   def isNormal = mode === FloatMode.NORMAL

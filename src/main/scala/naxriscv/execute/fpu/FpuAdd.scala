@@ -20,13 +20,13 @@ class FpuAdd(pipeline : Pipeline,
     val rs1ExponentBigger = insert((exp21.raw.msb || rs2.isZero) && !rs1.isZero)
     val doSub = rs1.sign ^ rs2.sign
     val exp = Mux[AFix](rs1ExponentBigger, rs1.exponent, rs2.exponent)
-    val mantissaExpMin = rs1.mantissa.exp.value min rs2.mantissa.exp.value
+    val mantissaExpMin = rs1.mantissa.exp min rs2.mantissa.exp
   }
   import preShift._
 
   val shifter = new Area {
     import shifterStage._
-    val rsManExp = rs2.mantissa.exp.value min rs1.mantissa.exp.value
+    val rsManExp = rs2.mantissa.exp min rs1.mantissa.exp
     val manType = AFix.holding(List(rs1.mantissa, rs2.mantissa))
     val manRs1 = insert(rs1.mantissa.toAFix(manType))
     val manRs2 = insert(rs2.mantissa.toAFix(manType))
@@ -35,7 +35,7 @@ class FpuAdd(pipeline : Pipeline,
     val man2PreShift   = insert(Mux[AFix](rs1ExponentBigger, manRs2, manRs1))
 //    val man2Shifter = man2PreShift.raw << 1 + widthOf(manRs1.raw), expDifAbs) //TODO expDifAbs resized
     val man2 = insert(man2PreShift >> AFix(expDifAbs, maxValue = man12CommonShift))  //TODO expDifAbs resized
-    val sumMax = (rs1.factorMax << (rs1.factorExp - man2.exp.value)) + (rs2.factorMax << (rs2.factorExp - man2.exp.value))
+    val sumMax = (rs1.factorMax << (rs1.factorExp - man2.exp)) + (rs2.factorMax << (rs2.factorExp - man2.exp))
 
   }
   import shifter._
@@ -48,7 +48,7 @@ class FpuAdd(pipeline : Pipeline,
     val sumIsPos = insert(sum21.raw.msb)
 //    val sum = insert(AFix(U(sum12.raw.asUInt.dropHigh(1)), exp = sum12.exp)) //Mux[AFix](sumIsPos, sum12, sum12) //TODO manage sub
     val sum = Stageable(new AFix(maxValue = sumMax, minValue = 0, exp = sum12.exp))
-    sum := AFix(U(sum12.raw.asUInt.dropHigh(1)), maxValue = sumMax) >> -sum12.exp.value
+    sum := AFix(U(sum12.raw.asUInt.dropHigh(1)), maxValue = sumMax) >> -sum12.exp
   }
   import math._
 
@@ -60,7 +60,7 @@ class FpuAdd(pipeline : Pipeline,
       exponentMax = exp.maxValue.toInt,
       exponentMin = exp.minValue.toInt,
       factorMax   = sum.maxValue,
-      factorExp   = sum.exp.value
+      factorExp   = sum.exp
     ))
 
     RESULT.sign := False //TODO
