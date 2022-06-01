@@ -162,10 +162,75 @@ case class FpuCore(p : FpuParameter) extends Component{
       }
     }
 
+    val add = new Pipeline{
+      val input = new Stage{
+        val CMD = insert(frontend.dispatch(frontend.unpack.CMD))
+        val RS  = frontend.unpack.rs.take(2).map(rs => insert(frontend.dispatch(rs.RS)))
+        val hit = CMD.opcode === FpuOpcode.ADD
+        valid := frontend.dispatch.isValid && hit
+        frontend.dispatch.haltIt(hit && !isReady)
+      }
+
+      val preShiftStage = new Stage(DIRECT())
+      val shifterStage = new Stage(DIRECT())
+      val mathStage = new Stage(DIRECT())
+      val logicResultStage = new Stage(DIRECT())
+
+      val logic : FpuAdd = new FpuAdd(
+        pipeline      = this,
+        rs1           = input.RS(0),
+        rs2           = input.RS(1),
+        preShiftStage = preShiftStage,
+        shifterStage  = shifterStage,
+        mathStage     = mathStage,
+        resultStage   = logicResultStage
+      )
+
+
+      val resultStage = new Stage(DIRECT()){
+
+
+        val bitsIn = widthOf(logic.result.RESULT.mantissa.raw)
+        val bitsAvailable = 3+p.mantissaWidth*2
+        val bitsRequired = p.mantissaWidth+1+2
+        val bitsShift  = bitsAvailable - bitsRequired
+        val valuesCount = (bitsIn+bitsShift-1)/bitsShift
+
+        val normalized = FloatUnpacked(
+          exponentMax = logic.result.RESULT.exponentMax+ (valuesCount-1)*bitsShift,
+          exponentMin = logic.result.RESULT.exponentMin,
+          factorMax   = (BigInt(1) << bitsAvailable)-1,
+          factorExp   = -p.mantissaWidth*2
+        )
+
+        val values = (0 until valuesCount).map(i => (logic.result.RESULT.mantissa |<< i*bitsShift).rounded(rounding=RoundType.CEIL).toAFix(normalized.mantissa))
+        val filled = (0 until valuesCount).map(i => logic.result.RESULT.mantissa.raw(bitsIn-i*bitsShift-1 downto ((bitsIn-i*bitsShift-bitsShift) max 0)) =/= 0)
+        val exponentOffsets = (0 until valuesCount).map(i => AFix(i*bitsShift))
+        val sel = OHToUInt(OHMasking.firstV2(filled.asBits()))
+
+        normalized.exponent := logic.result.RESULT.exponent + exponentOffsets.read(sel)
+        normalized.mantissa := values.read(sel)
+        normalized.mode     := logic.result.RESULT.mode
+        normalized.quiet    := logic.result.RESULT.quiet
+        normalized.sign     := logic.result.RESULT.sign
+
+        val stream = Stream(MergeInput(normalized))
+        haltIt(!stream.ready)
+        stream.valid     := isValid
+        stream.value     := normalized
+        stream.format    := input.CMD.format
+        stream.roundMode := input.CMD.roundMode
+        stream.robId     := input.CMD.robId
+        stream.NV        := False //TODO
+        stream.DZ        := False //TODO
+      }
+    }
+
     val backend = new Pipeline{
       val merge = new Stage{
         val inputs = ArrayBuffer[Stream[MergeInput]]()
         inputs += mul.output.stream
+        inputs += add.resultStage.stream
         val exponentMin = inputs.map(_.value.exponentMin).min
         val exponentMax = inputs.map(_.value.exponentMax).max
         val factorExp = inputs.map(_.value.factorExp).min
@@ -193,23 +258,14 @@ case class FpuCore(p : FpuParameter) extends Component{
         arbitrated.ready := isReady
       }
 
-      //Accumulate shifted out bits into the lsb of the result
-      def shiftRightWithScrap(that : Bits, by : UInt) : Bits = {
-        var logic = that
-        val scrap = False
-        for(i <- by.range.reverse){
-          scrap setWhen(by(i) && logic(0, 1 << i bits) =/= 0)
-          logic \= by(i) ? (logic |>> (BigInt(1) << i)) | logic
-        }
-        logic | scrap.asBits.resized
-      }
+
       val logic = new Stage(DIRECT()){
         val MAN_EXP_RAW = insert(AFix(OHToUInt(OHMasking.lastV2(merge.VALUE.mantissa.raw)), maxValue = widthOf(merge.VALUE.mantissa.raw)-1))
         val MAN_EXP = insert(merge.VALUE.exponent + MAN_EXP_RAW)
         val EXP_SUBNORMAL = insert(AFix(muxDouble(merge.FORMAT)(S(-1023 - merge.VALUE.factorExp))(S(-127 - merge.VALUE.factorExp))))
         val SUBNORMAL = insert(MAN_EXP <= EXP_SUBNORMAL)
         val MAN_SHIFT = insert(Mux(!SUBNORMAL, apply(MAN_EXP_RAW).asUInt(), (EXP_SUBNORMAL-merge.VALUE.exponent + AFix(1)).asUInt()).resize(log2Up(merge.VALUE.mantissa.bitWidth+p.mantissaWidth+2)))
-        val MAN_SHIFTED = insert(shiftRightWithScrap(merge.VALUE.mantissa.raw << p.mantissaWidth+2, MAN_SHIFT))
+        val MAN_SHIFTED = insert(Shift.rightWithScrap(merge.VALUE.mantissa.raw << p.mantissaWidth+2, MAN_SHIFT))
         val MAN_RESULT = insert(MAN_SHIFTED(2, p.mantissaWidth bits))
         val EXP = insert(Mux(!SUBNORMAL, (MAN_EXP - EXP_SUBNORMAL).asUInt, U(0)))
 
@@ -291,5 +347,6 @@ case class FpuCore(p : FpuParameter) extends Component{
 
   flt.frontend.build()
   flt.mul.build()
+  flt.add.build()
   flt.backend.build()
 }

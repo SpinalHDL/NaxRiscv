@@ -42,6 +42,7 @@ class FpuExecute(euId : String) extends Plugin{
     }
 
     add(Rvfd.FMUL_D, DecodeList(OPCODE -> FpuOpcode.MUL, FORMAT -> FpuFormat.DOUBLE))
+    add(Rvfd.FADD_D, DecodeList(OPCODE -> FpuOpcode.ADD, FORMAT -> FpuFormat.DOUBLE))
     add(Rvfd.FMADD_D, DecodeList(OPCODE -> FpuOpcode.FMA, FORMAT -> FpuFormat.DOUBLE))
 
     val floatCmd = master(Stream(FpuFloatCmd(RVD, ROB.ID_WIDTH)))
