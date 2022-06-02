@@ -179,12 +179,14 @@ case class FpuCore(p : FpuParameter) extends Component{
       val input = new Stage{
         val CMD = insert(mul.output.add.valid ? mul.output.add.cmd | frontend.dispatch(frontend.unpack.CMD))
         val RS1 = insert(mul.output.add.valid ? mul.output.add.rs1 | frontend.dispatch(frontend.unpack.rs(0).RS))
-        val RS2 = insert(mul.output.add.valid ? mul.output.add.rs2 | frontend.dispatch(frontend.unpack.rs(1).RS))
-        val NV = mul.output.add.valid && mul.output.add.NV
+        val RS2 = insert(mul.output.add.valid ? mul.output.add.rs2 | frontend.dispatch(frontend.unpack.rs(1).RS).invert(frontend.dispatch(frontend.unpack.CMD).arg(0)))
+        val NV = mul.output.add.valid && mul.output.add.NV //TODO
         val hit = CMD.opcode === FpuOpcode.ADD
         valid := frontend.dispatch.isValid && hit || mul.output.add.valid
         frontend.dispatch.haltIt(hit && (!isReady || mul.output.add.valid))
         mul.output.add.ready := isReady
+
+        RS1.sign
       }
 
       val preShiftStage = new Stage(DIRECT())
@@ -275,7 +277,7 @@ case class FpuCore(p : FpuParameter) extends Component{
 
 
       val logic = new Stage(DIRECT()){
-        val MAN_EXP_RAW = insert(AFix(OHToUInt(OHMasking.lastV2(merge.VALUE.mantissa.raw)), maxValue = widthOf(merge.VALUE.mantissa.raw)-1))
+        val MAN_EXP_RAW = insert(AFix(OHToUInt(OHMasking.lastV2(merge.VALUE.mantissa.raw)), maxValue = widthOf(merge.VALUE.mantissa.raw)-1, 0 exp))
         val MAN_EXP = insert(merge.VALUE.exponent + MAN_EXP_RAW)
         val EXP_SUBNORMAL = insert(AFix(muxDouble(merge.FORMAT)(S(-1023 - merge.VALUE.factorExp))(S(-127 - merge.VALUE.factorExp))))
         val SUBNORMAL = insert(MAN_EXP <= EXP_SUBNORMAL)

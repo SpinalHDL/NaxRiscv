@@ -17,6 +17,7 @@ object FpuExecute extends AreaObject {
   val SEL = Stageable(Bool())
   val OPCODE = Stageable(FpuOpcode())
   val FORMAT = Stageable(FpuFormat())
+  val ARG    = Stageable(Bits(2 bits))
 }
 
 class FpuExecute(euId : String) extends Plugin{
@@ -40,10 +41,11 @@ class FpuExecute(euId : String) extends Plugin{
       eu.addMicroOp(microOp)
       eu.addDecoding(microOp, decoding :+ (SEL -> True))
     }
-
-    add(Rvfd.FMUL_D, DecodeList(OPCODE -> FpuOpcode.MUL, FORMAT -> FpuFormat.DOUBLE))
-    add(Rvfd.FADD_D, DecodeList(OPCODE -> FpuOpcode.ADD, FORMAT -> FpuFormat.DOUBLE))
-    add(Rvfd.FMADD_D, DecodeList(OPCODE -> FpuOpcode.FMA, FORMAT -> FpuFormat.DOUBLE))
+    def arg(v : Int) = ARG -> B(v, 2 bits)
+    add(Rvfd.FMUL_D,  DecodeList(OPCODE -> FpuOpcode.MUL, FORMAT -> FpuFormat.DOUBLE))
+    add(Rvfd.FADD_D,  DecodeList(OPCODE -> FpuOpcode.ADD, FORMAT -> FpuFormat.DOUBLE, arg(0)))
+    add(Rvfd.FSUB_D,  DecodeList(OPCODE -> FpuOpcode.ADD, FORMAT -> FpuFormat.DOUBLE, arg(1)))
+    add(Rvfd.FMADD_D, DecodeList(OPCODE -> FpuOpcode.FMA, FORMAT -> FpuFormat.DOUBLE, arg(0)))
 
     val floatCmd = master(Stream(FpuFloatCmd(RVD, ROB.ID_WIDTH)))
   }
@@ -57,7 +59,7 @@ class FpuExecute(euId : String) extends Plugin{
     haltIt(setup.floatCmd.isStall)
     setup.floatCmd.valid := isValid && FpuExecute.SEL && !forked
     setup.floatCmd.opcode    := OPCODE
-    setup.floatCmd.arg       := 0
+    setup.floatCmd.arg       := ARG
     setup.floatCmd.rs(0)     := eu.apply(FloatRegFile, RS1)
     setup.floatCmd.rs(1)     := eu.apply(FloatRegFile, RS2)
     setup.floatCmd.rs(2)     := eu.apply(FloatRegFile, RS3)

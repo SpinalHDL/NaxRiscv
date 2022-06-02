@@ -31,6 +31,13 @@ case class FloatUnpacked(exponentMax : Int,
   def setInfinity  = mode := FloatMode.INF
   def setNan       = { mode := FloatMode.NAN; quiet := False }
   def setNanQuiet  = { mode := FloatMode.NAN; quiet := True }
+
+  def invert(enable : Bool) = {
+    val ret = cloneOf(this)
+    ret := this
+    ret.sign.removeAssignments() := this.sign ^ enable
+    ret
+  }
 }
 
 case class FpuParameter(rvd : Boolean,
@@ -80,6 +87,7 @@ case class FpuFloatCmd(rvd : Boolean, robIdWidth : Int, withRs : Boolean = true)
   val format = FpuFormat()
   val roundMode = FpuRoundMode()
   val robId = UInt(robIdWidth bits)
+//  val scheduleId = UInt(robIdWidth bits)
 
   def withoutRs() : FpuFloatCmd = {
     val ret = FpuFloatCmd(rvd, robIdWidth, false)
