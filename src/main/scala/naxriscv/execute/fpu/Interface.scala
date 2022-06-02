@@ -128,9 +128,11 @@ case class FpuPort(p : FpuParameter) extends Bundle with IMasterSlave {
   val floatCompletion = Flow(FpuFloatCompletion(p.robIdWidth, p.rsFloatWidth))
   val intCmd = Stream(FpuIntCmd(p))
   val intCompletion = Stream(FpuIntCompletion(p))
+  val unschedule = Bool()
 
   override def asMaster(): Unit = {
     master(floatCmd, intCmd)
     slave(floatCompletion, intCompletion)
+    out(unschedule)
   }
 }

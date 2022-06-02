@@ -87,5 +87,13 @@ class FpuExecute(euId : String) extends Plugin{
 
 obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/play_fpu/build/rv64imafd/play_fpu.elf --pass-symbol pass --fail-symbol fail --seed 72255458 --trace --trace-ref
 
+testfloat_gen -n 400000 f32 | xxd -r -p > f32.bin
+
+kinds=(f ui i)
+for kind in ${kinds[@]}; do
+  testfloat_gen -n 400000 ${kind}32  | xxd -r -p | xxd -g 4 -e | xxd -r > ${kind}32.bin
+  testfloat_gen -n 400000 ${kind}64  | xxd -r -p | xxd -g 8 -e | xxd -r > ${kind}64.bin
+done
+
 
  */

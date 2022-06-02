@@ -1,9 +1,9 @@
 package naxriscv.execute.fpu
 
 import naxriscv.{Global, ROB}
-import naxriscv.interfaces.{DecoderService, RegfileService, RobService, WakeRegFile, WakeRegFileService, WakeRob, WakeRobService}
+import naxriscv.interfaces.{CommitService, CsrService, DecoderService, RegfileService, RobService, WakeRegFile, WakeRegFileService, WakeRob, WakeRobService}
 import naxriscv.misc.RegFilePlugin
-import naxriscv.riscv.FloatRegFile
+import naxriscv.riscv.{CSR, FloatRegFile}
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -21,13 +21,33 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
     val rf = findService[RegfileService](_.rfSpec == FloatRegFile)
     val floatWrite = rf.newWrite(false, 0)
     val completion = rob.newRobCompletion()
+    val csr = getService[CsrService]
+
+    val unschedule = out Bool()
 
     rob.retain()
+    csr.retain()
   }
 
   val logic = create late new Area{
     val s = setup.get
     import s._
+
+
+    val flags = Reg(FpuFlags()) //TODO
+    flags.NV init(False) //setWhen(port.completion.fire && port.completion.flags.NV)
+    flags.DZ init(False) //setWhen(port.completion.fire && port.completion.flags.DZ)
+    flags.OF init(False) //setWhen(port.completion.fire && port.completion.flags.OF)
+    flags.UF init(False) //setWhen(port.completion.fire && port.completion.flags.UF)
+    flags.NX init(False) //setWhen(port.completion.fire && port.completion.flags.NX)
+
+    val rm = Reg(Bits(3 bits)) init(0)
+    csr.readWrite(CSR.FCSR,   5 -> rm)
+    csr.readWrite(CSR.FCSR,   0 -> flags)
+    csr.readWrite(CSR.FRM,    0 -> rm)
+    csr.readWrite(CSR.FFLAGS, 0 -> flags)
+
+    setup.unschedule := RegNext(getService[CommitService].reschedulingPort(true).valid) init(False)
 
     val physical = rob.readAsyncSingle(decoder.PHYS_RD, floatCompletion.robId)
 
@@ -49,5 +69,6 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
     completion.id := floatCompletion.robId
 
     rob.release()
+    csr.release()
   }
 }
