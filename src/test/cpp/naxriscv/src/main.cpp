@@ -1177,6 +1177,7 @@ enum ARG
     ARG_LOAD_HEX = 1,
     ARG_LOAD_ELF,
     ARG_LOAD_BIN,
+    ARG_LOAD_U32,
     ARG_START_SYMBOL,
     ARG_START_ADD,
     ARG_PASS_SYMBOL,
@@ -1219,6 +1220,7 @@ static const struct option long_options[] =
     { "load-hex", required_argument, 0, ARG_LOAD_HEX },
     { "load-elf", required_argument, 0, ARG_LOAD_ELF },
     { "load-bin", required_argument, 0, ARG_LOAD_BIN },
+    { "load-u32", required_argument, 0, ARG_LOAD_U32 },
     { "start-symbol", required_argument, 0, ARG_START_SYMBOL },
     { "start-add", required_argument, 0, ARG_START_ADD },
     { "pass-symbol", required_argument, 0, ARG_PASS_SYMBOL },
@@ -1393,6 +1395,7 @@ void parseArgFirst(int argc, char** argv){
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_LOAD_BIN:
+            case ARG_LOAD_U32:
             case ARG_START_SYMBOL:
             case ARG_START_ADD:
             case ARG_PASS_SYMBOL:
@@ -1441,6 +1444,17 @@ void parseArgsSecond(int argc, char** argv){
 
                 wrap->memory.loadBin(string(path), address);
                 soc->memory.loadBin(string(path), address);
+            }break;
+            case ARG_LOAD_U32: {
+                u64 address;
+                u32 data;
+                if(sscanf(optarg, "%x,%lx", &data, &address) == EOF) {
+                    cout << "Bad load bin formating" << endl;
+                    failure()
+                }
+
+                wrap->memory.write(address,4, (uint8_t*)&data);
+                soc->memory.write(address,4, (uint8_t*)&data);
             }break;
             case ARG_START_SYMBOL: startPc = elf->getSymbolAddress(optarg); break;
             case ARG_START_ADD: startPc += stol(optarg); break;

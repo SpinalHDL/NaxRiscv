@@ -43,7 +43,9 @@ case class FloatUnpacked(exponentMax : Int,
 case class FpuParameter(rvd : Boolean,
                         rv64 : Boolean,
                         robIdWidth : Int,
-                        portCount : Int){
+                        portCount : Int,
+                        withAdd : Boolean = true,
+                        withMul : Boolean = true){
   val rsFloatWidth = 32 + rvd.toInt*32
   val rsIntWidth = 32 + rv64.toInt*32
   val exponentWidth = if(rvd) 11 else 8
@@ -98,6 +100,9 @@ case class FpuFloatCmd(rvd : Boolean, robIdWidth : Int, withRs : Boolean = true)
 
 case class FpuFlags() extends Bundle{
   val NX,  UF,  OF,  DZ,  NV = Bool()
+  def clear(): Unit ={
+    List(NX,  UF,  OF,  DZ,  NV).foreach(_ := False)
+  }
 }
 
 case class FpuFloatCompletion(robIdWidth : Int, valueWidth : Int) extends Bundle{
@@ -116,10 +121,10 @@ case class FpuIntCmd(p : FpuParameter) extends Bundle {
 
 
 
-case class FpuIntCompletion(p : FpuParameter) extends Bundle{
+case class FpuIntWriteBack(robIdWidth : Int, rsIntWidth : Int) extends Bundle{
   val flags = FpuFlags()
-  val robId = UInt(p.robIdWidth bits)
-  val value = Bits(p.rsIntWidth bits)
+  val robId = UInt(robIdWidth bits)
+  val value = Bits(rsIntWidth bits)
 }
 
 
@@ -127,12 +132,12 @@ case class FpuPort(p : FpuParameter) extends Bundle with IMasterSlave {
   val floatCmd = Stream(FpuFloatCmd(p.rvd, p.robIdWidth))
   val floatCompletion = Flow(FpuFloatCompletion(p.robIdWidth, p.rsFloatWidth))
   val intCmd = Stream(FpuIntCmd(p))
-  val intCompletion = Stream(FpuIntCompletion(p))
+  val intWriteback = Stream(FpuIntWriteBack(p.robIdWidth, p.rsIntWidth))
   val unschedule = Bool()
 
   override def asMaster(): Unit = {
     master(floatCmd, intCmd)
-    slave(floatCompletion, intCompletion)
+    slave(floatCompletion, intWriteback)
     out(unschedule)
   }
 }

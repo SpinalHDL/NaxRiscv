@@ -82,4 +82,9 @@ object FloatRegFile extends RegfileSpec with AreaObject {
     key = key,
     resources = List(IntRegFile -> RS1, FloatRegFile -> RS2, SQ)
   )
+
+  def TypeF2I(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(this -> RS1, IntRegFile -> RD)
+  )
 }

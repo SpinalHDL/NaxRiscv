@@ -16,7 +16,8 @@ class FpuAdd(pipeline : Pipeline,
     import preShiftStage._
     val exp21 = insert(rs2.exponent - rs1.exponent)
     val exp12 = insert(rs1.exponent - rs2.exponent)
-    val expDifAbs = insert(Mux[AFix](exp21.raw.msb, exp12, exp21).asUInt())
+    val expDifAbs = insert(Mux[AFix](exp21.raw.msb, exp12, exp21).asUInt().dropHigh(1).asUInt)
+    val expDifAbsSat = insert(expDifAbs.sat(widthOf(expDifAbs) - log2Up((rs1.mantissa.bitWidth max rs2.mantissa.bitWidth)*2)))
     val rs1ExponentBigger = insert((exp21.raw.msb || rs2.isZero) && !rs1.isZero)
     val doSub = rs1.sign ^ rs2.sign
     val exp = Mux[AFix](rs1ExponentBigger, rs1.exponent, rs2.exponent)
@@ -30,13 +31,10 @@ class FpuAdd(pipeline : Pipeline,
     val manType = AFix.holding(List(rs1.mantissa, rs2.mantissa))
     val manRs1 = insert(rs1.mantissa.toAFix(manType))
     val manRs2 = insert(rs2.mantissa.toAFix(manType))
-    val man12CommonShift = widthOf(manRs1.raw)
     val man1   = insert(Mux[AFix](rs1ExponentBigger, manRs1, manRs2))
     val man2PreShift   = insert(Mux[AFix](rs1ExponentBigger, manRs2, manRs1))
-//    val man2Shifter = man2PreShift.raw << 1 + widthOf(manRs1.raw), expDifAbs) //TODO expDifAbs resized
-    val man2 = insert(man2PreShift >> AFix(expDifAbs, maxValue = man12CommonShift, 0 exp))  //TODO expDifAbs resized
+    val man2 = insert(man2PreShift.resize(manRs1.exp-manRs1.bitWidth exp) >>| AFix(expDifAbsSat, 0 exp))
     val sumMax = (rs1.factorMax << (rs1.factorExp - man2.exp)) + (rs2.factorMax << (rs2.factorExp - man2.exp))
-
   }
   import shifter._
 

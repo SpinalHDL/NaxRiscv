@@ -405,8 +405,8 @@ object Gen64 extends App{
     val l = Config.plugins(
       xlen = 64,
       withRdTime = false,
-      aluCount    = 2,
-      decodeCount = 2,
+      aluCount    = 1,
+      decodeCount = 1,
       withRvc = false,
       withDebug = false,
       withEmbeddedJtagTap = false,
@@ -424,7 +424,7 @@ object Gen64 extends App{
   }
 
   {
-    val spinalConfig = SpinalConfig(inlineRom = true)
+    val spinalConfig = SpinalConfig(inlineRom = true, anonymSignalPrefix = "xxx")
     spinalConfig.addTransformationPhase(new MemReadDuringWriteHazardPhase)
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
     //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
