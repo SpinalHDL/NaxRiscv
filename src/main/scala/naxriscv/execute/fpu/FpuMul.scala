@@ -7,6 +7,7 @@ import spinal.lib.pipeline._
 class FpuMul(pipeline : Pipeline,
              rs1 : Stageable[FloatUnpacked],
              rs2 : Stageable[FloatUnpacked],
+             resultMantissaWidth : Int,
              splitWidthA : Int,
              splitWidthB : Int,
              sum1WidthMax : Int,
@@ -15,18 +16,19 @@ class FpuMul(pipeline : Pipeline,
              sum1Stage : Stage,
              sum2Stage : Stage,
              sum3Stage : Stage,
+             normStage : Stage,
              resultStage : Stage) extends Area{
 
   val mul = new Area {
     import mulStage._
-    val M1 = insert(rs1.mantissa.raw.asUInt)
-    val M2 = insert(rs2.mantissa.raw.asUInt)
+    val M1 = insert(U"1" @@ rs1.mantissa.raw.asUInt)
+    val M2 = insert(U"1" @@ rs2.mantissa.raw.asUInt)
   }
 
 //  val sum1 = new Stage(DIRECT())
   val sum2 = new Area{
     import sum2Stage._
-    val EXP = insert(rs1.exponent + rs2.exponent)
+    val EXP_ADD = insert(rs1.exponent + rs2.exponent)
     val SIGN = insert(rs1.sign ^ rs2.sign)
     val FORCE_ZERO = insert(rs1.isZero || rs2.isZero)
     val FORCE_OVERFLOW = insert(rs1.isInfinity || rs2.isInfinity)
@@ -50,22 +52,30 @@ class FpuMul(pipeline : Pipeline,
     sum3Stage    = sum3Stage
   )
 
+  val norm = new Area{
+    import normStage._
+    val needShift = spliter.keys.MUL_RESULT.msb
+    val EXP = insert(EXP_ADD + AFix(U(needShift)))
+    val MAN = insert(AFix(U(needShift ? spliter.keys.MUL_RESULT.dropHigh(1) | (spliter.keys.MUL_RESULT.dropHigh(2) << 1)), 1-widthOf(spliter.keys.MUL_RESULT) exp))
+  }
+  import norm._
+
+
   val result  = new Area{
     import resultStage._
     val RESULT = Stageable(FloatUnpacked(
-      exponentMax = mulStage(rs1).exponentMax + mulStage(rs2).exponentMax,
+      exponentMax = mulStage(rs1).exponentMax + mulStage(rs2).exponentMax + 1,
       exponentMin = mulStage(rs1).exponentMin + mulStage(rs2).exponentMin,
-      factorMax   = mulStage(rs1).factorMax   * mulStage(rs2).factorMax,
-      factorExp   = mulStage(rs1).factorExp   + mulStage(rs2).factorExp
+      mantissaWidth = widthOf(MAN)
     ))
 
     RESULT.sign := SIGN
-    RESULT.exponent := sum2.EXP
-    RESULT.mantissa := (AFix(spliter.keys.MUL_RESULT) >> -mulStage(rs1).factorExp - mulStage(rs2).factorExp).truncated()
+    RESULT.exponent := EXP
+    RESULT.mantissa := MAN
     RESULT.mode := FloatMode.NORMAL
     RESULT.quiet := True
 
-    val NV = False
+    val NV = insert(False)
 
     when(FORCE_NAN) {
       RESULT.setNanQuiet

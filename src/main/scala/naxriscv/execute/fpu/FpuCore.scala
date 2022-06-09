@@ -2,6 +2,7 @@ package naxriscv.execute.fpu
 
 import spinal.core._
 import spinal.lib._
+import spinal.lib.fsm.{State, StateMachine}
 import spinal.lib.pipeline.Connection.{DIRECT, M2S}
 import spinal.lib.pipeline._
 
@@ -42,6 +43,104 @@ case class FpuCore(p : FpuParameter) extends Component{
   }
 
 
+
+  val unpackFsm = new StateMachine{
+    val ohInputWidth = p.rsIntWidth max p.mantissaWidth
+    case class Request() extends Bundle {
+      val i2f, signed = Bool()
+      val data = Bits(ohInputWidth bits)
+    }
+    case class Result() extends Bundle {
+      val shift = UInt(log2Up(ohInputWidth) bits)
+      val data = Bits(ohInputWidth bits)
+    }
+
+    val portCount = 1
+    val args = Reg(Request())
+    val source = Reg(UInt(log2Up(portCount) bits))
+    val kill = Bits(portCount bits)
+    val killed = RegInit(False) setWhen(kill(source))
+
+    val IDLE, INVERT, SHIFT = new State
+    setEntry(IDLE)
+
+    val arbiter = StreamArbiterFactory().noLock.lowerFirst.build(Request(), portCount)
+
+    arbiter.io.output.ready := False
+    IDLE whenIsActive{
+      when(arbiter.io.output.valid){
+        arbiter.io.output.ready := True
+        args := arbiter.io.output.payload
+        source := arbiter.io.chosen
+        killed := kill(arbiter.io.chosen)
+        goto(SHIFT)
+        when(arbiter.io.output.i2f && arbiter.io.output.signed && arbiter.io.output.data.msb){
+          goto(INVERT)
+        }
+      }
+    }
+
+
+    val shiftBy = OHToUInt(OHMasking.firstV2(args.data.reversed |<< 1))
+    val shifter = args.data |<< shiftBy
+
+    val results = Vec.fill(portCount)(Flow(Result()))
+    for((port, id) <- results.zipWithIndex){
+      port.valid := False
+      port.data := shifter
+      port.shift := shiftBy
+    }
+    SHIFT whenIsActive{
+      when(!killed) {
+        results(source).valid := True
+      }
+      goto(IDLE)
+    }
+
+
+
+//    val i2fZero = Reg(Bool)
+
+//    val shift = new Area{
+//      val by = Reg(UInt(log2Up(ohInputWidth) bits))
+//      val input = UInt(ohInputWidth bits).assignDontCare()
+//      var logic = input
+//      for(i <- by.range){
+//        logic \= by(i) ? (logic |<< (BigInt(1) << i)) | logic
+//      }
+//      val output = RegNextWhen(logic, !done)
+//    }
+//    shift.input := (ohInput.asUInt |<< 1).resized
+
+//    when(input.valid && (input.i2f || isSubnormal) && !done){
+//      busy := True
+//      when(boot){
+//        when(input.i2f && !patched && input.value(p.rsIntWidth-1) && input.arg(0)){
+//          input.value.getDrivingReg(0, p.rsIntWidth bits) := B(input.value.asUInt.twoComplement(True).resize(p.rsIntWidth bits))
+//          patched := True
+//        } otherwise {
+//          shift.by := OHToUInt(OHMasking.first((ohInput).reversed))
+//          boot := False
+//          i2fZero := input.value(p.rsIntWidth-1 downto 0) === 0
+//        }
+//      } otherwise {
+//        done := True
+//      }
+//    }
+//
+//    val expOffset = (UInt(p.internalExponentSize bits))
+//    expOffset := 0
+//    when(isSubnormal){
+//      expOffset := shift.by.resized
+//    }
+//
+//    when(!input.isStall){
+//      done := False
+//      boot := True
+//      patched := False
+//    }
+  }
+
   val flt = new Area{
     val frontend = new Pipeline{
       val arbiter = new FpuStage{
@@ -58,12 +157,24 @@ case class FpuCore(p : FpuParameter) extends Component{
         connect(arbiter, this)(M2S())
 
         val CMD = insert(arbiter.CMD.withoutRs())
-        val rs = for(input <- arbiter.CMD.rs) yield new Area{
-          val RS = Stageable(FloatUnpacked(
+
+        val fsmPortId = 0
+        val fsmCmd = unpackFsm.arbiter.io.inputs(fsmPortId)
+        val fsmRsp = unpackFsm.results(fsmPortId)
+        fsmCmd.setIdle()
+        unpackFsm.kill(fsmPortId) := isRemoved
+
+        val fsmRequesters = Bits(3 bits)
+        val rs = for((input, inputId) <- arbiter.CMD.rs.zipWithIndex) yield new Area{
+          val RS_PRE_NORM = Stageable(FloatUnpacked(
             exponentMax =  (1 << p.exponentWidth-1) - 1,
             exponentMin = -(1 << p.exponentWidth-1) + 1,
-            factorMax = (BigInt(1) << p.mantissaWidth+1) - 1,
-            factorExp = -p.mantissaWidth
+            mantissaWidth = p.mantissaWidth
+          ))
+          val RS = Stageable(FloatUnpacked(
+            exponentMax =  (1 << p.exponentWidth-1) - 1,
+            exponentMin = -(1 << p.exponentWidth-1) + 1 - p.mantissaWidth,
+            mantissaWidth = p.mantissaWidth
           ))
 
 
@@ -83,33 +194,60 @@ case class FpuCore(p : FpuParameter) extends Component{
           val expOne  = Bool()
           val isSubnormal =  expZero && !manZero
           val recodedExpOffset = UInt(p.exponentWidth bits)
+          val recodedExpSub = SInt(p.exponentWidth+1 bits)
           val expRaw = UInt(p.exponentWidth bits)
 
           whenDouble(CMD.format){
-            RS.sign := f64.sign
+            RS_PRE_NORM.sign := f64.sign
             expRaw := f64.exponent.resized
-            RS.mantissa.raw := !isSubnormal ## f64.mantissa
-            RS.quiet := f64.mantissa.msb
+            RS_PRE_NORM.mantissa.raw := B(f64.mantissa)
+            RS_PRE_NORM.quiet := f64.mantissa.msb
             manZero := f64.mantissa === 0
             expZero := f64.exponent === 0
             expOne  := f64.exponent.andR
             recodedExpOffset := exponentF64One
+            recodedExpSub := -exponentF64One+1
           } {
-            RS.sign := f32.sign
+            RS_PRE_NORM.sign := f32.sign
             expRaw := f32.exponent.resized
-            RS.quiet := f32.mantissa.msb
-            RS.mantissa.raw := !isSubnormal ## (f32.mantissa << (if (p.rvd) 29 else 0))
+            RS_PRE_NORM.quiet := f32.mantissa.msb
+            RS_PRE_NORM.mantissa.raw := B(f32.mantissa << (if (p.rvd) 29 else 0))
             manZero := f32.mantissa === 0
             expZero := f32.exponent === 0
             expOne  := f32.exponent.andR
             recodedExpOffset := exponentF32One
+            recodedExpSub := -exponentF32One+1
           }
-          RS.exponent := expRaw - recodedExpOffset + U(isSubnormal) //TODO AFix shouldn't allow it
-          RS.mode := (expOne ## expZero).mux(
+          RS_PRE_NORM.exponent := expRaw - recodedExpOffset
+          RS_PRE_NORM.mode := (expOne ## expZero).mux(
             default -> FloatMode.NORMAL(),
             1       -> (manZero ? FloatMode.ZERO | FloatMode.NORMAL),
             2       -> (manZero ? FloatMode.INF | FloatMode.NAN)
           )
+          apply(RS) := RS_PRE_NORM
+          val normalizer = new Area{
+            val valid = CombInit(isSubnormal)
+            val served = RegInit(False) setWhen(fsmRsp.valid && !fsmRequesters.dropLow(inputId + 1).orR) clearWhen(!isStuck || isRemoved)
+            val exponent = Reg(RS.exponent)
+            val mantissa = Reg(RS.mantissa)
+            fsmRequesters(inputId) := valid && !served
+
+            when(fsmRequesters(inputId)) {
+              fsmCmd.valid := True
+              fsmCmd.data := RS_PRE_NORM.mantissa.raw << widthOf(fsmCmd.data) - widthOf(RS_PRE_NORM.mantissa.raw)
+              fsmCmd.i2f := False
+              fsmCmd.signed := False
+            }
+            when(valid){
+              RS.exponent := exponent
+              RS.mantissa := mantissa
+            }
+            when(!served){
+              exponent := recodedExpSub - fsmRsp.shift.intoSInt
+              mantissa.raw := fsmRsp.data >> widthOf(fsmCmd.data) - widthOf(RS_PRE_NORM.mantissa.raw)
+            }
+            haltWhen(valid && !served)
+          }
         }
       }
 
@@ -141,12 +279,14 @@ case class FpuCore(p : FpuParameter) extends Component{
       val sum1 = new FpuStage(DIRECT())
       val sum2 = new FpuStage(DIRECT())
       val sum3 = new FpuStage(DIRECT())
+      val norm = new FpuStage(DIRECT())
       val result = new FpuStage(DIRECT())
 
       val logic = new FpuMul(
         pipeline     = this,
         rs1          = input.RS(0),
         rs2          = input.RS(1),
+        resultMantissaWidth = p.mantissaWidth + 2,
         splitWidthA  = 18,
         splitWidthB  = 18,
         sum1WidthMax = 36,
@@ -155,18 +295,29 @@ case class FpuCore(p : FpuParameter) extends Component{
         sum1Stage    = sum1,
         sum2Stage    = sum2,
         sum3Stage    = sum3,
+        normStage    = norm,
         resultStage  = result
       )
 
       val output = new FpuStage(DIRECT()){
-        val merge = Stream(MergeInput(logic.result.RESULT))
+        val merge = Stream(MergeInput(
+          FloatUnpacked(
+            exponentMax = logic.result.RESULT.exponentMax,
+            exponentMin = logic.result.RESULT.exponentMin,
+            mantissaWidth = p.mantissaWidth+2
+          )
+        ))
         haltIt(!merge.ready && input.CMD.opcode === FpuOpcode.MUL)
         merge.valid     := isValid && input.CMD.opcode === FpuOpcode.MUL
-        merge.value     := logic.result.RESULT
+        merge.value.mode     := logic.result.RESULT.mode
+        merge.value.quiet    := logic.result.RESULT.quiet
+        merge.value.sign     := logic.result.RESULT.sign
+        merge.value.exponent := logic.result.RESULT.exponent
+        merge.value.mantissa := logic.result.RESULT.mantissa.rounded(RoundType.SCRAP)
         merge.format    := input.CMD.format
         merge.roundMode := input.CMD.roundMode
         merge.robId     := input.CMD.robId
-        merge.NV        := False //TODO
+        merge.NV        := logic.result.NV
         merge.DZ        := False //TODO
 
         val add = p.withAdd generate Stream(new Bundle {
@@ -196,46 +347,38 @@ case class FpuCore(p : FpuParameter) extends Component{
         valid := frontend.dispatch.isValid && hit || mul.output.add.valid
         frontend.dispatch.haltIt(hit && (!isReady || mul.output.add.valid))
         mul.output.add.ready := isReady
+        val RDN = insert( CMD.roundMode === FpuRoundMode.RDN)
       }
 
       val preShiftStage = new FpuStage(DIRECT())
       val shifterStage = new FpuStage(DIRECT())
       val mathStage = new FpuStage(DIRECT())
+      val normStage = new FpuStage(DIRECT())
       val logicResultStage = new FpuStage(DIRECT())
 
       val logic : FpuAdd = new FpuAdd(
         pipeline      = this,
         rs1           = input.RS1,
         rs2           = input.RS2,
+        roundDown     = input.RDN,
         preShiftStage = preShiftStage,
         shifterStage  = shifterStage,
         mathStage     = mathStage,
+        normStage     = normStage,
         resultStage   = logicResultStage
       )
 
 
       val resultStage = new FpuStage(DIRECT()){
-        val bitsIn = widthOf(logic.result.RESULT.mantissa.raw)
-        val bitsAvailable = 3+p.mantissaWidth*2
-        val bitsRequired = p.mantissaWidth+1+2
-        val bitsShift  = bitsAvailable - bitsRequired
-        val valuesCount = (bitsIn+bitsShift-1)/bitsShift
-
         val normalized = FloatUnpacked(
-          exponentMax = logic.result.RESULT.exponentMax+ (valuesCount-1)*bitsShift,
+          exponentMax = logic.result.RESULT.exponentMax,
           exponentMin = logic.result.RESULT.exponentMin,
-          factorMax   = (BigInt(1) << bitsAvailable),
-          factorExp   = -p.mantissaWidth*2
+          mantissaWidth = p.mantissaWidth + 2
         )
 
 
-        val values = (0 until valuesCount).map(i => (logic.result.RESULT.mantissa |<< i*bitsShift).rounded(rounding=RoundType.SCRAP).toAFix(normalized.mantissa))
-        val filled = (0 until valuesCount).map(i => logic.result.RESULT.mantissa.raw(bitsIn-i*bitsShift-1 downto ((bitsIn-i*bitsShift-bitsShift) max 0)) =/= 0)
-        val exponentOffsets = (0 until valuesCount).map(i => AFix(i*bitsShift))
-        val sel = OHToUInt(OHMasking.firstV2(filled.asBits()))
-
-        normalized.exponent := logic.result.RESULT.exponent + exponentOffsets.read(sel)
-        normalized.mantissa := values.read(sel)
+        normalized.exponent := logic.result.RESULT.exponent
+        normalized.mantissa := logic.result.RESULT.mantissa.rounded(RoundType.SCRAP)
         normalized.mode     := logic.result.RESULT.mode
         normalized.quiet    := logic.result.RESULT.quiet
         normalized.sign     := logic.result.RESULT.sign
@@ -247,7 +390,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         stream.format    := input.CMD.format
         stream.roundMode := input.CMD.roundMode
         stream.robId     := input.CMD.robId
-        stream.NV        := False //TODO
+        stream.NV        := logic.result.NV
         stream.DZ        := False //TODO
       }
     }
@@ -280,15 +423,11 @@ case class FpuCore(p : FpuParameter) extends Component{
         if(p.withAdd) inputs += add.resultStage.stream
         val exponentMin = inputs.map(_.value.exponentMin).min
         val exponentMax = inputs.map(_.value.exponentMax).max
-        val factorExp = inputs.map(_.value.factorExp).min
-        val factorMax = inputs.map(e => e.value.factorMax*(BigInt(1) << (e.value.factorExp - factorExp).max(0))).max
-
         val remapped = inputs.map{e =>
           val v = Stream(MergeInput(FloatUnpacked(
             exponentMax = exponentMax,
             exponentMin = exponentMin,
-            factorExp   = factorExp,
-            factorMax   = factorMax
+            mantissaWidth = p.mantissaWidth+2
           )))
           v << e
           v
@@ -307,14 +446,13 @@ case class FpuCore(p : FpuParameter) extends Component{
 
 
       val logic = new FpuStage(DIRECT()){
-        val MAN_EXP_RAW = insert(AFix(OHToUInt(OHMasking.lastV2(merge.VALUE.mantissa.raw)), maxValue = widthOf(merge.VALUE.mantissa.raw)-1, 0 exp))
-        val MAN_EXP = insert(merge.VALUE.exponent + MAN_EXP_RAW)
-        val EXP_SUBNORMAL = insert(AFix(muxDouble(merge.FORMAT)(S(-1023 - merge.VALUE.factorExp))(S(-127 - merge.VALUE.factorExp))))
-        val SUBNORMAL = insert(MAN_EXP <= EXP_SUBNORMAL)
-        val MAN_SHIFT = insert(Mux(!SUBNORMAL, apply(MAN_EXP_RAW).asUInt(), (EXP_SUBNORMAL-merge.VALUE.exponent + AFix(1)).asUInt()).resize(log2Up(merge.VALUE.mantissa.bitWidth+p.mantissaWidth+2)))
-        val MAN_SHIFTED = insert(Shift.rightWithScrap(merge.VALUE.mantissa.raw << p.mantissaWidth+2, MAN_SHIFT))
+        val EXP_SUBNORMAL = insert(AFix(muxDouble[SInt](merge.FORMAT)(-1023)(-127)))
+        val EXP_DIF = insert(EXP_SUBNORMAL - merge.VALUE.exponent)
+        val SUBNORMAL = insert(EXP_DIF.isPositive())
+        val MAN_SHIFT = insert(!SUBNORMAL ?[UInt] 0 | (U(EXP_DIF)+1).resize(log2Up(p.mantissaWidth+2)))
+        val MAN_SHIFTED = insert(Shift.rightWithScrap(True ## merge.VALUE.mantissa.raw, MAN_SHIFT))
         val MAN_RESULT = insert(MAN_SHIFTED(2, p.mantissaWidth bits))
-        val EXP = insert(Mux(!SUBNORMAL, (MAN_EXP - EXP_SUBNORMAL).asUInt, U(0)))
+        val EXP = insert(!SUBNORMAL ? U(merge.VALUE.exponent-EXP_SUBNORMAL) | 0)
 
 
 
@@ -348,59 +486,6 @@ case class FpuCore(p : FpuParameter) extends Component{
   }
 
 
-//    val unpackFsm = new Area{
-//      val done, boot, patched = Reg(Bool())
-//      val ohInputWidth = p.rsIntWidth max p.internalMantissaSize
-//      val ohInput = Bits(ohInputWidth bits).assignDontCare()
-//      when(!input.i2f) {
-//        if(!p.withDouble) ohInput := input.value(0, 23 bits) << 9
-//        if( p.withDouble) ohInput := passThroughFloat.mantissa.asBits
-//      } otherwise {
-//        ohInput(ohInputWidth-p.rsIntWidth-1 downto 0) := 0
-//        ohInput(ohInputWidth-p.rsIntWidth, p.rsIntWidth bits) := input.value(p.rsIntWidth-1 downto 0)
-//      }
-//
-//      val i2fZero = Reg(Bool)
-//
-//      val shift = new Area{
-//        val by = Reg(UInt(log2Up(ohInputWidth) bits))
-//        val input = UInt(ohInputWidth bits).assignDontCare()
-//        var logic = input
-//        for(i <- by.range){
-//          logic \= by(i) ? (logic |<< (BigInt(1) << i)) | logic
-//        }
-//        val output = RegNextWhen(logic, !done)
-//      }
-//      shift.input := (ohInput.asUInt |<< 1).resized
-//
-//      when(input.valid && (input.i2f || isSubnormal) && !done){
-//        busy := True
-//        when(boot){
-//          when(input.i2f && !patched && input.value(p.rsIntWidth-1) && input.arg(0)){
-//            input.value.getDrivingReg(0, p.rsIntWidth bits) := B(input.value.asUInt.twoComplement(True).resize(p.rsIntWidth bits))
-//            patched := True
-//          } otherwise {
-//            shift.by := OHToUInt(OHMasking.first((ohInput).reversed))
-//            boot := False
-//            i2fZero := input.value(p.rsIntWidth-1 downto 0) === 0
-//          }
-//        } otherwise {
-//          done := True
-//        }
-//      }
-//
-//      val expOffset = (UInt(p.internalExponentSize bits))
-//      expOffset := 0
-//      when(isSubnormal){
-//        expOffset := shift.by.resized
-//      }
-//
-//      when(!input.isStall){
-//        done := False
-//        boot := True
-//        patched := False
-//      }
-//    }
 
   flt.frontend.build()
   if(p.withMul) flt.mul.build()

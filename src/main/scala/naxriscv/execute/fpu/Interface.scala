@@ -12,13 +12,12 @@ object FloatMode extends SpinalEnum{
 
 case class FloatUnpacked(exponentMax : Int,
                          exponentMin : Int,
-                         factorMax: BigInt,
-                         factorExp: Int) extends Bundle{
+                         mantissaWidth: Int) extends Bundle{
   val mode = FloatMode()
   val quiet = Bool() // if mode is NAN
   val sign = Bool()
   val exponent = new AFix(exponentMax, exponentMin, 0)
-  val mantissa = new AFix(factorMax, 0, factorExp)
+  val mantissa = AFix.U(0 exp, -mantissaWidth exp)
 
   def isNan = mode === FloatMode.NAN
   def isNormal = mode === FloatMode.NORMAL
