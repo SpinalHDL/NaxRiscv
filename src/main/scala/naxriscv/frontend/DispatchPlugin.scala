@@ -344,6 +344,7 @@ class DispatchPlugin(var slotCount : Int = 0,
       Verilator.public(push.stage.isFireing)
       Verilator.public(push.stage(ROB.ID))
       push.stage(0 until DISPATCH_COUNT)(DISPATCH_MASK).foreach(Verilator.public(_))
+      frontend.pipeline.dispatch(ROB.ID)
     }
 
     val doc = getService[DocPlugin]

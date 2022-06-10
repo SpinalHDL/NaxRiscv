@@ -129,7 +129,7 @@ object Config{
     )
     plugins += new DecoderPlugin(xlen)
     plugins += new RfTranslationPlugin(riscv.IntRegFile)
-    plugins += new RfDependencyPlugin(riscv.IntRegFile)
+    plugins += new RfDependencyPlugin()
     plugins += new RfAllocationPlugin(riscv.IntRegFile)
     plugins += new DispatchPlugin(
       slotCount = 32

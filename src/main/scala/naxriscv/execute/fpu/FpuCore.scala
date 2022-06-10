@@ -33,7 +33,8 @@ case class FpuCore(p : FpuParameter) extends Component{
 
   class FpuStage(implicit _pip: Pipeline = null)  extends Stage {
     assert(p.portCount == 1)
-    throwIt(io.ports(0).unschedule)
+    val doThrow = io.ports(0).unschedule
+    throwIt(doThrow)
 
     def this(connection: ConnectionLogic)(implicit _pip: Pipeline)  {
       this()
@@ -162,7 +163,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         val fsmCmd = unpackFsm.arbiter.io.inputs(fsmPortId)
         val fsmRsp = unpackFsm.results(fsmPortId)
         fsmCmd.setIdle()
-        unpackFsm.kill(fsmPortId) := isRemoved
+        unpackFsm.kill(fsmPortId) := doThrow
 
         val fsmRequesters = Bits(3 bits)
         val rs = for((input, inputId) <- arbiter.CMD.rs.zipWithIndex) yield new Area{
@@ -460,20 +461,42 @@ case class FpuCore(p : FpuParameter) extends Component{
         io.ports(0).floatCompletion.flags := FpuFlags().getZero
         io.ports(0).floatCompletion.robId := merge.ROBID
         io.ports(0).floatCompletion.value := merge.VALUE.sign ## EXP.resize(11 bits) ## MAN_RESULT
+
+        val expOne, expZero, manZero, manQuiet, positive = False
+        switch(merge.VALUE.mode){
+          is(FloatMode.ZERO){
+            expZero := True
+            manZero := True
+          }
+          is(FloatMode.INF){
+            expOne := True
+            manZero := True
+          }
+          is(FloatMode.NAN){
+            positive := True
+            expOne := True
+            manZero := True
+            manQuiet := merge.VALUE.quiet
+          }
+        }
+
+        assert(!valid || merge.FORMAT === FpuFormat.DOUBLE)
+        when(expZero) {
+          io.ports(0).floatCompletion.value(52, 11 bits).clearAll()
+        }
+        when(expOne) {
+          io.ports(0).floatCompletion.value(52, 11 bits).setAll()
+        }
+        when(manZero) {
+          io.ports(0).floatCompletion.value(0, 52 bits).clearAll()
+        }
+        when(manQuiet) {
+          io.ports(0).floatCompletion.value(51) := True
+        }
+        when(positive){
+          io.ports(0).floatCompletion.value(63) := False
+        }
       }
-
-//      val logic = new FpuRounding(
-//        pipeline = this,
-//        RS       = merge.VALUE,
-//        stage    = merge
-//      )
-
-//      val output = new FpuStage(M2S()){
-//        io.ports(0).floatCompletion.valid := isFireing
-//        io.ports(0).floatCompletion.flags := FpuFlags().getZero
-//        io.ports(0).floatCompletion.robId := merge.ROBID
-//        io.ports(0).floatCompletion.value := 0//RS(0).sign ## B(RS(0).exponent + 1) ## RS(0).factor.raw.dropHigh(1)
-//      }
     }
   }
 

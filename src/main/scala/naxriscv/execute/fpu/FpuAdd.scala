@@ -46,8 +46,6 @@ class FpuAdd(pipeline : Pipeline,
 
     //Note that rs1ExponentBigger can be replaced by absRs1Bigger bellow to avoid xsigned two complement in math block at expense of combinatorial path
     val xySign = insert(absRs1Bigger ? rs1.sign | rs2.sign)
-    val xSign = insert(xySign ^ (absRs1Bigger ? rs1.sign | rs2.sign))
-    val ySign = insert(xySign ^ (absRs1Bigger ? rs2.sign | rs1.sign))
     val xMantissa = insert((absRs1Bigger ? rs1.mantissa | rs2.mantissa) + AFix(1))
     val yMantissaUnshifted = insert((absRs1Bigger ? rs2.mantissa | rs1.mantissa) +  AFix(1))
     val shifter = Shift.rightWithScrap(yMantissaUnshifted.raw ## False, expDifAbsSat)
