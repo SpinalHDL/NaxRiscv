@@ -110,6 +110,7 @@ object TranslatorWithRollback extends App{
 
 
 class RfTranslationPlugin(val spec : RegfileSpec) extends Plugin with InitCycles {
+  withPrefix(spec.getName())
   override def initCycles = spec.sizeArch
 
   val setup = create early new Area{
@@ -169,7 +170,7 @@ class RfTranslationPlugin(val spec : RegfileSpec) extends Plugin with InitCycles
         val port = impl.io.commits(0)
         port.valid := True
         port.address := counter.resized
-        port.data    := 0 //NOTE is map all the registers to physical 0
+        port.data    := (if(spec.x0AlwaysZero) U(0) else counter.resized)
 
         counter := counter + 1
       }

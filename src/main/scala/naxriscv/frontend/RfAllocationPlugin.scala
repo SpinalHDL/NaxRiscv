@@ -83,7 +83,7 @@ class RfAllocationPlugin(var rf : RegfileSpec,
 
     val init = new Area {
       assert(isPow2(entryCount))
-      val counter = Reg(UInt(log2Up(entryCount*2) bits)) init (rf.x0AlwaysZero.toInt)
+      val counter = Reg(UInt(log2Up(entryCount*2) bits)) init (if(rf.x0AlwaysZero) 1 else rf.sizeArch)
       val busy = !counter.msb
       
       when(busy) {

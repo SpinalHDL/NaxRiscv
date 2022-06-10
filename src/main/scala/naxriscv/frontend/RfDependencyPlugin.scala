@@ -118,7 +118,7 @@ Artix 7 -> 379 Mhz 180 LUT 303 FF
  */
 
 //Tracking depedeancies using physical registers avoid rollbacks, but require arch to phys translation first
-class RfDependencyPlugin(val spec : RegfileSpec) extends Plugin with InitCycles{
+class RfDependencyPlugin() extends Plugin with InitCycles{
   override def initCycles = logic.forRf.map(_.entryCount).max
 
   case class IssueSkipSpec(microOp: MicroOp, rsId : Int)
@@ -200,7 +200,7 @@ class RfDependencyPlugin(val spec : RegfileSpec) extends Plugin with InitCycles{
           counter := counter + 1
         }
       }
-    }
+    }.setCompositeName(this, "forRf_" + rf.rfSpec.getName())
 
     //Read
     val dependency = new Area{
