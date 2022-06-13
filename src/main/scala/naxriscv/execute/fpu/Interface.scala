@@ -44,7 +44,9 @@ case class FpuParameter(rvd : Boolean,
                         robIdWidth : Int,
                         portCount : Int,
                         withAdd : Boolean = true,
-                        withMul : Boolean = true){
+                        withMul : Boolean = true,
+                        withDiv : Boolean = true,
+                        withSqrt : Boolean = true){
   val rsFloatWidth = 32 + rvd.toInt*32
   val rsIntWidth = 32 + rv64.toInt*32
   val exponentWidth = if(rvd) 11 else 8

@@ -73,8 +73,8 @@ class FpuAdd(pipeline : Pipeline,
     import resultStage._
 
     val RESULT = Stageable(FloatUnpacked(
-      exponentMax = exponent.maxValue.toInt,
-      exponentMin = exponent.minValue.toInt,
+      exponentMax = exponent.maxRaw.toInt,
+      exponentMin = exponent.minRaw.toInt,
       mantissaWidth = mantissa.bitWidth
     ))
 

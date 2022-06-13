@@ -395,6 +395,87 @@ case class FpuCore(p : FpuParameter) extends Component{
       }
     }
 
+    val div = p.withDiv generate new Pipeline{
+
+
+      val internalMantissaSize = p.mantissaWidth
+      val dividerShift = if(p.rvd) 0 else 1
+      val divider = FpuDiv(internalMantissaSize + dividerShift)
+
+      val input = new FpuStage{
+        val CMD = insert(frontend.dispatch(frontend.unpack.CMD))
+        val RS  = frontend.unpack.rs.take(2).map(rs => insert(frontend.dispatch(rs.RS)))
+        val hit = CMD.opcode === FpuOpcode.DIV
+        valid := frontend.dispatch.isValid && hit
+        frontend.dispatch.haltIt(hit && !isReady)
+
+        val cmdSent = RegInit(False) setWhen(divider.io.input.fire) clearWhen(isReady || doThrow)
+        divider.io.input.valid := valid && !cmdSent
+        divider.io.input.a := U(RS(0).mantissa.raw << dividerShift)
+        divider.io.input.b := U(RS(1).mantissa.raw << dividerShift)
+
+        haltWhen(!cmdSent && !divider.io.input.ready)
+      }
+
+      import input._
+
+      val result = new FpuStage(M2S()){
+        val dividerScrap = divider.io.output.remain =/= 0 || divider.io.output.result(0, dividerShift bits) =/= 0
+        val dividerResult = (divider.io.output.result >> dividerShift) @@ U(dividerScrap).resized
+
+        divider.io.output.ready := !isValid || isReady
+        haltWhen(!divider.io.output.valid)
+
+        val needShift = !dividerResult.msb
+        val mantissa = needShift ? dividerResult(0, internalMantissaSize+2 bits) | (dividerResult(1, internalMantissaSize+2 bits) | U(dividerResult(0)).resized)
+        val exponent = RS(0).exponent - RS(1).exponent - AFix(U(needShift))
+
+        val merge = Stream(MergeInput(
+          FloatUnpacked(
+            exponentMax = exponent.maxRaw.toInt,
+            exponentMin = exponent.minRaw.toInt,
+            mantissaWidth = p.mantissaWidth+2
+          )
+        ))
+        merge.valid := isValid && divider.io.output.valid
+        merge.value.setNormal
+        merge.value.quiet := False
+        merge.value.sign := RS(0).sign ^ RS(1).sign
+        merge.value.exponent := exponent
+        merge.value.mantissa := mantissa
+        merge.format    := CMD.format
+        merge.roundMode := CMD.roundMode
+        merge.robId     := CMD.robId
+        haltWhen(!merge.ready)
+
+        val forceOverflow = RS(0).isInfinity || RS(1).isZero
+        val infinitynan = RS(0).isZero && RS(1).isZero || RS(0).isInfinity && RS(1).isInfinity
+        val forceNan = RS(0).isNan || RS(1).isNan || infinitynan
+        val forceZero = RS(0).isZero || RS(1).isInfinity
+
+
+
+        merge.NV := False
+        merge.DZ := !forceNan && !RS(0).isInfinity && RS(1).isZero
+
+        when(forceNan) {
+          merge.value.setNanQuiet
+          merge.NV setWhen((infinitynan || RS(0).isNanSignaling || RS(1).isNanSignaling))
+        } elsewhen(forceOverflow) {
+          merge.value.setInfinity
+        } elsewhen(forceZero) {
+          merge.value.setZero
+        }
+      }
+
+
+
+
+
+
+    }
+
+
 
     val f2x = new Pipeline{
       val input = new FpuStage{
@@ -421,6 +502,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         val inputs = ArrayBuffer[Stream[MergeInput]]()
         if(p.withMul) inputs += mul.output.merge
         if(p.withAdd) inputs += add.resultStage.stream
+        if(p.withDiv) inputs += div.result.merge
         val exponentMin = inputs.map(_.value.exponentMin).min
         val exponentMax = inputs.map(_.value.exponentMax).max
         val remapped = inputs.map{e =>
@@ -585,6 +667,7 @@ case class FpuCore(p : FpuParameter) extends Component{
   flt.frontend.build()
   if(p.withMul) flt.mul.build()
   if(p.withAdd) flt.add.build()
+  if(p.withDiv) flt.div.build()
   flt.f2x.build()
   flt.backend.build()
 }

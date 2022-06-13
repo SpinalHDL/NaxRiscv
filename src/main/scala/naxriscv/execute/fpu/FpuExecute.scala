@@ -46,6 +46,7 @@ class FpuExecute(euId : String) extends Plugin{
     add(Rvfd.FADD_D,  DecodeList(OPCODE -> FpuOpcode.ADD, FORMAT -> FpuFormat.DOUBLE, arg(0)))
     add(Rvfd.FSUB_D,  DecodeList(OPCODE -> FpuOpcode.ADD, FORMAT -> FpuFormat.DOUBLE, arg(1)))
     add(Rvfd.FMADD_D, DecodeList(OPCODE -> FpuOpcode.FMA, FORMAT -> FpuFormat.DOUBLE, arg(0)))
+    add(Rvfd.FDIV_D,  DecodeList(OPCODE -> FpuOpcode.DIV, FORMAT -> FpuFormat.DOUBLE))
     add(Rvfd.FMV_X_D, DecodeList(OPCODE -> FpuOpcode.FMV_X_W, FORMAT -> FpuFormat.DOUBLE))
 
 
