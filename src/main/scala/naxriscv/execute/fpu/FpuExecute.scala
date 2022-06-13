@@ -67,7 +67,10 @@ class FpuExecute(euId : String) extends Plugin{
     setup.floatCmd.rs(1)     := eu.apply(FloatRegFile, RS2)
     setup.floatCmd.rs(2)     := eu.apply(FloatRegFile, RS3)
     setup.floatCmd.format    := (if(RVD) stage(FORMAT) else FpuFormat.FLOAT())
-    setup.floatCmd.roundMode := FpuRoundMode.RDN()
+
+    val instrRounding = Frontend.MICRO_OP(Const.funct3Range)
+    val roundMode = (instrRounding === B"111") ? getService[FpuWriteback].getRoundingMode() | instrRounding
+    setup.floatCmd.roundMode.assignFromBits(roundMode)
     setup.floatCmd.robId     := ROB.ID
 
     eu.release()

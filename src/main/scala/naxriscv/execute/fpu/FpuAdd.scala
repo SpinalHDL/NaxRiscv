@@ -39,9 +39,11 @@ class FpuAdd(pipeline : Pipeline,
 
   val shifter = new Area {
     import shifterStage._
-    val expDifAbsSat = insert(expDifAbs.sat(widthOf(expDifAbs) - log2Up((rs1.mantissa.bitWidth max rs2.mantissa.bitWidth))))
+    val passThrough = /*shiftOverflow || */rs1.isZero || rs2.isZero
+    val expDifAbsSat = insert(expDifAbs.sat(widthOf(expDifAbs) - log2Up((rs1.mantissa.bitWidth max rs2.mantissa.bitWidth))).orMask(passThrough))
 //    val shiftOverflow = (shiftBy >= p.internalMantissaSize+1+addExtraBits)
-//    val passThrough = shiftOverflow || (input.rs1.isZero) || (input.rs2.isZero)
+
+    //Assume the shifter can totaly clear things
 
 
     //Note that rs1ExponentBigger can be replaced by absRs1Bigger bellow to avoid xsigned two complement in math block at expense of combinatorial path
@@ -50,7 +52,7 @@ class FpuAdd(pipeline : Pipeline,
     val yMantissaUnshifted = insert((absRs1Bigger ? rs2.mantissa | rs1.mantissa) +  AFix(1))
     val shifter = Shift.rightWithScrap(yMantissaUnshifted.raw ## False, expDifAbsSat)
     val yMantissa = insert(AFix(shifter.dropLow(1).asUInt, yMantissaUnshifted.exp exp))
-    val roundingScrap = shifter.lsb
+    val roundingScrap = shifter.lsb && !passThrough
 
 //    when(passThrough) { yMantissa := 0 }
 //    when(shiftOverflow) { roundingScrap := True }

@@ -13,6 +13,7 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
   override def wakeRobs    = List(logic.get.float.wakeRob, logic.get.integer.wakeRob)
   override def wakeRegFile = List(logic.get.float.wakeRf,  logic.get.integer.wakeRf)
 
+  def getRoundingMode() : Bits = logic.rm
 
   val setup = create early new Area{
     val floatCompletion = Flow(FpuFloatCompletion(ROB.ID_WIDTH, 32 + Global.RVD.get.toInt*32))

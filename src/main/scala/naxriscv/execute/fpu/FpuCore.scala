@@ -444,6 +444,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         valid := arbitrated.valid
         arbitrated.ready := isReady
       }
+      import merge._
 
 
       val logic = new FpuStage(DIRECT()){
@@ -451,44 +452,115 @@ case class FpuCore(p : FpuParameter) extends Component{
         val EXP_DIF = insert(EXP_SUBNORMAL - merge.VALUE.exponent)
         val SUBNORMAL = insert(EXP_DIF.isPositive())
         val MAN_SHIFT = insert(!SUBNORMAL ?[UInt] 0 | (U(EXP_DIF)+1).resize(log2Up(p.mantissaWidth+2)))
-        val MAN_SHIFTED = insert(Shift.rightWithScrap(True ## merge.VALUE.mantissa.raw, MAN_SHIFT))
-        val MAN_RESULT = insert(MAN_SHIFTED(2, p.mantissaWidth bits))
-        val EXP = insert(!SUBNORMAL ? U(merge.VALUE.exponent-EXP_SUBNORMAL) | 0)
+        val MAN_SHIFTED = insert(U(Shift.rightWithScrap(True ## merge.VALUE.mantissa.raw, MAN_SHIFT)))
+
+        val f32ManPos = p.mantissaWidth-23
+        val roundAdjusted = muxDouble(merge.FORMAT)(MAN_SHIFTED(0, 2 bits))(MAN_SHIFTED(f32ManPos-2, 2 bits) | U(MAN_SHIFTED(f32ManPos-2-1 downto 0).orR, 2 bits))
+        val manLsb = muxDouble(merge.FORMAT)(MAN_SHIFTED(2))(MAN_SHIFTED(f32ManPos))
+        val ROUNDING_INCR = VALUE.isNormal && ROUNDMODE.mux(
+          FpuRoundMode.RNE -> (roundAdjusted(1) && (roundAdjusted(0) || manLsb)),
+          FpuRoundMode.RTZ -> False,
+          FpuRoundMode.RDN -> (roundAdjusted =/= 0 && VALUE.sign),
+          FpuRoundMode.RUP -> (roundAdjusted =/= 0 && !VALUE.sign),
+          FpuRoundMode.RMM -> (roundAdjusted(1))
+        )
+
+        val incrBy = muxDouble(merge.FORMAT)(U(ROUNDING_INCR))(U(ROUNDING_INCR) << p.mantissaWidth-23)
+        val manIncrWithCarry = (MAN_SHIFTED >> 2) +^ U(ROUNDING_INCR)
+        val MAN_CARRY = manIncrWithCarry.msb
+        val MAN_INCR = (manIncrWithCarry.dropHigh(2))
+        val EXP_INCR = merge.VALUE.exponent + AFix(U(MAN_CARRY))
+        val EXP_MAX = insert(AFix(muxDouble[SInt](merge.FORMAT)(1023)(127)))
+        val EXP_MIN = insert(AFix(muxDouble[SInt](merge.FORMAT)(-1023-52+1)(-127-23+1)))
+        val EXP_OVERFLOW = insert(EXP_INCR > EXP_MAX)
+        val EXP_UNDERFLOW = insert(EXP_INCR < EXP_MIN)
+        val MAN_RESULT = insert(MAN_INCR)
 
 
 
-        io.ports(0).floatCompletion.valid := isFireing
-        io.ports(0).floatCompletion.flags := FpuFlags().getZero
-        io.ports(0).floatCompletion.robId := merge.ROBID
-        io.ports(0).floatCompletion.value := merge.VALUE.sign ## EXP.resize(11 bits) ## MAN_RESULT
+        val EXP = insert(!(EXP_SUBNORMAL - EXP_INCR).isPositive() ? (EXP_INCR-EXP_SUBNORMAL) | AFix(0))
 
-        val expOne, expZero, manZero, manQuiet, positive = False
+
+
+        val expSet, expZero, expMax, manZero, manSet, manOne, manQuiet, positive = False
+        val nx, of, uf = False //TODO
         switch(merge.VALUE.mode){
           is(FloatMode.ZERO){
             expZero := True
             manZero := True
           }
           is(FloatMode.INF){
-            expOne := True
+            expSet := True
             manZero := True
           }
           is(FloatMode.NAN){
             positive := True
-            expOne := True
+            expSet := True
             manZero := True
             manQuiet := merge.VALUE.quiet
           }
+          is(FloatMode.NORMAL){
+            when(EXP_OVERFLOW){
+              nx := True
+              of := True
+              val doMax = merge.ROUNDMODE.mux(
+                FpuRoundMode.RNE -> (False),
+                FpuRoundMode.RTZ -> (True),
+                FpuRoundMode.RDN -> (!merge.VALUE.sign),
+                FpuRoundMode.RUP -> (merge.VALUE.sign),
+                FpuRoundMode.RMM -> (False)
+              )
+              when(doMax){
+                expMax := True
+                manSet := True
+              } otherwise {
+                expSet := True
+                manZero := True
+              }
+            }.elsewhen(EXP_UNDERFLOW){
+              nx := True
+              uf := True
+              val doMin = merge.ROUNDMODE.mux(
+                FpuRoundMode.RNE -> (False),
+                FpuRoundMode.RTZ -> (False),
+                FpuRoundMode.RDN -> (merge.VALUE.sign),
+                FpuRoundMode.RUP -> (!merge.VALUE.sign),
+                FpuRoundMode.RMM -> (False)
+              )
+              when(doMin){
+                expZero := True
+                manOne := True
+              } otherwise {
+                expZero := True
+                manZero := True
+              }
+            }
+          }
         }
+
+        io.ports(0).floatCompletion.valid := isFireing
+        io.ports(0).floatCompletion.flags := FpuFlags().getZero
+        io.ports(0).floatCompletion.robId := merge.ROBID
+        io.ports(0).floatCompletion.value := merge.VALUE.sign ## EXP.raw.resize(11 bits) ## MAN_RESULT
 
         assert(!valid || merge.FORMAT === FpuFormat.DOUBLE)
         when(expZero) {
           io.ports(0).floatCompletion.value(52, 11 bits).clearAll()
         }
-        when(expOne) {
+        when(expSet) {
           io.ports(0).floatCompletion.value(52, 11 bits).setAll()
+        }
+        when(expMax) {
+          io.ports(0).floatCompletion.value(52, 11 bits) := 0x7FE
         }
         when(manZero) {
           io.ports(0).floatCompletion.value(0, 52 bits).clearAll()
+        }
+        when(manOne) {
+          io.ports(0).floatCompletion.value(0, 52 bits) := 1
+        }
+        when(manSet) {
+          io.ports(0).floatCompletion.value(0, 52 bits).setAll()
         }
         when(manQuiet) {
           io.ports(0).floatCompletion.value(51) := True
