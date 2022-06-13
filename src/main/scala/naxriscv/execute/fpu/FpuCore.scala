@@ -451,8 +451,9 @@ case class FpuCore(p : FpuParameter) extends Component{
         val EXP_SUBNORMAL = insert(AFix(muxDouble[SInt](merge.FORMAT)(-1023)(-127)))
         val EXP_DIF = insert(EXP_SUBNORMAL - merge.VALUE.exponent)
         val SUBNORMAL = insert(EXP_DIF.isPositive())
-        val MAN_SHIFT = insert(!SUBNORMAL ?[UInt] 0 | (U(EXP_DIF)+1).resize(log2Up(p.mantissaWidth+2)))
-        val MAN_SHIFTED = insert(U(Shift.rightWithScrap(True ## merge.VALUE.mantissa.raw, MAN_SHIFT)))
+        val MAN_SHIFT_NO_SAT = insert(!SUBNORMAL ?[UInt] 0 | (U(EXP_DIF)+1))
+        val MAN_SHIFT = insert(MAN_SHIFT_NO_SAT.sat(widthOf(MAN_SHIFT_NO_SAT) - log2Up(p.mantissaWidth+2)))
+        val MAN_SHIFTED = insert(U(Shift.rightWithScrap(True ## merge.VALUE.mantissa.raw, MAN_SHIFT).dropHigh(1)))
 
         val f32ManPos = p.mantissaWidth-23
         val roundAdjusted = muxDouble(merge.FORMAT)(MAN_SHIFTED(0, 2 bits))(MAN_SHIFTED(f32ManPos-2, 2 bits) | U(MAN_SHIFTED(f32ManPos-2-1 downto 0).orR, 2 bits))
@@ -468,7 +469,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         val incrBy = muxDouble(merge.FORMAT)(U(ROUNDING_INCR))(U(ROUNDING_INCR) << p.mantissaWidth-23)
         val manIncrWithCarry = (MAN_SHIFTED >> 2) +^ U(ROUNDING_INCR)
         val MAN_CARRY = manIncrWithCarry.msb
-        val MAN_INCR = (manIncrWithCarry.dropHigh(2))
+        val MAN_INCR = (manIncrWithCarry.dropHigh(1))
         val EXP_INCR = merge.VALUE.exponent + AFix(U(MAN_CARRY))
         val EXP_MAX = insert(AFix(muxDouble[SInt](merge.FORMAT)(1023)(127)))
         val EXP_MIN = insert(AFix(muxDouble[SInt](merge.FORMAT)(-1023-52+1)(-127-23+1)))
@@ -526,7 +527,7 @@ case class FpuCore(p : FpuParameter) extends Component{
                 FpuRoundMode.RDN -> (merge.VALUE.sign),
                 FpuRoundMode.RUP -> (!merge.VALUE.sign),
                 FpuRoundMode.RMM -> (False)
-              )
+              ) || ROUNDING_INCR
               when(doMin){
                 expZero := True
                 manOne := True
