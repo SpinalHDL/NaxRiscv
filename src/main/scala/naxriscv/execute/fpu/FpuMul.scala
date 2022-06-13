@@ -7,7 +7,6 @@ import spinal.lib.pipeline._
 class FpuMul(pipeline : Pipeline,
              rs1 : Stageable[FloatUnpacked],
              rs2 : Stageable[FloatUnpacked],
-             resultMantissaWidth : Int,
              splitWidthA : Int,
              splitWidthB : Int,
              sum1WidthMax : Int,
@@ -25,7 +24,6 @@ class FpuMul(pipeline : Pipeline,
     val M2 = insert(U"1" @@ rs2.mantissa.raw.asUInt)
   }
 
-//  val sum1 = new Stage(DIRECT())
   val sum2 = new Area{
     import sum2Stage._
     val EXP_ADD = insert(rs1.exponent + rs2.exponent)
@@ -84,9 +82,7 @@ class FpuMul(pipeline : Pipeline,
       RESULT.setInfinity
     }.elsewhen(FORCE_ZERO) {
       RESULT.setZero
-    } /*elsewhen(forceUnderflow) { //TODO
-      output.exponent := underflowExp.resized
-    }*/
+    }
   }
 }
 

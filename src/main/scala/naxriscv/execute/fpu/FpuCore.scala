@@ -287,7 +287,6 @@ case class FpuCore(p : FpuParameter) extends Component{
         pipeline     = this,
         rs1          = input.RS(0),
         rs2          = input.RS(1),
-        resultMantissaWidth = p.mantissaWidth + 2,
         splitWidthA  = 18,
         splitWidthB  = 18,
         sum1WidthMax = 36,

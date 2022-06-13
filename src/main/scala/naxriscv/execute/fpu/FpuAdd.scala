@@ -17,15 +17,6 @@ class FpuAdd(pipeline : Pipeline,
 
   val preShift = new Area {
     import preShiftStage._
-//    val exp21 = insert(rs2.exponent - rs1.exponent)
-//    val exp12 = insert(rs1.exponent - rs2.exponent)
-//    val expDifAbs = insert(Mux[AFix](exp21.raw.msb, exp12, exp21).asUInt().dropHigh(1).asUInt)
-//    val expDifAbsSat = insert(expDifAbs.sat(widthOf(expDifAbs) - log2Up((rs1.mantissa.bitWidth max rs2.mantissa.bitWidth)*2)))
-//    val rs1ExponentBigger = insert((exp21.raw.msb || rs2.isZero) && !rs1.isZero)
-//    val doSub = rs1.sign ^ rs2.sign
-//    val exp = Mux[AFix](rs1ExponentBigger, rs1.exponent, rs2.exponent)
-//    val mantissaExpMin = rs1.mantissa.exp min rs2.mantissa.exp
-
     val exp21 = insert(rs2.exponent - rs1.exponent)
     val exp12 = insert(rs1.exponent - rs2.exponent)
     val expDifAbs = insert(Mux[AFix](exp21.raw.msb, exp12, exp21).asUInt().dropHigh(1).asUInt)
@@ -41,11 +32,8 @@ class FpuAdd(pipeline : Pipeline,
     import shifterStage._
     val passThrough = /*shiftOverflow || */rs1.isZero || rs2.isZero
     val expDifAbsSat = insert(expDifAbs.sat(widthOf(expDifAbs) - log2Up((rs1.mantissa.bitWidth max rs2.mantissa.bitWidth))).orMask(passThrough))
-//    val shiftOverflow = (shiftBy >= p.internalMantissaSize+1+addExtraBits)
 
     //Assume the shifter can totaly clear things
-
-
     //Note that rs1ExponentBigger can be replaced by absRs1Bigger bellow to avoid xsigned two complement in math block at expense of combinatorial path
     val xySign = insert(absRs1Bigger ? rs1.sign | rs2.sign)
     val xMantissa = insert((absRs1Bigger ? rs1.mantissa | rs2.mantissa) + AFix(1))
@@ -54,43 +42,18 @@ class FpuAdd(pipeline : Pipeline,
     val yMantissa = insert(AFix(shifter.dropLow(1).asUInt, yMantissaUnshifted.exp exp))
     val roundingScrap = shifter.lsb && !passThrough
 
-//    when(passThrough) { yMantissa := 0 }
-//    when(shiftOverflow) { roundingScrap := True }
+
     when(!rs1.isNormal || !rs2.isNormal){ roundingScrap := False }
     val xyExponent = insert(absRs1Bigger ? rs1.exponent | rs2.exponent)
-
-
-//    val rsManExp = rs2.mantissa.exp min rs1.mantissa.exp
-//    val manType = AFix.holding(List(rs1.mantissa, rs2.mantissa))
-//    val manRs1 = insert(rs1.mantissa.toAFix(manType))
-//    val manRs2 = insert(rs2.mantissa.toAFix(manType))
-//    val man1   = insert(Mux[AFix](rs1ExponentBigger, manRs1, manRs2))
-//    val man2PreShift   = insert(Mux[AFix](rs1ExponentBigger, manRs2, manRs1))
-//    val man2 = insert(man2PreShift.resize(manRs1.exp-manRs1.bitWidth exp) >>| AFix(expDifAbsSat, 0 exp))
-//    val sumMax = (rs1.factorMax << (rs1.factorExp - man2.exp)) + (rs2.factorMax << (rs2.factorExp - man2.exp))
   }
   import shifter._
 
   val math = new Area{
     import mathStage._
-
     val ySigned = insert(yMantissa.negate(needSub, plusOneEnable = !roundingScrap))
     val xyMantissa = insert((xMantissa + ySigned).asAlwaysPositive())
     val shiftOh = insert(OHMasking.firstV2(xyMantissa.raw.reversed)) //The OhMasking.first can be processed in parallel to the xyMantissa carry chaine
     val shift   = insert(OHToUInt(shiftOh))
-
-//    val man2Negate = insert(man2.negate(doSub))
-//    val sum12 = insert(man1 + man2Negate)
-//    val sum21 = insert(man2 - man1)
-//    val sumIsPos = insert(sum21.raw.msb)
-////    val sum = insert(AFix(U(sum12.raw.asUInt.dropHigh(1)), exp = sum12.exp)) //Mux[AFix](sumIsPos, sum12, sum12) //TODO manage sub
-//    val sum = Stageable(new AFix(maxValue = sumMax, minValue = 0, exp = sum12.exp))
-//    val pick21 = insert(doSub && !sum21.raw.msb)
-//    when(pick21) {
-//      sum := AFix(U(sum21.raw.asUInt.dropHigh(1)), maxValue = sumMax, 0 exp) >> -sum21.exp
-//    } otherwise {
-//      sum := AFix(U(sum12.raw.asUInt.dropHigh(1)), maxValue = sumMax, 0 exp) >> -sum12.exp
-//    }
   }
   import math._
 
@@ -114,12 +77,6 @@ class FpuAdd(pipeline : Pipeline,
       exponentMin = exponent.minValue.toInt,
       mantissaWidth = mantissa.bitWidth
     ))
-//
-//    RESULT.sign := ((pick21 ^ !rs1ExponentBigger) ? rs2.sign | rs1.sign)
-//    RESULT.exponent := exp
-//    RESULT.mantissa := sum
-//    RESULT.mode := FloatMode.NORMAL
-//    RESULT.quiet := True
 
     RESULT.sign := xySign
     RESULT.mantissa.raw := (mantissa.raw ## roundingScrap).resized
