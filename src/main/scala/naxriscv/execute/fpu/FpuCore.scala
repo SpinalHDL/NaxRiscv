@@ -554,136 +554,135 @@ case class FpuCore(p : FpuParameter) extends Component{
       }
     }
 
-//    val shared = new Pipeline{
-//      val input = new FpuStage{
-//        val CMD = insert(frontend.unpack(frontend.unpack.CMD))
-//        val RS1  = insert(frontend.dispatch(frontend.unpack.rs(0).RS))
-//        val RS2  = insert(frontend.dispatch(frontend.unpack.rs(1).RS))
-//        val hit = List(FpuOpcode.FMV_X_W, FpuOpcode.CMP, FpuOpcode.MIN_MAX).map(CMD.opcode === _).orR
-//        valid := frontend.unpack.isValid && hit
-//        frontend.unpack.haltIt(hit && !isReady)
-//
-//        val toFpuRf = insert(List(FpuOpcode.MIN_MAX, FpuOpcode.SGNJ, FpuOpcode.FCVT_X_X).map(CMD.opcode === _).orR)
-//      }
-//      import input._
-//
-//      val math = new FpuStage(DIRECT()){
-//        val bothZero = RS1.isZero && RS2.isZero
-//        val expEqual = RS1.exponent === RS2.exponent
-//        val rs1Equal = RS1.sign === RS2.sign && expEqual && RS1.mantissa === RS2.mantissa
-//        val rs1ExpSmaller = RS1.exponent < RS2.exponent
-//        val rs1MantissaSmaller = RS1.mantissa < RS2.mantissa
-//        val rs1AbsSmaller = rs1ExpSmaller || expEqual && rs1MantissaSmaller
-//        rs1AbsSmaller.setWhen(RS2.isInfinity)
-//        rs1AbsSmaller.setWhen(RS1.isZero)
-//        rs1AbsSmaller.clearWhen(RS2.isZero)
-//        rs1AbsSmaller.clearWhen(RS1.isInfinity)
-//        rs1Equal setWhen(RS1.sign === RS2.sign && RS1.isInfinity && RS2.isInfinity)
-//        val rs1Smaller = (RS1.sign ## RS2.sign).mux(
-//          0 -> rs1AbsSmaller,
-//          1 -> False,
-//          2 -> True,
-//          3 -> (!rs1AbsSmaller && !rs1Equal)
-//        )
-//
-//
-//        val minMaxSelectRs2 = !(((rs1Smaller ^ CMD.arg(0)) && !RS1.isNan || RS2.isNan))
-//        val minMaxSelectNanQuiet = RS1.isNan && RS2.isNan
-//        val cmpResult = B(rs1Smaller && !bothZero && !CMD.arg(1) || (rs1Equal || bothZero) && !CMD.arg(0))
-//        when(RS1.isNan || RS2.isNan) { cmpResult := 0 }
-//        val sgnjRs1Sign = CombInit(RS1.sign)
-//        val sgnjRs2Sign = CombInit(RS2.sign)
-////        if(p.rvd){
-////          sgnjRs2Sign setWhen(RS2Boxed && input.format === FpuFormat.DOUBLE)
-////        }
-//        val sgnjResult = (sgnjRs1Sign && CMD.arg(1)) ^ sgnjRs2Sign ^ CMD.arg(0)
-//        val fclassResult = B(0, 32 bits)
-//        val expSubnormal = muxDouble[SInt](CMD.format)(-1023)(-127)
-//        val rs1Subnormal = RS1.isNormal && RS1.exponent <= AFix(expSubnormal)
-//        fclassResult(0) :=  RS1.sign && RS1.isInfinity
-//        fclassResult(1) :=  RS1.sign && RS1.isNormal
-//        fclassResult(2) :=  RS1.sign && rs1Subnormal
-//        fclassResult(3) :=  RS1.sign && RS1.isZero
-//        fclassResult(4) := !RS1.sign && RS1.isZero
-//        fclassResult(5) := !RS1.sign && rs1Subnormal
-//        fclassResult(6) := !RS1.sign && RS1.isNormal
-//        fclassResult(7) := !RS1.sign && RS1.isInfinity
-//        fclassResult(8) := RS1.isNan && !RS1.quiet
-//        fclassResult(9) := RS1.isNan &&  RS1.quiet
-//
-//        val intResult = insert(Bits(p.rsIntWidth bits))
-//        switch(input.opcode){
-//          is(FpuOpcode.FMV_X_W) { intResult := recodedResult }
-//          is(FpuOpcode.F2I)     { intResult(31 downto 0) := f2i.result.asBits }
-//          is(FpuOpcode.CMP)     { intResult(31 downto 0) := cmpResult.resized }
-//          is(FpuOpcode.FCLASS)  { intResult(31 downto 0) := fclassResult.resized }
+    val shared = new Pipeline{
+      val input = new FpuStage{
+        val CMD = insert(frontend.dispatch(frontend.unpack.CMD))
+        val RS1  = insert(frontend.dispatch(frontend.unpack.rs(0).RS))
+        val RS2  = insert(frontend.dispatch(frontend.unpack.rs(1).RS))
+        val hit =  List(FpuOpcode.F2I, FpuOpcode.CMP, FpuOpcode.MIN_MAX, FpuOpcode.SGNJ, FpuOpcode.FCLASS, FpuOpcode.FCVT_X_X).map(CMD.opcode === _).orR
+        valid := frontend.dispatch.isValid && hit
+        frontend.dispatch.haltIt(hit && !isReady)
+
+        val toFpuRf = insert(List(FpuOpcode.MIN_MAX, FpuOpcode.SGNJ, FpuOpcode.FCVT_X_X).map(CMD.opcode === _).orR)
+      }
+      import input._
+
+      val math = new FpuStage(DIRECT()){
+
+
+        val bothZero = RS1.isZero && RS2.isZero
+        val expEqual = RS1.exponent === RS2.exponent
+        val rs1Equal = RS1.sign === RS2.sign && expEqual && RS1.mantissa === RS2.mantissa
+        val rs1ExpSmaller = RS1.exponent < RS2.exponent
+        val rs1MantissaSmaller = RS1.mantissa < RS2.mantissa
+        val rs1AbsSmaller = rs1ExpSmaller || expEqual && rs1MantissaSmaller
+        rs1AbsSmaller.setWhen(RS2.isInfinity)
+        rs1AbsSmaller.setWhen(RS1.isZero)
+        rs1AbsSmaller.clearWhen(RS2.isZero)
+        rs1AbsSmaller.clearWhen(RS1.isInfinity)
+        rs1Equal setWhen(RS1.sign === RS2.sign && RS1.isInfinity && RS2.isInfinity)
+        val rs1Smaller = (RS1.sign ## RS2.sign).mux(
+          0 -> rs1AbsSmaller,
+          1 -> False,
+          2 -> True,
+          3 -> (!rs1AbsSmaller && !rs1Equal)
+        )
+
+
+        val minMaxSelectRs2 = !(((rs1Smaller ^ CMD.arg(0)) && !RS1.isNan || RS2.isNan))
+        val minMaxSelectNanQuiet = RS1.isNan && RS2.isNan
+        val cmpResult = B(rs1Smaller && !bothZero && !CMD.arg(1) || (rs1Equal || bothZero) && !CMD.arg(0))
+        when(RS1.isNan || RS2.isNan) { cmpResult := 0 }
+        val sgnjRs1Sign = CombInit(RS1.sign)
+        val sgnjRs2Sign = CombInit(RS2.sign)
+//        if(p.rvd){
+//          sgnjRs2Sign setWhen(RS2Boxed && input.format === FpuFormat.DOUBLE)
 //        }
-//
-//
-//        rfOutput.valid := input.valid && toFpuRf && !halt
-//        rfOutput.source := input.source
-//        rfOutput.rd := input.rd
-//        rfOutput.roundMode := input.roundMode
-//        if(p.withDouble) rfOutput.format := input.format
-//        rfOutput.scrap := False
-//        rfOutput.value.sign     := input.rs1.sign
-//        rfOutput.value.exponent := input.rs1.exponent
-//        rfOutput.value.mantissa := input.rs1.mantissa @@ U"0"
-//        rfOutput.value.special  := input.rs1.special
-//
-//        switch(input.opcode){
-//          is(FpuOpcode.MIN_MAX){
-//            when(minMaxSelectRs2) {
-//              rfOutput.value.sign := input.rs2.sign
-//              rfOutput.value.exponent := input.rs2.exponent
-//              rfOutput.value.mantissa := input.rs2.mantissa @@ U"0"
-//              rfOutput.value.special := input.rs2.special
-//            }
-//            when(minMaxSelectNanQuiet){
-//              rfOutput.value.setNanQuiet
-//            }
-//          }
-//          is(FpuOpcode.SGNJ){
-//            when(!input.rs1.isNan) {
-//              rfOutput.value.sign := sgnjResult
-//            }
+        val sgnjResult = (sgnjRs1Sign && CMD.arg(1)) ^ sgnjRs2Sign ^ CMD.arg(0)
+        val fclassResult = B(0, 32 bits)
+        val expSubnormal = muxDouble[SInt](CMD.format)(-1023)(-127)
+        val rs1Subnormal = RS1.isNormal && RS1.exponent <= AFix(expSubnormal)
+        fclassResult(0) :=  RS1.sign && RS1.isInfinity
+        fclassResult(1) :=  RS1.sign && RS1.isNormal
+        fclassResult(2) :=  RS1.sign && rs1Subnormal
+        fclassResult(3) :=  RS1.sign && RS1.isZero
+        fclassResult(4) := !RS1.sign && RS1.isZero
+        fclassResult(5) := !RS1.sign && rs1Subnormal
+        fclassResult(6) := !RS1.sign && RS1.isNormal
+        fclassResult(7) := !RS1.sign && RS1.isInfinity
+        fclassResult(8) := RS1.isNan && !RS1.quiet
+        fclassResult(9) := RS1.isNan &&  RS1.quiet
+
+        val intResult = insert(B(0, p.rsIntWidth bits))
+        switch(CMD.opcode){
+//          is(FpuOpcode.F2I)     { intResult := f2i.result.asBits }
+          is(FpuOpcode.CMP)     { intResult := cmpResult.resized }
+          is(FpuOpcode.FCLASS)  { intResult := fclassResult.resized }
+        }
+
+        val wb = Stream(FpuIntWriteBack(p.robIdWidth, p.rsIntWidth))
+        wb.valid := valid && !toFpuRf
+        wb.flags.clear()
+        wb.value := intResult
+        wb.robId := input.CMD.robId
+        
+        val merge = Stream(MergeInput(
+          FloatUnpacked(
+            exponentMax = RS1.exponentMax,
+            exponentMin = RS1.exponentMin,
+            mantissaWidth = p.mantissaWidth+2
+          )
+        ))
+
+        merge.valid := input.valid && toFpuRf
+        merge.NV := False
+        merge.DZ := False
+        merge.format    := CMD.format
+        merge.roundMode := CMD.roundMode
+        merge.robId     := CMD.robId
+
+        merge.value.quiet    := RS1.quiet
+        merge.value.sign     := RS1.sign
+        merge.value.exponent := RS1.exponent
+        merge.value.mantissa := RS1.mantissa
+        merge.value.mode     := RS1.mode
+
+        switch(CMD.opcode){
+          is(FpuOpcode.MIN_MAX){
+            merge.value.quiet   clearWhen(!RS2.quiet)
+            when(minMaxSelectRs2) {
+              merge.value.sign     := RS2.sign
+              merge.value.exponent := RS2.exponent
+              merge.value.mantissa := RS2.mantissa
+              merge.value.mode     := RS2.mode
+            }
+            when(minMaxSelectNanQuiet){
+              merge.value.setNanQuiet
+            }
+          }
+          is(FpuOpcode.SGNJ){
+            merge.value.quiet   clearWhen(!RS2.quiet)
+            when(!RS1.isNan) {
+              merge.value.sign := sgnjResult
+            }
 //            if(p.withDouble) when(input.rs1Boxed && input.format === FpuFormat.DOUBLE){
-//              rfOutput.value.sign := input.rs1.sign
-//              rfOutput.format := FpuFormat.FLOAT
+//              merge.value.sign := input.rs1.sign
+//              merge.format := FpuFormat.FLOAT
 //            }
-//          }
-//          if(p.withDouble) is(FpuOpcode.FCVT_X_X){
-//            rfOutput.format := ((input.format === FpuFormat.FLOAT) ? FpuFormat.DOUBLE | FpuFormat.FLOAT)
-//            when(input.rs1.isNan){
-//              rfOutput.value.setNanQuiet
-//            }
-//          }
-//        }
-//
-//      }
-//      import math._
-//
-//      val result = new FpuStage(DIRECT()){
-//        val wb = Stream(FpuIntWriteBack(p.robIdWidth, p.rsIntWidth))
-//        wb.valid := valid && !toFpuRf
-//        wb.flags.clear()
-//        wb.value := input.RS
-//        wb.robId := input.CMD.robId
-//
-//        val merge = Stream(MergeInput(
-//          FloatUnpacked(
-//            exponentMax = EXP.maxRaw.toInt,
-//            exponentMin = EXP.minRaw.toInt,
-//            mantissaWidth = p.mantissaWidth+2
-//          )
-//        ))
-//
-//        merge.valid := valid && toFpuRf
-//
-//        haltIt(wb.ready || merge.isStall)
-//
-//      }
-//    }
+          }
+          if(p.rvd) is(FpuOpcode.FCVT_X_X){
+            merge.format := ((CMD.format === FpuFormat.FLOAT) ? FpuFormat.DOUBLE | FpuFormat.FLOAT)
+            when(RS1.isNan){
+              merge.value.setNanQuiet
+            }
+          }
+        }
+
+
+        haltIt(wb.ready || merge.isStall)
+      }
+      import math._
+    }
 
 //    val cmp = new Pipeline{
 //      val input = new FpuStage{
@@ -727,6 +726,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         if(p.withAdd) inputs += add.resultStage.stream
         if(p.withDiv) inputs += div.result.merge
         if(p.withSqrt) inputs += sqrt.result.merge
+        inputs += shared.math.merge
         val exponentMin = inputs.map(_.value.exponentMin).min
         val exponentMax = inputs.map(_.value.exponentMax).max
         val remapped = inputs.map{e =>
@@ -882,6 +882,7 @@ case class FpuCore(p : FpuParameter) extends Component{
     val backend = new Pipeline {
       val inputs = ArrayBuffer[Stream[FpuIntWriteBack]]()
       inputs += flt.f2x.result.wb
+      inputs += flt.shared.math.wb
       io.ports(0).intWriteback << StreamArbiterFactory.lowerFirst.noLock.on(inputs)
     }
   }
@@ -893,6 +894,7 @@ case class FpuCore(p : FpuParameter) extends Component{
   if(p.withAdd) flt.add.build()
   if(p.withDiv) flt.div.build()
   if(p.withSqrt) flt.sqrt.build()
+  flt.shared.build()
   flt.f2x.build()
   flt.backend.build()
 }

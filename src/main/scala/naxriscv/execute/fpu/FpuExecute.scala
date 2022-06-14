@@ -89,6 +89,7 @@ class FpuExecute(euId : String) extends Plugin{
 - FpuWriteback better wakeups (anticipate timings, shave cycles, register file bypass)
 - Test pipeline flush integration !!!
 - do not report quiet nan ? (merge.NV := !RS.quiet)
+- Implement nan boxing in the rounding logic
  */
 
 
