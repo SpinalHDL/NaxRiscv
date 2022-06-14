@@ -54,7 +54,7 @@ case class FpuParameter(rvd : Boolean,
 }
 
 object FpuOpcode extends SpinalEnum{
-  val LOAD, STORE, MUL, ADD, FMA, I2F, F2I, CMP, DIV, SQRT, MIN_MAX, SGNJ, FMV_X_W, FMV_W_X, FCLASS, FCVT_X_X = newElement()
+  val MUL, ADD, FMA, I2F, F2I, CMP, DIV, SQRT, MIN_MAX, SGNJ, FMV_X_W, FMV_W_X, FCLASS, FCVT_X_X = newElement()
 }
 
 object FpuFormat extends SpinalEnum{

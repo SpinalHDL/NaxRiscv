@@ -47,6 +47,7 @@ class FpuExecute(euId : String) extends Plugin{
     add(Rvfd.FSUB_D,  DecodeList(OPCODE -> FpuOpcode.ADD, FORMAT -> FpuFormat.DOUBLE, arg(1)))
     add(Rvfd.FMADD_D, DecodeList(OPCODE -> FpuOpcode.FMA, FORMAT -> FpuFormat.DOUBLE, arg(0)))
     add(Rvfd.FDIV_D,  DecodeList(OPCODE -> FpuOpcode.DIV, FORMAT -> FpuFormat.DOUBLE))
+    add(Rvfd.FSQRT_D, DecodeList(OPCODE -> FpuOpcode.SQRT, FORMAT -> FpuFormat.DOUBLE))
     add(Rvfd.FMV_X_D, DecodeList(OPCODE -> FpuOpcode.FMV_X_W, FORMAT -> FpuFormat.DOUBLE))
 
 
@@ -87,6 +88,7 @@ class FpuExecute(euId : String) extends Plugin{
 - Do not track renaming of RS3 for the integer regfile
 - FpuWriteback better wakeups (anticipate timings, shave cycles, register file bypass)
 - Test pipeline flush integration !!!
+- do not report quiet nan ? (merge.NV := !RS.quiet)
  */
 
 
