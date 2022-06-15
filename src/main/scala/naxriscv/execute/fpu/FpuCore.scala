@@ -30,7 +30,10 @@ case class FpuCore(p : FpuParameter) extends Component{
     if(p.rvd) ((format === FpuFormat.DOUBLE) ? { yes } | { no })
     else no
   }
-
+  def muxDouble[T <: Data](format : Bool)(yes : => T)(no : => T): T ={
+    if(p.rvd) ((format) ? { yes } | { no })
+    else no
+  }
 
   class FpuStage(implicit _pip: Pipeline = null)  extends Stage {
     assert(p.portCount == 1)
@@ -601,21 +604,73 @@ case class FpuCore(p : FpuParameter) extends Component{
         val sgnjResult = (sgnjRs1Sign && CMD.arg(1)) ^ sgnjRs2Sign ^ CMD.arg(0)
         val fclassResult = B(0, 32 bits)
         val expSubnormal = muxDouble[SInt](CMD.format)(-1023)(-127)
-        val rs1Subnormal = RS1.isNormal && RS1.exponent <= AFix(expSubnormal)
+        val rs1SubnormalExp = RS1.isNormal && RS1.exponent <= AFix(expSubnormal)
         fclassResult(0) :=  RS1.sign && RS1.isInfinity
-        fclassResult(1) :=  RS1.sign && RS1.isNormal
-        fclassResult(2) :=  RS1.sign && rs1Subnormal
+        fclassResult(1) :=  RS1.sign && RS1.isNormal && !rs1SubnormalExp
+        fclassResult(2) :=  RS1.sign && RS1.isNormal &&  rs1SubnormalExp
         fclassResult(3) :=  RS1.sign && RS1.isZero
         fclassResult(4) := !RS1.sign && RS1.isZero
-        fclassResult(5) := !RS1.sign && rs1Subnormal
-        fclassResult(6) := !RS1.sign && RS1.isNormal
+        fclassResult(5) := !RS1.sign && RS1.isNormal &&  rs1SubnormalExp
+        fclassResult(6) := !RS1.sign && RS1.isNormal && !rs1SubnormalExp
         fclassResult(7) := !RS1.sign && RS1.isInfinity
         fclassResult(8) := RS1.isNan && !RS1.quiet
         fclassResult(9) := RS1.isNan &&  RS1.quiet
 
+
+
+        val rspNv = False
+        val rspNx = False
+
+        val f2i = new Area{
+          val shiftFull = AFix(p.rsIntWidth-1) - RS1.exponent
+          val shift = U(shiftFull.raw).sat(widthOf(shiftFull.raw) - log2Up(p.rsIntWidth)-1)
+          val shifterWidth = (p.rsIntWidth+2) max (p.mantissaWidth+2)
+          val shifter = Shift.rightWithScrap(True ## RS1.mantissa.raw ## B(0, shifterWidth-1-p.mantissaWidth bits), shift)
+          val (high, low) = shifter.splitAt(shifterWidth-p.rsIntWidth)
+          val unsigned = U(high)
+          val round = low.msb ## low.dropHigh(1).orR
+          val resign = CMD.arg(0) && RS1.sign
+          val increment = CMD.roundMode.mux(
+            FpuRoundMode.RNE -> (round(1) && (round(0) || unsigned(0))),
+            FpuRoundMode.RTZ -> False,
+            FpuRoundMode.RDN -> (round =/= 0 &&  RS1.sign),
+            FpuRoundMode.RUP -> (round =/= 0 && !RS1.sign),
+            FpuRoundMode.RMM -> (round(1))
+          )
+          val resultRaw = (Mux(resign, ~unsigned, unsigned) + (resign ^ increment).asUInt)
+          val expMax = (CMD.arg(1) ? AFix(62) | AFix(30)) + AFix(!CMD.arg(0))
+          val expMin = (CMD.arg(1) ? AFix(63) | AFix(31))
+          val unsignedMin = muxDouble[UInt](CMD.arg(1)) (BigInt(1) << 63) (BigInt(1) << 31)
+          val overflow  = (RS1.exponent > expMax || RS1.isInfinity) && !RS1.sign || RS1.isNan
+          val underflow = (RS1.exponent > expMin || CMD.arg(0) && RS1.exponent === expMin && (unsigned =/= unsignedMin || increment) || !CMD.arg(0) && (unsigned =/= 0 || increment) || RS1.isInfinity) && RS1.sign
+          val isZero = RS1.isZero
+          if(p.rvd && p.rsIntWidth < p.mantissaWidth+1){
+            ???
+//            overflow setWhen(!RS1.sign && increment && unsigned(30 downto 0).andR && (CMD.arg(0) || unsigned(31)))
+          }
+          when(isZero){
+            resultRaw := 0
+          } elsewhen(underflow || overflow) {
+            val low = overflow
+            val high = CMD.arg(0) ^ overflow
+            resultRaw := (31 -> high, default -> low)
+            if(p.rsIntWidth == 64) when(CMD.arg(1)){
+              resultRaw := (63 -> high, default -> low)
+            }
+            rspNv := input.valid && CMD.opcode === FpuOpcode.F2I && !isZero
+          } otherwise {
+            rspNx := input.valid && CMD.opcode === FpuOpcode.F2I &&  round =/= 0
+          }
+          val result = CombInit(resultRaw)
+          if(p.rsIntWidth == 64) when(!CMD.arg(1)){
+            result(63 downto 32) := (default -> resultRaw(31))
+          }
+        }
+
+
         val intResult = insert(B(0, p.rsIntWidth bits))
         switch(CMD.opcode){
-//          is(FpuOpcode.F2I)     { intResult := f2i.result.asBits }
+          is(FpuOpcode.F2I)     { intResult := f2i.result.asBits }
           is(FpuOpcode.CMP)     { intResult := cmpResult.resized }
           is(FpuOpcode.FCLASS)  { intResult := fclassResult.resized }
         }
@@ -679,7 +734,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         }
 
 
-        haltIt(wb.ready || merge.isStall)
+        haltIt(wb.isStall || merge.isStall)
       }
       import math._
     }
@@ -744,6 +799,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         val FORMAT    = insert(arbitrated.format)
         val ROUNDMODE = insert(arbitrated.roundMode)
         val ROBID     = insert(arbitrated.robId)
+        val OPCODE    = insert(arbitrated.opcode)
         val NV        = insert(arbitrated.NV)
         val DZ        = insert(arbitrated.DZ)
         valid := arbitrated.valid
@@ -800,6 +856,7 @@ case class FpuCore(p : FpuParameter) extends Component{
             manZero := True
           }
           is(FloatMode.NAN){
+//            when(OPCODE =/= FpuOpcode.S)
             positive := True
             expSet := True
             manZero := True

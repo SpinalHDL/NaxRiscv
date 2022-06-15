@@ -42,15 +42,56 @@ class FpuExecute(euId : String) extends Plugin{
       eu.addDecoding(microOp, decoding :+ (SEL -> True))
     }
     def arg(v : Int) = ARG -> B(v, 2 bits)
-    add(Rvfd.FMUL_D,  DecodeList(OPCODE -> FpuOpcode.MUL, FORMAT -> FpuFormat.DOUBLE))
-    add(Rvfd.FADD_D,  DecodeList(OPCODE -> FpuOpcode.ADD, FORMAT -> FpuFormat.DOUBLE, arg(0)))
-    add(Rvfd.FSUB_D,  DecodeList(OPCODE -> FpuOpcode.ADD, FORMAT -> FpuFormat.DOUBLE, arg(1)))
-    add(Rvfd.FMADD_D, DecodeList(OPCODE -> FpuOpcode.FMA, FORMAT -> FpuFormat.DOUBLE, arg(0)))
-    add(Rvfd.FDIV_D,  DecodeList(OPCODE -> FpuOpcode.DIV, FORMAT -> FpuFormat.DOUBLE))
-    add(Rvfd.FSQRT_D, DecodeList(OPCODE -> FpuOpcode.SQRT, FORMAT -> FpuFormat.DOUBLE))
-    add(Rvfd.FMV_X_D, DecodeList(OPCODE -> FpuOpcode.FMV_X_W, FORMAT -> FpuFormat.DOUBLE))
+    def op(v : FpuOpcode.E) = OPCODE -> v
+    val f64 = FORMAT -> FpuFormat.DOUBLE
+    val f32 = FORMAT -> FpuFormat.FLOAT
 
+    import FpuOpcode._
 
+    add(Rvfd.FMV_X_W  , DecodeList(op(FMV_X_W), f32))
+
+    if(RVD){
+      add(Rvfd.FADD_D   , DecodeList(op(ADD)     , f64, arg(0)))
+      add(Rvfd.FSUB_D   , DecodeList(op(ADD)     , f64, arg(1)))
+      add(Rvfd.FMUL_D   , DecodeList(op(MUL)     , f64))
+      add(Rvfd.FDIV_D   , DecodeList(op(DIV)     , f64))
+      add(Rvfd.FSQRT_D  , DecodeList(op(SQRT)    , f64))
+
+      add(Rvfd.FMADD_D  , DecodeList(op(FMA)     , f64, arg(0)))
+      add(Rvfd.FMSUB_D  , DecodeList(op(FMA)     , f64, arg(2)))
+      add(Rvfd.FNMADD_D , DecodeList(op(FMA)     , f64, arg(3)))
+      add(Rvfd.FNMSUB_D , DecodeList(op(FMA)     , f64, arg(1)))
+
+      add(Rvfd.FSGNJ_D  , DecodeList(op(SGNJ)    , f64, arg(0)))
+      add(Rvfd.FSGNJN_D , DecodeList(op(SGNJ)    , f64, arg(1)))
+      add(Rvfd.FSGNJX_D , DecodeList(op(SGNJ)    , f64, arg(2)))
+
+      add(Rvfd.FMIN_D   , DecodeList(op(MIN_MAX) , f64, arg(0)))
+      add(Rvfd.FMAX_D   , DecodeList(op(MIN_MAX) , f64, arg(1)))
+
+      add(Rvfd.FLE_D    , DecodeList(op(CMP)     , f64, arg(0)))
+      add(Rvfd.FEQ_D    , DecodeList(op(CMP)     , f64, arg(2)))
+      add(Rvfd.FLT_D    , DecodeList(op(CMP)     , f64, arg(1)))
+
+      add(Rvfd.FCLASS_D , DecodeList(op(FCLASS)  , f64))
+
+      add(Rvfd.FCVT_D_WU, DecodeList(op(I2F)     , f64, arg(0)))
+      add(Rvfd.FCVT_D_W , DecodeList(op(I2F)     , f64, arg(1)))
+      add(Rvfd.FCVT_WU_D, DecodeList(op(F2I)     , f64, arg(0)))
+      add(Rvfd.FCVT_W_D , DecodeList(op(F2I)     , f64, arg(1)))
+      add(Rvfd.FCVT_D_S , DecodeList(op(FCVT_X_X), f32))
+      add(Rvfd.FCVT_S_D , DecodeList(op(FCVT_X_X), f64))
+
+      if(XLEN.get == 64){
+        add(Rvfd.FMV_X_D  , DecodeList(op(FMV_X_W), f64))
+        add(Rvfd.FMV_D_X  , DecodeList(op(FMV_W_X), f64))
+
+        add(Rvfd.FCVT_D_LU, DecodeList(op(I2F)    , f64, arg(2)))
+        add(Rvfd.FCVT_D_L , DecodeList(op(I2F)    , f64, arg(3)))
+        add(Rvfd.FCVT_LU_D, DecodeList(op(F2I)    , f64, arg(2)))
+        add(Rvfd.FCVT_L_D , DecodeList(op(F2I)    , f64, arg(3)))
+      }
+    }
 
     val floatCmd = master(Stream(FpuFloatCmd(RVD, ROB.ID_WIDTH)))
   }

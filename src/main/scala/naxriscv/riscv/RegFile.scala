@@ -72,7 +72,10 @@ object FloatRegFile extends RegfileSpec with AreaObject {
     key = key,
     resources = List(RS1, RS2, RS3, RD).map(this -> _)
   )
-
+  def TypeR1(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(RS1, RD).map(this -> _)
+  )
 
   def TypeILQ(key : MaskedLiteral) = SingleDecoding(
     key = key,
@@ -86,5 +89,13 @@ object FloatRegFile extends RegfileSpec with AreaObject {
   def TypeF2I(key : MaskedLiteral) = SingleDecoding(
     key = key,
     resources = List(this -> RS1, IntRegFile -> RD)
+  )
+  def TypeI2F(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(IntRegFile -> RS1, this -> RD)
+  )
+  def TypeFCI(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(this -> RS1, this -> RS2, IntRegFile -> RD)
   )
 }
