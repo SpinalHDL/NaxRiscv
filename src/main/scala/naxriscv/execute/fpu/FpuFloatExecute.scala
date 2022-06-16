@@ -13,15 +13,15 @@ import spinal.lib.pipeline._
 
 import scala.collection.mutable.ArrayBuffer
 
-object FpuExecute extends AreaObject {
+object FpuFloatExecute extends AreaObject {
   val SEL = Stageable(Bool())
   val OPCODE = Stageable(FpuOpcode())
   val FORMAT = Stageable(FpuFormat())
   val ARG    = Stageable(Bits(2 bits))
 }
 
-class FpuExecute(euId : String) extends Plugin{
-  import FpuExecute._
+class FpuFloatExecute(euId : String) extends Plugin{
+  import FpuFloatExecute._
 
   create config{
     RVF.set(true)
@@ -75,8 +75,6 @@ class FpuExecute(euId : String) extends Plugin{
 
       add(Rvfd.FCLASS_D , DecodeList(op(FCLASS)  , f64))
 
-      add(Rvfd.FCVT_D_WU, DecodeList(op(I2F)     , f64, arg(0)))
-      add(Rvfd.FCVT_D_W , DecodeList(op(I2F)     , f64, arg(1)))
       add(Rvfd.FCVT_WU_D, DecodeList(op(F2I)     , f64, arg(0)))
       add(Rvfd.FCVT_W_D , DecodeList(op(F2I)     , f64, arg(1)))
       add(Rvfd.FCVT_D_S , DecodeList(op(FCVT_X_X), f32))
@@ -84,10 +82,7 @@ class FpuExecute(euId : String) extends Plugin{
 
       if(XLEN.get == 64){
         add(Rvfd.FMV_X_D  , DecodeList(op(FMV_X_W), f64))
-        add(Rvfd.FMV_D_X  , DecodeList(op(FMV_W_X), f64))
 
-        add(Rvfd.FCVT_D_LU, DecodeList(op(I2F)    , f64, arg(2)))
-        add(Rvfd.FCVT_D_L , DecodeList(op(I2F)    , f64, arg(3)))
         add(Rvfd.FCVT_LU_D, DecodeList(op(F2I)    , f64, arg(2)))
         add(Rvfd.FCVT_L_D , DecodeList(op(F2I)    , f64, arg(3)))
       }
@@ -103,7 +98,7 @@ class FpuExecute(euId : String) extends Plugin{
 
     val forked = RegInit(False) setWhen(setup.floatCmd.fire) clearWhen(!isStuck)
     haltIt(setup.floatCmd.isStall)
-    setup.floatCmd.valid := isValid && FpuExecute.SEL && !forked
+    setup.floatCmd.valid := isValid && FpuFloatExecute.SEL && !forked
     setup.floatCmd.opcode    := OPCODE
     setup.floatCmd.arg       := ARG
     setup.floatCmd.rs(0)     := eu.apply(FloatRegFile, RS1)
@@ -131,6 +126,7 @@ class FpuExecute(euId : String) extends Plugin{
 - Test pipeline flush integration !!!
 - do not report quiet nan ? (merge.NV := !RS.quiet)
 - Implement nan boxing in the rounding logic
+- fmv.s.x
  */
 
 

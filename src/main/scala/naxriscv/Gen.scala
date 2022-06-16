@@ -276,12 +276,15 @@ object Config{
 
     if(fpu){
       plugins += new ExecutionUnitBase("FPU0", writebackCountMax = 0, readPhysRsFromQueue = true)
-      plugins += new FpuExecute("FPU0")
+      plugins += new FpuFloatExecute("FPU0")
       plugins += new RegFilePlugin(
         spec = riscv.FloatRegFile,
         physicalDepth = 64,
         bankCount = 1
       )
+
+
+      plugins += new FpuIntegerExecute("EU0")
 
       plugins += new RfAllocationPlugin(riscv.FloatRegFile)
       plugins += new RfTranslationPlugin(riscv.FloatRegFile)

@@ -1863,6 +1863,7 @@ void simLoop(){
             if(main_time < 11 && startPc != 0x80000000) top->NaxRiscv->PcPlugin_logic_fetchPc_pcReg = startPc;
             if(!top->clk){
                 top->eval();
+                if(Verilated::gotFinish()) failure();
             } else {
                 for(SimElement* simElement : simElements) if(!top->reset || simElement->withoutReset) simElement->preCycle();
                 if(!top->reset) {
@@ -1960,6 +1961,7 @@ void simLoop(){
                     if(spike_enabled) spikeSyncTrap();
                 }
                 top->eval();
+                if(Verilated::gotFinish()) failure();
                 for(SimElement* simElement : simElements) if(!top->reset || simElement->withoutReset) simElement->postCycle();
             }
         }

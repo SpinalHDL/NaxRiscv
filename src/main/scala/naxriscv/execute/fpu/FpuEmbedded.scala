@@ -14,11 +14,11 @@ class FpuEmbedded extends Plugin {
   }
 
   val logic = create late new Area{
-    val floatCmd = getService[FpuExecute].setup.floatCmd.setAsDirectionLess
+    val floatCmd = getService[FpuFloatExecute].setup.floatCmd.setAsDirectionLess
+    val intCmd = getService[FpuIntegerExecute].setup.intCmd.setAsDirectionLess
     val wb = getService[FpuWriteback]
     val floatCompletion = wb.setup.floatCompletion.setAsDirectionLess
     val integerWriteback = wb.setup.integerWriteback.setAsDirectionLess
-
 
     val core = FpuCore(FpuParameter(
       rvd        = RVD,
@@ -31,9 +31,11 @@ class FpuEmbedded extends Plugin {
 
     val port = core.io.ports(0)
     port.floatCmd << floatCmd
-    port.floatCompletion >> floatCompletion
+    port.intCmd << intCmd
+    port.floatWriteback >> floatCompletion
     port.intWriteback >> integerWriteback
     port.unschedule := getService[FpuWriteback].setup.unschedule
+
 
 //    val result = floatCmd.stage().stage().stage().toFlow
 //    floatCompletion.valid := result.valid
