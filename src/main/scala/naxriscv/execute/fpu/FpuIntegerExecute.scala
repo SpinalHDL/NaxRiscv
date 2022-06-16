@@ -38,6 +38,14 @@ class FpuIntegerExecute(euId : String) extends Plugin{
 
     add(Rvfd.FMV_W_X  , DecodeList(op(FMV_W_X), f32))
 
+    add(Rvfd.FCVT_S_WU, DecodeList(op(I2F)     , f32, arg(0)))
+    add(Rvfd.FCVT_S_W , DecodeList(op(I2F)     , f32, arg(1)))
+
+    if(XLEN.get == 64){
+      add(Rvfd.FCVT_S_LU, DecodeList(op(I2F)    , f32, arg(2)))
+      add(Rvfd.FCVT_S_L , DecodeList(op(I2F)    , f32, arg(3)))
+    }
+
     if(RVD){
       add(Rvfd.FCVT_D_WU, DecodeList(op(I2F)     , f64, arg(0)))
       add(Rvfd.FCVT_D_W , DecodeList(op(I2F)     , f64, arg(1)))

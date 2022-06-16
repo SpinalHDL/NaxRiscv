@@ -50,6 +50,38 @@ class FpuFloatExecute(euId : String) extends Plugin{
 
     add(Rvfd.FMV_X_W  , DecodeList(op(FMV_X_W), f32))
 
+    add(Rvfd.FADD_S   , DecodeList(op(ADD)     , f32, arg(0)))
+    add(Rvfd.FSUB_S   , DecodeList(op(ADD)     , f32, arg(1)))
+    add(Rvfd.FMUL_S   , DecodeList(op(MUL)     , f32))
+    add(Rvfd.FDIV_S   , DecodeList(op(DIV)     , f32))
+    add(Rvfd.FSQRT_S  , DecodeList(op(SQRT)    , f32))
+
+    add(Rvfd.FMADD_S  , DecodeList(op(FMA)     , f32, arg(0)))
+    add(Rvfd.FMSUB_S  , DecodeList(op(FMA)     , f32, arg(2)))
+    add(Rvfd.FNMADD_S , DecodeList(op(FMA)     , f32, arg(3)))
+    add(Rvfd.FNMSUB_S , DecodeList(op(FMA)     , f32, arg(1)))
+
+    add(Rvfd.FSGNJ_S  , DecodeList(op(SGNJ)    , f32, arg(0)))
+    add(Rvfd.FSGNJN_S , DecodeList(op(SGNJ)    , f32, arg(1)))
+    add(Rvfd.FSGNJX_S , DecodeList(op(SGNJ)    , f32, arg(2)))
+
+    add(Rvfd.FMIN_S   , DecodeList(op(MIN_MAX) , f32, arg(0)))
+    add(Rvfd.FMAX_S   , DecodeList(op(MIN_MAX) , f32, arg(1)))
+
+    add(Rvfd.FLE_S    , DecodeList(op(CMP)     , f32, arg(0)))
+    add(Rvfd.FEQ_S    , DecodeList(op(CMP)     , f32, arg(2)))
+    add(Rvfd.FLT_S    , DecodeList(op(CMP)     , f32, arg(1)))
+
+    add(Rvfd.FCLASS_S , DecodeList(op(FCLASS)  , f32))
+
+    add(Rvfd.FCVT_WU_S, DecodeList(op(F2I)     , f32, arg(0)))
+    add(Rvfd.FCVT_W_S , DecodeList(op(F2I)     , f32, arg(1)))
+
+    if(XLEN.get == 64){
+      add(Rvfd.FCVT_LU_S, DecodeList(op(F2I)    , f32, arg(2)))
+      add(Rvfd.FCVT_L_S , DecodeList(op(F2I)    , f32, arg(3)))
+    }
+    
     if(RVD){
       add(Rvfd.FADD_D   , DecodeList(op(ADD)     , f64, arg(0)))
       add(Rvfd.FSUB_D   , DecodeList(op(ADD)     , f64, arg(1)))
