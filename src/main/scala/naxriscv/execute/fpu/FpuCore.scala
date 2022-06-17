@@ -249,6 +249,13 @@ case class FpuCore(p : FpuParameter) extends Component{
             }
             haltWhen(valid && !served)
           }
+
+          if(p.rvd) when(!input(63 downto 32).andR){
+            RS.setNanQuiet
+            RS.sign := False
+            RS.exponent := AFix(128)
+            RS.mantissa.raw := (default -> False, RS.mantissa.raw.high -> True)
+          }
         }
       }
 
