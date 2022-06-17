@@ -57,9 +57,9 @@ class FpuFloatExecute(euId : String) extends Plugin{
     add(Rvfd.FSQRT_S  , DecodeList(op(SQRT)    , f32))
 
     add(Rvfd.FMADD_S  , DecodeList(op(FMA)     , f32, arg(0)))
-    add(Rvfd.FMSUB_S  , DecodeList(op(FMA)     , f32, arg(2)))
+    add(Rvfd.FMSUB_S  , DecodeList(op(FMA)     , f32, arg(1)))
     add(Rvfd.FNMADD_S , DecodeList(op(FMA)     , f32, arg(3)))
-    add(Rvfd.FNMSUB_S , DecodeList(op(FMA)     , f32, arg(1)))
+    add(Rvfd.FNMSUB_S , DecodeList(op(FMA)     , f32, arg(2)))
 
     add(Rvfd.FSGNJ_S  , DecodeList(op(SGNJ)    , f32, arg(0)))
     add(Rvfd.FSGNJN_S , DecodeList(op(SGNJ)    , f32, arg(1)))
@@ -90,9 +90,9 @@ class FpuFloatExecute(euId : String) extends Plugin{
       add(Rvfd.FSQRT_D  , DecodeList(op(SQRT)    , f64))
 
       add(Rvfd.FMADD_D  , DecodeList(op(FMA)     , f64, arg(0)))
-      add(Rvfd.FMSUB_D  , DecodeList(op(FMA)     , f64, arg(2)))
+      add(Rvfd.FMSUB_D  , DecodeList(op(FMA)     , f64, arg(1)))
       add(Rvfd.FNMADD_D , DecodeList(op(FMA)     , f64, arg(3)))
-      add(Rvfd.FNMSUB_D , DecodeList(op(FMA)     , f64, arg(1)))
+      add(Rvfd.FNMSUB_D , DecodeList(op(FMA)     , f64, arg(2)))
 
       add(Rvfd.FSGNJ_D  , DecodeList(op(SGNJ)    , f64, arg(0)))
       add(Rvfd.FSGNJN_D , DecodeList(op(SGNJ)    , f64, arg(1)))

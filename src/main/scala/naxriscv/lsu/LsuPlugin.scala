@@ -4,7 +4,7 @@ import naxriscv.Frontend.{DECODE_COUNT, DISPATCH_COUNT, DISPATCH_MASK}
 import naxriscv.{Fetch, Frontend, Global, ROB}
 import naxriscv.frontend.{DispatchPlugin, FrontendPlugin, RfDependencyPlugin}
 import naxriscv.interfaces._
-import naxriscv.riscv.{AtomicAlu, CSR, IntRegFile, Rvi}
+import naxriscv.riscv.{AtomicAlu, CSR, FloatRegFile, IntRegFile, Rvi}
 import naxriscv.utilities.{AddressToMask, DocPlugin, Plugin}
 import spinal.core._
 import spinal.lib._
@@ -912,11 +912,6 @@ class LsuPlugin(var lqSize: Int,
             val off = (1 << i) * 8
             i -> B((XLEN.get - 1 downto off) -> (rspShifted(off-1) && !rspUnsigned), (off-1 downto 0) -> rspShifted(off-1 downto 0))
           })
-//          val rspFormated = rspSize.mux(
-//            0 -> B((31 downto 8) -> (rspShifted(7) && !rspUnsigned),(7 downto 0) -> rspShifted(7 downto 0)),
-//            1 -> B((31 downto 16) -> (rspShifted(15) && !rspUnsigned),(15 downto 0) -> rspShifted(15 downto 0)),
-//            default -> rspShifted //W
-//          )
 
 
           for((spec, regfile) <- setup.regfilePorts) {
@@ -924,6 +919,10 @@ class LsuPlugin(var lqSize: Int,
             regfile.write.address := decoder.PHYS_RD
             regfile.write.data    := rspFormated
             regfile.write.robId   := ROB.ID
+
+            if(RVD && spec == FloatRegFile) when(stage(SIZE) === 2){
+              regfile.write.data(63 downto 32).setAll()
+            }
           }
 
           LOAD_WRITE_FAILURE := specialOverride && !tpk.IO
@@ -1751,7 +1750,7 @@ class LsuPlugin(var lqSize: Int,
           readed := load.pipeline.cacheRsp.rspFormated
 
           val rfWrite = setup.regfilePorts(IntRegFile).write
-          rfWrite.address      := sq.mem.physRd //TODO FPU manage multiple regfile
+          rfWrite.address      := sq.mem.physRd
           rfWrite.robId        := robId
 
           load.pipeline.cacheRsp.rspAddress  := storeAddress.resized
@@ -1789,7 +1788,7 @@ class LsuPlugin(var lqSize: Int,
           load.pipeline.hitSpeculation.wakeRf.regfile  := sq.mem.regfileRd
 
           val rfWrite = setup.regfilePorts(IntRegFile).write
-          rfWrite.valid      setWhen(storeSc && sq.mem.writeRd) //TODO FPU manage multiple reg file
+          rfWrite.valid      setWhen(storeSc && sq.mem.writeRd)
           rfWrite.address := sq.mem.physRd
           rfWrite.robId   := robId
           rfWrite.data    := 0
