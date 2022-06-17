@@ -152,13 +152,11 @@ class FpuFloatExecute(euId : String) extends Plugin{
 //TODO FPU list
 /*
 - There maybe a few duplicate rob read during onCommit / onFree
-- Implement LSU load nan-boxing
 - Do not track renaming of RS3 for the integer regfile
 - FpuWriteback better wakeups (anticipate timings, shave cycles, register file bypass)
 - Test pipeline flush integration !!!
 - do not report quiet nan ? (merge.NV := !RS.quiet)
-- Implement nan boxing in the rounding logic
-- fmv.s.x
+- spike does trap if round mode is wrong
  */
 
 
