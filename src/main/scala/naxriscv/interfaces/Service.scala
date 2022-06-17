@@ -63,6 +63,7 @@ trait DecoderService extends Service with LockedService {
   def euGroups : Seq[EuGroup]
   def addMicroOpDecoding(microOp: MicroOp, decoding: DecodeListType)
   def addMicroOpDecodingDefault(key : Stageable[_ <: BaseType], value : BaseType) : Unit
+  def addDecodingToRob(key : Stageable[_ <: BaseType])
 
   def READ_RS(id : Int)  : Stageable[Bool]
   def ARCH_RS(id : Int)  : Stageable[UInt]
@@ -98,12 +99,22 @@ trait RobService extends Service{
   def newRobCompletion() : Flow[RobCompletion]
   def newRobLineValids(bypass : Boolean) : RobLineMask
 
-  def write[T <: Data](key: Stageable[T], size : Int, value : Seq[T], robId : UInt, enable : Bool) : Unit //robid need to be aligned on value size
+  def write[T <: Data](key: Stageable[T],
+                       size : Int,
+                       value : Seq[T],
+                       robId : UInt,
+                       enable : Bool) : Unit //robid need to be aligned on value size
   def readAsync[T <: Data](key: Stageable[T], size : Int, robId: UInt, skipFactor: Int = 1, skipOffset: Int = 0) : Vec[T]
   def readAsyncSingle[T <: Data](key: Stageable[T], robId : UInt, skipFactor : Int = 1, skipOffset : Int = 0) : T = {
     val ret = readAsync(key, 1, robId, skipFactor, skipOffset).head
     CombInit(ret)
   }
+
+
+  def writeSingle[T <: Data](key: Stageable[T],
+                             value : T,
+                             robId : UInt,
+                             enable : Bool) = write(key, 1, List(value), robId, enable)
 
   def retain() : Unit
   def release() : Unit

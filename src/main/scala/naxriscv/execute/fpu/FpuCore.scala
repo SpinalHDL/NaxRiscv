@@ -932,17 +932,24 @@ case class FpuCore(p : FpuParameter) extends Component{
           }
         }
 
-        io.ports(0).floatWriteback.valid := isFireing
-        io.ports(0).floatWriteback.flags := FpuFlags().getZero
-        io.ports(0).floatWriteback.robId := merge.ROBID
+        val fwb = io.ports(0).floatWriteback
+        fwb.valid := isFireing
+        fwb.robId := merge.ROBID
+
+        fwb.flags.NX := nx
+        fwb.flags.UF := uf
+        fwb.flags.OF := of
+        fwb.flags.DZ := DZ
+        fwb.flags.NV := NV
+
         whenDouble(FORMAT){
-          io.ports(0).floatWriteback.value := merge.VALUE.sign ## EXP.raw.resize(11 bits) ## MAN_RESULT
+          fwb.value := merge.VALUE.sign ## EXP.raw.resize(11 bits) ## MAN_RESULT
         }{
-          io.ports(0).floatWriteback.value(31 downto 0) := merge.VALUE.sign ## EXP.raw.takeLow(8) ## MAN_RESULT.takeHigh(23)
-          io.ports(0).floatWriteback.value(63 downto 32).setAll()
+          fwb.value(31 downto 0) := merge.VALUE.sign ## EXP.raw.takeLow(8) ## MAN_RESULT.takeHigh(23)
+          fwb.value(63 downto 32).setAll()
         }
 
-        val wb = io.ports(0).floatWriteback.value
+        val wb = fwb.value
         when(expZero) {
           whenDouble(FORMAT) (wb(52, 11 bits).clearAll()) (wb(23, 8 bits).clearAll())
         }

@@ -48,7 +48,7 @@ class FpuFloatExecute(euId : String) extends Plugin{
 
     import FpuOpcode._
 
-    add(Rvfd.FMV_X_W  , DecodeList(op(FMV_X_W), f32))
+    add(Rvfd.FMV_X_W  , DecodeList(op(FMV_X_W) , f32))
 
     add(Rvfd.FADD_S   , DecodeList(op(ADD)     , f32, arg(0)))
     add(Rvfd.FSUB_S   , DecodeList(op(ADD)     , f32, arg(1)))

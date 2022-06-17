@@ -67,6 +67,11 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
     getDecodingSpec(key).setDefault(Masked(value))
   }
 
+  val keysToPushInRob = mutable.LinkedHashSet[Stageable[_ <: BaseType]]()
+  override def addDecodingToRob(key: Stageable[_ <: BaseType]) = {
+    keysToPushInRob += key
+  }
+
   def rsToId(id : RfRead) = id match {
     case RS1 => 0
     case RS2 => 1
@@ -347,6 +352,8 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       }
 
       writeLine(DISPATCH_MASK)
+
+      for(e <- keysToPushInRob) writeLine(e)
     }
 
     val whitebox = new Area{
