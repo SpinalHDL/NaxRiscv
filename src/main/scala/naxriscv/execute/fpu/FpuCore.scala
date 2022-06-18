@@ -173,7 +173,7 @@ case class FpuCore(p : FpuParameter) extends Component{
           )
           apply(RS) := RS_PRE_NORM
           val normalizer = new Area{
-            val valid = isSubnormal && (inputId match {
+            val valid = isValid && isSubnormal && (inputId match {
               case 0 => True
               case 1 => List(FpuOpcode.MUL, FpuOpcode.ADD, FpuOpcode.FMA, FpuOpcode.CMP, FpuOpcode.DIV, FpuOpcode.SQRT, FpuOpcode.MIN_MAX, FpuOpcode.SGNJ).map(CMD.opcode === _).orR
               case 2 => List(FpuOpcode.FMA).map(CMD.opcode === _).orR
@@ -884,6 +884,18 @@ case class FpuCore(p : FpuParameter) extends Component{
         val SUBNORMAL_FINAL = insert((EXP_SUBNORMAL - EXP_INCR).isPositive())
         val EXP = insert(!SUBNORMAL_FINAL ? (EXP_INCR-EXP_SUBNORMAL) | AFix(0))
 
+        val mr = merge.VALUE.mantissa.raw
+        val tinyRound = muxDouble(FORMAT) {mr.dropHigh(52).msb ## mr.dropHigh(53).orR} {mr.dropHigh(23).msb ## mr.dropHigh(24).orR}
+
+        val tinyRoundingIncr = VALUE.isNormal && ROUNDMODE.mux(
+          FpuRoundMode.RNE -> (tinyRound(1) && (tinyRound(0) || manLsb)),
+          FpuRoundMode.RTZ -> False,
+          FpuRoundMode.RDN -> (tinyRound =/= 0 &&  VALUE.sign),
+          FpuRoundMode.RUP -> (tinyRound =/= 0 && !VALUE.sign),
+          FpuRoundMode.RMM -> (tinyRound(1))
+        )
+        val tinyOverflow = muxDouble(FORMAT) {merge.VALUE.mantissa.raw.takeHigh(52).andR} {merge.VALUE.mantissa.raw.takeHigh(23).andR} && tinyRoundingIncr
+
         val expSet, expZero, expMax, manZero, manSet, manOne, manQuiet, positive = False
         val nx, of, uf = False //TODO
         switch(merge.VALUE.mode){
@@ -906,7 +918,7 @@ case class FpuCore(p : FpuParameter) extends Component{
           is(FloatMode.NORMAL){
             when(roundAdjusted =/= 0){
               nx := True
-              when(SUBNORMAL_FINAL){
+              when(SUBNORMAL_FINAL || SUBNORMAL && !tinyOverflow){
                 uf := True
               }
             }
@@ -992,6 +1004,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         }
         when(RAW_ENABLE){
           wb := RAW
+          fwb.flags.clear()
         }
         if(p.rvd) when(FORMAT === FpuFormat.FLOAT){
           wb(63 downto 32).setAll()
