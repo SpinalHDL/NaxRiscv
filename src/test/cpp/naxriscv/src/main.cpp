@@ -760,6 +760,7 @@ public:
     RvData integerWriteData;
     bool floatWriteValid;
     RvFloat floatWriteData;
+    int floatFlags;
 
     bool csrValid;
     bool csrWriteDone;
@@ -777,6 +778,7 @@ public:
         csrValid = false;
         csrWriteDone = false;
         csrReadDone = false;
+        floatFlags = 0;
     }
 };
 
@@ -879,6 +881,8 @@ public:
     CData *integer_write_robId[INTEGER_WRITE_COUNT];
     CData *float_write_valid[FLOAT_WRITE_COUNT];
     CData *float_write_robId[FLOAT_WRITE_COUNT];
+    CData *float_flags_robId[FPU_ROB_TO_FLAG_COUNT];
+    CData *float_flags_mask[FPU_ROB_TO_FLAG_COUNT];
     CData *rob_completions_valid[ROB_COMPLETIONS_PORTS];
     CData *rob_completions_payload[ROB_COMPLETIONS_PORTS];
     CData *issue_valid[ISSUE_PORTS];
@@ -910,6 +914,10 @@ public:
             float_write_valid{MAP_INIT(&nax->float_write_,  FLOAT_WRITE_COUNT, _valid)},
             float_write_robId{MAP_INIT(&nax->float_write_,  FLOAT_WRITE_COUNT, _robId)},
             float_write_data{MAP_INIT(&nax->float_write_,  FLOAT_WRITE_COUNT, _data)},
+            #endif
+            #if FPU_ROB_TO_FLAG_COUNT != 0
+            float_flags_robId{MAP_INIT(&nax->fpuRobToFlags_,  FPU_ROB_TO_FLAG_COUNT, _robId)},
+            float_flags_mask{MAP_INIT(&nax->fpuRobToFlags_,  FPU_ROB_TO_FLAG_COUNT, _mask)},
             #endif
             rob_completions_valid{MAP_INIT(&nax->RobPlugin_logic_whitebox_completionsPorts_,  ROB_COMPLETIONS_PORTS, _valid)},
             rob_completions_payload{MAP_INIT(&nax->RobPlugin_logic_whitebox_completionsPorts_,  ROB_COMPLETIONS_PORTS, _payload_id)},
@@ -963,6 +971,12 @@ public:
                 robCtx[nax->robToPc_robId + i].pc = *robToPc[i];
             }
         }
+
+        for(int i = 0;i < FPU_ROB_TO_FLAG_COUNT;i++){
+            auto robId = *float_flags_robId[i];
+            robCtx[robId].floatFlags |= *float_flags_mask[i];
+        }
+
 
         for(int i = 0;i < INTEGER_WRITE_COUNT;i++){
             if(*integer_write_valid[i]){
@@ -1940,6 +1954,14 @@ void simLoop(){
                                     } break;
                                     }
                                 }
+
+                                #ifdef RVF
+//                                if(state->fpu_flags_set){
+//                                    printf("Miaou %lx %x\n", pc, state->fpu_flags_set);
+//                                }
+                                assertEq("FPU FLAG MISSMATCH", whitebox->robCtx[robId].floatFlags, state->fpu_flags_set);
+                                state->fpu_flags_set = 0;
+                                #endif
                             }
 
                             if(pcToEvent.count(pc) != 0){

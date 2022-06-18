@@ -831,12 +831,12 @@ with open('tests.mk', 'w') as f:
                 rvTest(name, startAdd=-8)
 
 
-#         if rvf:
-#             for name in riscv64TestFloat:
-#                 rvTest(name, startAdd=-4*12)
-#         if rvd:
-#             for name in riscv64TestDouble:
-#                 rvTest(name, startAdd=-4*12)
+        if rvf:
+            for name in riscv64TestFloat:
+                rvTest(name, startAdd=-4*12)
+        if rvd:
+            for name in riscv64TestDouble:
+                rvTest(name, startAdd=-4*12)
 
         for name in riscvArch64i + riscvArch64M + riscvArch64Zifencei:
             rvArch(name)

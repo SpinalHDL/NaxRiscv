@@ -592,8 +592,15 @@ case class FpuCore(p : FpuParameter) extends Component{
 
 
 
-        val rspNv = False
-        val rspNx = False
+
+        val signalQuiet = CMD.opcode === FpuOpcode.CMP && CMD.arg =/= 2
+        val rs1Nan = RS1.isNan
+        val rs2Nan = RS2.isNan
+        val rs1NanNv = RS1.isNan && (!RS1.quiet || signalQuiet)
+        val rs2NanNv = RS2.isNan && (!RS2.quiet || signalQuiet)
+        val nv = List(FpuOpcode.CMP, FpuOpcode.MIN_MAX, FpuOpcode.FCVT_X_X).map(CMD.opcode === _).orR && rs1NanNv ||
+                 List(FpuOpcode.CMP, FpuOpcode.MIN_MAX).map(CMD.opcode === _).orR && rs2NanNv
+        val nx = False
 
         val f2i = new Area{
           val shiftFull = AFix(p.rsIntWidth-1) - RS1.exponent
@@ -630,9 +637,9 @@ case class FpuCore(p : FpuParameter) extends Component{
             if(p.rsIntWidth == 64) when(CMD.arg(1)){
               resultRaw := (63 -> high, default -> low)
             }
-            rspNv := input.valid && CMD.opcode === FpuOpcode.F2I && !isZero
+            nv setWhen(CMD.opcode === FpuOpcode.F2I && !isZero)
           } otherwise {
-            rspNx := input.valid && CMD.opcode === FpuOpcode.F2I &&  round =/= 0
+            nx setWhen(CMD.opcode === FpuOpcode.F2I &&  round =/= 0)
           }
           val result = CombInit(resultRaw)
           if(p.rsIntWidth == 64) when(!CMD.arg(1)){
@@ -648,9 +655,14 @@ case class FpuCore(p : FpuParameter) extends Component{
           is(FpuOpcode.FCLASS)  { intResult := fclassResult.resized }
         }
 
+
         val wb = Stream(FpuIntWriteBack(p.robIdWidth, p.rsIntWidth))
         wb.valid := valid && !toFpuRf
-        wb.flags.clear()
+        wb.flags.NX := nx
+        wb.flags.UF := False
+        wb.flags.OF := False
+        wb.flags.DZ := False
+        wb.flags.NV := nv
         wb.value := intResult
         wb.robId := input.CMD.robId
         
@@ -662,8 +674,9 @@ case class FpuCore(p : FpuParameter) extends Component{
           )
         ))
 
+
         merge.valid := input.valid && toFpuRf
-        merge.NV := False
+        merge.NV := nv
         merge.DZ := False
         merge.format    := CMD.format
         merge.roundMode := CMD.roundMode
@@ -693,10 +706,6 @@ case class FpuCore(p : FpuParameter) extends Component{
           is(FpuOpcode.SGNJ){
             merge.value.quiet   clearWhen(!RS2.quiet)
             merge.value.sign := sgnjResult
-//            if(p.withDouble) when(input.rs1Boxed && input.format === FpuFormat.DOUBLE){
-//              merge.value.sign := input.rs1.sign
-//              merge.format := FpuFormat.FLOAT
-//            }
           }
           if(p.rvd) is(FpuOpcode.FCVT_X_X){
             merge.format := ((CMD.format === FpuFormat.FLOAT) ? FpuFormat.DOUBLE | FpuFormat.FLOAT)
@@ -872,7 +881,8 @@ case class FpuCore(p : FpuParameter) extends Component{
         val EXP_UNDERFLOW = insert(EXP_INCR < EXP_MIN)
         val MAN_RESULT = insert(MAN_INCR)
 
-        val EXP = insert(!(EXP_SUBNORMAL - EXP_INCR).isPositive() ? (EXP_INCR-EXP_SUBNORMAL) | AFix(0))
+        val SUBNORMAL_FINAL = insert((EXP_SUBNORMAL - EXP_INCR).isPositive())
+        val EXP = insert(!SUBNORMAL_FINAL ? (EXP_INCR-EXP_SUBNORMAL) | AFix(0))
 
         val expSet, expZero, expMax, manZero, manSet, manOne, manQuiet, positive = False
         val nx, of, uf = False //TODO
@@ -894,6 +904,12 @@ case class FpuCore(p : FpuParameter) extends Component{
             }
           }
           is(FloatMode.NORMAL){
+            when(roundAdjusted =/= 0){
+              nx := True
+              when(SUBNORMAL_FINAL){
+                uf := True
+              }
+            }
             when(EXP_OVERFLOW){
               nx := True
               of := True

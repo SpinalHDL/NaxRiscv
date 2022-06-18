@@ -4,7 +4,7 @@ import naxriscv.{DecodeList, Global, ROB}
 import naxriscv.interfaces.{CommitService, CsrService, DecoderService, MicroOp, RegfileService, RobService, WakeRegFile, WakeRegFileService, WakeRob, WakeRobService}
 import naxriscv.misc.RegFilePlugin
 import naxriscv.riscv.{CSR, FloatRegFile, IntRegFile, Rvfd}
-import naxriscv.utilities.Plugin
+import naxriscv.utilities.{DocPlugin, Plugin}
 import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Stageable
@@ -43,6 +43,7 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
     val robIntegercompletion = rob.newRobCompletion()
     val csr = getService[CsrService]
 
+    getService[DocPlugin].property("FPU_ROB_TO_FLAG_COUNT", COMMIT_COUNT.get)
     val unschedule = out Bool()
 
     decoder.addMicroOpDecodingDefault(INT_FLAGS_ENABLE, False)
@@ -52,10 +53,10 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
     floatList ++= List(
       Rvfd.FMV_W_X  ,Rvfd.FADD_S   ,Rvfd.FSUB_S   ,Rvfd.FMUL_S   ,Rvfd.FDIV_S   ,Rvfd.FSQRT_S  ,Rvfd.FMADD_S  ,
       Rvfd.FMSUB_S  ,Rvfd.FNMADD_S ,Rvfd.FNMSUB_S ,Rvfd.FSGNJ_S  ,Rvfd.FSGNJN_S ,Rvfd.FSGNJX_S ,Rvfd.FMIN_S   ,
-      Rvfd.FMAX_S   ,Rvfd.FLE_S    ,Rvfd.FEQ_S    ,Rvfd.FLT_S    ,Rvfd.FCLASS_S ,Rvfd.FCVT_S_WU, Rvfd.FCVT_S_W
+      Rvfd.FMAX_S   ,Rvfd.FCVT_S_WU, Rvfd.FCVT_S_W
     )
     intList ++= List(
-      Rvfd.FMV_X_W, Rvfd.FCVT_WU_S,Rvfd.FCVT_W_S
+      Rvfd.FMV_X_W, Rvfd.FCVT_WU_S, Rvfd.FCVT_W_S,Rvfd.FCLASS_S, Rvfd.FLE_S    ,Rvfd.FEQ_S    ,Rvfd.FLT_S
     )
 
     if(XLEN.get == 64){
@@ -71,11 +72,10 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
       floatList ++= List(
         Rvfd.FADD_D   , Rvfd.FSUB_D   , Rvfd.FMUL_D   , Rvfd.FDIV_D   , Rvfd.FSQRT_D  , Rvfd.FMADD_D  , Rvfd.FMSUB_D  ,
         Rvfd.FNMADD_D , Rvfd.FNMSUB_D , Rvfd.FSGNJ_D  , Rvfd.FSGNJN_D , Rvfd.FSGNJX_D , Rvfd.FMIN_D   , Rvfd.FMAX_D   ,
-        Rvfd.FLE_D    , Rvfd.FEQ_D    , Rvfd.FLT_D    , Rvfd.FCLASS_D , Rvfd.FCVT_D_WU, Rvfd.FCVT_D_W , Rvfd.FCVT_D_S ,
-        Rvfd.FCVT_S_D
+        Rvfd.FCVT_D_WU, Rvfd.FCVT_D_W , Rvfd.FCVT_D_S , Rvfd.FCVT_S_D
       )
       intList ++= List(
-        Rvfd.FCVT_WU_D, Rvfd.FCVT_W_D
+        Rvfd.FCVT_WU_D, Rvfd.FCVT_W_D, Rvfd.FCLASS_D, Rvfd.FLE_D    , Rvfd.FEQ_D    , Rvfd.FLT_D
       )
       if(XLEN.get == 64){
         floatList ++= List(
@@ -185,7 +185,7 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
       val floatFlags = rob.readAsync(FLOAT_FLAGS, Global.COMMIT_COUNT, event.robId)
       val floatEnable = rob.readAsync(FLOAT_FLAGS_ENABLE, Global.COMMIT_COUNT, event.robId)
 
-      val masks = for(i <- 0 until Global.COMMIT_COUNT) yield (intFlags(i).asBits.andMask(intEnable(i)) | floatFlags(i).asBits.andMask(floatEnable(i))).andMask(event.mask(i))
+      val masks = for(i <- 0 until COMMIT_COUNT) yield (intFlags(i).asBits.andMask(intEnable(i)) | floatFlags(i).asBits.andMask(floatEnable(i))).andMask(event.mask(i))
       val aggregated = masks.reduce(_ | _).as(FpuFlags())
 
       flags.NX setWhen(aggregated.NX)
@@ -193,6 +193,13 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
       flags.OF setWhen(aggregated.OF)
       flags.DZ setWhen(aggregated.DZ)
       flags.NV setWhen(aggregated.NV)
+    }
+
+    val whitebox = new AreaRoot{
+      val fpuRobToFlags = List.tabulate(COMMIT_COUNT)(i => new Area {
+        val robId = Verilator.public(onCommit.event.robId + i)
+        val mask  = Verilator.public(CombInit(onCommit.masks(i)))
+      })
     }
 
     rob.release()
