@@ -399,6 +399,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       }
     }
 
+    val withFs = RVF || p.withSupervisor //See spike XD
+
     val machine = new Area {
       val cause = new Area{
         val interrupt = RegInit(False)
@@ -407,10 +409,10 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       val mstatus = new Area{
         val mie, mpie = RegInit(False)
         val mpp = RegInit(U"00")
-        val fs = RVF.get generate RegInit(U"00")
+        val fs = withFs generate RegInit(U"00")
         val sd = False
-        if(RVF) sd setWhen(fs === 3)
-        setup.isFpuEnabled setWhen(fs =/= 0)
+        if(RVF) setup.isFpuEnabled setWhen(fs =/= 0)
+        if(withFs) sd setWhen(fs === 3)
       }
       val mip = new Area{
         val meip = RegNext(io.int.machine.external) init(False)
@@ -454,9 +456,10 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       csr.readWrite(CSR.MIE, 11 -> mie.meie, 7 -> mie.mtie, 3 -> mie.msie)
 
 
+      if(withFs) csr.readWrite(CSR.MSTATUS, 13 -> mstatus.fs)
       //TODO FPU trap illegal instruction if FPU instruction and "00"
       val rvf = RVF.get generate new Area {
-        csr.readWrite(CSR.MSTATUS, 13 -> mstatus.fs)
+
 
         val csrDirty = CsrListFilter(List(CSR.FRM, CSR.FCSR, CSR.FFLAGS))
         csr.onWrite(csrDirty, true){
@@ -524,7 +527,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       csr.readWrite(CSR.SCAUSE, XLEN-1 -> cause.interrupt, 0 -> cause.code)
 
       for(offset <- List(CSR.MSTATUS, CSR.SSTATUS))  csr.readWrite(offset, 8 -> sstatus.spp, 5 -> sstatus.spie, 1 -> sstatus.sie)
-      if(RVF) csr.readWrite(CSR.SSTATUS, 13 -> machine.mstatus.fs)
+      if(withFs)  csr.readWrite(CSR.SSTATUS, 13 -> machine.mstatus.fs)
       csr.read(CSR.SSTATUS, XLEN-1 -> machine.mstatus.sd)
 
       def mapMie(machineCsr : Int, supervisorCsr : Int, bitId : Int, reg : Bool, machineDeleg : Bool, sWrite : Boolean = true): Unit ={
