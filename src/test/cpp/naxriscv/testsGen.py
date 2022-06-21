@@ -631,7 +631,6 @@ fpuTestRvd64 = [
     [201, "fcvt.d.w_64" , "i64"],
     [202, "fcvt.s.wu_64" , "ui64"],
     [203, "fcvt.s.w_64"  , "i64"],
-    [300, "nan-boxing"  , "f32"],
 ]
 
 import os
@@ -668,23 +667,30 @@ xlen = getInt("XLEN")
 rvc = getBoolean("RVC")
 rvf = getBoolean("RVF")
 rvd = getBoolean("RVD")
+rva = getBoolean("RVA")
 
 
 
 if xlen == 64:
     arch="rv64im"
-    archLinux="rv64ima"
+    archLinux="rv64im"
 else:
     arch="rv32im"
-    archLinux="rv32ima"
+    archLinux="rv32im"
+
+if rva:
+    arch += "a"
+    archLinux += "a"
 
 if rvc:
-    arch += "ac"
+    arch += "c"
     archLinux += "c"
 
 if rvf:
+    arch += "f"
     archLinux += "f"
 if rvd:
+    arch += "d"
     archLinux += "d"
 
 naxSoftware = [
@@ -799,19 +805,19 @@ with open('tests.mk', 'w') as f:
         f.write(f"\n\n")
 
 
-    def regularSoftware(spec):
-        outputDir = "output/nax/" + spec[0]
+    def regularSoftware(name, path):
+        outputDir = "output/nax/" + name
         rule = outputDir +"/PASS"
         tests.append(rule)
         ouputs.append(outputDir)
-        if spec[0] in naxSoftwareRegular:
+        if name in naxSoftwareRegular:
             testsFast.append(rule)
         f.write(f"{outputDir}/PASS:\n")
         f.write("\t" + " ".join([
             "obj_dir/VNaxRiscv",
-            "--name", spec[0],
+            "--name", name,
             "--output-dir", outputDir,
-            "--load-elf", f"{naxriscv_software}/{spec[1]}",
+            "--load-elf", f"{naxriscv_software}/{path}",
             "--start-symbol", "_start",
             "--pass-symbol", "pass",
             "--fail-symbol", "fail",
@@ -821,6 +827,8 @@ with open('tests.mk', 'w') as f:
         ]))
         f.write(f"\n\n")
 
+    def regularBaremetal(name):
+        regularSoftware(name, f"baremetal/{name}/build/{arch}/{name}.elf")
 
     if xlen == 64:
         for name in riscv64_tests + riscv64TestMemory + riscv64TestMul + riscv64TestDiv + riscv64TestAmo:
@@ -833,10 +841,10 @@ with open('tests.mk', 'w') as f:
 
         if rvf:
             for name in riscv64TestFloat:
-                rvTest(name, startAdd=-4*12)
+                rvTest(name, start = "_start")
         if rvd:
             for name in riscv64TestDouble:
-                rvTest(name, startAdd=-4*12)
+                rvTest(name, start = "_start")
 
         for name in riscvArch64i + riscvArch64M + riscvArch64Zifencei:
             rvArch(name)
@@ -847,6 +855,7 @@ with open('tests.mk', 'w') as f:
 
 
         if rvf:
+            regularBaremetal("fpu_test2")
             for e in fpuTestRvf32:
                 fpuTest(e[1], e[2], e[0])
             if xlen == 64:
@@ -862,7 +871,7 @@ with open('tests.mk', 'w') as f:
 
 
         for spec in nax64Software:
-            regularSoftware(spec)
+            regularSoftware(spec[0], spec[1])
 
 
 
@@ -879,11 +888,12 @@ with open('tests.mk', 'w') as f:
         rvTest("rv32ua-p-lrsc_6", elf="rv32ua-p-lrsc", timeout=100000, start="test_6")
 
         if rvf:
+            regularBaremetal("fpu_test2")
             for name in riscv32TestFloat:
-                rvTest(name, startAdd=-4*12)
+                rvTest(name, start = "_start")
         if rvd:
             for name in riscv32TestDouble:
-                rvTest(name, startAdd=-4*12)
+                rvTest(name, start = "_start")
 
         for name in riscvArch32i + riscvArch32M + riscvArch32Zifencei:
             rvArch(name)
@@ -893,7 +903,7 @@ with open('tests.mk', 'w') as f:
                 rvArch(name)
 
         for spec in naxSoftware:
-            regularSoftware(spec)
+            regularSoftware(spec[0], spec[1])
 
 
 

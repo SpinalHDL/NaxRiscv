@@ -50,7 +50,8 @@ object Config{
               debugTriggers : Int = 0,
               branchCount : Int = 16,
               withFloat  : Boolean = false,
-              withDouble : Boolean = false): ArrayBuffer[Plugin] ={
+              withDouble : Boolean = false,
+              simulation : Boolean = GenerationFlags.simulation): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
 
     val fpu = withFloat || withDouble
@@ -280,7 +281,8 @@ object Config{
       plugins += new RegFilePlugin(
         spec = riscv.FloatRegFile,
         physicalDepth = 64,
-        bankCount = 1
+        bankCount = 1,
+        allZero = simulation
       )
 
 
@@ -373,6 +375,8 @@ object Gen extends App{
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
     //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
 
+    spinalConfig.includeSimulation
+
     val report = spinalConfig.generateVerilog(new NaxRiscv(plugins))
     val doc = report.toplevel.framework.getService[DocPlugin]
     doc.genC()
@@ -410,7 +414,7 @@ object Gen64 extends App{
       withRdTime = false,
       aluCount    = 1,
       decodeCount = 1,
-      withRvc = false,
+      withRvc = true,
       withDebug = false,
       withEmbeddedJtagTap = false,
       debugTriggers = 4,
@@ -431,6 +435,8 @@ object Gen64 extends App{
     spinalConfig.addTransformationPhase(new MemReadDuringWriteHazardPhase)
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
     //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
+
+    spinalConfig.includeSimulation
 
     val report = spinalConfig.generateVerilog(new NaxRiscv(plugins))
     val doc = report.toplevel.framework.getService[DocPlugin]
@@ -527,7 +533,7 @@ X0 init =>
 
  */
 /*
-./configure --prefix=/opt/riscv --with-cmodel=medany --with-multilib-generator="rv32i-ilp32--;rv32im-ilp32--;rv32imac-ilp32--;rv32imafd-ilp32d--;rv32imacfd-ilp32d--;rv64i-lp64--;rv64im-lp64--;rv64imac-lp64--;rv64imafd-lp64d--;rv64imacfd-lp64d--"
+./configure --prefix=/opt/riscv --with-cmodel=medany --with-multilib-generator="rv32i-ilp32--;rv64i-lp64--;rv32im-ilp32--;rv32ima-ilp32--;rv32imc-ilp32--;rv32imac-ilp32--;rv32imf-ilp32f--;rv32imaf-ilp32f--;rv32imfc-ilp32f--;rv32imafc-ilp32f--;rv32imfd-ilp32d--;rv32imafd-ilp32d--;rv32imfdc-ilp32d--;rv32imafdc-ilp32d--;rv64im-lp64--;rv64ima-lp64--;rv64imc-lp64--;rv64imac-lp64--;rv64imf-lp64f--;rv64imaf-lp64f--;rv64imfc-lp64f--;rv64imafc-lp64f--;rv64imfd-lp64d--;rv64imafd-lp64d--;rv64imfdc-lp64d--;rv64imafdc-lp64d--"
 */
 //stats
 

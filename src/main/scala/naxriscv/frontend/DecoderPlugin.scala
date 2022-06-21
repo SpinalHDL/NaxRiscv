@@ -4,9 +4,10 @@ import naxriscv._
 import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.Fetch._
-import naxriscv.interfaces.{AddressTranslationService, CommitService, DecoderService, DecoderTrap, EuGroup, ExecuteUnitService, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, RD, RS1, RS2, RS3, RegFileSel, RegfileService, RegfileSpec, Resource, RfRead, RfResource, RobService, SingleDecoding}
+import naxriscv.execute.fpu.FpuWriteback
+import naxriscv.interfaces.{AddressTranslationService, CommitService, DecoderService, DecoderTrap, EuGroup, ExecuteUnitService, FPU, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, PrivilegedService, RD, RM, RS1, RS2, RS3, RegFileSel, RegfileService, RegfileSpec, Resource, RfRead, RfResource, RobService, SingleDecoding}
 import naxriscv.prediction.DecoderPrediction
-import naxriscv.riscv.{CSR, Const}
+import naxriscv.riscv.{CSR, Const, Rvfd}
 import spinal.lib.pipeline.Connection.{DIRECT, M2S}
 import spinal.lib.pipeline._
 import spinal.core._
@@ -185,7 +186,7 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       val all = LinkedHashSet[Masked]()
       val one = Masked(1,1)
       val zero = Masked(0,1)
-      val readRs1, readRs2, readRs3, writeRd = new DecodingSpec(Bool()).setDefault(zero)
+      val readRs1, readRs2, readRs3, writeRd, fpSpec, rmSpec = new DecodingSpec(Bool()).setDefault(zero)
       val regfileRs1, regfileRs2, regfileRs3, regfileRd = new DecodingSpec(REGFILE_RD())
       val resourceToSpec = resourceToStageable.keys.map(_ -> new DecodingSpec(Bool()).setDefault(zero)).toMap
       val regfileSelMask = (1 << setup.keys.regfileSelWidth)-1
@@ -215,9 +216,13 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
           }
           case PC_READ =>
           case INSTRUCTION_SIZE =>
+          case FPU => fpSpec.addNeeds(key, one)
+          case RM => rmSpec.addNeeds(key, one)
           case r if resourceToStageable.contains(r) => resourceToSpec(r).addNeeds(key, one)
         }
       }
+
+
 
       val groups = LinkedHashMap[EuGroup, DecodingSpec[Bool]]()
       for(group <- euGroups){
@@ -230,10 +235,26 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       }
     }
 
-    for (i <- 0 until Frontend.DECODE_COUNT) {
+    val slots = for (i <- 0 until Frontend.DECODE_COUNT)  yield new Area {
       implicit val offset = StageableOffset(i)
       val rdZero = INSTRUCTION_DECOMPRESSED(Const.rdRange) === 0
       setup.keys.LEGAL := Symplify(INSTRUCTION_DECOMPRESSED, encodings.all) && !INSTRUCTION_ILLEGAL
+
+      val fp = RVF.get generate new Area{
+        val useFpu = encodings.fpSpec.build(INSTRUCTION_DECOMPRESSED, encodings.all)
+        useFpu.setWhen(INSTRUCTION_DECOMPRESSED === M"0000000000---------------1110011" && INSTRUCTION_DECOMPRESSED(12, 2 bits) =/= 0 && INSTRUCTION_DECOMPRESSED(20, 2 bits) =/= 0)
+        val useRm = encodings.rmSpec.build(INSTRUCTION_DECOMPRESSED, encodings.all)
+        val csrRm = getService[FpuWriteback].getRoundingMode()
+        val instRm = INSTRUCTION_DECOMPRESSED(Const.funct3Range)
+        val rm = U((instRm === 7) ? csrRm | instRm)
+        val enabled = getService[PrivilegedService].isFpuEnabled()
+        val triggered = useFpu && !enabled || useRm && rm >= 5
+        when(triggered){
+          setup.keys.LEGAL := False
+        }
+      }
+
+
       setup.keys.REGFILE_RS(0) := encodings.regfileRs1.build(INSTRUCTION_DECOMPRESSED, encodings.all)
       setup.keys.REGFILE_RS(1) := encodings.regfileRs2.build(INSTRUCTION_DECOMPRESSED, encodings.all)
       if(encodings.withRs3) setup.keys.REGFILE_RS(2) := encodings.regfileRs3.build(INSTRUCTION_DECOMPRESSED, encodings.all)

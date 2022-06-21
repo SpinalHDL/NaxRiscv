@@ -287,6 +287,7 @@ class LsuPlugin(var lqSize: Int,
     decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
     decoder.addResourceDecoding(naxriscv.interfaces.SQ, SQ_ALLOC)
     doc.property("LSU_PERIPHERAL_WIDTH", wordWidth)
+    doc.property("RVA", true)
 
     val translationStorage = translation.newStorage(translationStorageParameter)
     val postCommitBusy = False

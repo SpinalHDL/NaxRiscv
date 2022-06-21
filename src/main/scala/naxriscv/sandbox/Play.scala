@@ -33,3 +33,14 @@ object CheckFloat extends App{
     }
   }
 }
+
+object GenGcc extends App{
+  val offon = List(false, true)
+  def mask(str : String, cond : Boolean) = if(cond) str else ""
+  val x = for(rv64 <- offon; f <- offon; d <- offon;  c <- offon; a <- offon; if !(d && !f)) yield {
+    val xlen = if(rv64) "64" else "32"
+    val abi = if(d) "d" else if(f) "f" else ""
+    f"rv${xlen}im${mask("a",a)}${mask("f",f)}${mask("d",d)}${mask("c",c)}-${mask("i", !rv64)}lp${xlen}${abi}--"
+  }
+  println(x.mkString(";"))
+}

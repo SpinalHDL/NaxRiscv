@@ -430,6 +430,7 @@ trait CsrService extends Service with LockedImpl{
   def onWriteHalt() : Unit
   def onWriteBits : Bits
   def onWriteAddress : UInt
+  def onWriteFlushPipeline() : Unit
   def onReadAddress : UInt
   def getCsrRam() : CsrRamService
   def onReadMovingOff : Bool
@@ -548,6 +549,8 @@ trait PrivilegedService extends Service{
 
   def addMisa(id : Int) : Unit
   def addMisa(id : Char) : Unit = addMisa(id - 'A')
+  def setFpDirty() : Unit
+  def isFpuEnabled() : Bool
 }
 
 

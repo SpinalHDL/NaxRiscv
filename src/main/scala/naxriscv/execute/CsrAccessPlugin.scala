@@ -55,6 +55,7 @@ class CsrAccessPlugin(val euId: String)(var writebackAt: Int) extends ExecutionU
   override def onDecodeWrite = setup.onDecodeWrite
   override def onDecodeAddress  = setup.onDecodeAddress
   override def onReadToWriteBits = setup.onReadToWriteBits
+  override def onWriteFlushPipeline() = setup.onWriteFlushPipeline := True
 
   val setup = create early new Setup{
     val dispatch = getService[DispatchPlugin]
@@ -76,6 +77,7 @@ class CsrAccessPlugin(val euId: String)(var writebackAt: Int) extends ExecutionU
     val onReadToWriteBits = Bits(XLEN bits)
     val onWriteBits = Bits(XLEN bits)
     val onWriteAddress = UInt(12 bits)
+    val onWriteFlushPipeline = False
     val onReadAddress  = UInt(12 bits)
     val onReadMovingOff = Bool()
     val onWriteMovingOff = Bool()
@@ -298,6 +300,7 @@ class CsrAccessPlugin(val euId: String)(var writebackAt: Int) extends ExecutionU
         val onWritesFireDo = False
 
         WRITE.whenIsActive{
+          regs.flushPipeline setWhen(setup.onWriteFlushPipeline)
           onWritesDo :=  regs.write
           when(!setup.onWriteHalt){
             onWritesFireDo :=  regs.write

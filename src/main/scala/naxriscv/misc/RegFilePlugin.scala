@@ -22,7 +22,10 @@ class RegFileAsync(addressWidth    : Int,
                    writesParameter : Seq[RegFileWriteParameter],
                    bypasseCount    : Int,
                    headZero        : Boolean,
+                   allZero         : Boolean,
                    asyncReadBySyncReadRevertedClk : Boolean = false) extends Component {
+  assert(!(allZero && headZero))
+
   val io = new Bundle {
     val writes = Vec(writesParameter.map(p => slave(RegFileWrite(addressWidth, dataWidth, p.withReady))))
     val reads = Vec(readsParameter.map(p => slave(RegFileRead(addressWidth, dataWidth, p.withReady, 0, p.forceNoBypass))))
@@ -34,6 +37,7 @@ class RegFileAsync(addressWidth    : Int,
   val readPortCount  = io.reads.count(!_.withReady)
   val banks = for(bankId <- 0 until bankCount) yield new Area{
     val ram = Mem.fill((1 << addressWidth)/bankCount)(Bits(dataWidth bits))
+    Verilator.public(ram)
     def asyncRead = if(asyncReadBySyncReadRevertedClk) ram.readAsyncPortBySyncReadRevertedClk else ram.readAsyncPort
     val writePort = Seq.fill(writePortCount)(ram.writePort)
     val readPort = Seq.fill(readPortCount)(asyncRead)
@@ -67,7 +71,7 @@ class RegFileAsync(addressWidth    : Int,
     }
   }
 
-  val init = headZero generate new Area{
+  val initHead = headZero generate new Area{
     val booted = RegNext(True) init(False)
     when(!booted){
       val bank = banks.head
@@ -75,6 +79,20 @@ class RegFileAsync(addressWidth    : Int,
       port.valid := True
       port.address := 0
       port.data := 0
+    }
+  }
+
+  val initAll = allZero generate new Area{
+    assert(bankCount == 1)
+    val counter = Reg(UInt(addressWidth+1 bits)) init(0)
+    val done = counter.msb
+    when(!done){
+      val bank = banks.head
+      val port = bank.writePort.head
+      port.valid := True
+      port.address := counter.resized
+      port.data := 0
+      counter := counter + 1
     }
   }
 }
@@ -93,7 +111,8 @@ object RegFileAsyncSynth extends App{
     readsParameter  = Seq.fill(4)(RegFileReadParameter(withReady = false, forceNoBypass = false)),
     writesParameter = Seq.fill(1)(RegFileWriteParameter(withReady = false)),
     bypasseCount    = 0,
-    headZero        = true
+    headZero        = true,
+    allZero         = false
   ))).printPruned())
   val targets = XilinxStdTargets().take(2)
 
@@ -119,11 +138,13 @@ Artix 7 -> 538 Mhz 176 LUT 585 FF
 class RegFilePlugin(var spec : RegfileSpec,
                     var physicalDepth : Int,
                     var bankCount : Int,
-                    var asyncReadBySyncReadRevertedClk : Boolean = false) extends Plugin with RegfileService{
+                    var asyncReadBySyncReadRevertedClk : Boolean = false,
+                    var allZero : Boolean = false) extends Plugin with RegfileService with InitCycles {
   withPrefix(spec.getName())
 
   override def getPhysicalDepth = physicalDepth
   override def rfSpec = spec
+  override def initCycles = if(allZero) physicalDepth else 0
 
   val lock = Lock()
   def addressWidth = log2Up(physicalDepth)
@@ -161,6 +182,7 @@ class RegFilePlugin(var spec : RegfileSpec,
       writesParameter = writes.map(e => RegFileWriteParameter(withReady = e.withReady)),
       bypasseCount    = bypasses.size,
       headZero        = spec.x0AlwaysZero,
+      allZero         = allZero,
       asyncReadBySyncReadRevertedClk = asyncReadBySyncReadRevertedClk
     )
 

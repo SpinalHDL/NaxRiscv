@@ -66,36 +66,52 @@ object FloatRegFile extends RegfileSpec with AreaObject {
 
   def TypeR(key : MaskedLiteral) = SingleDecoding(
     key = key,
-    resources = List(RS1, RS2, RD).map(this -> _)
+    resources = List(RS1, RS2, RD).map(this -> _) :+ FPU
   )
-  def TypeR3(key : MaskedLiteral) = SingleDecoding(
+  def TypeR_RM(key : MaskedLiteral) = SingleDecoding(
     key = key,
-    resources = List(RS1, RS2, RS3, RD).map(this -> _)
+    resources = List(RS1, RS2, RD).map(this -> _) :+ FPU :+ RM
+  )
+  def TypeR3_RM(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(RS1, RS2, RS3, RD).map(this -> _) :+ FPU :+ RM
+  )
+  def TypeR1_RM(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(RS1, RD).map(this -> _) :+ FPU :+ RM
   )
   def TypeR1(key : MaskedLiteral) = SingleDecoding(
     key = key,
-    resources = List(RS1, RD).map(this -> _)
+    resources = List(RS1, RD).map(this -> _) :+ FPU
   )
 
   def TypeILQ(key : MaskedLiteral) = SingleDecoding(
     key = key,
-    resources = List(IntRegFile -> RS1, FloatRegFile -> RD, LQ, PC_READ) //PC_READ is used to reschedule a load which had some store hazard
+    resources = List(IntRegFile -> RS1, FloatRegFile -> RD, LQ, PC_READ)  :+ FPU//PC_READ is used to reschedule a load which had some store hazard
   )
   def TypeSSQ(key : MaskedLiteral) = SingleDecoding(
     key = key,
-    resources = List(IntRegFile -> RS1, FloatRegFile -> RS2, SQ)
+    resources = List(IntRegFile -> RS1, FloatRegFile -> RS2, SQ) :+ FPU
   )
 
   def TypeF2I(key : MaskedLiteral) = SingleDecoding(
     key = key,
-    resources = List(this -> RS1, IntRegFile -> RD)
+    resources = List(this -> RS1, IntRegFile -> RD) :+ FPU
+  )
+  def TypeF2I_RM(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(this -> RS1, IntRegFile -> RD) :+ FPU :+ RM
   )
   def TypeI2F(key : MaskedLiteral) = SingleDecoding(
     key = key,
-    resources = List(IntRegFile -> RS1, this -> RD)
+    resources = List(IntRegFile -> RS1, this -> RD) :+ FPU
+  )
+  def TypeI2F_RM(key : MaskedLiteral) = SingleDecoding(
+    key = key,
+    resources = List(IntRegFile -> RS1, this -> RD) :+ FPU :+ RM
   )
   def TypeFCI(key : MaskedLiteral) = SingleDecoding(
     key = key,
-    resources = List(this -> RS1, this -> RS2, IntRegFile -> RD)
+    resources = List(this -> RS1, this -> RS2, IntRegFile -> RD) :+ FPU
   )
 }
