@@ -750,7 +750,6 @@ case class FpuCore(p : FpuParameter) extends Component{
         fsmCmd.data := rs1Unsigned.resized
 
         haltWhen(fsmCmd.valid)
-
         val merge = Stream(MergeInput(
           FloatUnpacked(
             exponentMax = p.rsIntWidth,
@@ -777,6 +776,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         when(rs1Zero){
           merge.value.setZero
         }
+        haltWhen(!merge.ready)
       }
     }
 //    val cmp = new Pipeline{

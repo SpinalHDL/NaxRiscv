@@ -207,11 +207,11 @@ class RfTranslationPlugin(val spec : RegfileSpec) extends Plugin with InitCycles
         for(priorId <- 0 until slotId){
           val useRd = (decoder.WRITE_RD, priorId) && (DISPATCH_MASK, priorId) && (decoder.REGFILE_RD, priorId) === decoder.REGFILE_RD.rfToId(spec)
           val writeRd = (decoder.ARCH_RD, priorId)
-          when(useRd && writeRd === archRd){
+          when(useRd && writeRd === archRd && decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)){
             decoder.PHYS_RD_FREE := stage(decoder.PHYS_RD, priorId)
           }
           for(e <- rs){
-            when(useRd && writeRd === e.archRs){
+            when(useRd && writeRd === e.archRs && decoder.REGFILE_RS(e.id) === decoder.REGFILE_RS(e.id).rfToId(spec)){
               decoder.PHYS_RS(e.id) := stage(decoder.PHYS_RD, priorId)
             }
           }
