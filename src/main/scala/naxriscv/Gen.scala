@@ -290,7 +290,6 @@ object Config{
 
       plugins += new RfAllocationPlugin(riscv.FloatRegFile)
       plugins += new RfTranslationPlugin(riscv.FloatRegFile)
-//      plugins += new RfDependencyPlugin(riscv.FloatRegFile)
 
       plugins += new FpuWriteback()
       plugins += new FpuEmbedded()
@@ -412,8 +411,8 @@ object Gen64 extends App{
     val l = Config.plugins(
       xlen = 64,
       withRdTime = false,
-      aluCount    = 1,
-      decodeCount = 1,
+      aluCount    = 2,
+      decodeCount = 2,
       withRvc = true,
       withDebug = false,
       withEmbeddedJtagTap = false,

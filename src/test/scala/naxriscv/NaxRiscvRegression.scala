@@ -82,6 +82,8 @@ class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRIS
       spinalConfig.addTransformationPhase(new MemReadDuringWriteHazardPhase)
       spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
 
+      spinalConfig.includeSimulation
+
       val report = spinalConfig.generateVerilog(new NaxRiscv(plugins))
       val doc = report.toplevel.framework.getService[DocPlugin]
       doc.genC(workspacePath + "/nax.h")
@@ -115,7 +117,8 @@ class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRIS
         "SPIKE" -> "../../../ext/riscv-isa-sim",
         "FREERTOS_COUNT" -> freertosCount.toString,
         "LINUX_COUNT" -> linuxCount.toString,
-        "NAXRISCV_SEED" -> seed.toString
+        "NAXRISCV_SEED" -> seed.toString,
+        "NAXRISCV_TEST_FPU_FACTOR" -> 0.05.toString
       )
 
       println("Env :\n" + env.map(e => e._1 + "=" + e._2).mkString(" "))
@@ -130,9 +133,10 @@ class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRIS
     }
   }
 
-  doTest("config_rv32imasu", Config.plugins(withRdTime = false, xlen = 32, withRvc = false), linuxCount = 0, freertosCount = 2)
-  doTest("config_rv64imasu", Config.plugins(withRdTime = false, xlen = 64, withRvc = false), linuxCount = 0, freertosCount = 2)
+  doTest("config_rv32imasu",  Config.plugins(withRdTime = false, xlen = 32, withRvc = false), linuxCount = 0, freertosCount = 2)
+  doTest("config_rv64imasu",  Config.plugins(withRdTime = false, xlen = 64, withRvc = false), linuxCount = 0, freertosCount = 2)
   doTest("config_rv32imacsu", Config.plugins(withRdTime = false, xlen = 32, withRvc = true), linuxCount = 1, freertosCount = 2)
   doTest("config_rv64imacsu", Config.plugins(withRdTime = false, xlen = 64, withRvc = true), linuxCount = 1, freertosCount = 2)
+  doTest("config_rv64imafdcsu", Config.plugins(withRdTime = false, xlen = 64, withRvc = true, withFloat = true, withDouble = true), linuxCount = 1, freertosCount = 2)
 }
 

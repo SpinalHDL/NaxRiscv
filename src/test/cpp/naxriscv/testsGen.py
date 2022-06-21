@@ -682,9 +682,6 @@ if rva:
     arch += "a"
     archLinux += "a"
 
-if rvc:
-    arch += "c"
-    archLinux += "c"
 
 if rvf:
     arch += "f"
@@ -692,6 +689,11 @@ if rvf:
 if rvd:
     arch += "d"
     archLinux += "d"
+
+if rvc:
+    arch += "c"
+    archLinux += "c"
+
 
 naxSoftware = [
 	["lsu", "baremetal/lsu/build/rv32im/lsu.elf"],

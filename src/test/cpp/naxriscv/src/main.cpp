@@ -879,10 +879,13 @@ public:
     RvData *robToPc[DISPATCH_COUNT];
     CData *integer_write_valid[INTEGER_WRITE_COUNT];
     CData *integer_write_robId[INTEGER_WRITE_COUNT];
+#ifdef RVF
     CData *float_write_valid[FLOAT_WRITE_COUNT];
     CData *float_write_robId[FLOAT_WRITE_COUNT];
+    RvFloat *float_write_data[FLOAT_WRITE_COUNT];
     CData *float_flags_robId[FPU_ROB_TO_FLAG_COUNT];
     CData *float_flags_mask[FPU_ROB_TO_FLAG_COUNT];
+#endif
     CData *rob_completions_valid[ROB_COMPLETIONS_PORTS];
     CData *rob_completions_payload[ROB_COMPLETIONS_PORTS];
     CData *issue_valid[ISSUE_PORTS];
@@ -895,7 +898,6 @@ public:
     RvData *decoded_pc[DISPATCH_COUNT];
     CData *dispatch_mask[DISPATCH_COUNT];
     RvData *integer_write_data[INTEGER_WRITE_COUNT];
-    RvFloat *float_write_data[FLOAT_WRITE_COUNT];
     ofstream gem5;
     disassembler_t disasm;
     bool gem5Enable = false;
@@ -910,12 +912,10 @@ public:
             integer_write_valid{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _valid)},
             integer_write_robId{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _robId)},
             integer_write_data{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _data)},
-            #if FLOAT_WRITE_COUNT != 0
+            #ifdef RVF
             float_write_valid{MAP_INIT(&nax->float_write_,  FLOAT_WRITE_COUNT, _valid)},
             float_write_robId{MAP_INIT(&nax->float_write_,  FLOAT_WRITE_COUNT, _robId)},
             float_write_data{MAP_INIT(&nax->float_write_,  FLOAT_WRITE_COUNT, _data)},
-            #endif
-            #if FPU_ROB_TO_FLAG_COUNT != 0
             float_flags_robId{MAP_INIT(&nax->fpuRobToFlags_,  FPU_ROB_TO_FLAG_COUNT, _robId)},
             float_flags_mask{MAP_INIT(&nax->fpuRobToFlags_,  FPU_ROB_TO_FLAG_COUNT, _mask)},
             #endif
@@ -972,11 +972,12 @@ public:
             }
         }
 
+#ifdef RVF
         for(int i = 0;i < FPU_ROB_TO_FLAG_COUNT;i++){
             auto robId = *float_flags_robId[i];
             robCtx[robId].floatFlags |= *float_flags_mask[i];
         }
-
+#endif
 
         for(int i = 0;i < INTEGER_WRITE_COUNT;i++){
             if(*integer_write_valid[i]){
@@ -987,7 +988,7 @@ public:
             }
         }
 
-
+#ifdef RVF
         for(int i = 0;i < FLOAT_WRITE_COUNT;i++){
             if(*float_write_valid[i]){
                 auto robId = *float_write_robId[i];
@@ -996,6 +997,7 @@ public:
                 robCtx[robId].floatWriteData = *float_write_data[i];
             }
         }
+#endif
 
         if(nax->FetchPlugin_stages_1_isFirstCycle){
             auto fetchId = nax->FetchPlugin_stages_1_FETCH_ID;
