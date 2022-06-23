@@ -1,7 +1,7 @@
 package naxriscv.lsu
 
 import naxriscv.Global
-import naxriscv.Global.{PHYSICAL_WIDTH, VIRTUAL_EXT_WIDTH, XLEN}
+import naxriscv.Global.{FLEN, PHYSICAL_WIDTH, VIRTUAL_EXT_WIDTH, XLEN}
 import naxriscv.interfaces.{AddressTranslationService, LockedImpl, PerformanceCounterService}
 import spinal.core._
 import spinal.lib._
@@ -48,7 +48,7 @@ class DataCachePlugin(var memDataWidth : Int,
   def linePerWay = waySize/lineSize
   def lineRange = log2Up(linePerWay*lineSize) -1 downto log2Up(lineSize)
 
-  def cpuDataWidth = XLEN.get
+  def cpuDataWidth = XLEN.get max FLEN
 
   def writebackBusy = setup.writebackBusy
 

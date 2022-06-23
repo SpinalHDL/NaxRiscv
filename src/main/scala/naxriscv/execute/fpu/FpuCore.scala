@@ -34,6 +34,10 @@ case class FpuCore(p : FpuParameter) extends Component{
     if(p.rvd) ((format) ? { yes } | { no })
     else no
   }
+  def muxRv64[T <: Data](format : Bool)(yes : => T)(no : => T): T ={
+    if(p.rv64) ((format) ? { yes } | { no })
+    else no
+  }
 
   class FpuStage(implicit _pip: Pipeline = null)  extends Stage {
     assert(p.portCount == 1)
@@ -523,7 +527,10 @@ case class FpuCore(p : FpuParameter) extends Component{
         wb.valid := valid
         wb.robId := input.CMD.robId
         wb.flags.clear()
-        wb.value := input.RS
+        wb.value := input.RS.resized
+//        if(p.rv64 && !p.rvd){
+//          wb.value(63 downto 32) := (default -> true)
+//        }
         if(p.rv64) when(CMD.format === FpuFormat.FLOAT) {
           wb.value(63 downto 32) := (default -> input.RS(31))
         }
@@ -621,7 +628,7 @@ case class FpuCore(p : FpuParameter) extends Component{
           val resultRaw = (Mux(resign, ~unsigned, unsigned) + (resign ^ increment).asUInt)
           val expMax = (CMD.arg(1) ? AFix(62) | AFix(30)) + AFix(!CMD.arg(0))
           val expMin = (CMD.arg(1) ? AFix(63) | AFix(31))
-          val unsignedMin = muxDouble[UInt](CMD.arg(1)) (BigInt(1) << 63) (BigInt(1) << 31)
+          val unsignedMin = muxRv64[UInt](CMD.arg(1)) (BigInt(1) << 63) (BigInt(1) << 31)
           val overflow  = (RS1.exponent > expMax || RS1.isInfinity) && !RS1.sign || RS1.isNan
           val underflow = (RS1.exponent > expMin || CMD.arg(0) && RS1.exponent === expMin && (unsigned =/= unsignedMin || increment) || !CMD.arg(0) && (unsigned =/= 0 || increment) || RS1.isInfinity) && RS1.sign
           val isZero = RS1.isZero
@@ -769,10 +776,14 @@ case class FpuCore(p : FpuParameter) extends Component{
         merge.value.quiet    := False
         merge.value.sign     := rs1Neg
         merge.value.exponent := unpacker.ohInputWidth - fsmResult.shift
-        merge.value.mantissa.raw := fsmResult.data.takeHigh(p.mantissaWidth+1) ## fsmResult.data.dropHigh(p.mantissaWidth+1).orR
+        if(widthOf(fsmResult.data) > widthOf(merge.value.mantissa.raw)) {
+          merge.value.mantissa.raw := fsmResult.data.takeHigh(p.mantissaWidth + 1) ## fsmResult.data.dropHigh(p.mantissaWidth + 1).orR
+        } else {
+          merge.value.mantissa.raw := fsmResult.data << widthOf(merge.value.mantissa.raw) - widthOf(fsmResult.data)
+        }
         merge.value.setNormal
         merge.rawEnable      := ARGS.opcode === FpuOpcode.FMV_W_X
-        merge.raw            := ARGS.rs1
+        merge.raw            := ARGS.rs1.resized
         when(rs1Zero){
           merge.value.setZero
         }
@@ -974,7 +985,7 @@ case class FpuCore(p : FpuParameter) extends Component{
           fwb.value := merge.VALUE.sign ## EXP.raw.resize(11 bits) ## MAN_RESULT
         }{
           fwb.value(31 downto 0) := merge.VALUE.sign ## EXP.raw.takeLow(8) ## MAN_RESULT.takeHigh(23)
-          fwb.value(63 downto 32).setAll()
+          if(p.rvd) fwb.value(63 downto 32).setAll()
         }
 
         val wb = fwb.value

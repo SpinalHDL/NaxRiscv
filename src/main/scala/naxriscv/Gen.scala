@@ -276,6 +276,7 @@ object Config{
     )
 
     if(fpu){
+      plugins += new FpuSettingPlugin(withFloat, withDouble)
       plugins += new ExecutionUnitBase("FPU0", writebackCountMax = 0, readPhysRsFromQueue = true)
       plugins += new FpuFloatExecute("FPU0")
       plugins += new RegFilePlugin(
@@ -284,7 +285,6 @@ object Config{
         bankCount = 1,
         allZero = simulation
       )
-
 
       plugins += new FpuIntegerExecute("EU0")
 
@@ -359,7 +359,9 @@ object Gen extends App{
       withMmu = true,
       withDebug = false,
       withEmbeddedJtagTap = false,
-      jtagTunneled = false
+      jtagTunneled = false,
+      withFloat = true,
+      withDouble = true
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))

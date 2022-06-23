@@ -557,18 +557,43 @@ riscvArch64C = listPrefix("rv64i_m/C/", [
 ])
 
 fpuTestRvf32 = [
+    [0, "fmv.x.w"   , "f32"],
+    [31, "fmv.s.x" ,  "f32"],
+    [101, "fadd.s"    , "f32"],
+    [102, "fsub.s"    , "f32"],
+    [103, "fmul.s"    , "f32"],
+    [104, "fdiv.s"    , "f32"],
+    [105, "fsqrt.s"   , "f32"],
+    [106, "fmadd.s"   , "f32"],
+    [107, "fmsub.s"   , "f32"],
+    [108, "fnmadd.s"  , "f32"],
+    [109, "fnmsub.s"  , "f32"],
+    [110, "fsgnj.s"   , "f32"],
+    [111, "fsgnjn.s"  , "f32"],
+    [112, "fsgnjx.s"  , "f32"],
+    [113, "fmin.s"    , "f32"],
+    [114, "fmax.s"    , "f32"],
+    [115, "fle.s"     , "f32"],
+    [116, "feq.s"     , "f32"],
+    [117, "flt.s"     , "f32"],
+    [118, "fclass.s"  , "f32"],
+    [119, "fcvt.s.wu" , "ui32"],
+    [120, "fcvt.s.w"  , "i32"],
+    [121, "fcvt.wu.s" , "f32"],
+    [122, "fcvt.w.s"  , "f32"],
 ]
 
 fpuTestRvf64 = [
-
+    [127, "fcvt.s.lu" , "ui64"],
+    [128, "fcvt.s.l"  , "i64"],
+    [129, "fcvt.lu.s" , "f32"],
+    [130, "fcvt.l.s"  , "f32"],
+    [31, "fmv.s.x_64", "f64"],
+    [202, "fcvt.s.wu_64" , "ui64"],
+    [203, "fcvt.s.w_64"  , "i64"],
 ]
 
 fpuTestRvd32 = [
-
-]
-
-fpuTestRvd64 = [
-    [0, "fmv.x.w"   , "f32"],
     [1, "fadd.d"    , "f64"],
     [2, "fsub.d"    , "f64"],
     [3, "fmul.d"    , "f64"],
@@ -593,44 +618,19 @@ fpuTestRvd64 = [
     [22, "fcvt.w.d" , "f64"],
     [23, "fcvt.d.s" , "f64"],
     [24, "fcvt.s.d" , "f64"],
+]
+
+fpuTestRvd64 = [
     [25, "fmv.x.d"  , "f64"],
     [26, "fmv.d.x"  , "ui64"],
     [27, "fcvt.d.lu", "ui64"],
     [28, "fcvt.d.l" , "i64"],
     [29, "fcvt.lu.d", "f64"],
     [30, "fcvt.l.d" , "f64"],
-    [31, "fmv.s.x" ,  "f32"],
-    [31, "fmv.s.x_64", "f64"],
-    [101, "fadd.s"    , "f32"],
-    [102, "fsub.s"    , "f32"],
-    [103, "fmul.s"    , "f32"],
-    [104, "fdiv.s"    , "f32"],
-    [105, "fsqrt.s"   , "f32"],
-    [106, "fmadd.s"   , "f32"],
-    [107, "fmsub.s"   , "f32"],
-    [108, "fnmadd.s"  , "f32"],
-    [109, "fnmsub.s"  , "f32"],
-    [110, "fsgnj.s"   , "f32"],
-    [111, "fsgnjn.s"  , "f32"],
-    [112, "fsgnjx.s"  , "f32"],
-    [113, "fmin.s"    , "f32"],
-    [114, "fmax.s"    , "f32"],
-    [115, "fle.s"     , "f32"],
-    [116, "feq.s"     , "f32"],
-    [117, "flt.s"     , "f32"],
-    [118, "fclass.s"  , "f32"],
-    [119, "fcvt.s.wu" , "ui32"],
-    [120, "fcvt.s.w"  , "i32"],
-    [121, "fcvt.wu.s" , "f32"],
-    [122, "fcvt.w.s"  , "f32"],
-    [127, "fcvt.s.lu" , "ui64"],
-    [128, "fcvt.s.l"  , "i64"],
-    [129, "fcvt.lu.s" , "f32"],
-    [130, "fcvt.l.s"  , "f32"],
+
+
     [200, "fcvt.d.wu_64", "ui64"],
     [201, "fcvt.d.w_64" , "i64"],
-    [202, "fcvt.s.wu_64" , "ui64"],
-    [203, "fcvt.s.w_64"  , "i64"],
 ]
 
 import os
@@ -886,16 +886,25 @@ with open('tests.mk', 'w') as f:
             for name in riscv32TestRvc:
                 rvTest(name, startAdd=-8)
 
-        rvTest("rv32ua-p-lrsc_1234", elf="rv32ua-p-lrsc", timeout=300000, passs="test_5")
-        rvTest("rv32ua-p-lrsc_6", elf="rv32ua-p-lrsc", timeout=100000, start="test_6")
-
         if rvf:
-            regularBaremetal("fpu_test2")
             for name in riscv32TestFloat:
                 rvTest(name, start = "_start")
         if rvd:
             for name in riscv32TestDouble:
                 rvTest(name, start = "_start")
+
+        rvTest("rv32ua-p-lrsc_1234", elf="rv32ua-p-lrsc", timeout=300000, passs="test_5")
+        rvTest("rv32ua-p-lrsc_6", elf="rv32ua-p-lrsc", timeout=100000, start="test_6")
+
+
+        if rvf:
+            regularBaremetal("fpu_test2")
+            for e in fpuTestRvf32:
+                fpuTest(e[1], e[2], e[0])
+
+        if rvd:
+            for e in fpuTestRvd32:
+                fpuTest(e[1], e[2], e[0])
 
         for name in riscvArch32i + riscvArch32M + riscvArch32Zifencei:
             rvArch(name)

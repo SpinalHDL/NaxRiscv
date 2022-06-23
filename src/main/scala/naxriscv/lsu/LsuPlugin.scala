@@ -181,7 +181,7 @@ class LsuPlugin(var lqSize: Int,
                 var loadCtrlAt : Int = 3) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy{
 
   def withHazardPrediction = hazardPedictionEntries != 0
-  def wordWidth = Global.XLEN.get
+  def wordWidth = Global.XLEN.get max Global.FLEN
   def wordBytes = wordWidth/8
   def wordSizeWidth = LsuUtils.sizeWidth(wordWidth)
   def pageOffsetRange = 11 downto log2Up(wordBytes)
@@ -918,7 +918,7 @@ class LsuPlugin(var lqSize: Int,
           for((spec, regfile) <- setup.regfilePorts) {
             regfile.write.valid   := isValid && WRITE_RD && decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)
             regfile.write.address := decoder.PHYS_RD
-            regfile.write.data    := rspFormated
+            regfile.write.data    := rspFormated.resized
             regfile.write.robId   := ROB.ID
 
             if(RVD && spec == FloatRegFile) when(stage(SIZE) === 2){
@@ -1378,7 +1378,7 @@ class LsuPlugin(var lqSize: Int,
           val writePort = mem.word.writePort
           writePort.valid   := isFireing
           writePort.address := SQ_SEL
-          writePort.data    := rfSel.muxListDc(decoder.REGFILE_RS(1).idToRf.map(e => e._1 -> setup.regfilePorts(e._2).read.data).toSeq)
+          writePort.data    := rfSel.muxListDc(decoder.REGFILE_RS(1).idToRf.map(e => e._1 -> setup.regfilePorts(e._2).read.data.resize(widthOf(writePort.data))).toSeq)
           whenMasked(regs, SQ_SEL_OH){ reg =>
             reg.data.loaded := True
           }

@@ -33,7 +33,7 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
 
   val setup = create early new Area{
     val floatCompletion = Flow(FpuFloatCompletion(ROB.ID_WIDTH, 32 + Global.RVD.get.toInt*32))
-    val integerWriteback = Stream(FpuIntWriteBack(ROB.ID_WIDTH, 32 + Global.RVD.get.toInt*32))
+    val integerWriteback = Stream(FpuIntWriteBack(ROB.ID_WIDTH, XLEN))
     val rob = getService[RobService]
     val decoder = getService[DecoderService]
     val commit = getService[CommitService]

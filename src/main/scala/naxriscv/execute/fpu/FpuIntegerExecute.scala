@@ -58,7 +58,7 @@ class FpuIntegerExecute(euId : String) extends Plugin{
       }
     }
 
-    val intCmd = master(Stream(FpuIntCmd(RVD, ROB.ID_WIDTH)))
+    val intCmd = master(Stream(FpuIntCmd(XLEN.get == 64, ROB.ID_WIDTH)))
   }
 
   val logic = create late new Area{

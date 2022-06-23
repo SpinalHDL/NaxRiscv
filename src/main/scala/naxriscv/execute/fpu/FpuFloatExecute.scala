@@ -23,14 +23,6 @@ object FpuFloatExecute extends AreaObject {
 class FpuFloatExecute(euId : String) extends Plugin{
   import FpuFloatExecute._
 
-  create config{
-    RVF.set(true)
-    RVD.set(true)
-    val doc = getService[DocPlugin]
-    if(RVF) doc.property("RVF", true)
-    if(RVD) doc.property("RVD", true)
-  }
-
   val setup = create early new Area {
     val eu = findService[ExecutionUnitBase](_.euId == euId)
     eu.retain()

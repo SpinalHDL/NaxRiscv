@@ -8,11 +8,6 @@ import spinal.lib._
 import naxriscv.utilities.Plugin
 
 class FpuEmbedded extends Plugin {
-
-  val setup = create early new Area{
-
-  }
-
   val logic = create late new Area{
     val floatCmd = getService[FpuFloatExecute].setup.floatCmd.setAsDirectionLess
     val intCmd = getService[FpuIntegerExecute].setup.intCmd.setAsDirectionLess
@@ -35,13 +30,5 @@ class FpuEmbedded extends Plugin {
     port.floatWriteback >> floatCompletion
     port.intWriteback >> integerWriteback
     port.unschedule := getService[FpuWriteback].setup.unschedule
-
-
-//    val result = floatCmd.stage().stage().stage().toFlow
-//    floatCompletion.valid := result.valid
-//    floatCompletion.flags := floatCompletion.flags.getZero
-//    floatCompletion.robId := result.robId
-//    floatCompletion.value := result.rs(0)
-//    floatCompletion.value(52, 11 bits) := B(U(result.rs(0)(52, 11 bits)) + 1)
   }
 }

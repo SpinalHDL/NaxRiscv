@@ -67,7 +67,12 @@ public:
 #define RvData u64
 #endif
 
+#ifdef RVD
 #define RvFloat u64
+#else
+#define RvFloat u32
+#endif
+
 
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
 
@@ -1929,7 +1934,7 @@ void simLoop(){
                                     case 1: { //float
                                         //TODO FPU track float writes
                                         assertTrue("FLOAT WRITE MISSING", whitebox->robCtx[robId].floatWriteValid);
-                                        if(whitebox->robCtx[robId].floatWriteData != item.second.v[0]){
+                                        if(whitebox->robCtx[robId].floatWriteData != (RvFloat)item.second.v[0]){
                                             printf("\n*** FLOAT WRITE DATA DUT=%lx REF=%lx ***\n\n", (u64)whitebox->robCtx[robId].floatWriteData, (u64) item.second.v[0]);\
                                             failure();
                                         }
