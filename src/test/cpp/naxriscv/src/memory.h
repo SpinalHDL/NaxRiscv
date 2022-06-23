@@ -68,6 +68,7 @@ public:
     	FILE *fp = fopen(&path[0], "r");
     	if(fp == 0){
     		cout << path << " not found" << endl;
+    		throw exception();
     	}
 
     	fseek(fp, 0, SEEK_END);
@@ -123,6 +124,7 @@ public:
     	FILE *fp = fopen(&path[0], "r");
     	if(fp == 0){
     		cout << path << " not found" << endl;
+    		throw exception();
     	}
 
     	fseek(fp, 0, SEEK_END);

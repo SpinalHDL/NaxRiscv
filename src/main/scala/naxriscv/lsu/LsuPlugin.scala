@@ -108,7 +108,7 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
 
     a.ready := (a.write ? axi.aw.ready | axi.ar.ready)
 
-    val addr = U(a.address.dropLow(log2Up(XLEN/8)) << log2Up(XLEN/8))
+    val addr = U(a.address.dropLow(log2Up(LSLEN/8)) << log2Up(LSLEN/8))
 
     //AR
     axi.ar.valid := a.valid && !a.write
@@ -140,7 +140,7 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
       dataWidth    = p.dataWidth
     ).addSources(1, BmbSourceParameter(
       contextWidth     = 0,
-      lengthWidth      = log2Up(XLEN/8),
+      lengthWidth      = log2Up(LSLEN/8),
       alignment        = BmbParameter.BurstAlignement.LENGTH
     ))
 
@@ -181,7 +181,7 @@ class LsuPlugin(var lqSize: Int,
                 var loadCtrlAt : Int = 3) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy{
 
   def withHazardPrediction = hazardPedictionEntries != 0
-  def wordWidth = Global.XLEN.get max Global.FLEN
+  def wordWidth = LSLEN
   def wordBytes = wordWidth/8
   def wordSizeWidth = LsuUtils.sizeWidth(wordWidth)
   def pageOffsetRange = 11 downto log2Up(wordBytes)
@@ -908,10 +908,10 @@ class LsuPlugin(var lqSize: Int,
             rspShifted := checkSqArbi.bypass.data
           }
 
-          val sizeMax = log2Up(XLEN/8)
+          val sizeMax = log2Up(LSLEN/8)
           val rspFormated = rspSize.muxListDc((0 to sizeMax).map{i =>
             val off = (1 << i) * 8
-            i -> B((XLEN.get - 1 downto off) -> (rspShifted(off-1) && !rspUnsigned), (off-1 downto 0) -> rspShifted(off-1 downto 0))
+            i -> B((LSLEN - 1 downto off) -> (rspShifted(off-1) && !rspUnsigned), (off-1 downto 0) -> rspShifted(off-1 downto 0))
           })
 
 
@@ -1700,8 +1700,8 @@ class LsuPlugin(var lqSize: Int,
         val alu = new AtomicAlu(
           op   = sq.mem.op,
           swap = sq.mem.swap,
-          mem  = readed,
-          rf   = storeData,
+          mem  = readed(0, XLEN bits),
+          rf   = storeData(0, XLEN bits),
           isWord = storeSize === 2
         )
 
@@ -1748,7 +1748,7 @@ class LsuPlugin(var lqSize: Int,
         LOAD_RSP whenIsActive{
           val rsp = setup.cacheLoad.rsp
           load.pipeline.cacheRsp.specialOverride := True
-          readed := load.pipeline.cacheRsp.rspFormated
+          readed := load.pipeline.cacheRsp.rspFormated(0, XLEN bits)
 
           val rfWrite = setup.regfilePorts(IntRegFile).write
           rfWrite.address      := sq.mem.physRd
@@ -1799,7 +1799,7 @@ class LsuPlugin(var lqSize: Int,
 
         SYNC.whenIsActive{
           when(storeAmo) {
-            store.writeback.feed.data := result
+            store.writeback.feed.data(0, XLEN bits) := result
           }
           when(storeSc && !reservationHit){
             store.writeback.feed.skip := True

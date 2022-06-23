@@ -202,6 +202,7 @@ bool simMaster = false;
 bool simSlave = false;
 bool noStdIn = false;
 bool putcFlush = true;
+bool passFailWritten = false;
 
 
 class TestSchedule{
@@ -2021,6 +2022,7 @@ void simLoop(){
             simMasterWriteHeader(SIM_MS_FAIL);
         }
     }
+    passFailWritten = true;
 
     if(statsPrint){
         printf("STATS :\n%s", whitebox->stats.report("  ", statsPrintHist).c_str());
@@ -2048,13 +2050,21 @@ void cleanup(){
 }
 
 int main(int argc, char** argv, char** env){
-    parseArgFirst(argc, argv);
-    verilatorInit(argc, argv);
-    spikeInit();
-    rtlInit();
-    parseArgsSecond(argc, argv);
-    simMasterSlaveInit();
-    simLoop();
+    try {
+        parseArgFirst(argc, argv);
+        verilatorInit(argc, argv);
+        spikeInit();
+        rtlInit();
+        parseArgsSecond(argc, argv);
+        simMasterSlaveInit();
+        simLoop();
+    } catch (const std::exception& e) {
+        if(!passFailWritten){
+            remove((outputDir + "/PASS").c_str());
+            auto f = fopen((outputDir + "/FAIL").c_str(),"w");
+            fclose(f);
+        }
+    }
     cleanup();
     return 0;
 }

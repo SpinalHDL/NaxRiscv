@@ -750,11 +750,11 @@ case class FpuCore(p : FpuParameter) extends Component{
         val rs1Neg = ARGS.arg(0) && rs1Msb
         val rs1Masked = CombInit(ARGS.rs1)
         if(p.rv64) when(!ARGS.arg(1)) { rs1Masked(63 downto 32) := (default -> rs1Neg) }
-        val rs1Unsigned = B(U(rs1Masked).twoComplement(rs1Neg))
+        val rs1Unsigned = Mux(rs1Neg, ~rs1Masked, rs1Masked).asUInt + U(rs1Neg)
         val rs1Zero = RegNext(rs1Masked === 0)
 
         fsmCmd.valid := valid && ARGS.opcode === FpuOpcode.I2F && !served
-        fsmCmd.data := rs1Unsigned.resized
+        fsmCmd.data := rs1Unsigned.asBits.resized
 
         haltWhen(fsmCmd.valid)
         val merge = Stream(MergeInput(
