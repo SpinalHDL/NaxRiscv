@@ -58,9 +58,9 @@ class MultithreadedFunSuite(threadCount : Int) extends AnyFunSuite {
   }
 }
 
-object VerilatorMake
+object HeavyLock
 
-class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRISCV_REGRESSION_THREAD_COUNT", "1").toInt){
+class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRISCV_REGRESSION_THREAD_COUNT", "4").toInt){
 
   var seed = sys.env.getOrElse("NAXRISCV_SEED", Random.nextInt(100000000).toString).toInt
   println("SEED="+seed)
@@ -86,7 +86,7 @@ class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRIS
 
       spinalConfig.includeSimulation
 
-      val report = spinalConfig.generateVerilog(new NaxRiscv(plugins))
+      val report = HeavyLock.synchronized {spinalConfig.generateVerilog(new NaxRiscv(plugins))}
       val doc = report.toplevel.framework.getService[DocPlugin]
       doc.genC(workspacePath + "/nax.h")
 
@@ -123,10 +123,10 @@ class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRIS
         "NAXRISCV_TEST_FPU_FACTOR" -> 0.10.toString
       )
 
-      val makeThreadCount = sys.env.getOrElse("NAXRISCV_REGRESSION_MAKE_THREAD_COUNT", "1").toInt
+      val makeThreadCount = sys.env.getOrElse("NAXRISCV_REGRESSION_MAKE_THREAD_COUNT", "3").toInt
       println("Env :\n" + env.map(e => e._1 + "=" + e._2).mkString(" "))
       doCmd("python3 ./testsGen.py", env :_*)
-      VerilatorMake.synchronized {
+      HeavyLock.synchronized {
         doCmd("make compile", env: _*)
       }
       doCmd(s"make test-all -j${makeThreadCount}", env :_*)
