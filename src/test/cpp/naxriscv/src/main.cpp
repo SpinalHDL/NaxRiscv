@@ -2060,6 +2060,7 @@ int main(int argc, char** argv, char** env){
         simLoop();
     } catch (const std::exception& e) {
         if(!passFailWritten){
+            printf("FAILURE %s\n", simName.c_str());
             remove((outputDir + "/PASS").c_str());
             auto f = fopen((outputDir + "/FAIL").c_str(),"w");
             fclose(f);
