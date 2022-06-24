@@ -64,5 +64,5 @@ jobs:
       - name: Compile
         run: sbt clean compile
 
-      - name: Test
-        run: sbt test
+      #- name: Test
+      #  run: sbt test

@@ -557,8 +557,8 @@ riscvArch64C = listPrefix("rv64i_m/C/", [
 ])
 
 fpuTestRvf32 = [
-    [0, "fmv.x.w"   , "f32"],
-    [31, "fmv.s.x" ,  "f32"],
+    [0,   "fmv.x.w"   , "f32"],
+    [31,  "fmv.s.x" ,  "f32"],
     [101, "fadd.s"    , "f32"],
     [102, "fsub.s"    , "f32"],
     [103, "fmul.s"    , "f32"],
@@ -806,6 +806,29 @@ with open('tests.mk', 'w') as f:
         ]))
         f.write(f"\n\n")
 
+    def fpuTest3():
+        name = "fpu_test3"
+        outputDir = "output/nax/" + name
+        rule = outputDir +"/PASS"
+        tests.append(rule)
+        testsFast.append(rule)
+        testsFpu.append(rule)
+        ouputs.append(outputDir)
+        f.write(f"{outputDir}/PASS:\n")
+        f.write("\t" + " ".join([
+            "obj_dir/VNaxRiscv",
+            "--name", name,
+            "--output-dir", outputDir,
+            "--load-bin", f"{naxriscv_software}/baremetal/fpu_test/vector/f32.bin,0x90000000",
+            "--load-elf", f"{naxriscv_software}/baremetal/fpu_test3/build/{archLinux}/fpu_test3.elf",
+            "--pass-symbol", "pass",
+            "--fail-symbol", "fail",
+            "--timeout", str(500000000),
+            "--seed", str(random.randint(0, 100000000)),
+           "${ARGS}"
+        ]))
+        f.write(f"\n\n")
+
 
     def regularSoftware(name, path):
         outputDir = "output/nax/" + name
@@ -858,6 +881,7 @@ with open('tests.mk', 'w') as f:
 
         if rvf:
             regularBaremetal("fpu_test2")
+            fpuTest3()
             for e in fpuTestRvf32:
                 fpuTest(e[1], e[2], e[0])
             if xlen == 64:
@@ -899,6 +923,7 @@ with open('tests.mk', 'w') as f:
 
         if rvf:
             regularBaremetal("fpu_test2")
+            fpuTest3()
             for e in fpuTestRvf32:
                 fpuTest(e[1], e[2], e[0])
 
