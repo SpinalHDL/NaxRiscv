@@ -38,8 +38,8 @@ class FpuAdd(pipeline : Pipeline,
     val xySign = insert(absRs1Bigger ? rs1.sign | rs2.sign)
     val xMantissa = insert((absRs1Bigger ? rs1.mantissa | rs2.mantissa) + AFix(1))
     val yMantissaUnshifted = insert((absRs1Bigger ? rs2.mantissa | rs1.mantissa) +  AFix(1))
-    val shifter = Shift.rightWithScrap(yMantissaUnshifted.raw ## False, expDifAbsSat)
-    val yMantissa = insert(AFix(shifter.dropLow(1).asUInt, yMantissaUnshifted.exp exp))
+    val shifter = Shift.rightWithScrap(yMantissaUnshifted.raw ## False ## False, expDifAbsSat)
+    val yMantissa = insert(AFix(shifter.dropLow(1).asUInt, yMantissaUnshifted.exp-1 exp))
     val roundingScrap = shifter.lsb && !passThrough
 
 

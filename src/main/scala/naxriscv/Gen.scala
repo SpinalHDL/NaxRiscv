@@ -283,7 +283,7 @@ object Config{
         spec = riscv.FloatRegFile,
         physicalDepth = 64,
         bankCount = 1,
-        allZero = simulation
+        allOne = simulation
       )
 
       plugins += new FpuIntegerExecute("EU0")
@@ -354,7 +354,7 @@ object Gen extends App{
       aluCount    = 2,
       decodeCount = 2,
       debugTriggers = 4,
-      withRvc = false,
+      withRvc = true,
       withLoadStore = true,
       withMmu = true,
       withDebug = false,

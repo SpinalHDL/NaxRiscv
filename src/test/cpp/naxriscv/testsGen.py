@@ -712,6 +712,10 @@ freertos = ["blocktim", "countsem", "EventGroupsDemo", "flop", "integer", "QPeek
             "QueueSet", "recmutex", "semtest", "TaskNotify", "dynamic",
             "GenQTest", "PollQ", "QueueOverwrite", "QueueSetPolling", "sp_flop", "test1"]
 
+if(rvf or rvd):
+    freertos.remove("sp_flop")
+    freertos.remove("flop")
+
 for e in naxSoftwareRegular:
     naxSoftware.append([e, f"baremetal/{e}/build/{arch}/{e}.elf"])
 

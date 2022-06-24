@@ -22,9 +22,9 @@ class RegFileAsync(addressWidth    : Int,
                    writesParameter : Seq[RegFileWriteParameter],
                    bypasseCount    : Int,
                    headZero        : Boolean,
-                   allZero         : Boolean,
+                   allOne         : Boolean,
                    asyncReadBySyncReadRevertedClk : Boolean = false) extends Component {
-  assert(!(allZero && headZero))
+  assert(!(allOne && headZero))
 
   val io = new Bundle {
     val writes = Vec(writesParameter.map(p => slave(RegFileWrite(addressWidth, dataWidth, p.withReady))))
@@ -82,7 +82,7 @@ class RegFileAsync(addressWidth    : Int,
     }
   }
 
-  val initAll = allZero generate new Area{
+  val initAll = allOne generate new Area{
     assert(bankCount == 1)
     val counter = Reg(UInt(addressWidth+1 bits)) init(0)
     val done = counter.msb
@@ -91,7 +91,7 @@ class RegFileAsync(addressWidth    : Int,
       val port = bank.writePort.head
       port.valid := True
       port.address := counter.resized
-      port.data := 0
+      port.data.setAll()
       counter := counter + 1
     }
   }
@@ -112,7 +112,7 @@ object RegFileAsyncSynth extends App{
     writesParameter = Seq.fill(1)(RegFileWriteParameter(withReady = false)),
     bypasseCount    = 0,
     headZero        = true,
-    allZero         = false
+    allOne         = false
   ))).printPruned())
   val targets = XilinxStdTargets().take(2)
 
@@ -139,12 +139,12 @@ class RegFilePlugin(var spec : RegfileSpec,
                     var physicalDepth : Int,
                     var bankCount : Int,
                     var asyncReadBySyncReadRevertedClk : Boolean = false,
-                    var allZero : Boolean = false) extends Plugin with RegfileService with InitCycles {
+                    var allOne : Boolean = false) extends Plugin with RegfileService with InitCycles {
   withPrefix(spec.getName())
 
   override def getPhysicalDepth = physicalDepth
   override def rfSpec = spec
-  override def initCycles = if(allZero) physicalDepth else 0
+  override def initCycles = if(allOne) physicalDepth else 0
 
   val lock = Lock()
   def addressWidth = log2Up(physicalDepth)
@@ -182,7 +182,7 @@ class RegFilePlugin(var spec : RegfileSpec,
       writesParameter = writes.map(e => RegFileWriteParameter(withReady = e.withReady)),
       bypasseCount    = bypasses.size,
       headZero        = spec.x0AlwaysZero,
-      allZero         = allZero,
+      allOne         = allOne,
       asyncReadBySyncReadRevertedClk = asyncReadBySyncReadRevertedClk
     )
 

@@ -1559,6 +1559,12 @@ void spikeInit(){
     if(spike_debug) proc->debug = true;
     proc->set_pmp_num(0);
     state = proc->get_state();
+    for(int i = 0;i < 32;i++){
+        float128_t tmp;
+        tmp.v[0] = -1;
+        tmp.v[1] = -1;
+        state->FPR.write(i, tmp);
+    }
 }
 
 void rtlInit(){
