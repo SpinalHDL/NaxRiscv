@@ -26,12 +26,12 @@ class FpuMul(pipeline : Pipeline,
 
   val sum2 = new Area{
     import sum2Stage._
-    val EXP_ADD = insert(rs1.exponent + rs2.exponent)
-    val SIGN = insert(rs1.sign ^ rs2.sign)
-    val FORCE_ZERO = insert(rs1.isZero || rs2.isZero)
+    val EXP_ADD        = insert(rs1.exponent + rs2.exponent)
+    val SIGN           = insert(rs1.sign ^ rs2.sign)
+    val FORCE_ZERO     = insert(rs1.isZero || rs2.isZero)
     val FORCE_OVERFLOW = insert(rs1.isInfinity || rs2.isInfinity)
-    val INFINITY_NAN = insert(((rs1.isInfinity || rs2.isInfinity) && (rs1.isZero || rs2.isZero)))
-    val FORCE_NAN = insert(rs1.isNan || rs2.isNan || INFINITY_NAN)
+    val INFINITY_NAN   = insert(((rs1.isInfinity || rs2.isInfinity) && (rs1.isZero || rs2.isZero)))
+    val FORCE_NAN      = insert(rs1.isNan || rs2.isNan || INFINITY_NAN)
   }
 
   import sum2._
@@ -67,11 +67,11 @@ class FpuMul(pipeline : Pipeline,
       mantissaWidth = widthOf(MAN)
     ))
 
-    RESULT.sign := SIGN
+    RESULT.sign     := SIGN
     RESULT.exponent := EXP
     RESULT.mantissa := MAN
-    RESULT.mode := FloatMode.NORMAL
-    RESULT.quiet := True
+    RESULT.mode     := FloatMode.NORMAL
+    RESULT.quiet    := True
 
     val NV = insert(False)
 
