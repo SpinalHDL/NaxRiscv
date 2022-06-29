@@ -488,13 +488,12 @@ class LsuPlugin(var lqSize: Int,
 
         val data = new Area{
           val doNotBypass = Reg(Bool())
-          val loaded = Reg(Bool())
+          val loadedAhead = Reg(Bool()) //Allow to save 1 cycle latency
+          val loadedDone = RegNext(loadedAhead)
           val requested = Reg(Bool())
           val inRf  = Reg(Bool())
           val physical = Reg(decoder.PHYS_RS(1))
           val regfile = Reg(decoder.REGFILE_RS(1))
-
-//          val inRfDelay  = RegNext(inRf)
 
           val request = valid && inRf && !requested
           val wake = Bool()
@@ -559,7 +558,7 @@ class LsuPlugin(var lqSize: Int,
       import lq._
 
       val sqWakes = new Area{
-        val hits = sq.regs.map(r => r.address.translated && r.data.loaded) //This is a bit pessimistic as it assume that bypass is required (no alias) (r.data.loaded)
+        val hits = sq.regs.map(r => r.address.translated && r.data.loadedAhead) //This is a bit pessimistic as it assume that bypass is required (no alias) (r.data.loaded)
         for(reg <- regs) {
           //        when(sq.ptr.onFree.valid && sq.ptr.onFree.payload === reg.waitOn.sqId){
           //          reg.waitOn.sq := False
@@ -872,7 +871,7 @@ class LsuPlugin(var lqSize: Int,
           val bypass = new Area{
             val addressMatch = sq.mem.addressPost.readAsync(OLDER_STORE_ID) === tpk.TRANSLATED
             val regsMatch = sq.regs.map(reg => OLDER_STORE_OH(reg.id) && reg.address.size === SIZE && !reg.data.doNotBypass).orR
-            val maybeLater = sq.regs.map(reg => OLDER_STORE_OH(reg.id) && (!reg.address.translated || !reg.data.loaded)).orR
+            val maybeLater = sq.regs.map(reg => OLDER_STORE_OH(reg.id) && (!reg.address.translated || !reg.data.loadedDone)).orR
             val data = sq.mem.word.readAsync(OLDER_STORE_ID)
 
             OLDER_STORE_BYPASS_SUCCESS := !maybeLater && regsMatch && addressMatch
@@ -1192,7 +1191,8 @@ class LsuPlugin(var lqSize: Int,
               reg.waitOn.translationRsp := False
               reg.address.translated := False
               reg.waitOn.translationWakeAny := False
-              reg.data.loaded := False
+              reg.data.loadedAhead := False
+              reg.data.loadedDone := False
               reg.data.requested := False
 
               reg.data.inRf     := !OhMux.or(hits, enableUnskipedMasked)
@@ -1254,7 +1254,6 @@ class LsuPlugin(var lqSize: Int,
           MISS_ALIGNED := (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
         }
 
-        //TODO timings
         val checkLqHits = new Area{
           val stage = stages(1)
           import stage._
@@ -1330,6 +1329,11 @@ class LsuPlugin(var lqSize: Int,
           val regular = !tpk.IO && !AMO && !SC
 
           def onRegs(body : RegType => Unit) = for(reg <- regs) when(SQ_SEL_OH(reg.id)){ body(reg) }
+
+          val bypassCompletion = new Area{
+            val valid = False
+            val sqId = CombInit[UInt](SQ_SEL)
+          }
           when(isFireing) {
             onRegs(_.waitOn.translationRsp := False)
 
@@ -1360,6 +1364,7 @@ class LsuPlugin(var lqSize: Int,
               whenMasked(regs, SQ_SEL_OH){reg =>
                 reg.address.regular := regular
               }
+              bypassCompletion.valid setWhen(regular && regs.map(_.data.loadedAhead).read(SQ_SEL))
             }
           }
         }
@@ -1389,6 +1394,7 @@ class LsuPlugin(var lqSize: Int,
           valid := hit
           whenMasked(regs, selOh){ reg =>
             reg.data.requested := True
+            reg.data.loadedAhead := True //Ahead, but that's ok, nobody will realy use it next cycle, and that improve latency
           }
         }
 
@@ -1408,9 +1414,6 @@ class LsuPlugin(var lqSize: Int,
           writePort.valid   := isFireing
           writePort.address := SQ_SEL
           writePort.data    := rfSel.muxListDc(decoder.REGFILE_RS(1).idToRf.map(e => e._1 -> setup.regfilePorts(e._2).read.data.resize(widthOf(writePort.data))).toSeq)
-          whenMasked(regs, SQ_SEL_OH){ reg =>
-            reg.data.loaded := True
-          }
         }
 
         build()
@@ -1424,17 +1427,25 @@ class LsuPlugin(var lqSize: Int,
           val stage = stages(0)
           import stage._
 
-          val hits = B(regs.map(reg => reg.data.loaded && reg.address.translated && reg.address.regular))
+          val hits = B(regs.map(reg => reg.data.loadedAhead && reg.address.translated && reg.address.regular))
           val hit = hits.orR
           val selOh = OHMasking.roundRobinMasked(hits, ptr.priority)
           val sel = OHToUInt(selOh)
 
-          SQ_SEL_OH := selOh
           SQ_SEL := sel
 
           valid := hit
           whenMasked(regs, selOh){ reg =>
             reg.address.regular := False
+          }
+
+          //Shave one cycle by feeding in the address pipeline directly
+          when(!hit && pipeline.completion.bypassCompletion.valid){
+            valid := True
+            SQ_SEL := pipeline.completion.bypassCompletion.sqId
+            whenIndexed(regs, pipeline.completion.bypassCompletion.sqId){ reg =>
+              reg.address.regular := False
+            }
           }
         }
 
@@ -1643,7 +1654,7 @@ class LsuPlugin(var lqSize: Int,
       val hitStoreIo  = sq.mem.io.readAsync(sq.ptr.commitReal)
       val hitStoreAmo = sq.mem.amo.readAsync(sq.ptr.commitReal)
       val hitStoreSc  = sq.mem.sc.readAsync(sq.ptr.commitReal)
-      val storeHit = sqOnTop && storeWriteBackUsable && sq.regs.map(reg => reg.valid && reg.address.translated && reg.data.loaded).read(sq.ptr.commitReal) && (hitStoreIo || hitStoreAmo || hitStoreSc)
+      val storeHit = sqOnTop && storeWriteBackUsable && sq.regs.map(reg => reg.valid && reg.address.translated && reg.data.loadedDone).read(sq.ptr.commitReal) && (hitStoreIo || hitStoreAmo || hitStoreSc)
       val loadHit = lqOnTop && lq.regs.map(reg => reg.valid && reg.waitOn.commit).read(lq.ptr.freeReal) && lq.mem.io.readAsync(lq.ptr.freeReal)
       val hit = storeHit || loadHit
 
