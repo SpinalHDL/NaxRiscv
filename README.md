@@ -4,8 +4,8 @@ An RISC-V core currently characterised by :
 
 - Out of order execution with register renaming
 - Superscalar (ex : 2 decode, 3 execution units, 2 retire)
-- (RV32 RV64)IMASU (Linux / Buildroot works on harwdare)
-- High perf config : 2.64 DMIPS/Mhz, 4.85 Coremark/Mhz, 1.62 Embench-iot baseline (Cortex M4) @ 145 Mhz + 14.6 KLUT on Artix 7-3
+- (RV32/RV64)IMAFDCSU (Linux / Buildroot works on hardware)
+- High perf config : 2.94 DMIPS/Mhz, 5.00 Coremark/Mhz, 1.68 Embench-iot baseline (Cortex M4) @ 150 Mhz + 14.2 KLUT on Artix 7-3
 - Portable HDL, but target FPGA with distributed ram (Xilinx series 7 is the reference used so far)
 - Target a (relatively) low area usage and high fmax (not the best IPC)
 - Decentralized hardware elaboration (Empty toplevel parametrized with plugins)
