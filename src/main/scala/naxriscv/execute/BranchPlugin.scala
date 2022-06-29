@@ -134,7 +134,7 @@ class BranchPlugin(val euId : String,
       setup.reschedule.valid := isFireing && SEL && (MISSPREDICTED || MISSALIGNED)
       setup.reschedule.robId := ROB.ID
       setup.reschedule.cause := 0
-      setup.reschedule.tval := 0
+      setup.reschedule.tval := B(target)
       setup.reschedule.pcTarget := target
       setup.reschedule.reason  := ((BRANCH_CTRL === BranchCtrlEnum.B) ? U(ScheduleReason.BRANCH) otherwise U(ScheduleReason.JUMP)).resized
 

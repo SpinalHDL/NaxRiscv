@@ -62,6 +62,10 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
   override def implementSupervisor = p.withSupervisor
   override def implementUserTrap = p.withUserTrap
 
+  override def setFpDirty() = setup.setFpDirty := True
+  override def isFpuEnabled() = setup.isFpuEnabled
+
+
   create config{
     Global.RV_DEBUG.set(p.withDebug)
   }
@@ -115,6 +119,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
     addMisa('I')
     if(RVC) addMisa('C')
+    if(RVF) addMisa('F')
+    if(RVD) addMisa('D')
     if(p.withUser) addMisa('U')
     if(p.withSupervisor) addMisa('S')
 
@@ -123,6 +129,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
     val trapEvent = False
     val redoTriggered = False
+    val setFpDirty = False
+    val isFpuEnabled = False
   }
 
   val logic = create late new Area{
@@ -391,6 +399,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       }
     }
 
+    val withFs = RVF || p.withSupervisor //See spike XD
+
     val machine = new Area {
       val cause = new Area{
         val interrupt = RegInit(False)
@@ -399,6 +409,10 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       val mstatus = new Area{
         val mie, mpie = RegInit(False)
         val mpp = RegInit(U"00")
+        val fs = withFs generate RegInit(U"00")
+        val sd = False
+        if(RVF) setup.isFpuEnabled setWhen(fs =/= 0)
+        if(withFs) sd setWhen(fs === 3)
       }
       val mip = new Area{
         val meip = RegNext(io.int.machine.external) init(False)
@@ -437,8 +451,33 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
       csr.readWrite(CSR.MCAUSE, XLEN-1 -> cause.interrupt, 0 -> cause.code)
       csr.readWrite(CSR.MSTATUS, 11 -> mstatus.mpp, 7 -> mstatus.mpie, 3 -> mstatus.mie)
+      csr.read     (CSR.MSTATUS, XLEN-1 -> mstatus.sd)
       csr.read     (CSR.MIP, 11 -> mip.meip, 7 -> mip.mtip, 3 -> mip.msip)
       csr.readWrite(CSR.MIE, 11 -> mie.meie, 7 -> mie.mtie, 3 -> mie.msie)
+
+
+      if(withFs) csr.readWrite(CSR.MSTATUS, 13 -> mstatus.fs)
+      //TODO FPU trap illegal instruction if FPU instruction and "00"
+      val rvf = RVF.get generate new Area {
+
+
+        val csrDirty = CsrListFilter(List(CSR.FRM, CSR.FCSR, CSR.FFLAGS))
+        csr.onWrite(csrDirty, true){
+          setFpDirty()
+        }
+
+        //Reschedule when the FPU status is changing
+        val fpuStatusChange = CsrListFilter(List(CSR.MSTATUS) ++ Some(CSR.SSTATUS).filter(_ => p.withSupervisor))
+        csr.onWrite(fpuStatusChange, false){
+          when(csr.onWriteBits(13, 2 bits).asUInt =/= mstatus.fs){
+            csr.onWriteFlushPipeline()
+          }
+        }
+
+        when(setup.setFpDirty){
+          mstatus.fs := 3
+        }
+      }
 
       if(p.withSupervisor) {
         for((id, enable) <- medeleg.mapping) csr.readWrite(CSR.MEDELEG, id -> enable)
@@ -488,6 +527,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       csr.readWrite(CSR.SCAUSE, XLEN-1 -> cause.interrupt, 0 -> cause.code)
 
       for(offset <- List(CSR.MSTATUS, CSR.SSTATUS))  csr.readWrite(offset, 8 -> sstatus.spp, 5 -> sstatus.spie, 1 -> sstatus.sie)
+      if(withFs)  csr.readWrite(CSR.SSTATUS, 13 -> machine.mstatus.fs)
+      csr.read(CSR.SSTATUS, XLEN-1 -> machine.mstatus.sd)
 
       def mapMie(machineCsr : Int, supervisorCsr : Int, bitId : Int, reg : Bool, machineDeleg : Bool, sWrite : Boolean = true): Unit ={
         csr.read(reg, machineCsr, bitId)

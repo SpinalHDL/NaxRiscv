@@ -1,11 +1,11 @@
 package naxriscv.execute
 
-import naxriscv.Global.XLEN
+import naxriscv.Global.{RVD, RVF, XLEN}
 import naxriscv.frontend.RfDependencyPlugin
 import naxriscv.{DecodeListType, Frontend, ROB}
 import naxriscv.interfaces.{DecoderService, MicroOp, RS2}
 import naxriscv.lsu.LsuPlugin
-import naxriscv.riscv.{Const, IntRegFile, Rvi}
+import naxriscv.riscv.{Const, IntRegFile, Rvfd, Rvi}
 import naxriscv.utilities._
 import spinal.core._
 import spinal.lib.pipeline.Stageable
@@ -42,6 +42,8 @@ class StorePlugin(val euId : String) extends Plugin{
     val srcOps = List(sk.Op.ADD, sk.SRC1.RF, sk.SRC2.S)
     val stores = ArrayBuffer(Rvi.SB, Rvi.SH, Rvi.SW)
     if(XLEN.get == 64) stores ++= List(Rvi.SD)
+    if(RVF) stores ++= List(Rvfd.FSW)
+    if(RVD) stores ++= List(Rvfd.FSD)
 
     for(store <- stores) add(store, srcOps, List(AMO -> False, SC -> False))
 
@@ -73,6 +75,7 @@ class StorePlugin(val euId : String) extends Plugin{
     setup.port.swap := Frontend.MICRO_OP(27)
     setup.port.op  := Frontend.MICRO_OP(29, 3 bits)
     setup.port.physicalRd := decoder.PHYS_RD
+    setup.port.regfileRd := decoder.REGFILE_RD
     setup.port.writeRd := decoder.WRITE_RD
     eu.release()
   }

@@ -233,6 +233,7 @@ Nax : timed 5026 gametics in 2040 realtics (86.230392 fps)
       timed 5026 gametics in 1926 realtics (91.334373 fps)
       timed 5026 gametics in 1789 realtics (98.328674 fps)
       timed 5026 gametics in 1781 realtics (98.770355 fps)
+      timed 5026 gametics in 1786 realtics (98.493843 fps)
 Vex : timed 5026 gametics in 3851 realtics (45.679043 fps)
 
 no draw no blit :

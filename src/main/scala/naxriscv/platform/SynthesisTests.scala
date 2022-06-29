@@ -40,9 +40,13 @@ object SynthesisTests extends App{
 //        val din = in Bits(width bits)
 //        val dout = out(din(sel))
 
+//        val sel = in UInt(log2Up(width*2) bits)
+//        val din = in Bits(width bits)
+//        val dout = out((din << width) >> sel)
+
         val sel = in UInt(log2Up(width) bits)
         val din = in Bits(width bits)
-        val dout = out(din.rotateLeft(sel))
+        val dout = out((din) >> sel)
 
       }.setDefinitionName(getRtlPath().split("\\.").head)
     })
@@ -50,7 +54,7 @@ object SynthesisTests extends App{
 
 
 
-  val rtls = List(gen(16), gen(32), gen(64))
+  val rtls = List(gen(106))
 
   val targets = XilinxStdTargets().take(2)
   Bench(rtls, targets)

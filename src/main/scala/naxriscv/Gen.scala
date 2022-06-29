@@ -7,9 +7,11 @@ import naxriscv.frontend._
 import naxriscv.fetch._
 import naxriscv.misc._
 import naxriscv.execute._
+import naxriscv.execute.fpu._
 import naxriscv.fetch._
 import naxriscv.lsu._
 import naxriscv.prediction._
+import naxriscv.riscv.IntRegFile
 import naxriscv.utilities._
 import spinal.lib.LatencyAnalysis
 import spinal.lib.bus.amba4.axi.Axi4SpecRenamer
@@ -47,8 +49,14 @@ object Config{
               withEmbeddedJtagInstruction : Boolean = false,
               jtagTunneled : Boolean = false,
               debugTriggers : Int = 0,
-              branchCount : Int = 16): ArrayBuffer[Plugin] ={
+              branchCount : Int = 16,
+              withFloat  : Boolean = false,
+              withDouble : Boolean = false,
+              simulation : Boolean = GenerationFlags.simulation): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
+
+    val fpu = withFloat || withDouble
+
     plugins += new DocPlugin()
     plugins += (withMmu match {
       case false => new StaticAddressTranslationPlugin(
@@ -122,7 +130,7 @@ object Config{
       pipelined = withRvc
     )
     plugins += new DecoderPlugin(xlen)
-    plugins += new RfTranslationPlugin()
+    plugins += new RfTranslationPlugin(riscv.IntRegFile)
     plugins += new RfDependencyPlugin()
     plugins += new RfAllocationPlugin(riscv.IntRegFile)
     plugins += new DispatchPlugin(
@@ -225,7 +233,8 @@ object Config{
     plugins += new RegFilePlugin(
       spec = riscv.IntRegFile,
       physicalDepth = 64,
-      bankCount = 1
+      bankCount = 1,
+      preferedWritePortForInit = "ALU0"
     )
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
     plugins += new CsrRamPlugin()
@@ -251,22 +260,43 @@ object Config{
     //    plugins += new LoadPlugin("ALU0")
     //    plugins += new StorePlugin("ALU0")
 
-    plugins += new ExecutionUnitBase("EU1", writebackCountMax = 1, readPhysRsFromQueue = true)
-    plugins += new IntFormatPlugin("EU1")
-    plugins += new SrcPlugin("EU1")
-    plugins += new MulPlugin("EU1", writebackAt = 2, staticLatency = false)
-    plugins += new DivPlugin("EU1", writebackAt = 2)
-    //    plugins += new IntAluPlugin("EU1")
-    //    plugins += new ShiftPlugin("EU1")
-    if(aluCount == 1) plugins += new BranchPlugin("EU1", writebackAt = 2, staticLatency = false)
+    plugins += new ExecutionUnitBase("EU0", writebackCountMax = 1, readPhysRsFromQueue = true)
+    plugins += new IntFormatPlugin("EU0")
+    plugins += new SrcPlugin("EU0")
+    plugins += new MulPlugin("EU0", writebackAt = 2, staticLatency = false)
+    plugins += new DivPlugin("EU0", writebackAt = 2)
+    //    plugins += new IntAluPlugin("EU0")
+    //    plugins += new ShiftPlugin("EU0")
+    if(aluCount == 1) plugins += new BranchPlugin("EU0", writebackAt = 2, staticLatency = false)
     if(withLoadStore) {
-      plugins += new LoadPlugin("EU1")
-      plugins += new StorePlugin("EU1")
+      plugins += new LoadPlugin("EU0")
+      plugins += new StorePlugin("EU0")
     }
-    plugins += new EnvCallPlugin("EU1")(rescheduleAt = 2)
-    plugins += new CsrAccessPlugin("EU1")(
+    plugins += new EnvCallPlugin("EU0")(rescheduleAt = 2)
+    plugins += new CsrAccessPlugin("EU0")(
       writebackAt = 2
     )
+
+    if(fpu){
+      plugins += new FpuSettingPlugin(withFloat, withDouble)
+      plugins += new ExecutionUnitBase("FPU0", writebackCountMax = 0, readPhysRsFromQueue = true)
+      plugins += new FpuFloatExecute("FPU0")
+      plugins += new RegFilePlugin(
+        spec = riscv.FloatRegFile,
+        physicalDepth = 64,
+        bankCount = 1,
+        allOne = simulation,
+        preferedWritePortForInit = "Fpu"
+      )
+
+      plugins += new FpuIntegerExecute("EU0")
+
+      plugins += new RfAllocationPlugin(riscv.FloatRegFile)
+      plugins += new RfTranslationPlugin(riscv.FloatRegFile)
+
+      plugins += new FpuWriteback()
+      plugins += new FpuEmbedded()
+    }
 
     //    plugins += new ExecutionUnitBase("EU2", writebackCountMax = 0)
     //    plugins += new SrcPlugin("EU2")
@@ -294,6 +324,7 @@ object Config{
       plugins += new IntAluPlugin("ALU1")
       plugins += new ShiftPlugin("ALU1")
       plugins += new BranchPlugin("ALU1")
+      assert(aluCount < 3)
     }
 
 
@@ -314,6 +345,18 @@ object Config{
     //      staticLatency = false
     //    )
 
+
+    // Integer write port sharing
+    val intRfWrite = new{}
+    plugins.collect{
+      case lsu : LsuPlugin =>
+        lsu.addRfWriteSharing(IntRegFile, intRfWrite, withReady = false, priority = 2)
+      case eu0 : ExecutionUnitBase if eu0.euId == "EU0" =>
+        eu0.addRfWriteSharing(IntRegFile, intRfWrite, withReady = true, priority = 1)
+      case fpu : FpuWriteback =>
+        fpu.addRfWriteSharing(IntRegFile, intRfWrite, withReady = true, priority = 0)
+    }
+
     plugins
   }
 }
@@ -331,7 +374,9 @@ object Gen extends App{
       withMmu = true,
       withDebug = false,
       withEmbeddedJtagTap = false,
-      jtagTunneled = false
+      jtagTunneled = false,
+      withFloat = false,
+      withDouble = false
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))
@@ -345,6 +390,8 @@ object Gen extends App{
     spinalConfig.addTransformationPhase(new MemReadDuringWriteHazardPhase)
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
     //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
+
+    spinalConfig.includeSimulation
 
     val report = spinalConfig.generateVerilog(new NaxRiscv(plugins))
     val doc = report.toplevel.framework.getService[DocPlugin]
@@ -386,7 +433,9 @@ object Gen64 extends App{
       withRvc = false,
       withDebug = false,
       withEmbeddedJtagTap = false,
-      debugTriggers = 4
+      debugTriggers = 4,
+      withFloat = false,
+      withDouble = false
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))
@@ -398,10 +447,12 @@ object Gen64 extends App{
   }
 
   {
-    val spinalConfig = SpinalConfig(inlineRom = true)
+    val spinalConfig = SpinalConfig(inlineRom = true, anonymSignalPrefix = "_zz")
     spinalConfig.addTransformationPhase(new MemReadDuringWriteHazardPhase)
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
     //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
+
+    spinalConfig.includeSimulation
 
     val report = spinalConfig.generateVerilog(new NaxRiscv(plugins))
     val doc = report.toplevel.framework.getService[DocPlugin]
@@ -498,7 +549,7 @@ X0 init =>
 
  */
 /*
-./configure --prefix=/opt/riscv --with-cmodel=medany --with-multilib-generator="rv32i-ilp32--;rv32im-ilp32--;rv32imac-ilp32--;rv32imafd-ilp32d--;rv32imacfd-ilp32d--;rv64i-lp64--;rv64im-lp64--;rv64imac-lp64--;rv64imafd-lp64d--;rv64imacfd-lp64d--"
+./configure --prefix=/opt/riscv --with-cmodel=medany --with-multilib-generator="rv32i-ilp32--;rv64i-lp64--;rv32im-ilp32--;rv32ima-ilp32--;rv32imc-ilp32--;rv32imac-ilp32--;rv32imf-ilp32f--;rv32imaf-ilp32f--;rv32imfc-ilp32f--;rv32imafc-ilp32f--;rv32imfd-ilp32d--;rv32imafd-ilp32d--;rv32imfdc-ilp32d--;rv32imafdc-ilp32d--;rv64im-lp64--;rv64ima-lp64--;rv64imc-lp64--;rv64imac-lp64--;rv64imf-lp64f--;rv64imaf-lp64f--;rv64imfc-lp64f--;rv64imafc-lp64f--;rv64imfd-lp64d--;rv64imafd-lp64d--;rv64imfdc-lp64d--;rv64imafdc-lp64d--"
 */
 //stats
 

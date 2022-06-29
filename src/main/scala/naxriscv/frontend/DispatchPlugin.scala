@@ -134,6 +134,7 @@ class DispatchPlugin(var slotCount : Int = 0,
     case class Context() extends Bundle{
       val staticWake = Bits(globalStaticLatencies.latencies.size bits)
       val physRd = decoder.PHYS_RD()
+      val regfileRd = decoder.REGFILE_RD()
       val robId = ROB.ID() //Only for debug so far
       val euCtx = eusContextKeys.map(_.craft())
       def getEuCtx[T <: Data](key : Stageable[T]) : T = euCtx(eusContextKeys.indexOf(key)).asInstanceOf[T]
@@ -195,6 +196,7 @@ class DispatchPlugin(var slotCount : Int = 0,
         slot.event := (self +: events).reduceBalancedTree(_ | _)
         slot.sel   := (DISPATCH_MASK, slotId) ? groups.map(g => stage(g.sel, slotId)).asBits() | B(0)
         slot.context.physRd := stage(decoder.PHYS_RD, slotId)
+        slot.context.regfileRd := stage(decoder.REGFILE_RD, slotId)
         slot.context.robId := stage(ROB.ID) | slotId
         for(key <- eusContextKeys){
           slot.context.getEuCtx(key).assignFrom(stage(key, slotId))
@@ -274,11 +276,13 @@ class DispatchPlugin(var slotCount : Int = 0,
       }
 
       readContext(decoder.PHYS_RD, physRdAt)(_.physRd)
+      readContext(decoder.REGFILE_RD, physRdAt)(_.regfileRd)
 
       val euPort = eu.pushPort()
       euPort.valid := euStage.isValid
       euPort.robId := euStage(keys.ROB_ID)
       euPort.physRd := euStage(decoder.PHYS_RD)
+      euPort.regfileRd := euStage(decoder.REGFILE_RD)
       if(euPort.withReady) euStage.haltIt(!euPort.ready)
       for(key <- euPort.contextKeys){
         readContext(key.asInstanceOf[Stageable[Data]], euAt)(_.getEuCtx(key))
@@ -294,10 +298,11 @@ class DispatchPlugin(var slotCount : Int = 0,
         val lat = latency
         val mask = port.fire ? portEventFull | B(0)
 
-        val bypassed = Flow(WakeRegFile(decoder.PHYS_RD, needBypass = true))
+        val bypassed = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = true))
         val stage = stagesList(latency+1)
         bypassed.valid := stage.valid && stage(globalStaticLatencies.latenciesStageable(latency))
         bypassed.physical := stage(decoder.PHYS_RD)
+        bypassed.regfile := stage(decoder.REGFILE_RD)
       }
 
       this.build()
@@ -339,6 +344,7 @@ class DispatchPlugin(var slotCount : Int = 0,
       Verilator.public(push.stage.isFireing)
       Verilator.public(push.stage(ROB.ID))
       push.stage(0 until DISPATCH_COUNT)(DISPATCH_MASK).foreach(Verilator.public(_))
+      frontend.pipeline.dispatch(ROB.ID)
     }
 
     val doc = getService[DocPlugin]

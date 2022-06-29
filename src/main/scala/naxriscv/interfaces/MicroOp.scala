@@ -19,6 +19,8 @@ object PC_READ  extends Resource with AreaObject
 object INSTRUCTION_SIZE  extends Resource with AreaObject
 object LQ  extends Resource with AreaObject
 object SQ  extends Resource with AreaObject
+object FPU extends Resource with AreaObject
+object RM extends Resource with AreaObject
 
 abstract class MicroOp(val resources : Seq[Resource]){
   def key : MaskedLiteral

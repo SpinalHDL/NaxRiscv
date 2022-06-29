@@ -13,6 +13,8 @@ import scala.collection.mutable.ArrayBuffer
 
 class RfAllocationPlugin(var rf : RegfileSpec,
                          var pessimisticReady : Boolean = true) extends Plugin with RfAllocationService with InitCycles {
+  withPrefix(rf.getName())
+
   override def initCycles = logic.entryCount
 
   override def getAllocPort() = logic.allocator.io.pop
@@ -44,30 +46,31 @@ class RfAllocationPlugin(var rf : RegfileSpec,
     )
     Verilator.public(allocator.io)
 
-//    val push = new Area{
-//      val external = cloneOf(allocator.io.push)
-//      allocator.io.push <> external
-//    }
-
     val pop = new Area {
       val blocked = !allocator.io.pop.ready
       haltIt(blocked)
 
       allocator.io.pop.fire := stage.isFireing
       for (slotId <- 0 until DISPATCH_COUNT) {
-        allocator.io.pop.mask(slotId) := (DISPATCH_MASK, slotId) && (decoder.WRITE_RD, slotId)
-        (decoder.PHYS_RD, slotId) := allocator.io.pop.values(slotId)
+        implicit val offset = StageableOffset(slotId)
+        val hit = decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(rf)
+        allocator.io.pop.mask(slotId) := DISPATCH_MASK && decoder.WRITE_RD && hit
+        if(!decoder.PHYS_RD.hasAssignement) decoder.PHYS_RD.assignDontCare()
+        when(hit) {
+          decoder.PHYS_RD := allocator.io.pop.values(slotId)
+        }
       }
     }
 
     val push = new Area {
-      val event = commit.freePort()
-      val mask = rob.readAsync(DISPATCH_MASK, COMMIT_COUNT, event.robId)
-      val writeRd = rob.readAsync(decoder.WRITE_RD, COMMIT_COUNT, event.robId)
+      val event         = commit.freePort()
+      val mask          = rob.readAsync(DISPATCH_MASK, COMMIT_COUNT, event.robId)
+      val writeRd       = rob.readAsync(decoder.WRITE_RD, COMMIT_COUNT, event.robId)
+      val regfileRd     = rob.readAsync(decoder.REGFILE_RD, COMMIT_COUNT, event.robId)
       val physicalRdNew = rob.readAsync(decoder.PHYS_RD, COMMIT_COUNT, event.robId)
       val physicalRdOld = rob.readAsync(decoder.PHYS_RD_FREE, COMMIT_COUNT, event.robId)
       for (slotId <- 0 until Global.COMMIT_COUNT) {
-        allocator.io.push(slotId).valid := event.valid && mask(slotId) && writeRd(slotId)
+        allocator.io.push(slotId).valid := event.valid && mask(slotId) && writeRd(slotId) && regfileRd(slotId) === decoder.REGFILE_RD.rfToId(rf)
         allocator.io.push(slotId).payload := event.commited(slotId) ? physicalRdOld(slotId) | physicalRdNew(slotId)
 
         //Protect 0
@@ -80,8 +83,7 @@ class RfAllocationPlugin(var rf : RegfileSpec,
 
     val init = new Area {
       assert(isPow2(entryCount))
-      assert(rf.x0AlwaysZero)
-      val counter = Reg(UInt(log2Up(entryCount*2) bits)) init (1) // Note it start at 1 (x0 being zero)
+      val counter = Reg(UInt(log2Up(entryCount*2) bits)) init (if(rf.x0AlwaysZero) 1 else rf.sizeArch)
       val busy = !counter.msb
       
       when(busy) {

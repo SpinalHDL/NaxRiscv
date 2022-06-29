@@ -3,7 +3,7 @@ package naxriscv.execute
 import naxriscv.{DecodeListType, Frontend, ROB}
 import naxriscv.interfaces.{AddressTranslationService, DecoderService, MicroOp}
 import naxriscv.lsu.LsuPlugin
-import naxriscv.riscv.{Const, Rvi}
+import naxriscv.riscv.{Const, Rvfd, Rvi}
 import naxriscv.utilities._
 import spinal.core._
 import spinal.lib.pipeline.Stageable
@@ -39,6 +39,8 @@ class LoadPlugin(val euId : String) extends Plugin{
     val sk = SrcKeys
     val loads = ArrayBuffer(Rvi.LB , Rvi.LH , Rvi.LW , Rvi.LBU, Rvi.LHU)
     if(XLEN.get == 64) loads ++= List(Rvi.LD, Rvi.LWU)
+    if(RVF) loads ++= List(Rvfd.FLW)
+    if(RVD) loads ++= List(Rvfd.FLD)
 
     for(op <- loads) add(op, List(sk.Op.ADD, sk.SRC1.RF, sk.SRC2.I), List(LR -> False))
     add(Rvi.LR,  List(sk.Op.SRC1, sk.SRC1.RF),  List(LR -> True))
@@ -59,6 +61,7 @@ class LoadPlugin(val euId : String) extends Plugin{
     setup.port.size := U(func3(1 downto 0))
     setup.port.unsigned := func3(2)
     setup.port.physicalRd := decoder.PHYS_RD
+    setup.port.regfileRd := decoder.REGFILE_RD
     setup.port.writeRd := decoder.WRITE_RD
     setup.port.pc := PC
     setup.port.lr := LR

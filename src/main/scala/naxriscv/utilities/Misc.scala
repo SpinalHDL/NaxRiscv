@@ -1,26 +1,12 @@
 package naxriscv.utilities
 
+import naxriscv.interfaces.RegfileSpec
 import spinal.core._
 import spinal.core.fiber.AsyncThread
 import spinal.lib._
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
-
-object Misc {
-  def outsideCondScope[T](that : => T) : T = {
-    val t = AsyncThread.current
-    t.allowSuspend = false
-    val body = Component.current.dslBody  // Get the head of the current component symboles tree (AST in other words)
-    val ctx = body.push()                 // Now all access to the SpinalHDL API will be append to it (instead of the current context)
-    val swapContext = body.swap()         // Empty the symbole tree (but keep a reference to the old content)
-    val ret = that                        // Execute the block of code (will be added to the recently empty body)
-    ctx.restore()                         // Restore the original context in which this function was called
-    swapContext.appendBack()              // append the original symboles tree to the modified body
-    t.allowSuspend = true
-    ret                                   // return the value returned by that
-  }
-}
 
 object AddressToMask{
   def apply(address : UInt, size : UInt, width : Int) : Bits ={
@@ -69,5 +55,15 @@ object MulSpliter{
     val splits = splitsUnordered.sortWith(_.endC < _.endC).zipWithIndex.map(e => e._1.copy(id = e._2))
     splits
   }
+}
 
+trait WithRfWriteSharedSpec{
+  case class RfWriteSharingSpec(key : Any, withReady : Boolean, priority : Int)
+  private val rfWriteSharing = mutable.LinkedHashMap[RegfileSpec, RfWriteSharingSpec]()
+  def addRfWriteSharing(rf : RegfileSpec, key : Any, withReady : Boolean, priority : Int) : this.type = {
+    assert(!rfWriteSharing.contains(rf))
+    rfWriteSharing(rf) = RfWriteSharingSpec(key, withReady, priority)
+    this
+  }
+  def getRfWriteSharing(rf : RegfileSpec) = rfWriteSharing.getOrElseUpdate(rf,  RfWriteSharingSpec(new {}, false, 0))
 }

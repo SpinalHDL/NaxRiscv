@@ -52,6 +52,10 @@ public:
 #define u64 uint64_t
 #define u8 uint8_t
 
+#ifndef FLOAT_WRITE_COUNT
+#define FLOAT_WRITE_COUNT 0
+#endif
+
 #include <stdio.h>
 #include <getopt.h>
 
@@ -62,6 +66,13 @@ public:
 #else
 #define RvData u64
 #endif
+
+#ifdef RVD
+#define RvFloat u64
+#else
+#define RvFloat u32
+#endif
+
 
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
 
@@ -74,6 +85,9 @@ public:
 #define MAP_6(prefix, postfix) MAP_5(prefix, postfix), prefix ## 5 ## postfix
 #define MAP_7(prefix, postfix) MAP_6(prefix, postfix), prefix ## 6 ## postfix
 #define MAP_8(prefix, postfix) MAP_7(prefix, postfix), prefix ## 7 ## postfix
+#define MAP_9(prefix, postfix) MAP_8(prefix, postfix), prefix ## 8 ## postfix
+#define MAP_10(prefix, postfix) MAP_9(prefix, postfix), prefix ## 9 ## postfix
+#define MAP_11(prefix, postfix) MAP_10(prefix, postfix), prefix ## 10 ## postfix
 #define MAP(type, name, prefix, count, postfix) type name[] = {CALL(count, prefix, postfix)};
 #define MAP_INIT(prefix, count, postfix) CALL(count, prefix, postfix)
 
@@ -188,6 +202,7 @@ bool simMaster = false;
 bool simSlave = false;
 bool noStdIn = false;
 bool putcFlush = true;
+bool passFailWritten = false;
 
 
 class TestSchedule{
@@ -749,6 +764,9 @@ public:
     RvData pc;
     bool integerWriteValid;
     RvData integerWriteData;
+    bool floatWriteValid;
+    RvFloat floatWriteData;
+    int floatFlags;
 
     bool csrValid;
     bool csrWriteDone;
@@ -762,9 +780,11 @@ public:
 
     void clear(){
         integerWriteValid = false;
+        floatWriteValid = false;
         csrValid = false;
         csrWriteDone = false;
         csrReadDone = false;
+        floatFlags = 0;
     }
 };
 
@@ -865,6 +885,13 @@ public:
     RvData *robToPc[DISPATCH_COUNT];
     CData *integer_write_valid[INTEGER_WRITE_COUNT];
     CData *integer_write_robId[INTEGER_WRITE_COUNT];
+#ifdef RVF
+    CData *float_write_valid[FLOAT_WRITE_COUNT];
+    CData *float_write_robId[FLOAT_WRITE_COUNT];
+    RvFloat *float_write_data[FLOAT_WRITE_COUNT];
+    CData *float_flags_robId[FPU_ROB_TO_FLAG_COUNT];
+    CData *float_flags_mask[FPU_ROB_TO_FLAG_COUNT];
+#endif
     CData *rob_completions_valid[ROB_COMPLETIONS_PORTS];
     CData *rob_completions_payload[ROB_COMPLETIONS_PORTS];
     CData *issue_valid[ISSUE_PORTS];
@@ -891,6 +918,13 @@ public:
             integer_write_valid{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _valid)},
             integer_write_robId{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _robId)},
             integer_write_data{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _data)},
+            #ifdef RVF
+            float_write_valid{MAP_INIT(&nax->float_write_,  FLOAT_WRITE_COUNT, _valid)},
+            float_write_robId{MAP_INIT(&nax->float_write_,  FLOAT_WRITE_COUNT, _robId)},
+            float_write_data{MAP_INIT(&nax->float_write_,  FLOAT_WRITE_COUNT, _data)},
+            float_flags_robId{MAP_INIT(&nax->fpuRobToFlags_,  FPU_ROB_TO_FLAG_COUNT, _robId)},
+            float_flags_mask{MAP_INIT(&nax->fpuRobToFlags_,  FPU_ROB_TO_FLAG_COUNT, _mask)},
+            #endif
             rob_completions_valid{MAP_INIT(&nax->RobPlugin_logic_whitebox_completionsPorts_,  ROB_COMPLETIONS_PORTS, _valid)},
             rob_completions_payload{MAP_INIT(&nax->RobPlugin_logic_whitebox_completionsPorts_,  ROB_COMPLETIONS_PORTS, _payload_id)},
             issue_valid{MAP_INIT(&nax->DispatchPlugin_logic_whitebox_issuePorts_,  ISSUE_PORTS, _valid)},
@@ -944,6 +978,13 @@ public:
             }
         }
 
+#ifdef RVF
+        for(int i = 0;i < FPU_ROB_TO_FLAG_COUNT;i++){
+            auto robId = *float_flags_robId[i];
+            robCtx[robId].floatFlags |= *float_flags_mask[i];
+        }
+#endif
+
         for(int i = 0;i < INTEGER_WRITE_COUNT;i++){
             if(*integer_write_valid[i]){
                 auto robId = *integer_write_robId[i];
@@ -953,6 +994,16 @@ public:
             }
         }
 
+#ifdef RVF
+        for(int i = 0;i < FLOAT_WRITE_COUNT;i++){
+            if(*float_write_valid[i]){
+                auto robId = *float_write_robId[i];
+//                printf("RF write rob=%d %d at %ld\n", robId, *float_write_data[i], main_time);
+                robCtx[robId].floatWriteValid = true;
+                robCtx[robId].floatWriteData = *float_write_data[i];
+            }
+        }
+#endif
 
         if(nax->FetchPlugin_stages_1_isFirstCycle){
             auto fetchId = nax->FetchPlugin_stages_1_FETCH_ID;
@@ -1098,7 +1149,7 @@ public:
     CData *push_payload[COMMIT_COUNT];
     CData *pop_values[DISPATCH_COUNT];
 
-    NaxAllocatorChecker(VNaxRiscv_NaxRiscv* nax): dut(nax->RfAllocationPlugin_logic_allocator),
+    NaxAllocatorChecker(VNaxRiscv_NaxRiscv* nax): dut(nax->integer_RfAllocationPlugin_logic_allocator),
         push_valid{MAP_INIT(&dut->io_push_,  COMMIT_COUNT, _valid)},
         push_payload{MAP_INIT(&dut->io_push_,  COMMIT_COUNT, _payload)},
         pop_values{MAP_INIT(&dut->io_pop_values_,  DISPATCH_COUNT, )} {
@@ -1148,6 +1199,7 @@ enum ARG
     ARG_LOAD_HEX = 1,
     ARG_LOAD_ELF,
     ARG_LOAD_BIN,
+    ARG_LOAD_U32,
     ARG_START_SYMBOL,
     ARG_START_ADD,
     ARG_PASS_SYMBOL,
@@ -1190,6 +1242,7 @@ static const struct option long_options[] =
     { "load-hex", required_argument, 0, ARG_LOAD_HEX },
     { "load-elf", required_argument, 0, ARG_LOAD_ELF },
     { "load-bin", required_argument, 0, ARG_LOAD_BIN },
+    { "load-u32", required_argument, 0, ARG_LOAD_U32 },
     { "start-symbol", required_argument, 0, ARG_START_SYMBOL },
     { "start-add", required_argument, 0, ARG_START_ADD },
     { "pass-symbol", required_argument, 0, ARG_PASS_SYMBOL },
@@ -1364,6 +1417,7 @@ void parseArgFirst(int argc, char** argv){
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_LOAD_BIN:
+            case ARG_LOAD_U32:
             case ARG_START_SYMBOL:
             case ARG_START_ADD:
             case ARG_PASS_SYMBOL:
@@ -1412,6 +1466,17 @@ void parseArgsSecond(int argc, char** argv){
 
                 wrap->memory.loadBin(string(path), address);
                 soc->memory.loadBin(string(path), address);
+            }break;
+            case ARG_LOAD_U32: {
+                u64 address;
+                u32 data;
+                if(sscanf(optarg, "%x,%lx", &data, &address) == EOF) {
+                    cout << "Bad load bin formating" << endl;
+                    failure()
+                }
+
+                wrap->memory.write(address,4, (uint8_t*)&data);
+                soc->memory.write(address,4, (uint8_t*)&data);
             }break;
             case ARG_START_SYMBOL: startPc = elf->getSymbolAddress(optarg); break;
             case ARG_START_ADD: startPc += stol(optarg); break;
@@ -1482,12 +1547,24 @@ void spikeInit(){
     isa += "RV64I";
     #endif
     isa += "MA";
+    #ifdef RVF
+    isa += "F";
+    #endif
+    #ifdef RVD
+    isa += "D";
+    #endif
     if(RVC) isa += "C";
     proc = new processor_t(isa.c_str(), "MSU", "", wrap, 0, false, fptr, outfile);
     if(trace_ref) proc->enable_log_commits();
     if(spike_debug) proc->debug = true;
     proc->set_pmp_num(0);
     state = proc->get_state();
+    for(int i = 0;i < 32;i++){
+        float128_t tmp;
+        tmp.v[0] = -1;
+        tmp.v[1] = -1;
+        state->FPR.write(i, tmp);
+    }
 }
 
 void rtlInit(){
@@ -1814,6 +1891,7 @@ void simLoop(){
             if(main_time < 11 && startPc != 0x80000000) top->NaxRiscv->PcPlugin_logic_fetchPc_pcReg = startPc;
             if(!top->clk){
                 top->eval();
+                if(Verilated::gotFinish()) failure();
             } else {
                 for(SimElement* simElement : simElements) if(!top->reset || simElement->withoutReset) simElement->preCycle();
                 if(!top->reset) {
@@ -1860,6 +1938,14 @@ void simLoop(){
                                         assertTrue("INTEGER WRITE MISSING", whitebox->robCtx[robId].integerWriteValid);
                                         assertEq("INTEGER WRITE DATA", whitebox->robCtx[robId].integerWriteData, item.second.v[0]);
                                     } break;
+                                    case 1: { //float
+                                        //TODO FPU track float writes
+                                        assertTrue("FLOAT WRITE MISSING", whitebox->robCtx[robId].floatWriteValid);
+                                        if(whitebox->robCtx[robId].floatWriteData != (RvFloat)item.second.v[0]){
+                                            printf("\n*** FLOAT WRITE DATA DUT=%lx REF=%lx ***\n\n", (u64)whitebox->robCtx[robId].floatWriteData, (u64) item.second.v[0]);\
+                                            failure();
+                                        }
+                                    } break;
                                     case 4:{ //CSR
                                         u64 inst = state->last_inst.bits();
                                         switch(inst){
@@ -1868,18 +1954,28 @@ void simLoop(){
                                         case 0x00200073: //URET
                                             break;
                                         default:
-                                            assertTrue("CSR WRITE MISSING", whitebox->robCtx[robId].csrWriteDone);
-                                            assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
-            //                                    assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
+                                            if(inst & 0x7F == 0x73 && inst & 0x3000 != 0){
+                                                assertTrue("CSR WRITE MISSING", whitebox->robCtx[robId].csrWriteDone);
+                                                assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
+//                                                assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
+                                            }
                                             break;
                                         }
                                     } break;
                                     default: {
-                                        printf("??? unknown spike trace");
+                                        printf("??? unknown spike trace %lx\n", item.first & 0xf);
                                         failure();
                                     } break;
                                     }
                                 }
+
+                                #ifdef RVF
+//                                if(state->fpu_flags_set){
+//                                    printf("Miaou %lx %x\n", pc, state->fpu_flags_set);
+//                                }
+                                assertEq("FPU FLAG MISSMATCH", whitebox->robCtx[robId].floatFlags, state->fpu_flags_set);
+                                state->fpu_flags_set = 0;
+                                #endif
                             }
 
                             if(pcToEvent.count(pc) != 0){
@@ -1901,6 +1997,7 @@ void simLoop(){
                     if(spike_enabled) spikeSyncTrap();
                 }
                 top->eval();
+                if(Verilated::gotFinish()) failure();
                 for(SimElement* simElement : simElements) if(!top->reset || simElement->withoutReset) simElement->postCycle();
             }
         }
@@ -1931,6 +2028,7 @@ void simLoop(){
             simMasterWriteHeader(SIM_MS_FAIL);
         }
     }
+    passFailWritten = true;
 
     if(statsPrint){
         printf("STATS :\n%s", whitebox->stats.report("  ", statsPrintHist).c_str());
@@ -1958,13 +2056,22 @@ void cleanup(){
 }
 
 int main(int argc, char** argv, char** env){
-    parseArgFirst(argc, argv);
-    verilatorInit(argc, argv);
-    spikeInit();
-    rtlInit();
-    parseArgsSecond(argc, argv);
-    simMasterSlaveInit();
-    simLoop();
+    try {
+        parseArgFirst(argc, argv);
+        verilatorInit(argc, argv);
+        spikeInit();
+        rtlInit();
+        parseArgsSecond(argc, argv);
+        simMasterSlaveInit();
+        simLoop();
+    } catch (const std::exception& e) {
+        if(!passFailWritten){
+            printf("FAILURE %s\n", simName.c_str());
+            remove((outputDir + "/PASS").c_str());
+            auto f = fopen((outputDir + "/FAIL").c_str(),"w");
+            fclose(f);
+        }
+    }
     cleanup();
     return 0;
 }

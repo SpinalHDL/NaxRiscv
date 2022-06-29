@@ -12,6 +12,7 @@ import spinal.core.fiber.{Handle, Lock}
 import spinal.lib.logic.Masked
 import spinal.lib.pipeline.Stageable
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 
@@ -49,6 +50,12 @@ case class DecoderTrap() extends Bundle{
   val debugEnter = RV_DEBUG.get generate Bool()
 }
 
+
+case class RegFileSel(idToRf : mutable.LinkedHashMap[Int, RegfileSpec], width : Int) extends Stageable(UInt(width bits)){
+  val rfToId = idToRf.toList.map(_.swap).toMapLinked()
+}
+
+
 trait DecoderService extends Service with LockedService {
   def addEuOp(fu: ExecuteUnitService, microOp : MicroOp) : Unit
   def addResourceDecoding(resource : Resource, stageable : Stageable[Bool])
@@ -56,6 +63,7 @@ trait DecoderService extends Service with LockedService {
   def euGroups : Seq[EuGroup]
   def addMicroOpDecoding(microOp: MicroOp, decoding: DecodeListType)
   def addMicroOpDecodingDefault(key : Stageable[_ <: BaseType], value : BaseType) : Unit
+  def addDecodingToRob(key : Stageable[_ <: BaseType])
 
   def READ_RS(id : Int)  : Stageable[Bool]
   def ARCH_RS(id : Int)  : Stageable[UInt]
@@ -70,7 +78,12 @@ trait DecoderService extends Service with LockedService {
   def PHYS_RD_FREE : Stageable[UInt]
   def ARCH_RD  : Stageable[UInt]
 
-  def rsCount  : Int
+  def REGFILE_RD : RegFileSel
+  def REGFILE_RS(id : Int) : RegFileSel
+  def REGFILE_RS(id : RfRead) : RegFileSel
+
+  def rsCount(rf : RegfileSpec)  : Int
+  def rsCountMax()  : Int
   def rsPhysicalDepthMax : Int
   def getTrap() : Flow[DecoderTrap]
 
@@ -87,12 +100,22 @@ trait RobService extends Service{
   def newRobCompletion() : Flow[RobCompletion]
   def newRobLineValids(bypass : Boolean) : RobLineMask
 
-  def write[T <: Data](key: Stageable[T], size : Int, value : Seq[T], robId : UInt, enable : Bool) : Unit //robid need to be aligned on value size
+  def write[T <: Data](key: Stageable[T],
+                       size : Int,
+                       value : Seq[T],
+                       robId : UInt,
+                       enable : Bool) : Unit //robid need to be aligned on value size
   def readAsync[T <: Data](key: Stageable[T], size : Int, robId: UInt, skipFactor: Int = 1, skipOffset: Int = 0) : Vec[T]
   def readAsyncSingle[T <: Data](key: Stageable[T], robId : UInt, skipFactor : Int = 1, skipOffset : Int = 0) : T = {
     val ret = readAsync(key, 1, robId, skipFactor, skipOffset).head
     CombInit(ret)
   }
+
+
+  def writeSingle[T <: Data](key: Stageable[T],
+                             value : T,
+                             robId : UInt,
+                             enable : Bool) = write(key, 1, List(value), robId, enable)
 
   def retain() : Unit
   def release() : Unit
@@ -109,7 +132,7 @@ trait RfAllocationService extends Service {
   def getFreePort() : Vec[Flow[UInt]]
 }
 
-case class RegFileWrite(addressWidth : Int, dataWidth : Int, withReady : Boolean, latency : Int = 1) extends Bundle with IMasterSlave {
+case class RegFileWrite(addressWidth : Int, dataWidth : Int, withReady : Boolean) extends Bundle with IMasterSlave {
   val valid = Bool()
   val ready = withReady generate Bool()
   val address = UInt(addressWidth bits)
@@ -160,7 +183,7 @@ trait RegfileService extends Service{
   def getPhysicalDepth : Int
 
   def newRead(withReady : Boolean, forceNoBypass : Boolean = false) : RegFileRead
-  def newWrite(withReady : Boolean, latency : Int) : RegFileWrite
+  def newWrite(withReady : Boolean, latency : Int, sharingKey : Any = null, priority : Int = 0) : RegFileWrite
   def newBypass() : RegFileBypass
 
   def getWrites() : Seq[RegFileWrite]
@@ -207,17 +230,18 @@ trait CommitService  extends Service{
 }
 
 //TODO reduce area usage if physRdType isn't needed by some execution units
-case class ExecutionUnitPush(physRdType : Stageable[UInt], withReady : Boolean, contextKeys : Seq[Stageable[_ <: Data]], withValid : Boolean = true) extends Bundle{
+case class ExecutionUnitPush(physRdType : Stageable[UInt], regfileRdType : Stageable[UInt], withReady : Boolean, contextKeys : Seq[Stageable[_ <: Data]], withValid : Boolean = true) extends Bundle{
   val valid = withValid generate Bool()
   val ready = withReady generate Bool()
   val robId = ROB.ID()
   val physRd = physRdType()
+  val regfileRd = regfileRdType()
   val context = contextKeys.map(_.craft())
 
   def getContext[T <: Data](key : Stageable[T]) : T = context(contextKeys.indexOf(key)).asInstanceOf[T]
 
   def toStream ={
-    val ret = Stream(ExecutionUnitPush(physRdType, false, contextKeys, false))
+    val ret = Stream(ExecutionUnitPush(physRdType, regfileRdType, false, contextKeys, false))
     ret.valid := valid
     ready := ret.ready
     ret.payload := this
@@ -225,7 +249,7 @@ case class ExecutionUnitPush(physRdType : Stageable[UInt], withReady : Boolean, 
   }
 
   def toFlow = {
-    val ret = Flow(ExecutionUnitPush(physRdType, false, contextKeys, false))
+    val ret = Flow(ExecutionUnitPush(physRdType, regfileRdType, false, contextKeys, false))
     ret.valid := valid && (if(withReady) ready else True)
     ret.payload := this
     ret
@@ -330,7 +354,8 @@ case class WakeRob() extends Bundle {
   val robId = ROB.ID()
 }
 
-case class WakeRegFile(physicalType : HardType[UInt], needBypass : Boolean) extends Bundle {
+case class WakeRegFile(regfileType : HardType[UInt], physicalType : HardType[UInt], needBypass : Boolean) extends Bundle {
+  val regfile = regfileType()
   val physical = physicalType()
 }
 
@@ -406,6 +431,7 @@ trait CsrService extends Service with LockedImpl{
   def onWriteHalt() : Unit
   def onWriteBits : Bits
   def onWriteAddress : UInt
+  def onWriteFlushPipeline() : Unit
   def onReadAddress : UInt
   def getCsrRam() : CsrRamService
   def onReadMovingOff : Bool
@@ -524,6 +550,8 @@ trait PrivilegedService extends Service{
 
   def addMisa(id : Int) : Unit
   def addMisa(id : Char) : Unit = addMisa(id - 'A')
+  def setFpDirty() : Unit
+  def isFpuEnabled() : Bool
 }
 
 

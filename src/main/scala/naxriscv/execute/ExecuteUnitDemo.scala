@@ -1,6 +1,6 @@
 package naxriscv.execute
 
-import naxriscv.{Frontend, Global, ROB}
+import naxriscv.{Frontend, Global, ROB, riscv}
 import naxriscv.interfaces._
 import naxriscv.riscv.{IMM, Rvi}
 import naxriscv.utilities.Plugin
@@ -48,7 +48,7 @@ class ExecuteUnitDemo(euId : String, withAdd : Boolean = true) extends Plugin wi
     val decoder = getService[DecoderService]
     val flush = getService[CommitService].reschedulingPort(onCommit = true).valid
 
-    val pushPort = ExecutionUnitPush(physRdType = decoder.PHYS_RD, contextKeys = Nil, withReady = true)
+    val pushPort = ExecutionUnitPush(physRdType = decoder.PHYS_RD, regfileRdType = decoder.REGFILE_RD, contextKeys = Nil, withReady = true)
     val euGroup = decoder.euGroups.find(_.eus.contains(ExecuteUnitDemo.this)).get
     val sf = euGroup.eus.size
     val so = euGroup.eus.indexOf(ExecuteUnitDemo.this)

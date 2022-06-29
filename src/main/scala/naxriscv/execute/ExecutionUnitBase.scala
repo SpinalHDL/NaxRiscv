@@ -3,7 +3,7 @@ package naxriscv.execute
 import naxriscv.{DecodeList, Fetch, Frontend, Global, ROB}
 import naxriscv.interfaces.{MicroOp, _}
 import naxriscv.lsu.LsuPlugin
-import naxriscv.utilities.Plugin
+import naxriscv.utilities.{Plugin, WithRfWriteSharedSpec}
 import spinal.core._
 import spinal.lib._
 import spinal.lib.logic.{DecodingSpec, Masked, Symplify}
@@ -15,12 +15,12 @@ import scala.collection.mutable.ArrayBuffer
 import naxriscv.Global._
 
 class ExecutionUnitBase(val euId : String,
-                        var writebackCountMax : Int = Int.MaxValue,
+                        var writebackCountMax : Int = 1,
                         var readPhysRsFromQueue : Boolean = false,
                         var contextAt : Int = 0,
                         var rfReadAt : Int = 0,
                         var decodeAt : Int = 0,
-                        var executeAt : Int = 1) extends Plugin with ExecuteUnitService with WakeRobService with WakeRegFileService with LockedImpl{
+                        var executeAt : Int = 1) extends Plugin with ExecuteUnitService with WakeRobService with WakeRegFileService with LockedImpl with WithRfWriteSharedSpec{
   withPrefix(euId)
 
   override def hasFixedLatency = ???
@@ -171,8 +171,6 @@ class ExecutionUnitBase(val euId : String,
       executeStages += s
     }
 
-    val withReady = false
-
     val rob = getService[RobService]
     val decoder = getService[DecoderService]
     val flush = getService[CommitService].reschedulingPort(onCommit = true).valid
@@ -192,7 +190,7 @@ class ExecutionUnitBase(val euId : String,
     var implementRd = false
     ressources.foreach {
       case r : RfResource if r.access.isInstanceOf[RfRead] => {
-        val port = findService[RegfileService](_.rfSpec == r.rf).newRead(withReady)
+        val port = findService[RegfileService](_.rfSpec == r.rf).newRead(false)
         val name = s"${r.rf.getName()}_${r.access.getName()}"
         port.setCompositeName(this, s"rfReads_${name}")
         rfReadPorts(r) = port
@@ -214,11 +212,15 @@ class ExecutionUnitBase(val euId : String,
       val port = ExecutionUnitPush(
         withReady = staticLatenciesStorage.isEmpty,
         physRdType = decoder.PHYS_RD,
+        regfileRdType = decoder.REGFILE_RD,
         contextKeys = contextKeys
       )
       stage.valid := port.valid
       stage(ROB.ID) := port.robId
-      if(implementRd) stage(decoder.PHYS_RD) := port.physRd
+      if(implementRd) {
+        stage(decoder.PHYS_RD) := port.physRd
+        stage(decoder.REGFILE_RD) := port.regfileRd
+      }
       if(port.withReady) port.ready := stage.isReady
 
       if (readPhysRsFromQueue) for(e <- rfReads) {
@@ -287,18 +289,15 @@ class ExecutionUnitBase(val euId : String,
     assert(writeBacksSpec.size <= writebackCountMax, s"$euId writeback count exceeded (${writeBacksSpec.size}) the limit set by the user (writebackCoutnMax=$writebackCountMax). At ${writeBacksSpec.map(_._1.stage).mkString(" ")}")
     val writeBack = for((key, spec) <- writeBacksSpec) yield new Area{
       val rfService = findService[RegfileService](_.rfSpec == key.rf)
-      val write = rfService.newWrite(withReady, spec.latency)
-      write.valid := key.stage.isFireing && key.stage(decoder.WRITE_RD) && spec.ports.map(_.valid).orR
+      val sharing = getRfWriteSharing(key.rf)
+      val write = rfService.newWrite(sharing.withReady, spec.latency, sharing.key, sharing.priority)
+      write.valid := key.stage.isValid && key.stage(decoder.WRITE_RD) && spec.ports.map(_.valid).orR
       write.robId := key.stage(ROB.ID)
       write.address := key.stage(decoder.PHYS_RD)
       write.data := MuxOH.mux(spec.ports.map(_.valid), spec.ports.map(_.payload))
-
-//      val bypass = (spec.latency == 0) generate new Area{
-//        val port = rfService.newBypass()
-//        port.valid := write.valid
-//        port.address := write.address
-//        port.data := write.data
-//      }
+      if(write.withReady){
+        key.stage.haltWhen(write.valid && !write.ready)
+      }
     }
 
     val completion = for((stageId, spec) <- stagesCompletions) yield new Area{
@@ -325,9 +324,10 @@ class ExecutionUnitBase(val euId : String,
       val logic = for((stageId, group) <- grouped) yield new Area{
         val stage = executeStages(stageId)
         val fire = stage.isFireing && group.map(_.sel).orR
-        val rf = Flow(WakeRegFile(decoder.PHYS_RD, needBypass = false))
+        val rf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false))
 
         rf.valid := fire && stage(decoder.WRITE_RD)
+        rf.regfile := stage(decoder.REGFILE_RD)
         rf.physical := stage(decoder.PHYS_RD)
       }
     }
