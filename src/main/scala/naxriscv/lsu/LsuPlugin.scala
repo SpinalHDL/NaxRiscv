@@ -1298,6 +1298,42 @@ class LsuPlugin(var lqSize: Int,
           PAGE_FAULT := !tpk.ALLOW_WRITE || tpk.PAGE_FAULT //Assumed always ok -> AMO && !tpk.ALLOW_READ
           STORE_DO_TRAP := MISS_ALIGNED || PAGE_FAULT || tpk.ACCESS_FAULT
           STORE_TRAP_PORT_ROB_ID := (STORE_DO_TRAP ?  stage(ROB.ID) | stage(YOUNGER_LOAD_ROB))
+
+          val regular = !tpk.IO && !AMO && !SC
+
+          def onRegs(body : RegType => Unit) = for(reg <- regs) when(SQ_SEL_OH(reg.id)){ body(reg) }
+
+          val bypassCompletion = new Area{
+            val valid = False
+            val sqId = CombInit[UInt](SQ_SEL)
+          }
+          when(isFireing) {
+            onRegs(_.waitOn.translationRsp := False)
+
+            mem.addressPost.write(
+              address = SQ_SEL,
+              data   = tpk.TRANSLATED
+            )
+            mem.io.write(
+              address = SQ_SEL,
+              data   = tpk.IO
+            )
+
+            when(tpk.REDO){
+              whenMasked(regs, SQ_SEL_OH){reg =>
+                reg.waitOn.translationWakeAnySet := True
+              }
+            } elsewhen(stage(MISS_ALIGNED)) {
+            } elsewhen(stage(PAGE_FAULT)) {
+            } elsewhen(stage(tpk.ACCESS_FAULT)) {
+            } otherwise {
+              onRegs(_.address.translated := True)
+              whenMasked(regs, SQ_SEL_OH){reg =>
+                reg.address.regular := regular
+              }
+              bypassCompletion.valid setWhen(regular && regs.map(_.data.loadedAhead).read(SQ_SEL))
+            }
+          }
         }
 
         val completion = new Area{
@@ -1326,30 +1362,8 @@ class LsuPlugin(var lqSize: Int,
           setup.storeTrap.cause.assignDontCare()
           setup.storeTrap.pcTarget   := YOUNGER_LOAD_PC
 
-          val regular = !tpk.IO && !AMO && !SC
-
-          def onRegs(body : RegType => Unit) = for(reg <- regs) when(SQ_SEL_OH(reg.id)){ body(reg) }
-
-          val bypassCompletion = new Area{
-            val valid = False
-            val sqId = CombInit[UInt](SQ_SEL)
-          }
           when(isFireing) {
-            onRegs(_.waitOn.translationRsp := False)
-
-            mem.addressPost.write(
-              address = SQ_SEL,
-              data   = tpk.TRANSLATED
-            )
-            mem.io.write(
-              address = SQ_SEL,
-              data   = tpk.IO
-            )
-
             when(tpk.REDO){
-              whenMasked(regs, SQ_SEL_OH){reg =>
-                reg.waitOn.translationWakeAnySet := True
-              }
             } elsewhen(stage(MISS_ALIGNED)) {
               setup.storeTrap.valid      := True
               setup.storeTrap.cause      := CSR.MCAUSE_ENUM.STORE_MISALIGNED
@@ -1360,11 +1374,6 @@ class LsuPlugin(var lqSize: Int,
               setup.storeTrap.valid      := True
               setup.storeTrap.cause      := CSR.MCAUSE_ENUM.STORE_ACCESS_FAULT
             } otherwise {
-              onRegs(_.address.translated := True)
-              whenMasked(regs, SQ_SEL_OH){reg =>
-                reg.address.regular := regular
-              }
-              bypassCompletion.valid setWhen(regular && regs.map(_.data.loadedAhead).read(SQ_SEL))
             }
           }
         }
@@ -1440,10 +1449,10 @@ class LsuPlugin(var lqSize: Int,
           }
 
           //Shave one cycle by feeding in the address pipeline directly
-          when(!hit && pipeline.completion.bypassCompletion.valid){
+          when(!hit && pipeline.preCompletion.bypassCompletion.valid){
             valid := True
-            SQ_SEL := pipeline.completion.bypassCompletion.sqId
-            whenIndexed(regs, pipeline.completion.bypassCompletion.sqId){ reg =>
+            SQ_SEL := pipeline.preCompletion.bypassCompletion.sqId
+            whenIndexed(regs, pipeline.preCompletion.bypassCompletion.sqId){ reg =>
               reg.address.regular := False
             }
           }
