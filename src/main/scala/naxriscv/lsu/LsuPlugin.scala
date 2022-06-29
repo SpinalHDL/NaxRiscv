@@ -1679,13 +1679,15 @@ class LsuPlugin(var lqSize: Int,
       setup.specialCompletion.valid := False
       setup.specialCompletion.id    := robId
 
+
+//      val peripheralRspRfMask = for((spec, regfile) <- setup.regfilePorts) yield RegNext(loadWriteRd && loadRegfileRd === decoder.REGFILE_RD.rfToId(spec))
       when(peripheralBus.rsp.fire) {
         load.pipeline.cacheRsp.specialOverride := True
         setup.specialCompletion.valid := True
 
         setup.specialTrap.valid := peripheralBus.rsp.error
 
-        for((spec, regfile) <- setup.regfilePorts) {
+        for(((spec, regfile), idx) <- setup.regfilePorts.zipWithIndex) {
           regfile.write.valid   := loadWriteRd && loadRegfileRd === decoder.REGFILE_RD.rfToId(spec)
           regfile.write.address := loadPhysRd
           regfile.write.robId   := robId
@@ -1705,6 +1707,8 @@ class LsuPlugin(var lqSize: Int,
       val atomic = new StateMachine{
         val IDLE, LOAD_CMD, LOAD_RSP, ALU, COMPLETION, SYNC, TRAP = new State
         setEntry(IDLE)
+
+        setEncoding(binaryOneHot)
 
         val readed = Reg(Bits(XLEN bits))
         val alu = new AtomicAlu(
@@ -1754,22 +1758,40 @@ class LsuPlugin(var lqSize: Int,
           }
         }
 
+        val comp = new Area{
+          val wakeRf, rfWrite = RegInit(False)
+
+          when(wakeRf){
+            load.pipeline.hitSpeculation.wakeRf.valid := True
+            load.pipeline.hitSpeculation.wakeRf.physical := sq.mem.physRd
+            load.pipeline.hitSpeculation.wakeRf.regfile  := sq.mem.regfileRd
+            wakeRob.valid := True
+          }
+
+          val writePort = setup.regfilePorts(IntRegFile).write
+          when(rfWrite) {
+            writePort.valid := True
+            writePort.address := sq.mem.physRd
+            writePort.robId := robId
+          }
+        }
+
+        LOAD_RSP onEntry{
+          comp.rfWrite := True
+        }
+
         //TODO lock the cache line ! (think that's already done ?)
         LOAD_RSP whenIsActive{
           val rsp = setup.cacheLoad.rsp
           load.pipeline.cacheRsp.specialOverride := True
           readed := load.pipeline.cacheRsp.rspFormated(0, XLEN bits)
 
-          val rfWrite = setup.regfilePorts(IntRegFile).write
-          rfWrite.address      := sq.mem.physRd
-          rfWrite.robId        := robId
-
           load.pipeline.cacheRsp.rspAddress  := storeAddress.resized
           load.pipeline.cacheRsp.rspSize     := storeSize
           if(XLEN.get == 64) load.pipeline.cacheRsp.rspUnsigned := False
 
           when(rsp.fire){
-            rfWrite.valid        setWhen(sq.mem.writeRd)
+            comp.rfWrite := False
             when(rsp.redo){
               goto(IDLE)
             } elsewhen (rsp.fault) {
@@ -1790,20 +1812,16 @@ class LsuPlugin(var lqSize: Int,
           goto(COMPLETION)
         }
 
+        COMPLETION.onEntry{
+          comp.wakeRf  := sq.mem.writeRd
+          comp.rfWrite := storeSc && sq.mem.writeRd
+        }
         COMPLETION whenIsActive{
           setup.specialCompletion.valid := True
-          wakeRob.valid setWhen(sq.mem.writeRd)
-
-          load.pipeline.hitSpeculation.wakeRf.valid setWhen(sq.mem.writeRd)
-          load.pipeline.hitSpeculation.wakeRf.physical := sq.mem.physRd
-          load.pipeline.hitSpeculation.wakeRf.regfile  := sq.mem.regfileRd
-
-          val rfWrite = setup.regfilePorts(IntRegFile).write
-          rfWrite.valid      setWhen(storeSc && sq.mem.writeRd)
-          rfWrite.address := sq.mem.physRd
-          rfWrite.robId   := robId
-          rfWrite.data    := 0
-          rfWrite.data(0) := !reservationHit
+          comp.wakeRf := False
+          comp.rfWrite := False
+          comp.writePort.data := 0
+          comp.writePort.data(0) := !reservationHit
           goto(SYNC)
         }
 
