@@ -298,7 +298,7 @@ class DispatchPlugin(var slotCount : Int = 0,
         val lat = latency
         val mask = port.fire ? portEventFull | B(0)
 
-        val bypassed = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = true))
+        val bypassed = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = true, withRfBypass = true, rfLatency = 0))
         val stage = stagesList(latency+1)
         bypassed.valid := stage.valid && stage(globalStaticLatencies.latenciesStageable(latency))
         bypassed.physical := stage(decoder.PHYS_RD)

@@ -324,7 +324,7 @@ class ExecutionUnitBase(val euId : String,
       val logic = for((stageId, group) <- grouped) yield new Area{
         val stage = executeStages(stageId)
         val fire = stage.isFireing && group.map(_.sel).orR
-        val rf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false))
+        val rf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false, withRfBypass = false, rfLatency = 1))
 
         rf.valid := fire && stage(decoder.WRITE_RD)
         rf.regfile := stage(decoder.REGFILE_RD)

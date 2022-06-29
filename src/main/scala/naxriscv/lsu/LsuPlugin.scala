@@ -9,7 +9,7 @@ import naxriscv.utilities.{AddressToMask, DocPlugin, Plugin, WithRfWriteSharedSp
 import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Connection.M2S
-import spinal.lib.pipeline.{Pipeline, Stageable, StageableOffset}
+import spinal.lib.pipeline.{Connection, Pipeline, Stageable, StageableOffset}
 
 import scala.collection.mutable.ArrayBuffer
 import naxriscv.Global._
@@ -17,7 +17,7 @@ import naxriscv.execute.EnvCallPlugin
 import naxriscv.fetch.FetchPlugin
 import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
 import naxriscv.misc.RobPlugin
-import spinal.core.fiber.Handle
+import spinal.core.fiber.{Handle, hardFork}
 import spinal.lib.bus.amba4.axi.{Axi4, Axi4Config}
 import spinal.lib.bus.amba4.axilite.{AxiLite4, AxiLite4Config}
 import spinal.lib.bus.bmb.{Bmb, BmbAccessParameter, BmbParameter, BmbSourceParameter}
@@ -181,7 +181,8 @@ class LsuPlugin(var lqSize: Int,
                 var loadFeedAt : Int = 0, //Stage at which the d$ cmd is sent
                 var loadCheckSqAt : Int = 1,
                 var loadCtrlAt : Int = 3,
-                var intRfWriteSharing : Any = new {}) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy with WithRfWriteSharedSpec{
+                var intRfWriteSharing : Any = new {},
+                var storeReadRfWithBypass : Boolean = false) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy with WithRfWriteSharedSpec{
 
   val rfWriteSharing = mutable.LinkedHashMap[RegfileSpec, Any]()
   def addRfWriteSharing(rf : RegfileSpec, key : Any) : this.type = {
@@ -279,7 +280,7 @@ class LsuPlugin(var lqSize: Int,
 
 
     class RegfilePorts(regfile : RegfileService) extends Area{
-      val read = regfile.newRead(withReady = false, forceNoBypass = true)
+      val read = regfile.newRead(withReady = false, forceNoBypass = !storeReadRfWithBypass)
       val sharing = getRfWriteSharing(regfile.rfSpec)
       assert(sharing.withReady == false)
       val write = regfile.newWrite(false, 0, sharing.key, sharing.priority)
@@ -314,6 +315,8 @@ class LsuPlugin(var lqSize: Int,
     val commit = getService[CommitService]
     val translationService = getService[AddressTranslationService]
     lock.await()
+
+    def getStoreRfWakeLatency(p : Flow[WakeRegFile]) : Int = (p.rfLatency max 0)+(p.withRfBypass && !storeReadRfWithBypass).toInt-1 max 0
 
     val keysLocal = new AreaRoot {
       val LQ_ID = Stageable(UInt(log2Up(lqSize) bits))
@@ -491,9 +494,9 @@ class LsuPlugin(var lqSize: Int,
           val physical = Reg(decoder.PHYS_RS(1))
           val regfile = Reg(decoder.REGFILE_RS(1))
 
-          val inRfDelay  = RegNext(inRf)
+//          val inRfDelay  = RegNext(inRf)
 
-          val request = valid && inRfDelay && !requested
+          val request = valid && inRf && !requested
           val wake = Bool()
           inRf setWhen(wake)
         }
@@ -543,7 +546,11 @@ class LsuPlugin(var lqSize: Int,
       }
 
       val rfWake = Handle(new Area{
-        val ports = getServicesOf[WakeRegFileService].flatMap(_.wakeRegFile).map(_.stage())
+        val flush = commit.reschedulingPort(onCommit = true).valid
+        val ports = getServicesOf[WakeRegFileService].flatMap(_.wakeRegFile).map(p => DelayWithInit(p, getStoreRfWakeLatency(p)){reg =>
+          reg.valid init(False)
+          reg.valid clearWhen(flush)
+        })
         for(reg <- regs) reg.data.wake := ports.map(w => w.valid && w.physical === reg.data.physical && w.regfile === reg.data.regfile).orR
       })
     }
@@ -882,7 +889,7 @@ class LsuPlugin(var lqSize: Int,
           wakeRob.valid := isFireing && HIT_SPECULATION
           wakeRob.robId := ROB.ID
 
-          val wakeRf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = true))
+          val wakeRf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false, withRfBypass = true, rfLatency = 2))
           wakeRf.valid    := isFireing && HIT_SPECULATION && HIT_SPECULATION_WRITE_RD
           wakeRf.physical := decoder.PHYS_RD
           wakeRf.regfile  := decoder.REGFILE_RD
@@ -963,7 +970,7 @@ class LsuPlugin(var lqSize: Int,
           wakeRob.valid := False
           wakeRob.robId := ROB.ID
 
-          val wakeRf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false))
+          val wakeRf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false, withRfBypass = true, rfLatency = -1))
           wakeRf.valid := False
           wakeRf.physical := decoder.PHYS_RD
           wakeRf.regfile := decoder.REGFILE_RD
@@ -1162,10 +1169,22 @@ class LsuPlugin(var lqSize: Int,
 
         when(isFireing){
           ptr.alloc := alloc
+          val rsWait = getService[RfDependencyPlugin].getRsWait(1)
+          val enableUnskipedMasked = Vec.fill(Frontend.DISPATCH_COUNT)(Bool) //As part of the depedency tracking is done by the dispatcher rob wake (by design), we need to catch up
+          hardFork{ //Fork to allow WakeRegFileService to generate themself without blocking the LSU
+            val rfWakes = getServicesOf[WakeRegFileService].flatMap(_.wakeRegFile).filter(p => getStoreRfWakeLatency(p) == 0 && p.needBypass == false)
+            for(slotId <- 0 until Frontend.DISPATCH_COUNT) {
+              enableUnskipedMasked(slotId) := apply(rsWait.ENABLE_UNSKIPED, slotId) && rfWakes.map{p =>
+                !(p.valid && p.physical === apply(decoder.PHYS_RS(1), slotId) && p.regfile ===  apply(decoder.REGFILE_RS(1), slotId))
+              }.andR
+            }
+          }
+
           for(reg <- regs){
             val hits = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield{
               (DISPATCH_MASK, slotId) && (SQ_ALLOC, slotId) && (LSU_ID, slotId).resize(log2Up(sqSize) bits) === reg.id
             }
+
             when(hits.orR){
               reg.valid := True
               reg.allLqIsYounger := False
@@ -1176,11 +1195,10 @@ class LsuPlugin(var lqSize: Int,
               reg.data.loaded := False
               reg.data.requested := False
 
-              val rsWait = getService[RfDependencyPlugin].getRsWait(1)
-              reg.data.inRf  := !OhMux.or(hits, apply(0 until Frontend.DISPATCH_COUNT)(rsWait.ENABLE_UNSKIPED))
+              reg.data.inRf     := !OhMux.or(hits, enableUnskipedMasked)
               reg.data.physical :=  OhMux.or(hits, apply(0 until Frontend.DISPATCH_COUNT)(decoder.PHYS_RS(1)))
-              reg.data.regfile :=  OhMux.or(hits, apply(0 until Frontend.DISPATCH_COUNT)(decoder.REGFILE_RS(1)))
-              reg.data.inRfDelay := False
+              reg.data.regfile  :=  OhMux.or(hits, apply(0 until Frontend.DISPATCH_COUNT)(decoder.REGFILE_RS(1)))
+//              reg.data.inRfDelay := False
             }
           }
         }
@@ -1657,7 +1675,7 @@ class LsuPlugin(var lqSize: Int,
       wakeRob.valid := False
       wakeRob.robId := robId
 
-      val wakeRf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false))
+      val wakeRf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false, withRfBypass = true, rfLatency = 1)) //rfLatency 1 to relax timings even if that's likely 0
       wakeRf.valid := False
       wakeRf.physical := loadPhysRd
       wakeRf.regfile := loadRegfileRd
@@ -1680,7 +1698,6 @@ class LsuPlugin(var lqSize: Int,
       setup.specialCompletion.id    := robId
 
 
-//      val peripheralRspRfMask = for((spec, regfile) <- setup.regfilePorts) yield RegNext(loadWriteRd && loadRegfileRd === decoder.REGFILE_RD.rfToId(spec))
       when(peripheralBus.rsp.fire) {
         load.pipeline.cacheRsp.specialOverride := True
         setup.specialCompletion.valid := True

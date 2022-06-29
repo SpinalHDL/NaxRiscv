@@ -354,7 +354,8 @@ case class WakeRob() extends Bundle {
   val robId = ROB.ID()
 }
 
-case class WakeRegFile(regfileType : HardType[UInt], physicalType : HardType[UInt], needBypass : Boolean) extends Bundle {
+//needBypass need to be true if no wakeRob is issued (static wake)
+case class WakeRegFile(regfileType : HardType[UInt], physicalType : HardType[UInt], needBypass : Boolean, withRfBypass : Boolean, rfLatency : Int) extends Bundle {
   val regfile = regfileType()
   val physical = physicalType()
 }
