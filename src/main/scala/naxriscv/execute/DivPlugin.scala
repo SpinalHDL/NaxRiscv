@@ -62,7 +62,7 @@ class DivPlugin(val euId : String,
     }
     import keys._
 
-    val div = DivRadix4(width = XLEN.get + 2)
+    val div = DivRadix4(width = XLEN.get)
     def twoComplement(that: Bits, enable: Bool): UInt = (Mux(enable, ~that, that).asUInt + enable.asUInt)
 
     val feed = new ExecuteArea(cmdAt) {

@@ -1,6 +1,7 @@
 package naxriscv.utilities
 
 
+import naxriscv.Global
 import spinal.core._
 import spinal.lib._
 
@@ -63,17 +64,54 @@ case class DivRadix4(val width : Int) extends Component {
     numerator := numerator |<< 2
   }
 
+  val sliceCount = 3
+  val shiftWidth = width/(sliceCount+1)
+  val slices = io.cmd.a.subdivideIn(sliceCount+1 slices).tail
+  val slicesZero = slices.map(_ === 0)
+  val shiftSel = B((0 until sliceCount).map(i => slicesZero.drop(i).andR))
+  val sel = OHToUInt(OHMasking.firstV2(True ## shiftSel))
   when(!busy){
-    counter   := 0
-    shifter   := 0
-    numerator := io.cmd.a.resized
-    div1      := io.cmd.b.resized
-    div3      := io.cmd.b +^ (io.cmd.b << 1)
-    busy      := io.cmd.valid
+    busy   := io.cmd.valid
+    div1   := io.cmd.b.resized
+    div3   := io.cmd.b +^ (io.cmd.b << 1)
+    result := (default -> (io.cmd.b === 0))
+    switch(sel) {
+      for (i <- sliceCount downto 0) is(i) {
+        val shift = width - ((i + 1) * shiftWidth)
+        counter := shift / 2
+        shifter := U(io.cmd.a.takeHigh(shift)).resized
+        numerator := io.cmd.a |<< shift
+      }
+    }
   }
 
   when(io.flush){
     done := False
     busy := False
+  }
+}
+
+
+object DivRadix4Tester extends App{
+  import spinal.core.sim._
+  SimConfig.withWave.compile(new DivRadix4(16)).doSim(seed = 52){dut =>
+    dut.clockDomain.forkStimulus(10)
+    dut.io.cmd.valid #= false
+    dut.io.rsp.ready #= true
+    dut.clockDomain.waitSampling()
+    for(i <- 0 until 1000) {
+      dut.io.cmd.valid #= true
+      val a = dut.io.cmd.a.randomizedInt()
+      val b = dut.io.cmd.b.randomizedInt()
+      dut.io.cmd.a #= a
+      dut.io.cmd.b #= b
+      dut.clockDomain.waitSampling()
+      dut.io.cmd.valid #= false
+      dut.clockDomain.waitSamplingWhere(dut.io.rsp.valid.toBoolean)
+      assert(dut.io.rsp.result.toInt == a / b)
+      assert(dut.io.rsp.remain.toInt == a % b)
+      dut.clockDomain.waitSampling()
+    }
+    simSuccess()
   }
 }
