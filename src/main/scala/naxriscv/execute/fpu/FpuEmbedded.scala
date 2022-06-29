@@ -25,10 +25,10 @@ class FpuEmbedded extends Plugin {
     ))
 
     val port = core.io.ports(0)
-    port.floatCmd << floatCmd
-    port.intCmd << intCmd
+    port.floatCmd << floatCmd.s2mPipe(flush= port.unschedule)
+    port.intCmd << intCmd.s2mPipe(flush = port.unschedule)
     port.floatWriteback >> floatCompletion
-    port.intWriteback >> integerWriteback
+    port.intWriteback.halfPipe(flush = port.unschedule) >> integerWriteback
     port.unschedule := getService[FpuWriteback].setup.unschedule
   }
 }
