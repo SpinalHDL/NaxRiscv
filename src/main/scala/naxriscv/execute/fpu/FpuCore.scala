@@ -708,21 +708,23 @@ case class FpuCore(p : FpuParameter) extends Component{
 
         val ARGS = insert(intCmd.payload)
 
+        val rs1Msb    = insert(if(!p.rv64) ARGS.rs1(31) else (ARGS.arg(1) ? ARGS.rs1(63) | ARGS.rs1(31)))
+        val rs1Neg    = insert(ARGS.arg(0) && rs1Msb)
+        val rs1Masked = insert(CombInit(ARGS.rs1))
+        if(p.rv64) when(!ARGS.arg(1)) { rs1Masked(63 downto 32) := (default -> this(rs1Neg)) }
+        val rs1Unsigned = insert(Mux[Bits](rs1Neg, ~rs1Masked, rs1Masked).asUInt + U(rs1Neg))
+        val rs1Zero     = insert(rs1Masked === 0)
+      }
+      import input._
+
+      val logic = new FpuStage(M2S()){
         val fsmPortId = 1
         val fsmCmd = unpacker.arbiter.io.inputs(fsmPortId)
         val fsmRsp = unpacker.results(fsmPortId)
-
         val served    = RegInit(False) setWhen(fsmRsp.valid) clearWhen(!isStuck || isRemoved)
         val fsmResult = fsmRsp.toReg
 
-        val rs1Msb    = if(!p.rv64) ARGS.rs1(31) else (ARGS.arg(1) ? ARGS.rs1(63) | ARGS.rs1(31))
-        val rs1Neg    = ARGS.arg(0) && rs1Msb
-        val rs1Masked = CombInit(ARGS.rs1)
-        if(p.rv64) when(!ARGS.arg(1)) { rs1Masked(63 downto 32) := (default -> rs1Neg) }
-        val rs1Unsigned = Mux(rs1Neg, ~rs1Masked, rs1Masked).asUInt + U(rs1Neg)
-        val rs1Zero     = RegNext(rs1Masked === 0)
-
-        fsmCmd.valid := valid && ARGS.opcode === FpuOpcode.I2F && !served
+        fsmCmd.valid := isValid && ARGS.opcode === FpuOpcode.I2F && !served
         fsmCmd.data := rs1Unsigned.asBits.resized
 
         haltWhen(fsmCmd.valid)
@@ -768,7 +770,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         if(p.withDiv)  inputs += div.result.merge
         if(p.withSqrt) inputs += sqrt.result.merge
         inputs += shared.math.merge
-        inputs += i2f.input.merge
+        inputs += i2f.logic.merge
         val exponentMin = inputs.map(_.value.exponentMin).min
         val exponentMax = inputs.map(_.value.exponentMax).max
         val remapped    = inputs.map{e =>
