@@ -7,7 +7,7 @@ import naxriscv.Fetch._
 import naxriscv.execute.fpu.FpuWriteback
 import naxriscv.interfaces.{AddressTranslationService, CommitService, DecoderService, DecoderTrap, EuGroup, ExecuteUnitService, FPU, INSTRUCTION_SIZE, LockedImpl, MicroOp, PC_READ, PrivilegedService, RD, RM, RS1, RS2, RS3, RegFileSel, RegfileService, RegfileSpec, Resource, RfRead, RfResource, RobService, SingleDecoding}
 import naxriscv.prediction.DecoderPrediction
-import naxriscv.riscv.{CSR, Const, Rvfd}
+import naxriscv.riscv.{CSR, Const, FloatRegFile, IntRegFile, Rvfd}
 import spinal.lib.pipeline.Connection.{DIRECT, M2S}
 import spinal.lib.pipeline._
 import spinal.core._
@@ -90,7 +90,11 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
   override def ARCH_RD : Stageable[UInt] = setup.keys.ARCH_RD
   override def PHYS_RD : Stageable[UInt] = setup.keys.PHYS_RD
   override def PHYS_RD_FREE : Stageable[UInt] = setup.keys.PHYS_RD_FREE
-  override def rsCount = if(RVF) 3 else 2 //This is a bit dirty
+  override def rsCount(rf : RegfileSpec) = rf match {
+    case IntRegFile => 2
+    case FloatRegFile => 3
+  }
+  override def rsCountMax() = 2+RVF.get.toInt
   override def rsPhysicalDepthMax = setup.keys.physicalMax
   override def getTrap() = setup.exceptionPort
   override def trapHalt() = setup.trapHalt := True
@@ -123,17 +127,17 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       setName("")
       val plugins = getServicesOf[RegfileService]
       val physicalMax = plugins.map(_.getPhysicalDepth).max
-      val ARCH_RS = List.fill(rsCount)(Stageable(UInt(5 bits)))
+      val ARCH_RS = List.fill(rsCountMax())(Stageable(UInt(5 bits)))
       val ARCH_RD = Stageable(UInt(5 bits))
-      val PHYS_RS = List.fill(rsCount)(Stageable(UInt(log2Up(physicalMax) bits)))
+      val PHYS_RS = List.fill(rsCountMax())(Stageable(UInt(log2Up(physicalMax) bits)))
       val PHYS_RD = Stageable(UInt(log2Up(physicalMax) bits))
       val PHYS_RD_FREE = Stageable(UInt(log2Up(physicalMax) bits))
-      val READ_RS = List.fill(rsCount)(Stageable(Bool()))
+      val READ_RS = List.fill(rsCountMax())(Stageable(Bool()))
       val WRITE_RD = Stageable(Bool())
       val regfileSelWidth = log2Up(getServicesOf[RegfileService].size)
       def regFileSelType() = RegFileSel(getServicesOf[RegfileService].zipWithIndex.map(e => e._2 -> e._1.rfSpec).toMapLinked(), regfileSelWidth)
       val REGFILE_RD = regFileSelType()
-      val REGFILE_RS =  List.fill(rsCount)(regFileSelType())
+      val REGFILE_RS =  List.fill(rsCountMax())(regFileSelType())
       val LEGAL = Stageable(Bool())
       val TRAP = Stageable(Bool())
     }
@@ -279,7 +283,7 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       terminal(INSTRUCTION_DECOMPRESSED, i)
 
       setup.keys.ARCH_RD := U(INSTRUCTION_DECOMPRESSED(Const.rdRange))
-      for(i <- 0 until rsCount) {
+      for(i <- 0 until rsCountMax()) {
         setup.keys.ARCH_RS(i) := U(INSTRUCTION_DECOMPRESSED(Const.rsRange(i)))
       }
     }
@@ -365,7 +369,7 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       writeLine(setup.keys.ARCH_RD)
       writeLine(setup.keys.REGFILE_RD)
 
-      for(i <- 0 until rsCount) {
+      for(i <- 0 until rsCountMax()) {
         writeLine(setup.keys.READ_RS(i))
         writeLine(setup.keys.PHYS_RS(i))
         writeLine(setup.keys.ARCH_RS(i))

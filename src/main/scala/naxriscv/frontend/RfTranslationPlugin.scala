@@ -133,7 +133,7 @@ class RfTranslationPlugin(val spec : RegfileSpec) extends Plugin with InitCycles
       depth       = spec.sizeArch,
       commitPorts = COMMIT_COUNT,
       writePorts  = DISPATCH_COUNT,
-      readPorts   = DISPATCH_COUNT*(decoder.rsCount+1)
+      readPorts   = DISPATCH_COUNT*(decoder.rsCount(spec)+1)
     )
 
     impl.io.rollback := getService[CommitService].reschedulingPort(onCommit = true).valid
@@ -180,7 +180,7 @@ class RfTranslationPlugin(val spec : RegfileSpec) extends Plugin with InitCycles
     val translation = new Area{
       for(slotId <- 0 until DISPATCH_COUNT) {
         implicit val _ = StageableOffset(slotId)
-        val portRd = impl.io.reads(slotId*(1+decoder.rsCount))
+        val portRd = impl.io.reads(slotId*(1+decoder.rsCount(spec)))
         val archRd = stage(decoder.ARCH_RD, slotId)
         val rdHit = decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)
         portRd.cmd.valid := decoder.WRITE_RD && rdHit
@@ -190,9 +190,9 @@ class RfTranslationPlugin(val spec : RegfileSpec) extends Plugin with InitCycles
           decoder.PHYS_RD_FREE := portRd.rsp.payload
         }
 
-        val rs = for(rsId <- 0 until decoder.rsCount) yield new Area{
+        val rs = for(rsId <- 0 until decoder.rsCount(spec)) yield new Area{
           val id = rsId
-          val port = impl.io.reads(slotId*(1+decoder.rsCount)+rsId+1)
+          val port = impl.io.reads(slotId*(1+decoder.rsCount(spec))+rsId+1)
           val archRs = stage(decoder.ARCH_RS(rsId), slotId)
           val hit = decoder.REGFILE_RS(rsId) === decoder.REGFILE_RS(rsId).rfToId(spec)
           port.cmd.valid := decoder.READ_RS(rsId) && hit

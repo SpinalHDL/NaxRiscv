@@ -5,7 +5,7 @@ import naxriscv.{Fetch, Frontend, Global, ROB}
 import naxriscv.frontend.{DispatchPlugin, FrontendPlugin, RfDependencyPlugin}
 import naxriscv.interfaces._
 import naxriscv.riscv.{AtomicAlu, CSR, FloatRegFile, IntRegFile, Rvi}
-import naxriscv.utilities.{AddressToMask, DocPlugin, Plugin}
+import naxriscv.utilities.{AddressToMask, DocPlugin, Plugin, WithRfWriteSharedSpec}
 import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Connection.M2S
@@ -22,6 +22,8 @@ import spinal.lib.bus.amba4.axi.{Axi4, Axi4Config}
 import spinal.lib.bus.amba4.axilite.{AxiLite4, AxiLite4Config}
 import spinal.lib.bus.bmb.{Bmb, BmbAccessParameter, BmbParameter, BmbSourceParameter}
 import spinal.lib.fsm._
+
+import scala.collection.mutable
 
 object LsuUtils{
   def sizeWidth(wordWidth : Int) = log2Up(log2Up(wordWidth/8)+1)
@@ -178,7 +180,15 @@ class LsuPlugin(var lqSize: Int,
                 var lqToCachePipelined : Boolean = true, //Add one additional stage between LQ arbitration and the cache query
                 var loadFeedAt : Int = 0, //Stage at which the d$ cmd is sent
                 var loadCheckSqAt : Int = 1,
-                var loadCtrlAt : Int = 3) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy{
+                var loadCtrlAt : Int = 3,
+                var intRfWriteSharing : Any = new {}) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy with WithRfWriteSharedSpec{
+
+  val rfWriteSharing = mutable.LinkedHashMap[RegfileSpec, Any]()
+  def addRfWriteSharing(rf : RegfileSpec, key : Any) : this.type = {
+    assert(!rfWriteSharing.contains(rf))
+    rfWriteSharing(rf) = key
+    this
+  }
 
   def withHazardPrediction = hazardPedictionEntries != 0
   def wordWidth = LSLEN
@@ -270,7 +280,9 @@ class LsuPlugin(var lqSize: Int,
 
     class RegfilePorts(regfile : RegfileService) extends Area{
       val read = regfile.newRead(withReady = false, forceNoBypass = true)
-      val write = regfile.newWrite(withReady = false, latency = 0)
+      val sharing = getRfWriteSharing(regfile.rfSpec)
+      assert(sharing.withReady == false)
+      val write = regfile.newWrite(false, 0, sharing.key, sharing.priority)
     }
     val regfilePorts = (for(regfile <- regfiles) yield regfile.rfSpec -> new RegfilePorts(regfile)).toMapLinked()
 
@@ -899,7 +911,6 @@ class LsuPlugin(var lqSize: Int,
             val src = srcZipped.map(_._1)
             val range = cpuWordToRfWordRange.high downto cpuWordToRfWordRange.high+1-log2Up(srcSize)
             val sel = rspAddress(range)
-            //        println(s"$i $srcSize $range ${srcZipped.map(_._2).mkString(",")}")
             rspShifted(i*8, 8 bits) := src.read(sel)
           }
 
@@ -1673,7 +1684,6 @@ class LsuPlugin(var lqSize: Int,
         setup.specialCompletion.valid := True
 
         setup.specialTrap.valid := peripheralBus.rsp.error
-
 
         for((spec, regfile) <- setup.regfilePorts) {
           regfile.write.valid   := loadWriteRd && loadRegfileRd === decoder.REGFILE_RD.rfToId(spec)

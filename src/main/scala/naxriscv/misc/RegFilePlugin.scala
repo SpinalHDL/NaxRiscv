@@ -21,6 +21,7 @@ class RegFileAsync(addressWidth    : Int,
                    readsParameter  : Seq[RegFileReadParameter],
                    writesParameter : Seq[RegFileWriteParameter],
                    bypasseCount    : Int,
+                   preferedWritePortForInit : Int,
                    headZero        : Boolean,
                    allOne         : Boolean,
                    asyncReadBySyncReadRevertedClk : Boolean = false) extends Component {
@@ -71,14 +72,13 @@ class RegFileAsync(addressWidth    : Int,
     }
   }
 
+  val initPort = banks.head.writePort(preferedWritePortForInit)
   val initHead = headZero generate new Area{
     val booted = RegNext(True) init(False)
     when(!booted){
-      val bank = banks.head
-      val port = bank.writePort.head
-      port.valid := True
-      port.address := 0
-      port.data := 0
+      initPort.valid := True
+      initPort.address := 0
+      initPort.data := 0
     }
   }
 
@@ -87,11 +87,9 @@ class RegFileAsync(addressWidth    : Int,
     val counter = Reg(UInt(addressWidth+1 bits)) init(0)
     val done = counter.msb
     when(!done){
-      val bank = banks.head
-      val port = bank.writePort.head
-      port.valid := True
-      port.address := counter.resized
-      port.data.setAll()
+      initPort.valid := True
+      initPort.address := counter.resized
+      initPort.data.setAll()
       counter := counter + 1
     }
   }
@@ -111,6 +109,7 @@ object RegFileAsyncSynth extends App{
     readsParameter  = Seq.fill(4)(RegFileReadParameter(withReady = false, forceNoBypass = false)),
     writesParameter = Seq.fill(1)(RegFileWriteParameter(withReady = false)),
     bypasseCount    = 0,
+    preferedWritePortForInit = 0,
     headZero        = true,
     allOne         = false
   ))).printPruned())
@@ -138,6 +137,7 @@ Artix 7 -> 538 Mhz 176 LUT 585 FF
 class RegFilePlugin(var spec : RegfileSpec,
                     var physicalDepth : Int,
                     var bankCount : Int,
+                    var preferedWritePortForInit : String,
                     var asyncReadBySyncReadRevertedClk : Boolean = false,
                     var allOne : Boolean = false) extends Plugin with RegfileService with InitCycles {
   withPrefix(spec.getName())
@@ -146,19 +146,31 @@ class RegFilePlugin(var spec : RegfileSpec,
   override def rfSpec = spec
   override def initCycles = if(allOne) physicalDepth else 0
 
+  case class WriteSpec(port : RegFileWrite,
+                       withReady : Boolean,
+                       latency : Int,
+                       sharingKey : Any,
+                       priority : Int) //Higher first
+
   val lock = Lock()
   def addressWidth = log2Up(physicalDepth)
   def dataWidth = spec.width
   val reads = ArrayBuffer[RegFileRead]()
-  val writes = ArrayBuffer[RegFileWrite]()
+  val writes = ArrayBuffer[WriteSpec]()
   val bypasses = ArrayBuffer[RegFileBypass]()
 
   override def newRead(withReady : Boolean, forceNoBypass : Boolean) = reads.addRet(RegFileRead(addressWidth, dataWidth, withReady, 0, forceNoBypass))
-  override def newWrite(withReady : Boolean, latency : Int) = writes.addRet(RegFileWrite(addressWidth, dataWidth, withReady, latency))
+  override def newWrite(withReady : Boolean, latency : Int, sharingKey : Any = new{}, priority : Int = 0) = writes.addRet(
+    WriteSpec(
+      port       = RegFileWrite(addressWidth, dataWidth, withReady),
+      withReady  = withReady,
+      latency    = latency,
+      sharingKey = sharingKey,
+      priority   = priority
+    )
+  ).port
   override def newBypass() : RegFileBypass = bypasses.addRet(RegFileBypass(addressWidth, dataWidth))
-
-
-  override def getWrites() = writes
+  override def getWrites() = writes.map(_.port)
 
   override def retain() = lock.retain()
   override def release() = lock.release()
@@ -167,31 +179,72 @@ class RegFilePlugin(var spec : RegfileSpec,
     lock.await()
     assert(isPow2(bankCount))
 
-    val writeBypasses = for(write <- writes; if write.latency == 0) yield new Area{
-      val port = newBypass()
-      port.valid := write.valid
-      port.address := write.address
-      port.data := write.data
+    val writeGroups = writes.groupByLinked(_.sharingKey)
+    val writeMerges = for((key, elements) <- writeGroups) yield new Area{
+      val bus = RegFileWrite(addressWidth, dataWidth, false)
+      bus.valid   := elements.map(_.port.valid).orR
+
+      val one = (elements.size == 1) generate new Area{
+        val h = elements.head
+        bus.address := h.port.address
+        bus.data    := h.port.data
+        bus.robId   := h.port.robId
+        if(h.withReady) h.port.ready := True
+      }
+
+      val multiple = (elements.size > 1) generate new Area {
+        assert(elements.count(!_.withReady) <= 1)
+        val sorted = elements.sortWith((a, b) => if(!a.withReady && b.withReady) true else a.priority > b.priority)
+        assert(sorted.map(_.priority).indices.size == sorted.size, "Conflicting priorities for regfile writes")
+
+        val mask = sorted.map(_.port.valid)
+        val oh = OHMasking.firstV2(Vec(mask))
+        bus.address := OhMux.or(oh, sorted.map(_.port.address))
+        bus.data    := OhMux.or(oh, sorted.map(_.port.data))
+        bus.robId   := OhMux.or(oh, sorted.map(_.port.robId))
+        for((element, enable) <- (sorted, oh).zipped){
+          if(element.withReady) element.port.ready := enable
+        }
+      }
+      val bypass = if(elements.exists(_.latency == 0)) new Area{
+        val port = newBypass()
+        elements.count(_.latency == 0)  match {
+          case 1 => {
+            val src = elements.find(_.latency == 0).get
+            port.valid   := src.port.valid
+            port.address := src.port.address
+            port.data    := src.port.data
+          }
+          case _ => {
+            port.valid   := bus.valid
+            port.address := bus.address
+            port.data    := bus.data
+          }
+        }
+      }
     }
+
+
 
     val regfile = new RegFileAsync(
       addressWidth    = addressWidth,
       dataWidth       = dataWidth,
       bankCount       = bankCount,
       readsParameter  = reads.map(e => RegFileReadParameter(withReady = e.withReady, e.forceNoBypass)),
-      writesParameter = writes.map(e => RegFileWriteParameter(withReady = e.withReady)),
+      writesParameter = writeMerges.map(e => RegFileWriteParameter(withReady = false)).toList,
       bypasseCount    = bypasses.size,
       headZero        = spec.x0AlwaysZero,
-      allOne         = allOne,
+      preferedWritePortForInit = writeGroups.zipWithIndex.find(_._1._2.exists(_.port.getName().contains(preferedWritePortForInit))).get._2,
+      allOne          = allOne,
       asyncReadBySyncReadRevertedClk = asyncReadBySyncReadRevertedClk
     )
 
     (regfile.io.reads, reads).zipped.foreach(_ <> _)
-    (regfile.io.writes, writes).zipped.foreach(_ <> _)
+    (regfile.io.writes, writeMerges.map(_.bus)).zipped.foreach(_ <> _)
     (regfile.io.bypasses, bypasses).zipped.foreach(_ <> _)
 
     //Used for tracing in verilator sim
-    val writeEvents = Vec(writes.map(e => e.asWithoutReady()))
+    val writeEvents = Vec(writeMerges.map(e => CombInit(e.bus)))
     writeEvents.setName(spec.getName()+"_write").addAttribute(Verilator.public)
     val doc = getService[DocPlugin]
     doc.property(writeEvents.getName() +"_count", writeEvents.size)
@@ -200,3 +253,39 @@ class RegFilePlugin(var spec : RegfileSpec,
 }
 
 
+/*
+      val bus = RegFileWrite(addressWidth, dataWidth, false)
+      assert(elements.count(!_.withReady) <= 1)
+      bus.valid   := elements.map(_.port.valid).orR
+
+      val one = (elements.size == 1) generate new Area{
+        val h = elements.head
+        bus.address := h.port.address
+        bus.data    := h.port.data
+        bus.robId   := h.port.robId
+        if(h.withReady) h.port.ready := True
+      }
+
+      val multiple = (elements.size > 1) generate new Area {
+        val withReady = elements.filter(_.withReady)
+        assert(withReady.size <= 1)
+
+        bus.address := withReady(0).port.address
+        bus.data := withReady(0).port.data
+        bus.robId := withReady(0).port.robId
+        withReady(0).port.ready := True
+
+        //Apply the element without ready capabilities (if any)
+        elements.find(!_.withReady) match {
+          case Some(mainDriver) => {
+            when(mainDriver.port.valid) {
+              elements.filter(_.withReady).foreach(_.port.ready := False)
+              bus.address := mainDriver.port.address
+              bus.data := mainDriver.port.data
+              bus.robId := mainDriver.port.robId
+            }
+          }
+          case None => ???
+        }
+      }
+ */

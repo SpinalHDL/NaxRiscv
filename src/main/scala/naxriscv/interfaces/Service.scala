@@ -82,7 +82,8 @@ trait DecoderService extends Service with LockedService {
   def REGFILE_RS(id : Int) : RegFileSel
   def REGFILE_RS(id : RfRead) : RegFileSel
 
-  def rsCount  : Int //TODO FPU not universal
+  def rsCount(rf : RegfileSpec)  : Int
+  def rsCountMax()  : Int
   def rsPhysicalDepthMax : Int
   def getTrap() : Flow[DecoderTrap]
 
@@ -131,7 +132,7 @@ trait RfAllocationService extends Service {
   def getFreePort() : Vec[Flow[UInt]]
 }
 
-case class RegFileWrite(addressWidth : Int, dataWidth : Int, withReady : Boolean, latency : Int = 1) extends Bundle with IMasterSlave {
+case class RegFileWrite(addressWidth : Int, dataWidth : Int, withReady : Boolean) extends Bundle with IMasterSlave {
   val valid = Bool()
   val ready = withReady generate Bool()
   val address = UInt(addressWidth bits)
@@ -182,7 +183,7 @@ trait RegfileService extends Service{
   def getPhysicalDepth : Int
 
   def newRead(withReady : Boolean, forceNoBypass : Boolean = false) : RegFileRead
-  def newWrite(withReady : Boolean, latency : Int) : RegFileWrite
+  def newWrite(withReady : Boolean, latency : Int, sharingKey : Any = null, priority : Int = 0) : RegFileWrite
   def newBypass() : RegFileBypass
 
   def getWrites() : Seq[RegFileWrite]

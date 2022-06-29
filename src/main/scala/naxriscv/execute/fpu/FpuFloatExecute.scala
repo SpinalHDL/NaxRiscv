@@ -144,11 +144,7 @@ class FpuFloatExecute(euId : String) extends Plugin{
 //TODO FPU list
 /*
 - There maybe a few duplicate rob read during onCommit / onFree
-- Do not track renaming of RS3 for the integer regfile
 - FpuWriteback better wakeups (anticipate timings, shave cycles, register file bypass)
-- Test pipeline flush integration !!!
-- do not report quiet nan ? (merge.NV := !RS.quiet)
-- spike does trap if round mode is wrong
  */
 
 
@@ -166,4 +162,15 @@ for kind in ${kinds[@]}; do
 done
 
 
+
+28701 7184 -5.467    vanilla 5 int write ports
+27881 6549 -4.878    shared fpu/eu0 int write
+27092 5880 -5.337    shared fpu/eu0/lsu int write
+26778 5822 -5.418    ^ + mul fix
+26783 5879 -5.277 ns
+26940 5813 -5.191 ns
+
+rv64 no fpu no c
+
+18445 4448 -4.823 ns
  */

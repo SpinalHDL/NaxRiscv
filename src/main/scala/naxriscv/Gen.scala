@@ -11,6 +11,7 @@ import naxriscv.execute.fpu._
 import naxriscv.fetch._
 import naxriscv.lsu._
 import naxriscv.prediction._
+import naxriscv.riscv.IntRegFile
 import naxriscv.utilities._
 import spinal.lib.LatencyAnalysis
 import spinal.lib.bus.amba4.axi.Axi4SpecRenamer
@@ -232,7 +233,8 @@ object Config{
     plugins += new RegFilePlugin(
       spec = riscv.IntRegFile,
       physicalDepth = 64,
-      bankCount = 1
+      bankCount = 1,
+      preferedWritePortForInit = "ALU0"
     )
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
     plugins += new CsrRamPlugin()
@@ -283,7 +285,8 @@ object Config{
         spec = riscv.FloatRegFile,
         physicalDepth = 64,
         bankCount = 1,
-        allOne = simulation
+        allOne = simulation,
+        preferedWritePortForInit = "Fpu"
       )
 
       plugins += new FpuIntegerExecute("EU0")
@@ -342,6 +345,18 @@ object Config{
     //      staticLatency = false
     //    )
 
+
+    // Integer write port sharing
+    val intRfWrite = new{}
+    plugins.collect{
+      case lsu : LsuPlugin =>
+        lsu.addRfWriteSharing(IntRegFile, intRfWrite, withReady = false, priority = 2)
+      case eu0 : ExecutionUnitBase if eu0.euId == "EU0" =>
+        eu0.addRfWriteSharing(IntRegFile, intRfWrite, withReady = true, priority = 1)
+      case fpu : FpuWriteback =>
+        fpu.addRfWriteSharing(IntRegFile, intRfWrite, withReady = true, priority = 0)
+    }
+
     plugins
   }
 }
@@ -354,14 +369,14 @@ object Gen extends App{
       aluCount    = 2,
       decodeCount = 2,
       debugTriggers = 4,
-      withRvc = true,
+      withRvc = false,
       withLoadStore = true,
       withMmu = true,
       withDebug = false,
       withEmbeddedJtagTap = false,
       jtagTunneled = false,
-      withFloat = true,
-      withDouble = true
+      withFloat = false,
+      withDouble = false
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))
@@ -415,12 +430,12 @@ object Gen64 extends App{
       withRdTime = false,
       aluCount    = 2,
       decodeCount = 2,
-      withRvc = true,
+      withRvc = false,
       withDebug = false,
       withEmbeddedJtagTap = false,
       debugTriggers = 4,
-      withFloat = true,
-      withDouble = true
+      withFloat = false,
+      withDouble = false
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))

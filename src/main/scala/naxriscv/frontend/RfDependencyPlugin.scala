@@ -139,10 +139,10 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
     val issue    = getService[IssueService]
     val decoder  = getService[DecoderService]
 
-    val waits = List.fill(decoder.rsCount)(issue.newRobDependency())
-    val SKIP = List.fill(decoder.rsCount)(Stageable(Bool()))
+    val waits = List.fill(decoder.rsCountMax())(issue.newRobDependency())
+    val SKIP = List.fill(decoder.rsCountMax())(Stageable(Bool()))
 
-    for(rsId <- 0 until decoder.rsCount){
+    for(rsId <- 0 until decoder.rsCountMax()){
       decoder.addMicroOpDecodingDefault(SKIP(rsId), False)
     }
     val skipGroupe = issueSkipSpecs.groupByLinked(_.rsId)
@@ -170,7 +170,7 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
         physDepth = entryCount,
         commitPorts = wakeIds.size,
         writePorts = Global.COMMIT_COUNT,
-        readPorts = Frontend.DISPATCH_COUNT * decoder.rsCount //TODO FPU less rs count for int reg file (no RS3 (fpu))
+        readPorts = Frontend.DISPATCH_COUNT * decoder.rsCount(rf.rfSpec)
       )
 
       //Write
@@ -205,18 +205,18 @@ class RfDependencyPlugin() extends Plugin with InitCycles{
     //Read
     val dependency = new Area{
       for(slotId <- 0 until Frontend.DISPATCH_COUNT) {
-        for(rsId <- 0 until decoder.rsCount) {
+        for(rsId <- 0 until decoder.rsCountMax()) {
           val rsRfSpecs = getServicesOf[RegfileService].map(_.rfSpec)
           val archRs = (decoder.ARCH_RS(rsId), slotId)
           val useRs = (decoder.READ_RS(rsId), slotId)
-          val rfs = for(rfSpec <- rsRfSpecs) yield new Area{
+          val rfs = for(rfSpec <- rsRfSpecs if rsId < decoder.rsCount(rfSpec)) yield new Area{
             val rf = rfSpec
-            val port = forRf.find(_.spec == rf).get.impl.io.reads(slotId*decoder.rsCount+rsId)
+            val port = forRf.find(_.spec == rf).get.impl.io.reads(slotId*decoder.rsCount(rfSpec)+rsId)
             port.cmd.valid := isValid && (DISPATCH_MASK, slotId) && useRs
             port.cmd.payload := stage(decoder.PHYS_RS(rsId), slotId)
           }
 
-          val rsp = stage(decoder.REGFILE_RS(rsId), slotId).muxListDc(rsRfSpecs.map{rf =>
+          val rsp = stage(decoder.REGFILE_RS(rsId), slotId).muxListDc(rsRfSpecs.filter(rsId < decoder.rsCount(_)).map{rf =>
             decoder.REGFILE_RS(rsId).rfToId(rf) -> rfs.find(_.rf == rf).get.port.rsp
           })
           (setup.waits(rsId).ENABLE_UNSKIPED, slotId) := rsp.enable

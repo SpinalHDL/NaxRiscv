@@ -4,7 +4,7 @@ import naxriscv.{DecodeList, Frontend, Global, ROB}
 import naxriscv.interfaces.{CommitService, CsrService, DecoderService, MicroOp, PrivilegedService, RegfileService, RobService, ScheduleReason, WakeRegFile, WakeRegFileService, WakeRob, WakeRobService}
 import naxriscv.misc.RegFilePlugin
 import naxriscv.riscv.{CSR, FloatRegFile, IntRegFile, Rvfd}
-import naxriscv.utilities.{DocPlugin, Plugin}
+import naxriscv.utilities.{DocPlugin, Plugin, WithRfWriteSharedSpec}
 import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Stageable
@@ -23,7 +23,7 @@ object FpuWriteback extends AreaObject {
 }
 
 
-class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
+class FpuWriteback() extends Plugin  with WakeRobService with WakeRegFileService with WithRfWriteSharedSpec{
   import FpuWriteback._
 
   override def wakeRobs    = List(logic.get.float.wakeRob, logic.get.integer.wakeRob)
@@ -40,7 +40,8 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
     val rfFloat = findService[RegfileService](_.rfSpec == FloatRegFile)
     val rfInteger = findService[RegfileService](_.rfSpec == IntRegFile)
     val floatWrite   = rfFloat.newWrite(false, 1)
-    val integerWrite = rfInteger.newWrite(false, 1)
+    val integerSharing = getRfWriteSharing(IntRegFile)
+    val integerWrite = rfInteger.newWrite(integerSharing.withReady, 1, integerSharing.key, integerSharing.priority)
     val robFloatcompletion = rob.newRobCompletion()
     val robIntegercompletion = rob.newRobCompletion()
     val csr = getService[CsrService]
@@ -178,10 +179,11 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
       wakeRf.physical := physical
       wakeRf.regfile := decoder.REGFILE_RD.rfToId(IntRegFile)
 
-      integerWrite.valid := integerWriteback.fire
+      integerWrite.valid := integerWriteback.valid
       integerWrite.robId := integerWriteback.robId
       integerWrite.data := integerWriteback.value
       integerWrite.address := physical
+      integerWriteback.ready := integerWrite.ready
 
       rob.writeSingle(
         key = INT_FLAGS,
@@ -192,8 +194,6 @@ class FpuWriteback extends Plugin  with WakeRobService with WakeRegFileService{
 
       robIntegercompletion.valid := integerWriteback.fire
       robIntegercompletion.id := integerWriteback.robId
-
-      integerWriteback.ready := True
     }
 
     val onCommit = new Area {

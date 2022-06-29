@@ -63,10 +63,10 @@ class RfAllocationPlugin(var rf : RegfileSpec,
     }
 
     val push = new Area {
-      val event = commit.freePort()
-      val mask = rob.readAsync(DISPATCH_MASK, COMMIT_COUNT, event.robId)
-      val writeRd = rob.readAsync(decoder.WRITE_RD, COMMIT_COUNT, event.robId)
-      val regfileRd = rob.readAsync(decoder.REGFILE_RD, COMMIT_COUNT, event.robId)
+      val event         = commit.freePort()
+      val mask          = rob.readAsync(DISPATCH_MASK, COMMIT_COUNT, event.robId)
+      val writeRd       = rob.readAsync(decoder.WRITE_RD, COMMIT_COUNT, event.robId)
+      val regfileRd     = rob.readAsync(decoder.REGFILE_RD, COMMIT_COUNT, event.robId)
       val physicalRdNew = rob.readAsync(decoder.PHYS_RD, COMMIT_COUNT, event.robId)
       val physicalRdOld = rob.readAsync(decoder.PHYS_RD_FREE, COMMIT_COUNT, event.robId)
       for (slotId <- 0 until Global.COMMIT_COUNT) {

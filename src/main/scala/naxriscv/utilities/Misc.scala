@@ -1,5 +1,6 @@
 package naxriscv.utilities
 
+import naxriscv.interfaces.RegfileSpec
 import spinal.core._
 import spinal.core.fiber.AsyncThread
 import spinal.lib._
@@ -54,5 +55,15 @@ object MulSpliter{
     val splits = splitsUnordered.sortWith(_.endC < _.endC).zipWithIndex.map(e => e._1.copy(id = e._2))
     splits
   }
+}
 
+trait WithRfWriteSharedSpec{
+  case class RfWriteSharingSpec(key : Any, withReady : Boolean, priority : Int)
+  private val rfWriteSharing = mutable.LinkedHashMap[RegfileSpec, RfWriteSharingSpec]()
+  def addRfWriteSharing(rf : RegfileSpec, key : Any, withReady : Boolean, priority : Int) : this.type = {
+    assert(!rfWriteSharing.contains(rf))
+    rfWriteSharing(rf) = RfWriteSharingSpec(key, withReady, priority)
+    this
+  }
+  def getRfWriteSharing(rf : RegfileSpec) = rfWriteSharing.getOrElseUpdate(rf,  RfWriteSharingSpec(new {}, false, 0))
 }

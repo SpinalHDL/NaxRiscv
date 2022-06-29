@@ -95,8 +95,15 @@ object SyntTest3 extends App{
 
   val rtls = ArrayBuffer[Rtl]()
   rtls += Rtl(SpinalVerilog(Rtl.ffIo(new Component {
-    val a,b = in UInt(64 bits)
-    val result = out(a + b)
+    val LSLEN = 64
+    val sizeMax = log2Up(LSLEN/8)
+    val rspSize = in UInt(2 bits)
+    val rspShifted = in Bits(64 bits)
+    val rspUnsigned = in Bool()
+    val rspFormated = out(rspSize.muxListDc((0 to sizeMax).map{i =>
+      val off = (1 << i) * 8
+      i -> B((LSLEN - 1 downto off) -> (rspShifted(off-1) && !rspUnsigned), (off-1 downto 0) -> rspShifted(off-1 downto 0))
+    }))
   })))
   val targets = XilinxStdTargets().take(2)
 
