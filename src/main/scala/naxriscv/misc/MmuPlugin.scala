@@ -339,7 +339,7 @@ class MmuPlugin(var spec : MmuSpec,
       val portsRequests = ports.map(_.ctrl.askRefill).asBits()
       val portsRequest  = portsRequests.orR
       val portsOh       = OHMasking.first(portsRequests)
-      val portsAddress  = OhMux.or(portsOh, ports.map(_.ctrl.askRefillAddress))
+      val portsAddress  = OhMux.or(RegNext(portsOh), ports.map(e => RegNext(e.ctrl.askRefillAddress)))
 
       val cacheRefill = Reg(Bits(setup.cache.refillCount bits)) init(0)
       val cacheRefillAny = Reg(Bool()) init(False)
@@ -354,13 +354,13 @@ class MmuPlugin(var spec : MmuSpec,
       IDLE whenIsActive {
         portOhReg := portsOh
         when(portsRequest) {
-          virtual := portsAddress
           goto(INIT)
         }
       }
 
       INIT whenIsActive{
-        load.address := (satp.ppn @@ spec.levels.last.vpn(virtual) @@ U(0, log2Up(spec.entryBytes) bits)).resized //It relax timings to do it there instead than in IDLE
+        virtual := portsAddress
+        load.address := (satp.ppn @@ spec.levels.last.vpn(portsAddress) @@ U(0, log2Up(spec.entryBytes) bits)).resized //It relax timings to do it there instead than in IDLE
         goto(CMD(spec.levels.size - 1))
       }
 
