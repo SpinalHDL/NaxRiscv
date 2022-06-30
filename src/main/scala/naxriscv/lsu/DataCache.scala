@@ -577,7 +577,7 @@ class DataCache(val cacheSize: Int,
     val slots = for (refillId <- 0 until refillCount) yield new Area {
       val id = refillId
       val valid = RegInit(False)
-      val address = KeepAttribute(Reg(UInt(postTranslationWidth bits)))
+      val address = Reg(UInt(postTranslationWidth bits))
       val way = Reg(UInt(log2Up(wayCount) bits))
       val cmdSent = Reg(Bool())
       val priority = Reg(Bits(refillCount-1 bits)) //TODO Check it
@@ -695,7 +695,7 @@ class DataCache(val cacheSize: Int,
       val id = writebackId
       val fire = False
       val valid = RegInit(False) clearWhen (fire)
-      val address = KeepAttribute(Reg(UInt(postTranslationWidth bits)))
+      val address = Reg(UInt(postTranslationWidth bits))
       val way = Reg(UInt(log2Up(wayCount) bits))
       val priority = Reg(Bits(writebackCount-1 bits)) //TODO Check it
       val readCmdDone = Reg(Bool())
