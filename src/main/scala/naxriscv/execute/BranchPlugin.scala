@@ -58,7 +58,7 @@ class BranchPlugin(val euId : String,
     if(withBranchContext){
       eu.addRobStageable(getService[BranchContextPlugin].keys.BRANCH_ID)
     }
-    val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = true)
+    val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = !Global.RVC)
   }
 
   override val logic = create late new Logic{
@@ -129,17 +129,22 @@ class BranchPlugin(val euId : String,
 
       def target = if(setup.withBranchContext)  stage(PC, "TARGET") else stage(PC, "TRUE")
 
-      MISSALIGNED := (if(Global.RVC) False else target(0, sliceShift bits) =/= 0 && COND)
 
-      setup.reschedule.valid := isFireing && SEL && (MISSPREDICTED || MISSALIGNED)
       setup.reschedule.robId := ROB.ID
-      setup.reschedule.cause := 0
-      setup.reschedule.tval := B(target)
       setup.reschedule.pcTarget := target
       setup.reschedule.reason  := ((BRANCH_CTRL === BranchCtrlEnum.B) ? U(ScheduleReason.BRANCH) otherwise U(ScheduleReason.JUMP)).resized
 
-      setup.reschedule.trap := MISSALIGNED
-      setup.reschedule.skipCommit := MISSALIGNED
+      if(!Global.RVC) { //Non RVC can trap on missaligned branches
+        MISSALIGNED := target(0, sliceShift bits) =/= 0 && COND
+        setup.reschedule.valid := isFireing && SEL && (MISSPREDICTED || MISSALIGNED)
+        setup.reschedule.trap := MISSALIGNED
+        setup.reschedule.skipCommit := MISSALIGNED
+        setup.reschedule.cause := 0
+        setup.reschedule.tval := B(target)
+      } else {
+        setup.reschedule.valid := isFireing && SEL && MISSPREDICTED
+        setup.reschedule.skipCommit := False
+      }
 
       val finalBranch = setup.withBranchContext generate branchContext.writeFinal()
       if(setup.withBranchContext) {
