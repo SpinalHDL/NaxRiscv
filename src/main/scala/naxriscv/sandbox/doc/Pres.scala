@@ -1,9 +1,12 @@
-//package naxriscv.sandbox.doc
-//import naxriscv.Global
-//import naxriscv.execute.{ExecutionUnitElementSimple, SimdAddPlugin}
-//import naxriscv.interfaces.{RS1, RS2}
-//import naxriscv.riscv.IntRegFile
-//import spinal.core.{UInt, assert}
+package naxriscv.sandbox.doc
+import naxriscv.Global
+import naxriscv.execute.{ExecutionUnitBase, ExecutionUnitElementSimple, SimdAddPlugin}
+import naxriscv.interfaces.{CommitService, INSTRUCTION_SIZE, PC_READ, RS1, RS2, SingleDecoding}
+import naxriscv.riscv.IntRegFile
+import naxriscv.riscv.IntRegFile.TypeB
+import naxriscv.utilities.Plugin
+import spinal.core._
+
 ////
 ////
 ////import naxriscv._
@@ -140,4 +143,39 @@
 //      }
 //    }
 //  }
+//}
+
+//object Pres5{
+//  import Global.PC
+//
+//  val BEQ  =  SingleDecoding(
+//    key = M"-----------------000-----1100011",
+//    resources = List(
+//      IntRegFile -> RS1,
+//      IntRegFile -> RS2,
+//      PC_READ,
+//      INSTRUCTION_SIZE
+//    )
+//  )
+//
+//  class BranchPlugin(euId : String) extends Plugin{
+//    val setup = create early new Area{
+//      val eu = findService[ExecutionUnitBase](_.euId == euId)
+//      eu.add(BEQ)
+//
+//      val commit   = getService[CommitService]
+//      val schedule = commit.newSchedulePort(canJump = true, canTrap = true)
+//    }
+//    //...
+//    val logic = create late new Area{
+//      val stage = setup.eu.getExecute(stageId = 0)
+//      val target = stage(PC) + ???
+//      // ...
+//      setup.reschedule.valid := isFireing && SEL && (MISSPREDICTED || MISSALIGNED)
+//      setup.reschedule.trap  := MISSALIGNED
+//      setup.reschedule.pcTarget := target
+//    }
+//  }
+//
+//
 //}
