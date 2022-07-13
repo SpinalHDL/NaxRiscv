@@ -61,7 +61,7 @@ class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
 
     val privBus = getService[PrivilegedPlugin].setup.debugBus.setAsDirectionLess()
     privBus <> dm.io.harts(0)
-    privBus.dmToHart <-< dm.io.harts(0).dmToHart.removeAssignments()
+    privBus.dmToHart.removeAssignments() <-< dm.io.harts(0).dmToHart
   })
 }
 
