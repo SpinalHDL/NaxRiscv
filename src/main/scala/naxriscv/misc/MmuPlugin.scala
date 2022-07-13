@@ -175,7 +175,7 @@ class MmuPlugin(var spec : MmuSpec,
         case 64 => (60, 4, 44)
       }
       val mode = Reg(Bits(modeWidth bits)) init(0)
-      val asid = Reg(Bits(9 bits))         init(0)
+      //val asid = Reg(Bits(9 bits))         init(0)
       val ppn =  Reg(UInt(ppnWidth bits))  init(0)
     }
     val status = new Area{
@@ -187,8 +187,8 @@ class MmuPlugin(var spec : MmuSpec,
     for(offset <- List(CSR.MSTATUS, CSR.SSTATUS)) csr.readWrite(offset, 19 -> status.mxr, 18 -> status.sum)
     csr.readWrite(CSR.MSTATUS, 17 -> status.mprv)
 
-    csr.write(CSR.SATP, satp.modeOffset -> satp.mode, 22 -> satp.asid, 0 -> satp.ppn)
-    csr.readWriteRam(CSR.SATP)
+    csr.readWrite(CSR.SATP, satp.modeOffset -> satp.mode/*, 22 -> satp.asid*/, 0 -> satp.ppn)
+//    csr.readWriteRam(CSR.SATP)
 
     csr.onDecode(CSR.SATP){
       csr.onDecodeFlushPipeline()
