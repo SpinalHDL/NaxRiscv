@@ -67,9 +67,13 @@ case class FpuCore(p : FpuParameter) extends Component{
 
       val args = insert(arbiter.io.output.payload)
       val source = insert(arbiter.io.chosen)
-      val shiftBy = insert(OHToUInt(OHMasking.firstV2(args.data.reversed << 1)))
     }
     import input._
+
+    val setup = new FpuStage(M2S()){
+      val shiftBy = insert(OHToUInt(OHMasking.firstV2(args.data.reversed << 1)))
+    }
+    import setup._
 
     val logic = new FpuStage(M2S()){
       val shifter = args.data |<< shiftBy
@@ -721,13 +725,14 @@ case class FpuCore(p : FpuParameter) extends Component{
         val fsmPortId = 1
         val fsmCmd = unpacker.arbiter.io.inputs(fsmPortId)
         val fsmRsp = unpacker.results(fsmPortId)
-        val served    = RegInit(False) setWhen(fsmRsp.valid) clearWhen(!isStuck || isRemoved)
+        val asked    = RegInit(False) setWhen(fsmCmd.ready) clearWhen(!isStuck || isRemoved)
+        val served   = RegInit(False) setWhen(fsmRsp.valid) clearWhen(!isStuck || isRemoved)
         val fsmResult = fsmRsp.toReg
 
-        fsmCmd.valid := isValid && ARGS.opcode === FpuOpcode.I2F && !served
+        fsmCmd.valid := isValid && ARGS.opcode === FpuOpcode.I2F && !asked
         fsmCmd.data := rs1Unsigned.asBits.resized
 
-        haltWhen(fsmCmd.valid)
+        haltWhen(ARGS.opcode === FpuOpcode.I2F && !served)
         val merge = Stream(MergeInput(
           FloatUnpacked(
             exponentMax = p.rsIntWidth,
