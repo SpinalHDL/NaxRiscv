@@ -32,8 +32,8 @@ class FpuWriteback() extends Plugin  with WakeRobService with WakeRegFileService
   def getRoundingMode() : Bits = logic.rm
 
   val setup = create early new Area{
-    val floatCompletion = Flow(FpuFloatCompletion(ROB.ID_WIDTH, 32 + Global.RVD.get.toInt*32))
-    val integerWriteback = Stream(FpuIntWriteBack(ROB.ID_WIDTH, XLEN))
+    val floatWriteback = slave(Flow(FpuFloatWriteback(ROB.ID_WIDTH, 32 + Global.RVD.get.toInt*32)))
+    val integerWriteback = slave(Stream(FpuIntWriteback(ROB.ID_WIDTH, XLEN)))
     val rob = getService[RobService]
     val decoder = getService[DecoderService]
     val commit = getService[CommitService]
@@ -42,7 +42,7 @@ class FpuWriteback() extends Plugin  with WakeRobService with WakeRegFileService
     val floatWrite   = rfFloat.newWrite(false, 1)
     val integerSharing = getRfWriteSharing(IntRegFile)
     val integerWrite = rfInteger.newWrite(integerSharing.withReady, 1, integerSharing.key, integerSharing.priority)
-    val robFloatcompletion = rob.newRobCompletion()
+    val robfloatWriteback = rob.newRobCompletion()
     val robIntegercompletion = rob.newRobCompletion()
     val csr = getService[CsrService]
 
@@ -140,31 +140,31 @@ class FpuWriteback() extends Plugin  with WakeRobService with WakeRegFileService
 
 
     val float = new Area {
-      val physical = rob.readAsyncSingle(decoder.PHYS_RD, floatCompletion.robId)
+      val physical = rob.readAsyncSingle(decoder.PHYS_RD, floatWriteback.robId)
 
       val wakeRob = Flow(WakeRob())
-      wakeRob.valid := floatCompletion.fire
-      wakeRob.robId := floatCompletion.robId
+      wakeRob.valid := floatWriteback.fire
+      wakeRob.robId := floatWriteback.robId
 
       val wakeRf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false, withRfBypass = false, rfLatency = 1))
-      wakeRf.valid := floatCompletion.fire
+      wakeRf.valid := floatWriteback.fire
       wakeRf.physical := physical
       wakeRf.regfile := decoder.REGFILE_RD.rfToId(FloatRegFile)
 
-      floatWrite.valid := floatCompletion.fire
-      floatWrite.robId := floatCompletion.robId
-      floatWrite.data := floatCompletion.value
+      floatWrite.valid := floatWriteback.fire
+      floatWrite.robId := floatWriteback.robId
+      floatWrite.data := floatWriteback.value
       floatWrite.address := physical
 
       rob.writeSingle(
         key = FLOAT_FLAGS,
-        value = floatCompletion.flags,
-        robId = floatCompletion.robId,
-        enable = floatCompletion.valid
+        value = floatWriteback.flags,
+        robId = floatWriteback.robId,
+        enable = floatWriteback.valid
       )
 
-      robFloatcompletion.valid := floatCompletion.fire
-      robFloatcompletion.id := floatCompletion.robId
+      robfloatWriteback.valid := floatWriteback.fire
+      robfloatWriteback.id := floatWriteback.robId
     }
 
     val integer = new Area {

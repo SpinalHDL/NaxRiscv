@@ -636,7 +636,7 @@ case class FpuCore(p : FpuParameter) extends Component{
         }
 
 
-        val intWb = Stream(FpuIntWriteBack(p.robIdWidth, p.rsIntWidth))
+        val intWb = Stream(FpuIntWriteback(p.robIdWidth, p.rsIntWidth))
         intWb.valid := valid && !toFpuRf && !selfHalted
         intWb.flags.NX := nx
         intWb.flags.UF := False
