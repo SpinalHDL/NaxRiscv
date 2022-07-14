@@ -351,4 +351,83 @@ Vexriscv_smp =>
 [    3.901197] tmpfs: Unknown parameter 'mode'
 [    5.386571] random: dd: uninitialized urandom read (512 bytes read)
 
+obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/framebuffer/build/rv32ima/framebuffer.elf --framebuffer 0x80200000,800,600
+
+dtc -O dtb -o linux.dtb linux.dts
+export LINUX_IMAGES=$NAXRISCV/../imageDoom
+./obj_dir/VNaxRiscv \
+    --framebuffer 0x80200000,800,600  \
+    --load-bin $LINUX_IMAGES/fw_jump.bin,0x80000000 \
+    --load-bin $LINUX_IMAGES/linux.dtb,0x80F80000 \
+    --load-bin $LINUX_IMAGES/Image,0x80400000 \
+    --load-bin $LINUX_IMAGES/rootfs.cpio,0x81000000
+
+root
+export DISPLAY=:0
+chocolate-doom -2 -timedemo demo1.lmp
+
+python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true' --with-jtag-instruction --build --load
+
+
+Starting Xorg: OK
+
+Welcome to Buildroot
+buildroot login: root
+                   __   _
+                  / /  (_)__  __ ____ __
+                 / /__/ / _ \/ // /\ \ /
+                /____/_/_//_/\_,_//_\_\
+                      / _ \/ _ \
+   __   _ __      _  _\___/_//_/         ___  _
+  / /  (_) /____ | |/_/__| | / /____ __ / _ \(_)__ _____  __
+ / /__/ / __/ -_)>  </___/ |/ / -_) \ // , _/ (_-</ __/ |/ /
+/____/_/\__/\__/_/|_|____|___/\__/_\_\/_/|_/_/___/\__/|___/
+                  / __/  |/  / _ \
+                 _\ \/ /|_/ / ___/
+                /___/_/  /_/_/
+  32-bit RISC-V Linux running on LiteX / VexRiscv-SMP.
+
+root@buildroot:~# export DISPLAY=:0
+root@buildroot:~# chocolate-doom -2 -timedemo demo1.lmp
+                         Chocolate Doom 3.0.1
+Z_Init: Init zone memory allocation daemon.
+zone memory: 0x947e0010, 1000000 allocated for zone
+Using /root/.local/share/chocolate-doom/ for configuration and saves
+V_Init: allocate screens.
+M_LoadDefaults: Load system defaults.
+saving config in /root/.local/share/chocolate-doom/default.cfg
+W_Init: Init WADfiles.
+ adding /usr/share/games/doom/doom1.wad
+ adding demo1.lmp
+Playing demo demo1.lmp.
+===========================================================================
+                            DOOM Shareware
+===========================================================================
+ Chocolate Doom is free software, covered by the GNU General Public
+ License.  There is NO warranty; not even for MERCHANTABILITY or FITNESS
+ FOR A PARTICULAR PURPOSE. You are welcome to change and distribute
+ copies under certain conditions. See the source for more information.
+===========================================================================
+I_Init: Setting up machine state.
+Error initialising SDL_mixer: No such audio device
+Error initialising SDL_mixer: No such audio device
+OPL_Init: Failed to find a working driver.
+Dude.  The Adlib isn't responding.
+NET_Init: Init network subsystem.
+M_Init: Init miscellaneous info.
+R_Init: Init DOOM refresh daemon - [...................]
+P_Init: Init Playloop state.
+S_Init: Setting up sound.
+D_CheckNetGame: Checking network game status.
+startskill 2  deathmatch: 0  startmap: 1  startepisode: 1
+player 1 of 1 (1 nodes)
+Emulating the behavior of the 'Doom 1.9' executable.
+HU_Init: Setting up heads up display.
+ST_Init: Init status bar.
+AdjustWindowSize window size =640,480
+AdjustWindowSize window size =640,480
+CreateUpscaledTexture: Limited texture size to 0x0 (max 16000000 pixels, max texture size 0x0)
+The framebuffer device was opened successfully.
+I_InitFb 800x600, 3200 32bpp
+
  */
