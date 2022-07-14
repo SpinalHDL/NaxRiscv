@@ -40,7 +40,7 @@ cd $NAXRISCV
 sbt "runMain naxriscv.Gen"
 
 # Install SDL2, allowing the simulation to display a framebuffer
-sudo apt-get install libsdl2-2.0 libsdl2-dev
+sudo apt-get install libsdl2-2.0-0 libsdl2-dev
 
 # Compile the simulator
 cd $NAXRISCV/src/test/cpp/naxriscv
