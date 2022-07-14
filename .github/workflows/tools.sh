@@ -40,7 +40,7 @@ install_elfio(){
 }
 
 install_packages(){
-  sudo apt install -y zlib1g-dev libboost-all-dev libboost-dev libasio-dev device-tree-compiler
+  sudo apt install -y zlib1g-dev libboost-all-dev libboost-dev libasio-dev device-tree-compiler libsdl2-2.0 libsdl2-dev
 }
 
 install_uncached(){
