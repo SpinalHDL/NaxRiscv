@@ -29,7 +29,7 @@ object PrivilegedConfig{
     withRdTime     = true,
     withDebug      = false,
     vendorId       = 0,
-    archId         = 0,
+    archId         = 5, //As spike
     impId          = 0,
     hartId         = 0,
     debugVector = null,
