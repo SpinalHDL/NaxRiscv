@@ -74,13 +74,14 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component
 
     val clintCtrl = new AxiLite4Clint(1)
     val plicCtrl = new AxiLite4Plic(
-      sourceCount = 32,
+      sourceCount = 31,
       targetCount = 2
     )
 
     val clint = clintCtrl.io.bus.toIo()
     val plic = plicCtrl.io.bus.toIo()
-    val interrupt = plicCtrl.io.sources.toIo()
+    val interrupt = in Bits(32 bits)
+    plicCtrl.io.sources := interrupt >> 1
 
     AxiLite4SpecRenamer(clint)
     AxiLite4SpecRenamer(plic)
