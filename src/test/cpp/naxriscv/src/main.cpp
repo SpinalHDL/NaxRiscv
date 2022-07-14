@@ -29,8 +29,13 @@
 #include <arpa/inet.h>
 
 #include "disasm.h"
+#include "type.h"
 
 using namespace std;
+
+class successException : public std::exception { };
+#define failure() throw std::exception();
+#define success() throw successException();
 
 #define VL_RANDOM_I_WIDTH(w) (VL_RANDOM_I() & (1 << w)-1)
 
@@ -44,11 +49,24 @@ public:
     virtual void postCycle(){}
 };
 
-#include "type.h"
+class SocElement{
+public:
+    u64 mappingStart, mappingEnd;
+
+    virtual ~SocElement(){}
+    virtual void onReset(){}
+    virtual void postReset(){}
+
+    virtual int write(u64 address, uint32_t length, uint8_t *data) = 0;
+    virtual int read(u64 address, uint32_t length, uint8_t *data) = 0;
+};
+
 #include "memory.h"
 #include "elf.h"
 #include "nax.h"
 #include "jtag.h"
+#include "simple_block_device.h"
+#include "framebuffer.h"
 #define u64 uint64_t
 #define u8 uint8_t
 
@@ -96,9 +114,7 @@ vluint64_t main_time = 0;
 #define SIM_MASTER_PORT 18654
 #define SA struct sockaddr
 
-class successException : public std::exception { };
-#define failure() throw std::exception();
-#define success() throw successException();
+
 
 #define TEXTIFY(A) #A
 void breakMe(){
@@ -245,6 +261,7 @@ bool stdinNonEmpty(){
 
 
 
+
 class Soc : public SimElement{
 public:
     Memory memory;
@@ -255,9 +272,21 @@ public:
     string *putcTarget = NULL;
     RvData incrValue = 0;
 
+
+    vector<SocElement*> socElements;
+    vector<function<void(u32, u32, u8*)>> snoopWrites;
+
     Soc(VNaxRiscv* nax){
         this->nax = nax;
     }
+
+    SocElement * findElement(u64 address){
+        for(auto e : socElements){
+            if(address >= e->mappingStart && address <= e->mappingEnd) return e;
+        }
+        return NULL;
+    }
+
     virtual int memoryRead(uint32_t address,uint32_t length, uint8_t *data){
         if(address < 0x10000000) return 1;
         memory.read(address, length, data);
@@ -267,6 +296,7 @@ public:
     virtual int memoryWrite(uint32_t address,uint32_t length, uint8_t *data){
         if(address < 0x10000000) return 1;
         memory.write(address, length, data);
+        for(auto e : snoopWrites) e(address, length, data);
         return 0;
     }
 
@@ -294,7 +324,11 @@ public:
         case CLINT_CMP_ADDR+4: memcpy(((char*)&clintCmp)+4, data, length); /*printf("CMPB=%lx\n", clintCmp);*/  break;
         case INCR_COUNTER: incrValue += *((RvData*) data);break;
 //        case STATS_CAPTURE_ENABLE: whitebox->statsCaptureEnable = *data & 1; break;
-        default: return 1; break;
+        default: {
+            auto e = findElement(address);
+            if(e) return e->write(address-e->mappingStart, length, data);
+            return 1;
+        }break;
         }
         return 0;
     }
@@ -329,7 +363,11 @@ public:
         case CLINT_CMP_ADDR:  memcpy(data, &clintCmp, length); break;
         case CLINT_CMP_ADDR+4:memcpy(data, ((char*)&clintCmp) + 4, length); break;
         case INCR_COUNTER: memcpy(data, ((char*)&incrValue), length); break;
-        default: return 1; break;
+        default: {
+            auto e = findElement(address);
+            if(e) return e->read(address-e->mappingStart, length, data);
+            return 1;
+        }break;
         }
         return 0;
     }
@@ -340,12 +378,15 @@ public:
         nax->PrivilegedPlugin_io_int_machine_timer = 0;
         nax->PrivilegedPlugin_io_int_machine_software = 0;
         nax->PrivilegedPlugin_io_int_supervisor_external = 0;
+        for(auto e : socElements) e->onReset();
     }
 
+    virtual void postReset(){
+        for(auto e : socElements) e->postReset();
+    }
     virtual void preCycle(){
 
     }
-
     virtual void postCycle(){
         nax->PrivilegedPlugin_io_int_machine_timer = clintCmp < (main_time/2);
     }
@@ -1212,6 +1253,8 @@ enum ARG
     ARG_TRACE,
     ARG_TRACE_START_TIME,
     ARG_TRACE_STOP_TIME,
+    ARG_TRACE_START_PC,
+    ARG_TRACE_STOP_PC,
     ARG_TRACE_SPORADIC,
     ARG_TRACE_REF,
     ARG_STATS_PRINT,
@@ -1224,6 +1267,8 @@ enum ARG
     ARG_SPIKE_DISABLED,
     ARG_TIMEOUT_DISABLED,
     ARG_MEMORY_LATENCY,
+    ARG_BLOCK_DEVICE,
+    ARG_FRAMEBUFFER,
     ARG_SIM_MASTER,
     ARG_SIM_SLAVE,
     ARG_SIM_SLAVE_DELAY,
@@ -1255,6 +1300,8 @@ static const struct option long_options[] =
     { "trace", no_argument, 0, ARG_TRACE },
     { "trace-start-time", required_argument, 0, ARG_TRACE_START_TIME },
     { "trace-stop-time", required_argument, 0, ARG_TRACE_STOP_TIME },
+    { "trace-start-pc", required_argument, 0, ARG_TRACE_START_PC },
+    { "trace-stop-pc", required_argument, 0, ARG_TRACE_STOP_PC },
     { "trace-sporadic", required_argument, 0, ARG_TRACE_SPORADIC },
     { "trace-ref", no_argument, 0, ARG_TRACE_REF },
     { "stats-print", no_argument, 0, ARG_STATS_PRINT },
@@ -1267,6 +1314,8 @@ static const struct option long_options[] =
     { "spike-disabled", no_argument, 0, ARG_SPIKE_DISABLED},
     { "timeout-disabled", no_argument, 0, ARG_TIMEOUT_DISABLED},
     { "memory-latency", required_argument, 0, ARG_MEMORY_LATENCY },
+    { "block-device", required_argument, 0, ARG_BLOCK_DEVICE },
+    { "framebuffer", required_argument, 0, ARG_FRAMEBUFFER },
     { "sim-master", no_argument, 0, ARG_SIM_MASTER },
     { "sim-slave", no_argument, 0, ARG_SIM_SLAVE },
     { "sim-slave-delay", required_argument, 0, ARG_SIM_SLAVE_DELAY },
@@ -1392,6 +1441,25 @@ void parseArgFirst(int argc, char** argv){
             } break;
             case ARG_TRACE_START_TIME: trace_enable = false; addTimeEvent(stol(optarg), [&](){ trace_enable = true;}); break;
             case ARG_TRACE_STOP_TIME: trace_enable = false; addTimeEvent(stol(optarg), [&](){ trace_enable = false;}); break;
+            case ARG_TRACE_START_PC: {
+                u64 value;
+                if(sscanf(optarg, "%lx", &value) == EOF) {
+                    cout << "Bad ARG_TRACE_START_PC formating" << endl;
+                    failure()
+                }
+
+                trace_enable = false;
+                addPcEvent(value, [&](RvData pc){  trace_enable = true; });
+            }break;
+            case ARG_TRACE_STOP_PC: {
+                u64 value;
+                if(sscanf(optarg, "%lx", &value) == EOF) {
+                    cout << "Bad ARG_TRACE_STOP_PC formating" << endl;
+                    failure()
+                }
+                trace_enable = false;
+                addPcEvent(value, [&](RvData pc){  trace_enable = false; });
+            }break;
             case ARG_TRACE_SPORADIC: trace_enable = false; trace_sporadic_factor = stof(optarg); break;
             case ARG_TRACE_REF: trace_ref = true; break;
             case ARG_NAME: simName = optarg; break;
@@ -1413,6 +1481,8 @@ void parseArgFirst(int argc, char** argv){
             case ARG_PUTC: testScheduleQueue.push(new DoGetc(string(optarg))); break;
             case ARG_SUCCESS: testScheduleQueue.push(new DoSuccess()); break;
             case ARG_NO_STDIN: noStdIn = true; break;
+            case ARG_BLOCK_DEVICE:
+            case ARG_FRAMEBUFFER:
             case ARG_MEMORY_LATENCY:
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
@@ -1505,6 +1575,32 @@ void parseArgsSecond(int argc, char** argv){
                     }
                 }
             }break;
+            case ARG_BLOCK_DEVICE:{
+                char path[201];
+                char wr[201];
+                u64 capacity, mappingStart;
+                if(sscanf(optarg, "%[^','],%[^','],%lx,%lx", path, wr, &capacity, &mappingStart) == EOF) {
+                    cout << "Bad block device arg formating" << endl;
+                    failure()
+                }
+                auto e = new SimpleBlockDevice(path, strcmp("wr", wr) == 0, capacity, mappingStart);
+                soc->socElements.push_back(e);
+            } break;
+            case ARG_FRAMEBUFFER:{
+                u32 width, height, startAt;
+                if(sscanf(optarg, "%x,%d,%d", &startAt, &width, &height) == EOF) {
+                    cout << "Bad framebuffer arg formating" << endl;
+                    failure()
+                }
+                u32 endAt = startAt + width*height*4;
+                auto fb = new Framebuffer(width, height);
+                soc->snoopWrites.push_back([startAt, endAt, fb](u32 address,u32 length, u8 *data){
+                    if(address >= startAt && address+length <= endAt){
+                        memcpy((u8*)fb->pixels + (address-startAt), data, length);
+                    }
+                });
+                simElements.push_back(fb);
+            } break;
             default:  break;
         }
     }
@@ -1555,7 +1651,6 @@ void spikeInit(){
     #endif
     if(RVC) isa += "C";
     proc = new processor_t(isa.c_str(), "MSU", "", wrap, 0, false, fptr, outfile);
-    if(trace_ref) proc->enable_log_commits();
     if(spike_debug) proc->debug = true;
     proc->set_pmp_num(0);
     state = proc->get_state();

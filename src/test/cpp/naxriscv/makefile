@@ -17,6 +17,9 @@ ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE}/softfloat)
 ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE_BUILD})
 
 
+ADDCFLAGS += -CFLAGS -lSDL2
+ADDCFLAGS += -LDFLAGS -lSDL2
+
 FLAGS += --autoflush
 FLAGS += --output-split 5000
 FLAGS += --output-split-cfuncs 500
