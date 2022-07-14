@@ -504,6 +504,7 @@ class MmuPlugin(var spec : MmuSpec,
       setup.invalidatePort.served setWhen(done.rise(False))
     }
     fetch.release()
+    refill.build()
   }
 }
 
