@@ -458,6 +458,20 @@ class LsuPlugin(var lqSize: Int,
         val priority = Reg(Bits(lqSize-1 bits)) init(0) //TODO check it work properly
         val priorityLast = RegNext(priority)
       }
+
+      val tracker = new Area{
+        val freeNext = UInt(log2Up(lqSize+1) bits)
+        val free = RegNext(freeNext) init (lqSize)
+        val freeReduced = RegNext(freeNext.sat(widthOf(freeNext)-log2Up(DECODE_COUNT.get+1)))
+        val add = UInt(log2Up(COMMIT_COUNT.get+1) bits)
+        val sub = UInt(log2Up(DECODE_COUNT.get+1) bits)
+        freeNext := free + add - sub
+
+        val clear = False
+        when(clear){
+          freeNext := lqSize
+        }
+      }
     }
 
     val sq = new Area{
@@ -542,6 +556,15 @@ class LsuPlugin(var lqSize: Int,
         val onFreeLast = onFree.stage()
 
         setup.postCommitBusy setWhen(commit =/= free)
+      }
+
+      val tracker = new Area{
+        val freeNext = UInt(log2Up(sqSize+1) bits)
+        val free = RegNext(freeNext) init (sqSize)
+        val freeReduced = RegNext(freeNext.sat(widthOf(freeNext)-log2Up(DECODE_COUNT.get+1)))
+        val add = UInt(1 bits)
+        val sub = UInt(log2Up(DECODE_COUNT.get+1) bits)
+        freeNext := sqSize + ptr.free - ptr.alloc - sub + add
       }
 
       val rfWake = Handle(new Area{
@@ -646,7 +669,9 @@ class LsuPlugin(var lqSize: Int,
       val allocate = new Area{
         import allocStage._
 
-        val full = False
+        val requests = (0 until Frontend.DISPATCH_COUNT).map(id => (DISPATCH_MASK, id) && (LQ_ALLOC, id))
+        val requestsCount = CountOne(requests)
+        val full = tracker.freeReduced < requestsCount
         haltIt(isValid && full)
 
         var alloc = CombInit(ptr.alloc)
@@ -654,7 +679,7 @@ class LsuPlugin(var lqSize: Int,
           implicit val _ = StageableOffset(slotId)
           LQ_ID := alloc.resized
           LQ_ID_CARRY := alloc.msb
-          when(DISPATCH_MASK && LQ_ALLOC){
+          when(requests(slotId)){
             LSU_ID := alloc.resized
             when(isFireing) {
               mem.sqAlloc.write(
@@ -662,15 +687,13 @@ class LsuPlugin(var lqSize: Int,
                 data = U(SQ_ID_CARRY ## allocStage(SQ_ID, slotId))
               )
             }
-            when(ptr.isFull(alloc)){
-              full := True
-            }
             alloc \= alloc + 1
           }
         }
 
-
+        tracker.sub := 0
         when(isFireing){
+          tracker.sub := requestsCount
           ptr.alloc := alloc
           for(reg <- regs){
             val hits = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield{
@@ -1074,6 +1097,7 @@ class LsuPlugin(var lqSize: Int,
         val event = commit.onCommit()
         val lqAlloc = rob.readAsync(LQ_ALLOC, Global.COMMIT_COUNT, event.robId)
         val lqCommits = (0 until Global.COMMIT_COUNT).map(slotId => event.mask(slotId) && lqAlloc(slotId))
+        val lqCommitCount = CountOne(lqCommits)
         var free = CombInit(ptr.free)
         var priority = CombInit(ptr.priority)
         for(inc <- lqCommits){
@@ -1086,7 +1110,8 @@ class LsuPlugin(var lqSize: Int,
           free \= free + U(inc)
         }
         ptr.priority := priority
-        ptr.free := free
+        ptr.free := ptr.free + lqCommitCount
+        tracker.add := lqCommitCount
       }
       Handle{
         pipeline.translationPort.pipelineLock.await()
@@ -1134,7 +1159,9 @@ class LsuPlugin(var lqSize: Int,
       val allocate = new Area{
         import allocStage._
 
-        val full = False
+        val requests = (0 until Frontend.DISPATCH_COUNT).map(id => (DISPATCH_MASK, id) && (SQ_ALLOC, id))
+        val requestsCount = CountOne(requests)
+        val full = tracker.freeReduced < requestsCount
         haltIt(isValid && full)
 
         var alloc = CombInit(ptr.alloc)
@@ -1143,7 +1170,7 @@ class LsuPlugin(var lqSize: Int,
           implicit val _ = StageableOffset(slotId)
           SQ_ID := alloc.resized
           SQ_ID_CARRY := alloc.msb
-          when(DISPATCH_MASK && SQ_ALLOC){
+          when(requests(slotId)){
             LSU_ID := alloc.resized
             when(isFireing) {
               mem.lqAlloc.write(
@@ -1159,14 +1186,13 @@ class LsuPlugin(var lqSize: Int,
                 data = allocStage(decoder.REGFILE_RS(1), slotId)
               )
             }
-            when(ptr.isFull(alloc)){
-              full := True
-            }
             alloc \= alloc + 1
           }
         }
 
+        tracker.sub := 0
         when(isFireing){
+          tracker.sub := requestsCount
           ptr.alloc := alloc
           val rsWait = getService[RfDependencyPlugin].getRsWait(1)
           val enableUnskipedMasked = Vec.fill(Frontend.DISPATCH_COUNT)(Bool) //As part of the depedency tracking is done by the dispatcher rob wake (by design), we need to catch up
@@ -1591,11 +1617,12 @@ class LsuPlugin(var lqSize: Int,
           setup.cacheStore.cmd.valid := False
           feed.fire := True
           sq.ptr.onFree.valid := True
-          ptr.free := ptr.free + 1
           ptr.writeBack := ptr.writeBack + 1
         }
 
+        tracker.add := 0
         when(sq.ptr.onFree.valid) {
+          tracker.add := 1
           ptr.free := ptr.free + 1
           ptr.priority := ptr.priority |<< 1
           when(ptr.priority === 0){
@@ -1905,6 +1932,7 @@ class LsuPlugin(var lqSize: Int,
       lq.ptr.free := 0
       lq.ptr.alloc := 0
       lq.ptr.priority := 0
+      lq.tracker.clear := True
       for(reg <- sq.regs){
         reg.valid clearWhen(!reg.commitedNext)
         reg.allLqIsYounger := True
