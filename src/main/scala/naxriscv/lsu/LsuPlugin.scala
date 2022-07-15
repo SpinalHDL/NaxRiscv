@@ -1038,21 +1038,23 @@ class LsuPlugin(var lqSize: Int,
               } otherwise {
                 onRegs(_.waitOn.cacheRefillSet := rsp.refillSlot)
               }
-            } elsewhen(missAligned) {
-              setup.loadTrap.valid := True
-              setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_MISALIGNED
-              setup.loadTrap.reason := ScheduleReason.TRAP
-            } elsewhen(pageFault) {
-              setup.loadTrap.valid := True
-              setup.loadTrap.reason := ScheduleReason.TRAP
-              setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_PAGE_FAULT
-            } elsewhen(accessFault) {
-              setup.loadTrap.valid := True
-              setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT
-              setup.loadTrap.reason := ScheduleReason.TRAP
             } otherwise {
               onRegs(_.waitOn.commitSet := True)
-              //doCompletion
+              when(missAligned) {
+                setup.loadTrap.valid := True
+                setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_MISALIGNED
+                setup.loadTrap.reason := ScheduleReason.TRAP
+              } elsewhen(pageFault) {
+                setup.loadTrap.valid := True
+                setup.loadTrap.reason := ScheduleReason.TRAP
+                setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_PAGE_FAULT
+              } elsewhen(accessFault) {
+                setup.loadTrap.valid := True
+                setup.loadTrap.cause := CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT
+                setup.loadTrap.reason := ScheduleReason.TRAP
+              } otherwise {
+                //doCompletion
+              }
             }
           }
 
@@ -1333,9 +1335,12 @@ class LsuPlugin(var lqSize: Int,
             val valid = False
             val sqId = CombInit[UInt](SQ_SEL)
           }
-          when(isFireing) {
+          val unlock = False
+          when(unlock){
             onRegs(_.waitOn.translationRsp := False)
+          }
 
+          when(isFireing) {
             mem.addressPost.write(
               address = SQ_SEL,
               data   = tpk.TRANSLATED
@@ -1346,13 +1351,14 @@ class LsuPlugin(var lqSize: Int,
             )
 
             when(tpk.REDO){
+              unlock := True
               whenMasked(regs, SQ_SEL_OH){reg =>
                 reg.waitOn.translationWakeAnySet := True
               }
-            } elsewhen(stage(MISS_ALIGNED)) {
-            } elsewhen(stage(PAGE_FAULT)) {
-            } elsewhen(stage(tpk.ACCESS_FAULT)) {
+            } elsewhen(stage(MISS_ALIGNED) || stage(PAGE_FAULT) || stage(tpk.ACCESS_FAULT)) {
+
             } otherwise {
+              unlock := True
               onRegs(_.address.translated := True)
               whenMasked(regs, SQ_SEL_OH){reg =>
                 reg.address.regular := regular
