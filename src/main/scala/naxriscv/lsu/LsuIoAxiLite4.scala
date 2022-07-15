@@ -15,7 +15,7 @@ class LsuPeripheralAxiLite4 extends Plugin{
     axi.aw << axiRaw.aw.halfPipe()
     axi.w  << axiRaw.w.halfPipe()
     axi.b.halfPipe()  >> axiRaw.b
-    axi.ar << axiRaw.ar
+    axi.ar << axiRaw.ar.halfPipe()
     axi.r.halfPipe()  >> axiRaw.r
     AxiLite4SpecRenamer(axi)
   }
