@@ -134,7 +134,8 @@ object Config{
     plugins += new RfDependencyPlugin()
     plugins += new RfAllocationPlugin(riscv.IntRegFile)
     plugins += new DispatchPlugin(
-      slotCount = 32
+      slotCount = 32,
+      robIdAt = withDistributedRam.toInt //Not having it enabled allows ram block inferation on execution unit context reads
     )
 
     //BRANCH PREDICTION

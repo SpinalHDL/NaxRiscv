@@ -341,43 +341,53 @@ class MemReadAsyncForceWriteFirst extends PhaseMemBlackboxing{
     import typo._
 
     if(typo.readsAsync.isEmpty) return
+
     val writes = typo.writes.map ( w => new Area {
-      val valid = RegNext(w.writeEnable.asInstanceOf[Bool])
+      val ctx = List(mem.parentScope.push(), w.clockDomain.push())
+      val valid = if(w.writeEnable != null) RegNext(w.writeEnable.asInstanceOf[Bool]) else True
       val address = RegNext(w.address.asInstanceOf[UInt])
-      val data = RegNext(w.address.asInstanceOf[Bits])
+      val data = RegNext(w.data.asInstanceOf[Bits])
+      val mask = (w.mask != null) generate RegNext(w.mask.asInstanceOf[Bits])
+      ctx.foreach(_.restore())
     })
 
     for(read <- typo.readsAsync){
       val ctx = List(mem.parentScope.push(), typo.writes.head.clockDomain.push())
 
-//      val readed = Bits(read.getWidth bits)
-//      readed.assignFrom(read)
-//      wrapConsumers(typo, read, readed)
+      val readed = Bits(read.getWidth bits)
+      readed.assignFrom(read)
+      wrapConsumers(typo, read, readed)
 
 
-      for(write <- typo.writes){
-        assert(read.width == write.width)
-        println("PATCH")
-//        val hazard = RegInit(False)
-//        val mask = (write.mask != null) generate Reg(Bits(write.mask.getWidth bits))
-//        when(read.readEnable.asInstanceOf[Bool]){
-//          hazard := write.writeEnable.asInstanceOf[Bool] && write.address.asInstanceOf[UInt] === read.address.asInstanceOf[UInt]
-//          if(mask != null) mask := write.mask.asInstanceOf[Bits]
-//        }
-//        when(hazard){
-//          mask match {
-//            case null => readed.assignDontCare()
-//            case mask => for((data, sel) <- (readed.subdivideIn(widthOf(mask) slices), mask.asBools).zipped){
-//              when(sel){ data.assignDontCare() }
-//            }
-//          }
-//        }
+      for(write <- writes){
+        assert(read.width == write.data.getWidth)
+        val hazard = write.valid && write.address === read.address.asInstanceOf[UInt]
+        when(hazard){
+          write.mask match {
+            case null => readed := write.data
+            case mask => ???
+          }
+        }
       }
 
       ctx.foreach(_.restore())
     }
   }
 }
+
+class MemReportReadAsyncWithoutRegAddress extends PhaseMemBlackboxing {
+  override def doBlackboxing(pc: PhaseContext, typo: MemTopology): Unit = {
+    import typo._
+    for(read <- typo.readsAsync){
+      val addr = read.address.asInstanceOf[UInt]
+      addr.getDrivingReg(reportError = false) match {
+        case null => println(typo.mem)
+        case _ =>
+      }
+    }
+  }
+}
+
 
 class MemReadAsyncToPhasedReadSyncPhaseTag(val cd : ClockDomain) extends SpinalTag
 class MemReadAsyncToPhasedReadSyncPhase extends PhaseMemBlackboxing{
