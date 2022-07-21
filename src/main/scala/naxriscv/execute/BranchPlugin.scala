@@ -39,7 +39,7 @@ class BranchPlugin(val euId : String,
 
 
   override def euWritebackAt = writebackAt
-  override def euCompletionAt = branchAt
+  override def euCompletionAt = branchAt max writebackAt
 
   override val setup = create early new Setup{
     getService[RobService].retain()
