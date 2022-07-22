@@ -195,6 +195,11 @@ python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with
 
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=32 --scala-args='rvc=true,alu-count=1,decode-count=1' --with-jtag-instruction --build --load
 
+python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=32 --scala-args='rvc=false,rvf=false,rvd=false' --with-jtag-instruction --csr-csv build/digilent_nexys_video/csr.csv --csr-json build/digilent_nexys_video/csr.json --load
+
+extract cpio =>
+sudo cpio -iv < /tmp/archive.cpio
+
 Error opening terminal: vt100.
 
 export DISPLAY=:0
@@ -361,14 +366,22 @@ export LINUX_IMAGES=$NAXRISCV/../imageDoom
     --load-bin $LINUX_IMAGES/fw_jump.bin,0x80000000 \
     --load-bin $LINUX_IMAGES/linux.dtb,0x80F80000 \
     --load-bin $LINUX_IMAGES/Image,0x80400000 \
-    --load-bin $LINUX_IMAGES/rootfs.cpio,0x81000000
+    --load-bin $LINUX_IMAGES/rootfs.cpio,0x81000000 \
+     --no-stdin                  \
+     --no-putc-flush          \
+     --output-dir output/seed$1_lat$2 \
+     --seed=$1 \
+     --memory-latency $2 \
+     --getc "buildroot login" \
+     --success
+
 
 root
 export DISPLAY=:0
 chocolate-doom -2 -timedemo demo1.lmp
 
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true' --with-jtag-instruction --build --load
-
+python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1' --with-jtag-instruction --build --load
 
 Starting Xorg: OK
 
@@ -430,5 +443,40 @@ AdjustWindowSize window size =640,480
 CreateUpscaledTexture: Limited texture size to 0x0 (max 16000000 pixels, max texture size 0x0)
 The framebuffer device was opened successfully.
 I_InitFb 800x600, 3200 32bpp
+
+
+[    0.465672] TCP bind hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    0.472807] TCP: Hash tables configured (established 4096 bind 4096)
+[    0.479726] UDP hash table entries: 256 (order: 1, 8192 bytes, linear)
+[    0.485566] UDP-Lite hash table entries: 256 (order: 1, 8192 bytes, linear)
+[    0.493606] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    0.505119] Unpacking initramfs...
+[    0.588394] workingset: timestamp_bits=30 max_order=17 bucket_order=0
+[    0.644997] io scheduler mq-deadline registered
+[    0.648573] io scheduler kyber registered
+[    0.731987] LiteX SoC Controller driver initialized
+[    1.548772] f0001000.serial: ttyLXU0 at MMIO 0x0 (irq = 0, base_baud = 0) is a liteuart
+[    1.560970] printk: console [liteuart0] enabled
+[    1.560970] printk: console [liteuart0] enabled
+[    1.569870] printk: bootconsole [liteuart0] disabled
+[    1.569870] printk: bootconsole [liteuart0] disabled
+[    1.639391] liteeth f0002000.mac eth0: irq 2 slots: tx 2 rx 2 size 2048
+[    1.665203] mousedev: PS/2 mouse device common for all mice
+[    1.671086] i2c_dev: i2c /dev entries driver
+[    1.704585] mmc_spi spi0.0: SD/MMC host mmc0, no WP, no poweroff, cd polling
+[    1.723909] NET: Registered PF_INET6 protocol family
+[    1.755242] mmc0: host does not support reading read-only switch, assuming write-enable
+[    1.762792] mmc0: new SDHC card on SPI
+[    1.791912] Segment Routing with IPv6
+[    1.794631] In-situ OAM (IOAM) with IPv6
+[    1.799091] sit: IPv6, IPv4 and MPLS over IPv4 tunneling driver
+[    1.809380] NET: Registered PF_PACKET protocol family
+[    1.819656] mmcblk0: mmc0:0000       14.7 GiB
+[    1.856272]  mmcblk0: p1
+[    3.332516] Initramfs unpacking failed: invalid magic at start of compressed archive
+[    3.743193] Freeing initrd memory: 40960K
+[    3.751280] Freeing unused kernel image (initmem) memory: 212K
+[    3.756451] Kernel memory protection not selected by kernel config.
+[    3.762731] Run /init as init process
 
  */

@@ -785,7 +785,7 @@ with open('tests.mk', 'w') as f:
         outputDir = "output/nax/fpu_test/" + name
         rule = outputDir +"/PASS"
         tests.append(rule)
-        testsFast.append(rule)
+         #testsFast.append(rule)
         testsFpu.append(rule)
         ouputs.append(outputDir)
         testCount = int(0x50000*NAXRISCV_TEST_FPU_FACTOR)
