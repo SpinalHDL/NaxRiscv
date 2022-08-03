@@ -545,6 +545,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       csr.read(sip.seipOr && machine.mideleg.se, CSR.SIP, 9)
       mapMie(CSR.MIP, CSR.SIP, 5, sip.stip, machine.mideleg.st, sWrite = false)
       mapMie(CSR.MIP, CSR.SIP, 1, sip.ssip, machine.mideleg.ss)
+      csr.readToWrite(sip.seipSoft, CSR.MIP, 9) //Avoid an external interrupt value to propagate to the soft external interrupt register.
 
 
       addInterrupt(sip.ssip && sie.ssie,    id = 1, privilege = 1, delegators = List(Delegator(machine.mideleg.ss, 3)))
