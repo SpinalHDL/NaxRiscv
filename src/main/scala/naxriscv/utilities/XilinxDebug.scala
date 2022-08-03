@@ -4,7 +4,7 @@ import naxriscv.execute.ExecutionUnitBase
 import naxriscv.fetch._
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
-import naxriscv.misc.{CommitPlugin, MmuPlugin}
+import naxriscv.misc.{CommitPlugin, MmuPlugin, PrivilegedConfig, PrivilegedPlugin}
 import spinal.core._
 import spinal.lib.Timeout
 class XilinxDebug extends Plugin {
@@ -25,6 +25,41 @@ class XilinxDebug extends Plugin {
       case p : MmuPlugin => {
         patch(p.logic.refill.busy)
         patch(p.logic.refill.stateReg)
+      }
+      case p : PrivilegedPlugin => {
+        patch(p.logic.machine.mstatus.mie)
+        patch(p.logic.machine.mstatus.mpie)
+        patch(p.logic.machine.mstatus.mpp)
+
+        patch(p.logic.machine.mip.meip)
+        patch(p.logic.machine.mip.mtip)
+        patch(p.logic.machine.mip.msip)
+
+        patch(p.logic.machine.mie.meie)
+        patch(p.logic.machine.mie.mtie)
+        patch(p.logic.machine.mie.msie)
+
+        patch(p.logic.supervisor.sstatus.sie)
+        patch(p.logic.supervisor.sstatus.spie)
+        patch(p.logic.supervisor.sstatus.spp)
+
+        patch(p.logic.supervisor.sip.seipOr)
+        patch(p.logic.supervisor.sip.seipSoft)
+
+        patch(p.logic.supervisor.sie.seie)
+
+        patch(p.setup.privilege)
+
+
+
+        patch(p.logic.fsm.trap.fire)
+        patch(p.logic.fsm.trap.interrupt)
+        patch(p.logic.fsm.trap.code)
+        patch(p.logic.fsm.trap.targetPrivilege)
+        patch(p.logic.fsm.trap.debug)
+        patch(p.logic.fsm.trap.dcause)
+        patch(p.logic.fsm.trap.debugException)
+
       }
       case p : CommitPlugin => {
         patch(p.logic.reschedule.valid)
