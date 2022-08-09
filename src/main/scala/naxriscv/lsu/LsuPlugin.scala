@@ -1710,16 +1710,19 @@ class LsuPlugin(var lqSize: Int,
       val loadPhysRd = RegNext(lq.mem.physRd.readAsync(lq.ptr.freeReal))
       val loadRegfileRd = RegNext(lq.mem.regfileRd.readAsync(lq.ptr.freeReal))
       val loadAddress = RegNext(lq.mem.addressPost.readAsync(lq.ptr.freeReal))
+      val loadAddressVirt = RegNext(lq.mem.addressPre.readAsync(lq.ptr.freeReal))
       val loadSize = RegNext(lq.regs.map(_.address.size).read(lq.ptr.freeReal))
       val loadUnsigned = RegNext(lq.regs.map(_.address.unsigned).read(lq.ptr.freeReal))
       val loadWriteRd = RegNext(isLoad && lq.mem.writeRd.readAsync(lq.ptr.freeReal))
       val storeAddress = RegNextWhen(setup.cacheStore.cmd.address, hit)
+      val storeAddressVirt = RegNext(sq.mem.addressPre.readAsync(sq.ptr.commitReal))
       val storeSize = RegNextWhen(store.writeback.feed.size, hit)
       val storeData = RegNextWhen(setup.cacheStore.cmd.data, hit)
       val storeMask = RegNextWhen(setup.cacheStore.cmd.mask, hit)
       val storeAmo = RegNextWhen(hitStoreAmo, hit)
       val storeSc = RegNextWhen(hitStoreSc, hit)
       val address = isStore ? storeAddress otherwise loadAddress
+      val addressVirt = isStore ? storeAddressVirt otherwise loadAddressVirt
 
       val isIo = !(isStore && (storeAmo || storeSc))
       val isAtomic = !isIo
@@ -1743,7 +1746,7 @@ class LsuPlugin(var lqSize: Int,
       setup.specialTrap.valid      := False
       setup.specialTrap.robId      := robId
       setup.specialTrap.cause      := (isStore ? U(CSR.MCAUSE_ENUM.STORE_ACCESS_FAULT) otherwise U(CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT)).resized
-      setup.specialTrap.tval       := B(address).resized //TODO PC sign extends ?
+      setup.specialTrap.tval       := B(addressVirt) //TODO PC sign extends ?
       setup.specialTrap.skipCommit := True
       setup.specialTrap.reason     := ScheduleReason.TRAP
 
