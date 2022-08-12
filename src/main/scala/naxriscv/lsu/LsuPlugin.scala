@@ -383,6 +383,7 @@ class LsuPlugin(var lqSize: Int,
           val cacheRefill = Reg(Bits(cache.refillCount bits))
           val cacheRefillAny = Reg(Bool())
           val sq     = Reg(Bool())
+          val sqCompletion = Reg(Bool())
           val sqId   = Reg(SQ_ID)
           val sqPredicted = withHazardPrediction generate Reg(Bool())
           val commitSet = False //Readed by store lqcheck to save one cycle of hazard
@@ -583,10 +584,7 @@ class LsuPlugin(var lqSize: Int,
       val sqWakes = new Area{
         val hits = sq.regs.map(r => r.address.translated && r.data.loadedAhead) //This is a bit pessimistic as it assume that bypass is required (no alias) (r.data.loaded)
         for(reg <- regs) {
-          //        when(sq.ptr.onFree.valid && sq.ptr.onFree.payload === reg.waitOn.sqId){
-          //          reg.waitOn.sq := False
-          //        }
-          when(hits(reg.waitOn.sqId)){
+          when(!sq.regs.map(_.valid).read(reg.waitOn.sqId) || !reg.waitOn.sqCompletion && hits(reg.waitOn.sqId)){
             reg.waitOn.sq := False
           }
         }
@@ -657,6 +655,7 @@ class LsuPlugin(var lqSize: Int,
                 entry.waitOn.sq := hazardPrediction.waitSq
                 entry.waitOn.sqId := hazardPrediction.sqId
                 entry.waitOn.sqPredicted := hazardPrediction.waitSq
+                entry.waitOn.sqCompletion := False
               }
               case false => {
                 entry.waitOn.sq := False
@@ -1028,6 +1027,7 @@ class LsuPlugin(var lqSize: Int,
               onRegs{r =>
                 r.waitOn.sq setWhen(!stage.resulting(OLDER_STORE_COMPLETED))
                 r.waitOn.sqId := OLDER_STORE_ID
+                r.waitOn.sqCompletion := !OLDER_STORE_MAY_BYPASS
               }
             } elsewhen(stage(tpk.REDO)){
               onRegs(_.waitOn.translationWakeAnySet := True)
