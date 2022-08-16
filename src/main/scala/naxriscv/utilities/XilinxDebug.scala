@@ -92,6 +92,7 @@ class XilinxDebug extends Plugin {
         p.pipeline.stagesSet.foreach(s => patch(s.valid))
         p.pipeline.stagesSet.foreach(s => patch(s(ROB.ID)))
       }
+      case p : DebugScratchCsrPlugin => patch(p.logic.data)
       case _ =>
     }
   }
