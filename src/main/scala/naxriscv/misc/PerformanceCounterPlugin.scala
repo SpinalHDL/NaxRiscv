@@ -46,6 +46,7 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
     csrList ++= List(CSR.MCYCLE, CSR.MINSTRET)
     csrList ++= CSR.MHPMCOUNTER3 until CSR.MHPMCOUNTER3 + additionalCounterCount
     if(withHigh) csrList ++= csrList.map(_ + 0x80)
+    if(priv.implementUser)  csrList ++= csrList.map(_ + CSR.UCYCLE - CSR.MCYCLE)
     val csrFilter = CsrListFilter(csrList.toList)
 
     if(priv.implementSupervisor) csr.allowCsr(CSR.SCOUNTEREN)
@@ -259,6 +260,10 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
       fsm.csrWriteCmd.address := csr.onWriteAddress(0, log2Up(counterCount) bits)
       if(withHigh) fsm.csrWriteCmd.high := csr.onWriteAddress(7)
       fsm.csrWriteCmd.valid := False
+
+      if(priv.implementUser) when(csr.onDecodeWrite && (csr.onDecodeAddress & 0xF60) === CSR.UCYCLE){
+        csr.onDecodeTrap()
+      }
 
       csr.onWrite(csrFilter, false){
         when(!fired){
