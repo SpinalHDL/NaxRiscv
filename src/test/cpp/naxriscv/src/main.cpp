@@ -31,6 +31,27 @@
 #include "disasm.h"
 #include "type.h"
 
+
+#include <execinfo.h>
+#include <signal.h>
+
+void handler_crash(int sig) {
+  void *array[10];
+  size_t size;
+
+  // get void*'s for all entries on the stack
+  size = backtrace(array, 10);
+
+  // print out all the frames to stderr
+  fprintf(stderr, "Error: signal %d:\n", sig);
+  backtrace_symbols_fd(array, size, STDERR_FILENO);
+  exit(1);
+}
+
+
+#define CSR_UCYCLE 0xC00
+#define CSR_UCYCLEH 0xC80
+
 using namespace std;
 
 class successException : public std::exception { };
@@ -194,6 +215,19 @@ int mkpath(std::string s,mode_t mode)
 #define STATS_CAPTURE_ENABLE (BASE + 0x50)
 #define PUT_DEC (BASE + 0x60)
 #define INCR_COUNTER (BASE + 0x70)
+#define FAILURE_ADDRESS (BASE + 0x80)
+
+#define LITE_UART (BASE + 0x8000)
+#define LITE_UART_OFF_RXTX  	 (LITE_UART+0x00)
+#define LITE_UART_OFF_TXFULL	 (LITE_UART+0x04)
+#define LITE_UART_OFF_RXEMPTY	 (LITE_UART+0x08)
+#define LITE_UART_OFF_EV_STATUS	 (LITE_UART+0x0c)
+#define LITE_UART_OFF_EV_PENDING (LITE_UART+0x10)
+#define LITE_UART_OFF_EV_ENABLE	 (LITE_UART+0x14)
+
+/* events */
+#define LITE_UART_EV_TX		0x1
+#define LITE_UART_EV_RX		0x2
 
 
 #define MM_FAULT_ADDRESS 0x00001230
@@ -302,6 +336,7 @@ public:
 
     virtual int peripheralWrite(u64 address, uint32_t length, uint8_t *data){
         switch(address){
+        case LITE_UART_OFF_RXTX:
         case PUTC: {
             printf("%c", *data); if(putcFlush) fflush(stdout);
             putcHistory += (char)(*data);
@@ -323,6 +358,9 @@ public:
         case CLINT_CMP_ADDR: memcpy(&clintCmp, data, length); /*printf("CMPA=%lx\n", clintCmp);*/ break;
         case CLINT_CMP_ADDR+4: memcpy(((char*)&clintCmp)+4, data, length); /*printf("CMPB=%lx\n", clintCmp);*/  break;
         case INCR_COUNTER: incrValue += *((RvData*) data);break;
+        case FAILURE_ADDRESS: printf("software asked failure\n"); failure(); break;
+        case LITE_UART_OFF_EV_PENDING: break;
+        case LITE_UART_OFF_EV_ENABLE: break;
 //        case STATS_CAPTURE_ENABLE: whitebox->statsCaptureEnable = *data & 1; break;
         default: {
             auto e = findElement(address);
@@ -335,6 +373,7 @@ public:
 
     virtual int peripheralRead(u64 address, uint32_t length, uint8_t *data){
         switch(address){
+        case LITE_UART_OFF_RXTX:
         case GETC:{
             if(!simSlave && !noStdIn && stdinNonEmpty()){
                 char c;
@@ -360,9 +399,11 @@ public:
             u64 time = (main_time/2) >> 32;
             memcpy(data, &time, length);
         } break;
-        case CLINT_CMP_ADDR:  memcpy(data, &clintCmp, length); break;
-        case CLINT_CMP_ADDR+4:memcpy(data, ((char*)&clintCmp) + 4, length); break;
-        case INCR_COUNTER: memcpy(data, ((char*)&incrValue), length); break;
+        case CLINT_CMP_ADDR:   memcpy(data, &clintCmp, length); break;
+        case CLINT_CMP_ADDR+4: memcpy(data, ((char*)&clintCmp) + 4, length); break;
+        case INCR_COUNTER:     memcpy(data, ((char*)&incrValue), length); break;
+        case LITE_UART_OFF_TXFULL:  { u64 value = VL_RANDOM_I_WIDTH(1); memcpy(data, &value, length); }break;
+        case LITE_UART_OFF_RXEMPTY: { u64 value = !(!simSlave && !noStdIn && stdinNonEmpty()) && customCin.empty(); memcpy(data, &value, length); }break;
         default: {
             auto e = findElement(address);
             if(e) return e->read(address-e->mappingStart, length, data);
@@ -1387,7 +1428,7 @@ void addTimeEvent(u64 time, function<void()> func){
 
 bool trace_enable = true;
 float trace_sporadic_factor = 0.0f;
-u64 trace_sporadic_period = 100000;
+u64 trace_sporadic_period = 200000;
 u64 trace_sporadic_trigger;
 processor_t *proc;
 sim_wrap *wrap;
@@ -1787,10 +1828,12 @@ void spikeStep(RobCtx & robCtx){
 //                                cout << main_time << " " << hex << robCtx.csrReadData << " " << state->mip->read()  << " " << state->csrmap[robCtx.csrAddress]->read() << dec << endl;
             break;
         case CSR_MCYCLE:
+        case CSR_UCYCLE:
             backup = state->minstret->read();
             state->minstret->unlogged_write(robCtx.csrReadData+1); //+1 patch a spike internal workaround XD
             break;
         case CSR_MCYCLEH:
+        case CSR_UCYCLEH:
             backup = state->minstret->read();
             state->minstret->unlogged_write((((u64)robCtx.csrReadData) << 32)+1);
             break;
@@ -2151,6 +2194,7 @@ void cleanup(){
 }
 
 int main(int argc, char** argv, char** env){
+    signal(SIGSEGV, handler_crash);
     try {
         parseArgFirst(argc, argv);
         verilatorInit(argc, argv);
