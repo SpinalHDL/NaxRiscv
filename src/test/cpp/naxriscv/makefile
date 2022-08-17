@@ -20,6 +20,9 @@ ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE_BUILD})
 ADDCFLAGS += -CFLAGS -lSDL2
 ADDCFLAGS += -LDFLAGS -lSDL2
 
+ADDCFLAGS += -CFLAGS -g
+ADDCFLAGS += -CFLAGS -rdynamic
+
 FLAGS += --autoflush
 FLAGS += --output-split 5000
 FLAGS += --output-split-cfuncs 500
