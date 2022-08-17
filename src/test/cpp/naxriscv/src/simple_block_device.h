@@ -31,6 +31,10 @@ public:
         remain = 0;
         buffer = NULL;
         fp = fopen(path, "r+");
+        if(!fp){
+             printf("Block device can't open file %s\n", path);
+             assert(false);
+        }
         this->mappingStart = mappingStart;
         this->capacity = capacity;
         this->mappingEnd = mappingStart + 0xFFF;
@@ -67,17 +71,23 @@ public:
                 printf("??? simple block out of range ???\n");
                 assert(false);
             }
+
             if(fseek(fp, offset, SEEK_SET)){
                 printf("??? simple block fgets ???\n");
                 assert(false);
             }
 
-//            printf("[SIM] SimpleBlockDevice: %lx %x %d\n", offset, size, wr);
-            if(buffer) free(buffer);
+            //printf("[SIM] SimpleBlockDevice: %lx %x %d\n", offset, size, wr);
+            if(buffer) delete buffer;
             buffer = new char[size];
             bufferPtr = buffer;
             if(!wr){
-                char* dummy = fgets(buffer, size, fp);
+                size_t s = fread(buffer, 1, size, fp);
+                if(s != size){
+                    printf("??? simple block fread ??? %lx %x %lx\n", offset, size, s);
+                    memset(buffer, 0 , size);
+                    //assert(false);
+                }
             }
             break;
         }
@@ -89,8 +99,8 @@ public:
             *bufferPtr++ = data[0];
             remain--;
             if(remain == 0){
-                if(fputs(buffer, fp) < 0){
-                    printf("??? simple block fputs ???\n");
+                if(fwrite(buffer, 1, size, fp) != size){
+                    printf("??? simple block fwrite ???\n");
                     assert(false);
                 }
             }
