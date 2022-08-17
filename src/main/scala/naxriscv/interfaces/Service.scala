@@ -544,6 +544,7 @@ trait PrivilegedService extends Service{
   def isSupervisor() = getPrivilege() === 1
   def isMachine() = getPrivilege() === 3
 
+  def implementUser : Boolean
   def implementSupervisor : Boolean
   def implementUserTrap : Boolean
 

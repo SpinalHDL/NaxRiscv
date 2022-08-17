@@ -61,6 +61,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
   override def implementSupervisor = p.withSupervisor
   override def implementUserTrap = p.withUserTrap
+  override def implementUser = p.withUser
 
   override def setFpDirty() = setup.setFpDirty := True
   override def isFpuEnabled() = setup.isFpuEnabled
