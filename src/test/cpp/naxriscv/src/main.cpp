@@ -252,7 +252,9 @@ bool simMaster = false;
 bool simSlave = false;
 bool noStdIn = false;
 bool putcFlush = true;
+bool putcTimestamp = false;
 bool passFailWritten = false;
+bool putcNewLine = true;
 
 
 class TestSchedule{
@@ -335,9 +337,19 @@ public:
     }
 
     virtual int peripheralWrite(u64 address, uint32_t length, uint8_t *data){
+//        if((address & 0xFFFFFFFFF0000000) != 0x10000000) return memoryWrite(address,length,data);
         switch(address){
         case LITE_UART_OFF_RXTX:
         case PUTC: {
+            if(putcNewLine){
+                putcNewLine = false;
+                if(putcTimestamp){
+                    printf("[SIM %09ld] ", main_time);
+                }
+            }
+            if(*data == '\n'){
+                putcNewLine = true;
+            }
             printf("%c", *data); if(putcFlush) fflush(stdout);
             putcHistory += (char)(*data);
             if(putcTarget){
@@ -372,6 +384,7 @@ public:
     }
 
     virtual int peripheralRead(u64 address, uint32_t length, uint8_t *data){
+//        if((address & 0xFFFFFFFFF0000000) != 0x10000000) return memoryRead(address,length,data);
         switch(address){
         case LITE_UART_OFF_RXTX:
         case GETC:{
@@ -1315,6 +1328,7 @@ enum ARG
     ARG_SIM_SLAVE_DELAY,
     ARG_NO_STDIN,
     ARG_NO_PUTC_FLUSH,
+    ARG_PUTC_TIMESTAMP,
     ARG_PUTC,
     ARG_GETC,
     ARG_SUCCESS,
@@ -1362,6 +1376,7 @@ static const struct option long_options[] =
     { "sim-slave-delay", required_argument, 0, ARG_SIM_SLAVE_DELAY },
     { "no-stdin", no_argument, 0, ARG_NO_STDIN },
     { "no-putc-flush", no_argument, 0, ARG_NO_PUTC_FLUSH },
+    { "putc-timestamp", no_argument, 0, ARG_PUTC_TIMESTAMP },
     { "putc", required_argument, 0, ARG_PUTC },
     { "getc", required_argument, 0, ARG_GETC },
     { "success", no_argument, 0, ARG_SUCCESS },
@@ -1518,6 +1533,7 @@ void parseArgFirst(int argc, char** argv){
             case ARG_SIM_SLAVE: simSlave = true; trace_enable = false; break;
             case ARG_SIM_SLAVE_DELAY: simSlaveTraceDuration = stol(optarg); break;
             case ARG_NO_PUTC_FLUSH: putcFlush = false;  break;
+            case ARG_PUTC_TIMESTAMP: putcTimestamp = true;  break;
             case ARG_GETC: testScheduleQueue.push(new WaitPutc(string(optarg))); break;
             case ARG_PUTC: testScheduleQueue.push(new DoGetc(string(optarg))); break;
             case ARG_SUCCESS: testScheduleQueue.push(new DoSuccess()); break;
