@@ -188,6 +188,43 @@ dtc -O dtb -o rv32.dtb arty_a7.dts
 py3tftp -p 69
 
 picocom -b 115200 /dev/ttyUSB1 --imap lfcrlf
+qemu-img convert -f qcow2 -O raw sid-rv64.qcow2 /dev/sdb3
+qemu image => https://wiki.debian.org/RISC-V#OS_.2F_filesystem_imageshttps://gist.github.com/shamil/62935d9b456a6f9877b5
+sudo gedit /media/rawrr/rootfs/lib/systemd/system/getty@.service
+https://gist.github.com/shamil/62935d9b456a6f9877b5
+
+
+sudo modprobe nbd max_part=8
+sudo qemu-nbd --connect=/dev/nbd0 sid.qcow2
+sudo fdisk /dev/nbd0 -l
+sudo mount /dev/nbd0p1 part
+
+sudo umount part
+sudo qemu-nbd --disconnect /dev/nbd0
+sudo rmmod nbd
+
+sudo dd if=/dev/nbd0p1 of=/dev/sdb3
+
+ttyLXU0
+systemctl enable serial-getty@ttyLXU0.service
+/etc/systemd/system/getty.target.wants/serial-getty@ttyLXU0.service
+
+rm -rf /etc/systemd/system/serial-getty@hvc0.service
+systemctl enable serial-getty@hvc0.service
+sudo nano /etc/resolv.conf => 8.8.8.8
+
+ip addr del 10.0.2.15/24 dev eth0
+ip addr change 192.168.1.50/24 dev eth0
+ip addr show
+ip route add default via 192.168.1.100
+
+date -s "19 AUG 2022 14:47"
+
+export SDL_VIDEODRIVER=directfb
+/usr/games/openttd  -r 640x480 -b 8bpp-optimized -g
+
+wget https://file-examples.com/storage/fe5467a6a163010b197fb20/2017/11/file_example_MP3_1MG.mp3
+mpg123 -w wave.wav file_example_MP3_1MG.mp3
 
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet  --build --load
 
@@ -382,6 +419,8 @@ chocolate-doom -2 -timedemo demo1.lmp
 
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true' --with-jtag-instruction --build --load
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1' --with-jtag-instruction --build --load
+
+./make.py --board=arty --variant=a7-100 --cpu-count=1 --load
 
 Starting Xorg: OK
 

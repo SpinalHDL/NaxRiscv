@@ -79,6 +79,11 @@ src/openocd -f ../VexRiscvOoo/src/main/tcl/openocd/naxriscv_sim.tcl
 src/openocd -f tcl/interface/ftdi/ft2232h_breakout.cfg -f ../VexRiscvOoo/src/main/tcl/openocd/naxriscv_jtag.tcl
 src/openocd -s tcl -f ../VexRiscvOoo/src/main/tcl/openocd/digilent_nexys_video.tcl -f ../VexRiscvOoo/src/main/tcl/openocd/naxriscv_jtag_tunneled.tcl
 
+mdw 0x40000000 16
+mww 0x40000000 0x12345678
+mdw 0x40000000 16
+load_image /home/rawrr/Downloads/top_soc.v 0x40000000
+
 load_image /media/data/open/riscv/litex/standalone_nax/images/Image 0x41000000
 dump_image /media/data/open/riscv/litex/standalone_nax/images/ImageDump 0x41000000 7548012
 
