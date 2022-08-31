@@ -9,7 +9,7 @@ import spinal.core._
 import spinal.lib.Timeout
 class XilinxDebug extends Plugin {
   val logic = create late new Area{
-    def patch(that : Data) = that.addAttribute("mark_debug", "true")
+    def patch(that : Data) = if(that != null) that.addAttribute("mark_debug", "true")
     framework.plugins.foreach{
       case p : FetchCachePlugin => patch(p.logic.refill.valid)
       case p : DataCachePlugin => {
