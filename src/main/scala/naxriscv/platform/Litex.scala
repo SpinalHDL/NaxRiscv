@@ -95,6 +95,11 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component
   }
 }
 
+case class LitexMemoryRegion(mapping : SizeMapping, mode : String){
+  def isIo = mode.contains("i") || mode.contains("o")
+  def isExecutable = mode.contains("x")
+}
+
 object LitexGen extends App{
   var netlistDirectory = "."
   var netlistName = "NaxRiscvLitex"
@@ -105,6 +110,8 @@ object LitexGen extends App{
   var debug = false
   val files = ArrayBuffer[String]()
   val scalaArgs = ArrayBuffer[String]()
+  val memoryRegions = ArrayBuffer[LitexMemoryRegion]()
+
   assert(new scopt.OptionParser[Unit]("NaxRiscv") {
     help("help").text("prints this usage text")
     opt[String]("netlist-directory") action { (v, c) => netlistDirectory = v }
@@ -119,6 +126,10 @@ object LitexGen extends App{
     opt[Unit]("with-jtag-tap") action  { (v, c) => jtagTap = true }
     opt[Unit]("with-jtag-instruction") action  { (v, c) => jtagInstruction = true }
     opt[Unit]("with-debug") action  { (v, c) => debug = true }
+    opt[Seq[String]]("memory-region") unbounded() action  { (v, c) =>
+      assert(v.length == 3, "--memory-region need 3 parameters")
+      memoryRegions += new LitexMemoryRegion(SizeMapping(BigInt(v(0)), BigInt(v(1))), v(2))
+    }
   }.parse(args))
 
   val spinalConfig = SpinalConfig(inlineRom = true, targetDirectory = netlistDirectory)
@@ -133,6 +144,7 @@ object LitexGen extends App{
       s"""
          |import scala.collection.mutable.ArrayBuffer
          |import naxriscv.utilities.Plugin
+         |import naxriscv.platform.LitexMemoryRegion
          |import spinal.lib.bus.misc.SizeMapping
          |val plugins = ArrayBuffer[Plugin]()
          |val resetVector = ${resetVector}l
@@ -142,19 +154,22 @@ object LitexGen extends App{
          |val jtagInstruction = ${jtagInstruction}
          |val debug = ${debug}
          |def arg[T](key : String, default : T) = args.getOrElse(key, default).asInstanceOf[T]
+         |
          |${scalaArgs.mkString("\n")}
          |""".stripMargin
     codes ++= files.map(scala.io.Source.fromFile(_).mkString)
     codes += "plugins\n"
     val code = codes.mkString("\n")
-    val plugins = ScalaInterpreter.evaluate[ArrayBuffer[Plugin]](code)
+    val plugins = ScalaInterpreter.evaluate[ArrayBuffer[Plugin]](code, List(
+      ("memoryRegions", "Seq[naxriscv.platform.LitexMemoryRegion]", memoryRegions)
+    ))
     new NaxRiscvLitex(plugins, xlen).setDefinitionName(netlistName)
   }
 }
 
 object ScalaInterpreter extends App{
 
-  def evaluate[T](clazz : String) = {
+  def evaluate[T](clazz : String, binds : Seq[(String, String, Any)]) = {
     import scala.tools.nsc.Settings
     import scala.tools.nsc.interpreter.IMain
 
@@ -164,6 +179,7 @@ object ScalaInterpreter extends App{
 
     val aaa = 32
     val eval = new IMain(settings)
+    for(bind <- binds) eval.bind(bind._1, bind._2, bind._3)
     val evaluated = eval.interpret(clazz)
     val res = eval.valueOfTerm("res0").get.asInstanceOf[T]
     res
