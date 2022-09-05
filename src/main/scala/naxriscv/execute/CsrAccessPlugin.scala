@@ -312,12 +312,20 @@ class CsrAccessPlugin(val euId: String)(var writebackAt: Int) extends ExecutionU
         val groupedLogic = for ((csrFilter, elements) <- grouped) yield new Area{
           setPartialName(filterToName(csrFilter))
 
+          val cancels = elements.collect{ case e : CsrWriteCancel => e }.toList
           val onWrites = elements.collect{ case e : CsrOnWrite => e }
           val onWritesAlways = onWrites.filter(!_.onlyOnFire)
           val onWritesFire = onWrites.filter(_.onlyOnFire)
 
-          if(onWritesAlways.nonEmpty) when(onWritesDo     && regs.sels(csrFilter)){ onWritesAlways.foreach(_.body()) }
-          if(onWritesFire.nonEmpty)  when(onWritesFireDo && regs.sels(csrFilter)){ onWritesFire.foreach(_.body()) }
+          def doIt(){
+            if(onWritesAlways.nonEmpty) when(onWritesDo     && regs.sels(csrFilter)){ onWritesAlways.foreach(_.body()) }
+            if(onWritesFire.nonEmpty)  when(onWritesFireDo && regs.sels(csrFilter)){ onWritesFire.foreach(_.body()) }
+          }
+
+          cancels match {
+            case Nil => doIt()
+            case l => when(cancels.map(_.cond).orR === False){ doIt() }
+          }
         }
 
         val ramWrite = useRamRead generate new Area {

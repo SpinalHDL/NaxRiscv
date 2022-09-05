@@ -422,6 +422,8 @@ case class CsrOnDecode (override val csrFilter : Any, priority : Int, body : () 
 
 case class CsrRamSpec(override val csrFilter : Any, alloc : CsrRamAllocation) extends CsrSpec(csrFilter)
 
+case class CsrWriteCancel(override val csrFilter : Any, cond : Bool) extends CsrSpec(csrFilter)
+
 case class CsrListFilter(mapping : Seq[Int]) extends Nameable
 trait CsrService extends Service with LockedImpl{
   val spec = ArrayBuffer[CsrSpec]()
@@ -486,6 +488,12 @@ trait CsrService extends Service with LockedImpl{
     val ret = False
     onRead(csrFilter, false){ ret := True }
     ret
+  }
+
+
+  //Warning currently do not apply on ram writes
+  def writeCancel(csrFilter : Any, cond : Bool) ={
+    spec += CsrWriteCancel(csrFilter, cond)
   }
 }
 

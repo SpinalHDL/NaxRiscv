@@ -1708,6 +1708,10 @@ void spikeInit(){
     #endif
     if(RVC) isa += "C";
     proc = new processor_t(isa.c_str(), "MSU", "", wrap, 0, false, fptr, outfile);
+    proc->set_impl(IMPL_MMU_SV32, XLEN == 32);
+    proc->set_impl(IMPL_MMU_SV39, XLEN == 64);
+    proc->set_impl(IMPL_MMU_SV48, false);
+    proc->set_impl(IMPL_MMU, true);
     if(spike_debug) proc->debug = true;
     proc->set_pmp_num(0);
     state = proc->get_state();
