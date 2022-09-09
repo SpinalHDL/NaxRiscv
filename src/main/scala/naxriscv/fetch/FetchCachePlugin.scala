@@ -39,25 +39,29 @@ case class FetchL1Bus(physicalWidth : Int,
     slave(rsp)
   }
 
-  def ioSplit() : (FetchL1Bus, FetchL1Bus) = new Composite(this, "ioSplit"){
-    val io, ram = cloneOf(self)
-    val selIo = RegNextWhen(cmd.io, cmd.valid)
+  def split(selGen : FetchL1Cmd => Bool) : (FetchL1Bus, FetchL1Bus) = new Composite(this, "split"){
+    val bus0, bus1 = cloneOf(self)
+    val selCmd = selGen(cmd)
+    val selRsp = RegNextWhen(selCmd, cmd.valid)
 
-    io.cmd.valid := cmd.valid && cmd.io
-    ram.cmd.valid := cmd.valid && !cmd.io
+    bus1.cmd.valid := cmd.valid && selCmd
+    bus0.cmd.valid := cmd.valid && !selCmd
 
-    io.cmd.payload  := cmd.payload
-    ram.cmd.payload := cmd.payload
+    bus1.cmd.payload  := cmd.payload
+    bus0.cmd.payload := cmd.payload
 
-    cmd.ready := cmd.io ? io.cmd.ready | ram.cmd.ready
+    cmd.ready := selCmd ? bus1.cmd.ready | bus0.cmd.ready
 
-    rsp.valid := io.rsp.valid || ram.rsp.valid
-    rsp.payload := selIo ? io.rsp.payload | ram.rsp.payload
-    io.rsp.ready := rsp.ready
-    ram.rsp.ready := rsp.ready
+    rsp.valid := bus1.rsp.valid || bus0.rsp.valid
+    rsp.payload := selRsp ? bus1.rsp.payload | bus0.rsp.payload
+    bus1.rsp.ready := rsp.ready
+    bus0.rsp.ready := rsp.ready
 
-    val ret = (io, ram)
+    val ret = (bus0, bus1)
   }.ret
+
+  def ioSplit() : (FetchL1Bus, FetchL1Bus) = split(!_.io)
+
 
 
   def resizer(newDataWidth : Int) : FetchL1Bus = new Composite(this, "resizer"){

@@ -7,16 +7,18 @@ import naxriscv.utilities.Plugin
 import spinal.lib.bus.amba4.axilite.AxiLite4SpecRenamer
 
 class FetchAxi4(ramDataWidth : Int,
-                ioDataWidth : Int) extends Plugin{
+                ioDataWidth : Int,
+                toPeripheral : FetchL1Cmd => Bool
+                ) extends Plugin{
   val logic = create late new Area{
     val cache = getService[FetchCachePlugin]
     val native = cache.mem.setAsDirectionLess
 
-    val (io, ram) = native.ioSplit()
+    val (ram, peripheral) = native.split(toPeripheral)
     val axiRam = master(ram.resizer(ramDataWidth).toAxi4())
-    val axiIo  = master(io.resizer(ioDataWidth).toAxiLite4())
+    val axiPeripheral  = master(peripheral.resizer(ioDataWidth).toAxiLite4())
 
     Axi4SpecRenamer(axiRam)
-    AxiLite4SpecRenamer(axiIo)
+    AxiLite4SpecRenamer(axiPeripheral)
   }
 }

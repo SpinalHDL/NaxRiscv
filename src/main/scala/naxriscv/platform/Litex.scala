@@ -20,13 +20,14 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 
-class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component{
+class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int, toPeripheral : UInt => Bool) extends Component{
 
   val ramDataWidth = 64
   val ioDataWidth  =  32
   plugins += new FetchAxi4(
     ramDataWidth = ramDataWidth,
-    ioDataWidth  = ioDataWidth
+    ioDataWidth  = ioDataWidth,
+    toPeripheral = cmd => toPeripheral(cmd.address)
   )
   plugins += new DataCacheAxi4(
     dataWidth = ramDataWidth
@@ -67,7 +68,7 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component
   }
 
   val peripheral = new Area{
-    val ibus = cpu.framework.getService[FetchAxi4].logic.axiIo.toIo()
+    val ibus = cpu.framework.getService[FetchAxi4].logic.axiPeripheral.toIo()
     val dbus = cpu.framework.getService[LsuPeripheralAxiLite4].logic.axi.toIo()
     AxiLite4SpecRenamer(ibus)
     AxiLite4SpecRenamer(dbus)
@@ -95,9 +96,15 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int) extends Component
   }
 }
 
-case class LitexMemoryRegion(mapping : SizeMapping, mode : String){
+case class LitexMemoryRegion(mapping : SizeMapping, mode : String, bus : String){
   def isIo = mode.contains("i") || mode.contains("o")
   def isExecutable = mode.contains("x")
+  def isCachable = mode.contains("c")
+  def onPeripheral = bus match {
+    case "m" => false
+    case "p" => true
+  }
+  def onMemory = !onPeripheral
 }
 
 object LitexGen extends App{
@@ -127,8 +134,11 @@ object LitexGen extends App{
     opt[Unit]("with-jtag-instruction") action  { (v, c) => jtagInstruction = true }
     opt[Unit]("with-debug") action  { (v, c) => debug = true }
     opt[Seq[String]]("memory-region") unbounded() action  { (v, c) =>
-      assert(v.length == 3, "--memory-region need 3 parameters")
-      memoryRegions += new LitexMemoryRegion(SizeMapping(BigInt(v(0)), BigInt(v(1))), v(2))
+      assert(v.length == 4, "--memory-region need 4 parameters")
+      val r = new LitexMemoryRegion(SizeMapping(BigInt(v(0)), BigInt(v(1))), v(2), v(3))
+      memoryRegions += r
+      assert(!(r.onMemory && !r.isCachable), s"Region $r isn't supported by NaxRiscv, data cache will always cache memory")
+      assert(!(r.onMemory &&  r.isIo ), s"Region $r isn't supported by NaxRiscv, IO have to be on peripheral bus")
     }
   }.parse(args))
 
@@ -155,6 +165,7 @@ object LitexGen extends App{
          |val debug = ${debug}
          |def arg[T](key : String, default : T) = args.getOrElse(key, default).asInstanceOf[T]
          |
+         |
          |${scalaArgs.mkString("\n")}
          |""".stripMargin
     codes ++= files.map(scala.io.Source.fromFile(_).mkString)
@@ -163,7 +174,7 @@ object LitexGen extends App{
     val plugins = ScalaInterpreter.evaluate[ArrayBuffer[Plugin]](code, List(
       ("memoryRegions", "Seq[naxriscv.platform.LitexMemoryRegion]", memoryRegions)
     ))
-    new NaxRiscvLitex(plugins, xlen).setDefinitionName(netlistName)
+    new NaxRiscvLitex(plugins, xlen, address => memoryRegions.filter(_.onPeripheral).map(_.mapping.hit(address)).orR).setDefinitionName(netlistName)
   }
 }
 
