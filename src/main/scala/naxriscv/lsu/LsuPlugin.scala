@@ -97,6 +97,59 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
     slave(rsp)
   }
 
+  def resize(width : Int) : LsuPeripheralBus = {
+    if(width == p.dataWidth) return this
+    if(width < p.dataWidth) return downWidthImpl(width)
+    ???
+  }
+  def downWidthImpl(width : Int): LsuPeripheralBus = new Composite(this, "downWidth"){
+    val ret = LsuPeripheralBus(p.copy(dataWidth = width))
+    val ratio = p.dataWidth/width
+    val sizeMax = log2Up(width / 8)
+    def addressAdd(addr : UInt, off :UInt) = U(cmd.address.dropLow(log2Up(p.dataWidth))) @@ (cmd.address(0, log2Up(p.dataWidth) bits) + off)
+
+    val front = new Area {
+      val counter = Reg(UInt(log2Up(ratio) bits)) init (0)
+      val cmdSel = ret.cmd.address(log2Up(width/8), log2Up(ratio) bits)
+
+      val beats = cmd.size.muxListDc((0 to log2Up(p.dataWidth / 8)).map(v => v ->U(((1 << v)*8+width-1)/width-1, log2Up(ratio) bits)))
+      ret.cmd.valid := cmd.valid
+      ret.cmd.write := cmd.write
+      ret.cmd.address := addressAdd(cmd.address, counter << log2Up(width/8))
+      ret.cmd.data := cmd.data.subdivideIn(ratio slices).read(cmdSel)
+      ret.cmd.mask := cmd.mask.subdivideIn(ratio slices).read(cmdSel)
+      ret.cmd.size := cmd.size.min(sizeMax)
+      cmd.ready := ret.cmd.ready && counter === beats
+
+      when(ret.cmd.fire){counter := counter + 1}
+      when(cmd.ready) { counter := 0 }
+    }
+
+    val back = new Area{
+      val lastAt, offset = Reg(UInt(log2Up(ratio) bits))
+
+      when(cmd.valid.rise){
+        lastAt := cmd.address(log2Up(width/8), log2Up(ratio) bits) + front.beats
+        offset := cmd.address(log2Up(width/8), log2Up(ratio) bits)
+      }
+      val buffer = Reg(Bits(p.dataWidth-width bits))
+      when(ret.rsp.fire){
+        switch(offset){
+          for(i <- 0 to ratio-2){
+            is(i){
+              buffer(width*i, width bits) := ret.rsp.data
+            }
+          }
+        }
+        offset := offset + 1
+      }
+
+      rsp.valid := ret.rsp.valid && offset === lastAt
+      rsp.data := ret.rsp.data ## buffer.getAheadValue
+      rsp.error := ret.rsp.error
+    }
+  }.ret
+
   def toAxiLite4(): AxiLite4 = new Composite(this, "toAxiLite4"){
     val axiConfig = AxiLite4Config(
       addressWidth = p.addressWidth,
@@ -110,7 +163,7 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
 
     a.ready := (a.write ? axi.aw.ready | axi.ar.ready)
 
-    val addr = U(a.address.dropLow(log2Up(LSLEN/8)) << log2Up(LSLEN/8))
+    val addr = U(a.address.dropLow(log2Up(p.dataWidth/8)) << log2Up(p.dataWidth/8))
 
     //AR
     axi.ar.valid := a.valid && !a.write

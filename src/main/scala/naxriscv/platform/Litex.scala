@@ -23,7 +23,7 @@ import scala.collection.mutable.ArrayBuffer
 class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int, toPeripheral : UInt => Bool) extends Component{
 
   val ramDataWidth = 64
-  val ioDataWidth  =  32
+  val ioDataWidth  = 32
   plugins += new FetchAxi4(
     ramDataWidth = ramDataWidth,
     ioDataWidth  = ioDataWidth,
@@ -32,7 +32,9 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int, toPeripheral : UI
   plugins += new DataCacheAxi4(
     dataWidth = ramDataWidth
   )
-  plugins += new LsuPeripheralAxiLite4()
+  plugins += new LsuPeripheralAxiLite4(
+    ioDataWidth  = ioDataWidth
+  )
 
   val cpu = new NaxRiscv(
     plugins
@@ -73,7 +75,7 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int, toPeripheral : UI
     AxiLite4SpecRenamer(ibus)
     AxiLite4SpecRenamer(dbus)
 
-    val clintCtrl = new AxiLite4Clint(1)
+    val clintCtrl = new AxiLite4Clint(1, bufferTime = xlen == 64)
     val plicCtrl = new AxiLite4Plic(
       sourceCount = 31,
       targetCount = 2
@@ -444,7 +446,7 @@ root
 export DISPLAY=:0
 chocolate-doom -2 -timedemo demo1.lmp
 
-python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true' --with-jtag-instruction --build --load
+python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true' --with-jtag-tap --build --load
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1' --with-jtag-instruction --build --load
 
 ./make.py --board=arty --variant=a7-100 --cpu-count=1 --load
