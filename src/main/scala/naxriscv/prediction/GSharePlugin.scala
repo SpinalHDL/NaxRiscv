@@ -66,6 +66,9 @@ class GSharePlugin(var historyWidth : Int,
     val mem = new Area{ //TODO bypass read durring write ?
       val counter = Mem.fill(words)(keys.GSHARE_COUNTER)
       val write = counter.writePort
+      if(GenerationFlags.simulation){
+        counter.initBigInt(List.fill(counter.wordCount)(BigInt(0)))
+      }
     }
 
     val BYPASS = Stageable(cloneOf(mem.write))

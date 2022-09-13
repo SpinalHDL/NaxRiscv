@@ -55,6 +55,9 @@ class BtbPlugin(var entries : Int,
     val ENTRY = Stageable(BtbEntry())
     val HIT = Stageable(Bool())
     val mem = Mem.fill(entries)(BtbEntry()) //TODO bypass read durring write ?
+    if(GenerationFlags.simulation){
+      mem.initBigInt(List.fill(mem.wordCount)(BigInt(0)))
+    }
 
     val onLearn = new Area{
       val ctx = branchContext.learnRead(branchContext.keys.BRANCH_FINAL)

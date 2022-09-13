@@ -86,6 +86,9 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
       val rasDepth = 32
       val mem = new Area{
         val stack = Mem.fill(rasDepth)(PC)
+        if(GenerationFlags.simulation){
+          stack.initBigInt(List.fill(stack.wordCount)(BigInt(0)))
+        }
       }
       val ptr = new Area{
         val push = Reg(UInt(log2Up(rasDepth) bits)) init(0)

@@ -78,7 +78,9 @@ class RobPlugin(var robSize : Int,
       assert(ROB.COLS == DISPATCH_COUNT)
       val target = Mem.fill(ROB.LINES)(Bits(ROB.COLS bits))
       val hits   = List.fill(completions.size)(Mem.fill(ROB.SIZE)(Bool()))
-
+      if(GenerationFlags.simulation){
+        hits.foreach(mem => mem.initBigInt(List.fill(mem.wordCount)(BigInt(0))))
+      }
 
       val targetWrite = target.writePort
       targetWrite.valid := frontend.pipeline.allocated.isFireing

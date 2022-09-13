@@ -499,6 +499,9 @@ class LsuPlugin(var lqSize: Int,
         }
 
         val mem = Mem.fill(hitPedictionEntries)(HitPredictionEntry())
+        if(GenerationFlags.simulation){
+          mem.initBigInt(List.fill(mem.wordCount)(BigInt(0)))
+        }
         val writePort = mem.writePort
         val writeLast = writePort.stage()
       }
@@ -1006,9 +1009,9 @@ class LsuPlugin(var lqSize: Int,
             i -> B((LSLEN - 1 downto off) -> (rspShifted(off-1) && !rspUnsigned), (off-1 downto 0) -> rspShifted(off-1 downto 0))
           })
 
-
+          val doIt = isValid && WRITE_RD && tpk.ALLOW_READ && !tpk.PAGE_FAULT && !tpk.ACCESS_FAULT
           for((spec, regfile) <- setup.regfilePorts) {
-            regfile.write.valid   := isValid && WRITE_RD && decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)
+            regfile.write.valid   := doIt && decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)
             regfile.write.address := decoder.PHYS_RD
             regfile.write.data    := rspFormated.resized
             regfile.write.robId   := ROB.ID
