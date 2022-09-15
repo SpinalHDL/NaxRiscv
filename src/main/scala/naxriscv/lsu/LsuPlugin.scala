@@ -235,7 +235,9 @@ class LsuPlugin(var lqSize: Int,
                 var loadCheckSqAt : Int = 1,
                 var loadCtrlAt : Int = 3,
                 var intRfWriteSharing : Any = new {},
-                var storeReadRfWithBypass : Boolean = false) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy with WithRfWriteSharedSpec{
+                var storeReadRfWithBypass : Boolean = false,
+                val loadWriteRfOnPrivilegeFail: Boolean = false //Side channel attack if true
+               ) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy with WithRfWriteSharedSpec{
 
   val rfWriteSharing = mutable.LinkedHashMap[RegfileSpec, Any]()
   def addRfWriteSharing(rf : RegfileSpec, key : Any) : this.type = {
@@ -1009,7 +1011,10 @@ class LsuPlugin(var lqSize: Int,
             i -> B((LSLEN - 1 downto off) -> (rspShifted(off-1) && !rspUnsigned), (off-1 downto 0) -> rspShifted(off-1 downto 0))
           })
 
-          val doIt = isValid && WRITE_RD && tpk.ALLOW_READ && !tpk.PAGE_FAULT && !tpk.ACCESS_FAULT
+          val doIt = loadWriteRfOnPrivilegeFail match {
+            case false => isValid && WRITE_RD && tpk.ALLOW_READ && !tpk.PAGE_FAULT && !tpk.ACCESS_FAULT
+            case true  => isValid && WRITE_RD
+          }
           for((spec, regfile) <- setup.regfilePorts) {
             regfile.write.valid   := doIt && decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)
             regfile.write.address := decoder.PHYS_RD

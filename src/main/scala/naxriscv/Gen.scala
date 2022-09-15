@@ -9,11 +9,12 @@ import naxriscv.misc._
 import naxriscv.execute._
 import naxriscv.execute.fpu._
 import naxriscv.fetch._
+import naxriscv.interfaces.CommitService
 import naxriscv.lsu._
 import naxriscv.prediction._
 import naxriscv.riscv.IntRegFile
 import naxriscv.utilities._
-import spinal.lib.LatencyAnalysis
+import spinal.lib.{LatencyAnalysis, Timeout}
 import spinal.lib.bus.amba4.axi.Axi4SpecRenamer
 import spinal.lib.bus.amba4.axilite.AxiLite4SpecRenamer
 import spinal.lib.bus.misc.SizeMapping
@@ -52,7 +53,10 @@ object Config{
               branchCount : Int = 16,
               withFloat  : Boolean = false,
               withDouble : Boolean = false,
-              simulation : Boolean = GenerationFlags.simulation): ArrayBuffer[Plugin] ={
+              lqSize : Int = 16,
+              sqSize : Int = 16,
+              simulation : Boolean = GenerationFlags.simulation,
+              sideChannels : Boolean = false): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
 
     val fpu = withFloat || withDouble
@@ -166,11 +170,12 @@ object Config{
     //LOAD / STORE
     if(withLoadStore){
       plugins += new LsuPlugin(
-        lqSize = 16,
-        sqSize = 16,
+        lqSize = lqSize,
+        sqSize = sqSize,
         loadToCacheBypass = true,
         lqToCachePipelined = true,
         hitPedictionEntries = 1024,
+        loadWriteRfOnPrivilegeFail = sideChannels,
         translationStorageParameter = MmuStorageParameter(
           levels   = List(
             MmuStorageLevel(
@@ -258,8 +263,7 @@ object Config{
     plugins += new IntAluPlugin("ALU0", aluStage = 0)
     plugins += new ShiftPlugin("ALU0" , aluStage = 0)
     if(aluCount > 1) plugins += new BranchPlugin("ALU0")
-    //    plugins += new LoadPlugin("ALU0")
-    //    plugins += new StorePlugin("ALU0")
+
 
     plugins += new ExecutionUnitBase("EU0", writebackCountMax = 1, readPhysRsFromQueue = true)
     plugins += new IntFormatPlugin("EU0")
@@ -377,7 +381,8 @@ object Gen extends App{
       withEmbeddedJtagTap = false,
       jtagTunneled = false,
       withFloat = false,
-      withDouble = false
+      withDouble = false,
+      ioRange = a => a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))
@@ -427,6 +432,7 @@ object Gen64 extends App{
   LutInputs.set(6)
   def plugins = {
     val l = Config.plugins(
+      sideChannels = false, //WARNING, FOR TEST PURPOSES, turn to false <3
       xlen = 64,
       withRdTime = false,
       aluCount    = 2,
@@ -565,7 +571,7 @@ obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/p
 obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/freertosDemo/integer/rv32im/freertosDemo.elf --start-symbol _start --pass-symbol c_pass --fail-symbol c_fail --stats-print-all
 
 
-obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/play/build/rv64im/play.elf --start-symbol _start --pass-symbol pass --fail-symbol fail --trace --trace-ref --stats-print-all
+obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/play/build/rv64ima/play.elf --start-symbol _start --pass-symbol pass --fail-symbol fail --trace --trace-ref --stats-print-all
 
 LAST PC COMMIT=c002be98
 
@@ -710,4 +716,39 @@ Geometric range      0.51
 
 1.63065 + 1.24106 + 1.67444 + 1.28898 + 1.31207 + 1.89032 + 1.27391 + 1.11954 + 1.8445 + 1.5426 + 1.36446 + 1.45095 + 1.35236 + 1.30745 + 1.11382 + 0.723316 + 0.907167 + 1.55149 + 1.1772 + 1.04995 + 1.3341 + 1.07459
 
+    val report = spinalConfig.generateVerilog(new NaxRiscv(plugins :+ new Plugin{
+      val logic = create late new Area{
+        val dcacheCmd = getService[DataCachePlugin].logic.cache.io.store.cmd
+        val icacheInv = getService[FetchCachePlugin].logic.invalidate
+        val flushingStuff = dcacheCmd.valid && dcacheCmd.flush || !icacheInv.done
+        val counter = Reg(UInt(64 bits)) init(0)
+        counter := counter + 2
+        def addTimeout(cycles : Int): Unit ={
+          val noCommit = Timeout(cycles)
+          when(getService[CommitService].onCommit().mask.orR || flushingStuff) {noCommit.clear()}
+          when((noCommit.state.setName("noCommitTrigger" + cycles)).rise()){
+            spinal.core.report(L"lol ${counter}")
+          }
+        }
+        addTimeout(200)
+      }
+    }))
+
+// no MMU
+LUT	12957	133800	9.683856
+LUTRAM	2805	46200	6.071429
+FF	9278	267600	3.467115
+BRAM	11.5	365	3.1506848
+DSP	4	740	0.5405406
+IO	245	500	49.0
+BUFG	1	32	3.125
+
+// no memory
+LUT	7875	133800	5.88565
+LUTRAM	1964	46200	4.2510824
+FF	5641	267600	2.107997
+BRAM	6	365	1.6438355
+DSP	4	740	0.5405406
+IO	138	500	27.599998
+BUFG	1	32	3.125
  */
