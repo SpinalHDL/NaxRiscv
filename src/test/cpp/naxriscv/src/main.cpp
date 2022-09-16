@@ -907,6 +907,15 @@ public:
     u64 counter;
     bool sqAllocated;
     int sqId;
+
+    void init(){
+        renameAt = 0;
+        dispatchAt = 0;
+        issueAt = 0;
+        completeAt = 0;
+        commitAt = 0;
+        storeAt = 0;
+    }
 };
 
 class NaxStats{
@@ -976,6 +985,7 @@ public:
     RobCtx robCtx[ROB_SIZE];
     FetchCtx fetchCtx[4096];
     OpCtx opCtx[4096];
+    queue <int> opIdInFlight;
     int sqToOp[256];
     RvData *robToPc[DISPATCH_COUNT];
     CData *integer_write_valid[INTEGER_WRITE_COUNT];
@@ -994,6 +1004,7 @@ public:
     CData *sq_alloc_valid[DISPATCH_COUNT];
     CData *sq_alloc_id[DISPATCH_COUNT];
     SData *decoded_fetch_id[DISPATCH_COUNT];
+    CData *decoded_mask[DISPATCH_COUNT];
     SData *allocated_fetch_id[DISPATCH_COUNT];
     IData *decoded_instruction[DISPATCH_COUNT];
     RvData *decoded_pc[DISPATCH_COUNT];
@@ -1027,6 +1038,7 @@ public:
             sq_alloc_valid{MAP_INIT(&nax->sqAlloc_,  DISPATCH_COUNT, _valid)},
             sq_alloc_id{MAP_INIT(&nax->sqAlloc_,  DISPATCH_COUNT, _id)},
             decoded_fetch_id{MAP_INIT(&nax->FrontendPlugin_decoded_FETCH_ID_,  DISPATCH_COUNT,)},
+            decoded_mask{MAP_INIT(&nax->FrontendPlugin_decoded_Frontend_DECODED_MASK_,  DISPATCH_COUNT,)},
             decoded_instruction{MAP_INIT(&nax->FrontendPlugin_decoded_Frontend_INSTRUCTION_DECOMPRESSED_,  DISPATCH_COUNT,)},
             decoded_pc{MAP_INIT(&nax->FrontendPlugin_decoded_PC_,  DISPATCH_COUNT,)},
             dispatch_mask{MAP_INIT(&nax->FrontendPlugin_dispatch_Frontend_DISPATCH_MASK_,  DISPATCH_COUNT,)},
@@ -1039,25 +1051,28 @@ public:
         gem5Enable = enable;
     }
 
+    string traceT2s(u64 time){
+        return time ? std::to_string(time) : "";
+    }
     void trace(int opId){
         auto &op = opCtx[opId];
         auto &fetch = fetchCtx[op.fetchId];
         string assembly = disasm.disassemble(op.instruction);
-        gem5 << "O3PipeView:fetch:" << fetch.fetchAt << ":0x" << hex <<  setw(8) << std::setfill('0') << op.pc << dec << ":0:" << op.counter << ":" << assembly << endl;
-        gem5 << "O3PipeView:decode:"<< fetch.decodeAt << endl;
-        gem5 << "O3PipeView:rename:"<< op.renameAt << endl;
-        gem5 << "O3PipeView:dispatch:"<< op.dispatchAt << endl;
-        gem5 << "O3PipeView:issue:"<< op.issueAt << endl;
-        gem5 << "O3PipeView:complete:"<< op.completeAt << endl;
-        gem5 << "O3PipeView:retire:" << op.commitAt << ":store:" << (op.sqAllocated ? op.storeAt : 0) << endl;
-        assertTrue("a", fetch.fetchAt  <= fetch.decodeAt);
-        assertTrue("b", fetch.decodeAt <= op.renameAt);
-        assertTrue("c", op.renameAt    <= op.dispatchAt);
-        assertTrue("d", op.dispatchAt    <= op.issueAt);
-        assertTrue("e", op.issueAt    <= op.completeAt);
-        if(op.sqAllocated){
-            assertTrue("f", op.completeAt    <= op.commitAt);
-        }
+        gem5 << "O3PipeView:fetch:" << traceT2s(fetch.fetchAt) << ":0x" << hex <<  setw(8) << std::setfill('0') << op.pc << dec << ":0:" << op.counter << ":" << assembly << endl;
+        gem5 << "O3PipeView:decode:"<< traceT2s(fetch.decodeAt) << endl;
+        gem5 << "O3PipeView:rename:"<< traceT2s(op.renameAt) << endl;
+        gem5 << "O3PipeView:dispatch:"<< traceT2s(op.dispatchAt) << endl;
+        gem5 << "O3PipeView:issue:"<< traceT2s(op.issueAt) << endl;
+        gem5 << "O3PipeView:complete:"<< traceT2s(op.completeAt) << endl;
+        gem5 << "O3PipeView:retire:" << traceT2s(op.commitAt) << ":store:" << traceT2s(op.sqAllocated ? op.storeAt : 0) << endl;
+//        assertTrue("a", fetch.fetchAt  <= fetch.decodeAt);
+//        assertTrue("b", fetch.decodeAt <= op.renameAt);
+//        assertTrue("c", op.renameAt    <= op.dispatchAt);
+//        assertTrue("d", op.dispatchAt    <= op.issueAt);
+//        assertTrue("e", op.issueAt    <= op.completeAt);
+//        if(op.sqAllocated){
+//            assertTrue("f", op.completeAt    <= op.commitAt);
+//        }
     }
 
     virtual void onReset(){
@@ -1115,6 +1130,8 @@ public:
             if(nax->FrontendPlugin_decoded_isFireing){
                 auto fetchId = *decoded_fetch_id[i];
                 auto opId = nax->FrontendPlugin_decoded_OP_ID + i;
+                if(*decoded_mask[i]) opIdInFlight.push(opId);
+                opCtx[opId].init();
                 opCtx[opId].fetchId = fetchId;
                 opCtx[opId].renameAt = main_time;
                 opCtx[opId].instruction = *decoded_instruction[i];
@@ -1162,16 +1179,28 @@ public:
                 auto robId = nax->commit_robId + i;
                 auto opId = robCtx[robId].opId;
                 opCtx[opId].commitAt = main_time;
-                opCtx[opId].counter = opCounter++;
-                if(gem5Enable && !opCtx[opId].sqAllocated) trace(opId);
+                while(true){
+                    auto front = opIdInFlight.front();
+                    opIdInFlight.pop();
+                    opCtx[front].counter = opCounter++;
+                    if(gem5Enable/* && !opCtx[opId].sqAllocated*/) trace(front);
+                    if(front == opId) break;
+                }
             }
         }
-        if(nax->sqFree_valid){
-            auto opId = sqToOp[nax->sqFree_payload];
-            assertTrue("??? at sqFree", opCtx[opId].sqAllocated);
-            opCtx[opId].storeAt = main_time;
-            if(gem5Enable) trace(opId);
-        }
+//        if(nax->sqFree_valid){
+//            auto opId = sqToOp[nax->sqFree_payload];
+//            assertTrue("??? at sqFree", opCtx[opId].sqAllocated);
+//            opCtx[opId].storeAt = main_time;
+//            if(gem5Enable) trace(opId);
+//        }
+//        if(nax->reschedule_valid){
+//            for(int robId = nax->reschedule_payload_robId + !nax->reschedule_payload_skipCommit; robId < nax->reschedule_payload_robIdNext;robId = (robId + 1) % ROB_SIZE){
+//
+//                auto opId = robCtx[robId].opId;
+//                trace(opId)
+//            }
+//        }
         if(nax->csrAccess_valid){
             auto robId = nax->csrAccess_payload_robId;
 //                printf("RF write rob=%d %d at %ld\n", robId, *integer_write_data[i], main_time);

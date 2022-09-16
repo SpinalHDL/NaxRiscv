@@ -392,6 +392,7 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
       for(slotId <- 0 until DECODE_COUNT) {
         Verilator.public(stage(INSTRUCTION_DECOMPRESSED, slotId))
         Verilator.public(stage(PC, slotId))
+        Verilator.public(stage(DECODED_MASK, slotId))
       }
 
       doc.property("DECODE_COUNT", DECODE_COUNT.get)

@@ -200,6 +200,7 @@ case class RescheduleEvent(causeWidth : Int, onCommit : Boolean) extends Bundle{
   val cause      = UInt(causeWidth bits)
   val tval       = Bits(TVAL_WIDTH bits)
   val reason     = ScheduleReason.hardType()
+  val skipCommit = Bool()
 }
 
 

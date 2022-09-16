@@ -147,6 +147,7 @@ class CommitPlugin(var commitCount : Int,
       reschedulePort.cause     := cause
       reschedulePort.tval      := tval
       reschedulePort.reason    := reason
+      reschedulePort.skipCommit := skipCommit
     }
 
     val commit = new Area {
@@ -174,6 +175,7 @@ class CommitPlugin(var commitCount : Int,
       reschedulePort.cause     := reschedule.cause
       reschedulePort.tval      := reschedule.tval
       reschedulePort.reason    := reschedule.reason
+      reschedulePort.skipCommit := reschedule.skipCommit
 
 
       val head = UInt(ROB.ID_WIDTH bits)
@@ -256,6 +258,7 @@ class CommitPlugin(var commitCount : Int,
 
       Verilator.public(ptr.stage.isFireing)
       Verilator.public(ptr.stage(ROB.ID))
+//      val commitLine = patch(cmt.lineEvent)
     }
 
     getService[DocPlugin].property("COMMIT_COUNT", COMMIT_COUNT.get)
