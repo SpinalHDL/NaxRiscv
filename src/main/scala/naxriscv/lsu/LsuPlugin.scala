@@ -71,11 +71,11 @@ case class LsuStorePort(sqSize : Int,
 case class LsuPeripheralBusParameter(addressWidth : Int,
                                      dataWidth : Int)
 
-case class LsuPeripheralBusCmd(p : LsuPeripheralBusParameter) extends Bundle{
+case class LsuPeripheralBusCmd(p : LsuPeripheralBusParameter, withData : Boolean = true) extends Bundle{
   val write = Bool()
   val address = UInt(p.addressWidth bits)
-  val data = Bits(p.dataWidth bits)
-  val mask = Bits(p.dataWidth / 8 bit)
+  val data = withData generate Bits(p.dataWidth bits)
+  val mask = withData generate Bits(p.dataWidth / 8 bit)
   val size = UInt(log2Up(log2Up(p.dataWidth/8)+1) bits)
 }
 
@@ -89,11 +89,12 @@ object LsuPeripheralBus{
 }
 
 case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with IMasterSlave {
+  val cmdAhead = Stream(LsuPeripheralBusCmd(p, false))
   val cmd = Stream(LsuPeripheralBusCmd(p))
   val rsp = Flow(LsuPeripheralBusRsp(p))
 
   override def asMaster(): Unit = {
-    master(cmd)
+    master(cmd, cmdAhead)
     slave(rsp)
   }
 
@@ -108,6 +109,20 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
     val sizeMax = log2Up(width / 8)
     def addressAdd(addr : UInt, off :UInt) = U(cmd.address.dropLow(log2Up(p.dataWidth))) @@ (cmd.address(0, log2Up(p.dataWidth) bits) + off)
 
+    val ahead = new Area {
+      val counter = Reg(UInt(log2Up(ratio) bits)) init (0)
+      
+      val beats = cmdAhead.size.muxListDc((0 to log2Up(p.dataWidth / 8)).map(v => v ->U(((1 << v)*8+width-1)/width-1, log2Up(ratio) bits)))
+      ret.cmdAhead.valid := cmdAhead.valid
+      ret.cmdAhead.write := cmdAhead.write
+      ret.cmdAhead.address := addressAdd(cmdAhead.address, counter << log2Up(width/8))
+      ret.cmdAhead.size := cmdAhead.size.min(sizeMax)
+      cmdAhead.ready := ret.cmdAhead.ready && counter === beats
+
+      when(ret.cmdAhead.fire){counter := counter + 1}
+      when(cmdAhead.ready) { counter := 0 }
+    }
+    
     val front = new Area {
       val counter = Reg(UInt(log2Up(ratio) bits)) init (0)
       val cmdSel = ret.cmd.address(log2Up(width/8), log2Up(ratio) bits)
@@ -150,6 +165,45 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
     }
   }.ret
 
+//  def toAxiLite4(): AxiLite4 = new Composite(this, "toAxiLite4"){
+//    val axiConfig = AxiLite4Config(
+//      addressWidth = p.addressWidth,
+//      dataWidth    = p.dataWidth
+//    )
+//
+//    val axi = AxiLite4(axiConfig)
+//    val (a, wRaw) = StreamFork2(cmd)
+//    val w = wRaw.throwWhen(!wRaw.write)
+//    val writeSel = RegNextWhen(cmd.write, cmd.valid)
+//
+//    a.ready := (a.write ? axi.aw.ready | axi.ar.ready)
+//
+//    val addr = U(a.address.dropLow(log2Up(p.dataWidth/8)) << log2Up(p.dataWidth/8))
+//
+//    //AR
+//    axi.ar.valid := a.valid && !a.write
+//    axi.ar.addr  := addr
+//    axi.ar.setUnprivileged
+//
+//    //AW
+//    axi.aw.valid := a.valid && a.write
+//    axi.aw.addr  := addr
+//    axi.aw.setUnprivileged
+//
+//    //W
+//    axi.w.valid := w.valid
+//    axi.w.data  := w.data
+//    axi.w.strb  := w.mask
+//    w.ready := axi.w.ready
+//
+//    //R/B
+//    rsp.valid := axi.r.valid || axi.b.valid
+//    rsp.data  := axi.r.data
+//    rsp.error := !(writeSel ? axi.b.isOKAY() | axi.r.isOKAY())
+//    axi.b.ready    := True
+//    axi.r.ready    := True
+//  }.axi
+
   def toAxiLite4(): AxiLite4 = new Composite(this, "toAxiLite4"){
     val axiConfig = AxiLite4Config(
       addressWidth = p.addressWidth,
@@ -157,29 +211,26 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
     )
 
     val axi = AxiLite4(axiConfig)
-    val (a, wRaw) = StreamFork2(cmd)
-    val w = wRaw.throwWhen(!wRaw.write)
-    val writeSel = RegNextWhen(cmd.write, cmd.valid)
-
-    a.ready := (a.write ? axi.aw.ready | axi.ar.ready)
-
-    val addr = U(a.address.dropLow(log2Up(p.dataWidth/8)) << log2Up(p.dataWidth/8))
+    val writeSel = RegNextWhen(cmdAhead.write, cmdAhead.valid)
+    val addr = U(cmdAhead.address.dropLow(log2Up(p.dataWidth/8)) << log2Up(p.dataWidth/8))
 
     //AR
-    axi.ar.valid := a.valid && !a.write
+    axi.ar.valid := cmdAhead.valid && !cmdAhead.write
     axi.ar.addr  := addr
     axi.ar.setUnprivileged
 
     //AW
-    axi.aw.valid := a.valid && a.write
+    axi.aw.valid := cmdAhead.valid && cmdAhead.write
     axi.aw.addr  := addr
     axi.aw.setUnprivileged
 
+    cmdAhead.ready := (cmdAhead.write ? axi.aw.ready | axi.ar.ready)
+
     //W
-    axi.w.valid := w.valid
-    axi.w.data  := w.data
-    axi.w.strb  := w.mask
-    w.ready := axi.w.ready
+    axi.w.valid := cmd.valid && cmd.write
+    axi.w.data  := cmd.data
+    axi.w.strb  := cmd.mask
+    cmd.ready := axi.w.ready || !cmd.write
 
     //R/B
     rsp.valid := axi.r.valid || axi.b.valid
@@ -1757,15 +1808,17 @@ class LsuPlugin(var lqSize: Int,
       val hitStoreIo  = sq.mem.io.readAsync(sq.ptr.commitReal)
       val hitStoreAmo = sq.mem.amo.readAsync(sq.ptr.commitReal)
       val hitStoreSc  = sq.mem.sc.readAsync(sq.ptr.commitReal)
-      val storeHit = sqOnTop && storeWriteBackUsable && sq.regs.map(reg => reg.valid && reg.address.translated && reg.data.loadedDone).read(sq.ptr.commitReal) && (hitStoreIo || hitStoreAmo || hitStoreSc)
+      val storeHit = sqOnTop && sq.regs.map(reg => reg.valid && reg.address.translated).read(sq.ptr.commitReal) && (hitStoreIo || hitStoreAmo || hitStoreSc)
       val loadHit = lqOnTop && lq.regs.map(reg => reg.valid && reg.waitOn.commit).read(lq.ptr.freeReal) && lq.mem.io.readAsync(lq.ptr.freeReal)
       val hit = storeHit || loadHit
 
       val fire = CombInit(RegNext(peripheralBus.rsp.fire) init(False))
       val enabled = RegInit(False) setWhen(hit) clearWhen(fire)
+      val dataReady = RegNext(!storeHit || storeWriteBackUsable && sq.regs.map(_.data.loadedDone).read(sq.ptr.commitReal))
       val isStore = RegNextWhen(storeHit, hit)
       val isLoad = RegNextWhen(!storeHit, hit)
       val cmdSent = RegInit(False) setWhen(peripheralBus.cmd.fire) clearWhen(fire)
+      val cmdNoDataSent = RegInit(False) setWhen(peripheralBus.cmdAhead.fire) clearWhen(fire)
 
       val robId = RegNext(commit.currentCommitRobId)
       val loadPhysRd = RegNext(lq.mem.physRd.readAsync(lq.ptr.freeReal))
@@ -1775,9 +1828,9 @@ class LsuPlugin(var lqSize: Int,
       val loadSize = RegNext(lq.regs.map(_.address.size).read(lq.ptr.freeReal))
       val loadUnsigned = RegNext(lq.regs.map(_.address.unsigned).read(lq.ptr.freeReal))
       val loadWriteRd = RegNext(isLoad && lq.mem.writeRd.readAsync(lq.ptr.freeReal))
-      val storeAddress = RegNextWhen(setup.cacheStore.cmd.address, hit)
+      val storeAddress = RegNext(sq.mem.addressPost.readAsync(sq.ptr.commitReal))
       val storeAddressVirt = RegNext(sq.mem.addressPre.readAsync(sq.ptr.commitReal))
-      val storeSize = RegNextWhen(store.writeback.feed.size, hit)
+      val storeSize = RegNext(sq.regs.map(_.address.size).read(sq.ptr.commitReal))
       val storeData = RegNextWhen(setup.cacheStore.cmd.data, hit)
       val storeMask = RegNextWhen(setup.cacheStore.cmd.mask, hit)
       val storeAmo = RegNextWhen(hitStoreAmo, hit)
@@ -1797,7 +1850,15 @@ class LsuPlugin(var lqSize: Int,
       wakeRf.physical := loadPhysRd
       wakeRf.regfile := loadRegfileRd
 
-      peripheralBus.cmd.valid   := enabled && !cmdSent && isIo
+
+      peripheralBus.cmdAhead.valid   := enabled && !cmdNoDataSent && isIo
+      peripheralBus.cmdAhead.write   := isStore
+      peripheralBus.cmdAhead.address := address
+      peripheralBus.cmdAhead.size    := isStore ? storeSize otherwise loadSize
+//      peripheralBus.cmdNoData.data    := storeData
+//      peripheralBus.cmdNoData.mask    := storeMask
+
+      peripheralBus.cmd.valid   := enabled && !cmdSent && isIo && dataReady
       peripheralBus.cmd.write   := isStore
       peripheralBus.cmd.address := address
       peripheralBus.cmd.size    := isStore ? storeSize otherwise loadSize
@@ -1870,7 +1931,7 @@ class LsuPlugin(var lqSize: Int,
         }
 
         IDLE whenIsActive {
-          when(enabled && isAtomic){
+          when(enabled && dataReady && isAtomic){
             when(sq.ptr.commit === sq.ptr.free){
               when(storeSc){
                 goto(ALU)
@@ -2012,7 +2073,7 @@ class LsuPlugin(var lqSize: Int,
     }
 
     store.writeback.feed.holdPrefetch setWhen(flush.busy)
-    store.writeback.feed.holdPrefetch setWhen(special.enabled)
+    store.writeback.feed.holdPrefetch setWhen(special.enabled && special.dataReady)
 
     val whitebox = new AreaRoot{
       val stage = frontend.pipeline.dispatch
