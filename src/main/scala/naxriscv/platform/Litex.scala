@@ -33,8 +33,7 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int, toPeripheral : UI
     dataWidth = ramDataWidth
   )
   plugins += new LsuPeripheralAxiLite4(
-    ioDataWidth  = ioDataWidth,
-    reg_stage    = false
+    ioDataWidth  = ioDataWidth
   )
 
   val cpu = new NaxRiscv(
