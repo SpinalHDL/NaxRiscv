@@ -139,13 +139,13 @@ class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRIS
   }
 
 
-  doTest("config_rv32imasu",  Config.plugins(withRdTime = false, xlen = 32, withRvc = false), linuxCount = 0, freertosCount = 2)
-  doTest("config_rv64imasu",  Config.plugins(withRdTime = false, xlen = 64, withRvc = false), linuxCount = 0, freertosCount = 2)
-  doTest("config_rv32imacsu", Config.plugins(withRdTime = false, xlen = 32, withRvc = true), linuxCount = 1, freertosCount = 2)
+  doTest("config_rv32imasu",  Config.plugins(withRdTime = false, xlen = 32, withRvc = false), linuxCount = 0, freertosCount = 1)
+  doTest("config_rv64imasu",  Config.plugins(withRdTime = false, xlen = 64, withRvc = false), linuxCount = 0, freertosCount = 1)
+  doTest("config_rv32imacsu", Config.plugins(withRdTime = false, xlen = 32, withRvc = true), linuxCount = 1, freertosCount  = 1)
   doTest("config_rv32imafcsu", Config.plugins(withRdTime = false, xlen = 32, withRvc = true, withFloat = true, withDouble = false), linuxCount = 0, freertosCount = 0)
-  doTest("config_rv32imafdcsu", Config.plugins(withRdTime = false, xlen = 32, withRvc = true, withFloat = true, withDouble = true), linuxCount = 0, freertosCount = 2)
-  doTest("config_rv64imacsu", Config.plugins(withRdTime = false, xlen = 64, withRvc = true), linuxCount = 1, freertosCount = 2)
+  doTest("config_rv32imafdcsu", Config.plugins(withRdTime = false, xlen = 32, withRvc = true, withFloat = true, withDouble = true), linuxCount = 0, freertosCount = 1)
+  doTest("config_rv64imacsu", Config.plugins(withRdTime = false, xlen = 64, withRvc = true), linuxCount = 0, freertosCount =1)
   doTest("config_rv64imafcsu", Config.plugins(withRdTime = false, xlen = 64, withRvc = true, withFloat = true, withDouble = false), linuxCount = 0, freertosCount = 0)
-  doTest("config_rv64imafdcsu", Config.plugins(withRdTime = false, xlen = 64, withRvc = true, withFloat = true, withDouble = true), linuxCount = 1, freertosCount = 2)
+  doTest("config_rv64imafdcsu", Config.plugins(withRdTime = false, xlen = 64, withRvc = true, withFloat = true, withDouble = true), linuxCount = 1, freertosCount = 1)
 }
 
