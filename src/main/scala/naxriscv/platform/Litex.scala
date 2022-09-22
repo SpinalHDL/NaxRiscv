@@ -216,12 +216,21 @@ boot 0x40f00000
 dtc -O dtb -o rv32.dtb arty_a7.dts
 py3tftp -p 69
 
+tar -cvf chroot.tar debian-riscv64-tarball-20180418
+curl --upload-file chroot.tar https://transfer.sh/chroot.tar
+
+mount -o remount,rw /
+
 picocom -b 115200 /dev/ttyUSB1 --imap lfcrlf
-qemu-img convert -f qcow2 -O raw sid-rv64.qcow2 /dev/sdb3
+qemu-img convert -f qcow2 -O raw sid.qcow2 /dev/sdb3
 qemu image => https://wiki.debian.org/RISC-V#OS_.2F_filesystem_imageshttps://gist.github.com/shamil/62935d9b456a6f9877b5
 sudo gedit /media/rawrr/rootfs/lib/systemd/system/getty@.service
 https://gist.github.com/shamil/62935d9b456a6f9877b5
 
+-drive file=/dev/sdb,format=raw,if=virtio
+
+nano /etc/ssh/sshd_config
+PermitRootLogin yes
 
 sudo modprobe nbd max_part=8
 sudo qemu-nbd --connect=/dev/nbd0 sid.qcow2
@@ -262,6 +271,8 @@ python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=32 --scala-args='rvc=true,alu-count=1,decode-count=1' --with-jtag-instruction --build --load
 
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=32 --scala-args='rvc=false,rvf=false,rvd=false' --with-jtag-instruction --csr-csv build/digilent_nexys_video/csr.csv --csr-json build/digilent_nexys_video/csr.json --load
+
+curl https://www.ports.debian.org/archive_2022.key | apt-key add -
 
 extract cpio =>
 sudo cpio -iv < /tmp/archive.cpio
@@ -448,6 +459,7 @@ chocolate-doom -2 -timedemo demo1.lmp
 
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true' --with-jtag-tap --build --load
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1' --with-jtag-instruction --build --load
+python3 -m litex_boards.targets.digilent_arty --variant=a7-100  --cpu-type=naxriscv  --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1'  --build --load
 
 ./make.py --board=arty --variant=a7-100 --cpu-count=1 --load
 
