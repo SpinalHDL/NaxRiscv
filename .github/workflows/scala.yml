@@ -65,4 +65,4 @@ jobs:
         run: sbt clean compile
 
       - name: Test
-        run: NAXRISCV_REGRESSION_THREAD_COUNT=1 sbt test
+        run: NAXRISCV_REGRESSION_THREAD_COUNT=1 SBT_OPTS="-Xmx2G -XX:+UseConcMarkSweepGC -XX:+CMSClassUnloadingEnabled -XX:MaxPermSize=2G -Xss2M  -Duser.timezone=GMT" sbt test
