@@ -45,6 +45,7 @@ object Config{
               withDistributedRam : Boolean = true,
               xlen : Int = 32,
               withLoadStore : Boolean = true,
+              withDedicatedLoadAgu : Boolean = false,
               withDebug : Boolean = false,
               withEmbeddedJtagTap : Boolean = false,
               withEmbeddedJtagInstruction : Boolean = false,
@@ -211,21 +212,33 @@ object Config{
           )
         }
       )
-      plugins += new DataCachePlugin(
-        memDataWidth = 64,
-        cacheSize    = 4096*4,
-        wayCount     = 4,
-        refillCount = 2,
-        writebackCount = 2,
-        tagsReadAsync = withDistributedRam,
-        loadReadTagsAt = if(withDistributedRam) 1 else 0,
-        storeReadTagsAt = if(withDistributedRam) 1 else 0,
-        reducedBankWidth = false,
-        //      loadHitAt      = 2
-        //      loadRspAt      = 3,
-        loadRefillCheckEarly = false
-      )
     }
+
+    if(!withLoadStore){
+      plugins += new Plugin{
+        val setup = create early new Area{
+          val cache = getService[DataCachePlugin]
+          val store = cache.newStorePort()
+          spinal.lib.slave(store)
+          spinal.lib.slave(cache.setup.lockPort)
+        }
+      }
+    }
+
+    plugins += new DataCachePlugin(
+      memDataWidth = 64,
+      cacheSize    = 4096*4,
+      wayCount     = 4,
+      refillCount = 2,
+      writebackCount = 2,
+      tagsReadAsync = withDistributedRam,
+      loadReadTagsAt = if(withDistributedRam) 1 else 0,
+      storeReadTagsAt = if(withDistributedRam) 1 else 0,
+      reducedBankWidth = false,
+      //      loadHitAt      = 2
+      //      loadRspAt      = 3,
+      loadRefillCheckEarly = false
+    )
 
     //MISC
     plugins += new RobPlugin(
@@ -274,7 +287,15 @@ object Config{
     //    plugins += new ShiftPlugin("EU0")
     if(aluCount == 1) plugins += new BranchPlugin("EU0", writebackAt = 2, staticLatency = false)
     if(withLoadStore) {
-      plugins += new LoadPlugin("EU0")
+      withDedicatedLoadAgu match{
+        case false => plugins += new LoadPlugin("EU0")
+        case true => {
+          plugins += new ExecutionUnitBase("LOAD", writebackCountMax = 0, readPhysRsFromQueue = true)
+          plugins += new SrcPlugin("LOAD")
+          plugins += new LoadPlugin("LOAD")
+        }
+      }
+
       plugins += new StorePlugin("EU0")
     }
     plugins += new EnvCallPlugin("EU0")(rescheduleAt = 2)
@@ -374,6 +395,7 @@ object Gen extends App{
       aluCount    = 2,
       decodeCount = 2,
       debugTriggers = 4,
+      withDedicatedLoadAgu = false,
       withRvc = false,
       withLoadStore = true,
       withMmu = true,
@@ -432,7 +454,7 @@ object Gen64 extends App{
   LutInputs.set(6)
   def plugins = {
     val l = Config.plugins(
-      sideChannels = false, //WARNING, FOR TEST PURPOSES, turn to false <3
+      sideChannels = false, //WARNING, FOR TEST PURPOSES ONLY, turn to false for real stuff <3
       xlen = 64,
       withRdTime = false,
       aluCount    = 2,
