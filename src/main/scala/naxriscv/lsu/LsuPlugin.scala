@@ -25,6 +25,33 @@ import spinal.lib.fsm._
 
 import scala.collection.mutable
 
+/*
+Potential V2 ?
+- Single address pipeline (and so mmu translation)
+- Store mmu translation for following replays
+- Shift register based address queue
+- merging store / load queues
+
+Single address pipeline downside =>
+- Lower peak bandwidth in the LSU
+
+Store mmu translation for following replays downsides =>
+- Bypass required between mmu -> cache (which is a very critical path)
+
+Shift register based address queue =>
+--
+s-1
+- replay selection =>
+  Faster priority selection (as the order is static)
+  But require to OhMux the context ID
+S0
+- AGU
+- AGU / replay arbitration
+S1
+- match queues 12 bits LSB, mask against priority
+
+ */
+
 object LsuUtils{
   def sizeWidth(wordWidth : Int) = log2Up(log2Up(wordWidth/8)+1)
 }
