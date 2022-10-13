@@ -2,7 +2,7 @@ package naxriscv
 
 import spinal.core._
 import naxriscv.compatibility._
-import naxriscv.debug.{DebugTransportModuleParameter, EmbeddedJtagPlugin}
+import naxriscv.debug.EmbeddedJtagPlugin
 import naxriscv.frontend._
 import naxriscv.fetch._
 import naxriscv.misc._
@@ -18,6 +18,7 @@ import spinal.lib.{LatencyAnalysis, Timeout}
 import spinal.lib.bus.amba4.axi.Axi4SpecRenamer
 import spinal.lib.bus.amba4.axilite.AxiLite4SpecRenamer
 import spinal.lib.bus.misc.SizeMapping
+import spinal.lib.cpu.riscv.debug.DebugTransportModuleParameter
 import spinal.lib.eda.bench.Rtl
 import spinal.lib.misc.WishboneClint
 import spinal.lib.misc.plic.WishbonePlic
@@ -83,7 +84,9 @@ object Config{
         idle         = 7
       ),
       withTunneling = jtagTunneled,
-      withTap = withEmbeddedJtagTap
+      withTap = withEmbeddedJtagTap,
+      dataCount = xlen/32,
+      xlens = Seq(xlen)
     )
 
     //FETCH

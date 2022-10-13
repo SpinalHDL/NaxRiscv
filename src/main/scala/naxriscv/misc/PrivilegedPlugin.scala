@@ -2,7 +2,6 @@ package naxriscv.misc
 
 import naxriscv.{Fetch, Frontend, Global}
 import naxriscv.Global._
-import naxriscv.debug.{DebugDmToHartOp, DebugHartBus, DebugModule}
 import naxriscv.execute.EnvCallPlugin.{CAUSE_FLUSH, CAUSE_REDO, CAUSE_XRET}
 import naxriscv.execute.{CsrAccessPlugin, EnvCallPlugin}
 import naxriscv.fetch.{AlignerPlugin, FetchCachePlugin, FetchPlugin, PcPlugin}
@@ -15,6 +14,7 @@ import spinal.lib._
 import naxriscv.utilities.{DocPlugin, Plugin}
 import spinal.core
 import spinal.lib.bus.misc.{AddressMapping, SizeMapping}
+import spinal.lib.cpu.riscv.debug.{DebugDmToHartOp, DebugHartBus, DebugModule}
 import spinal.lib.fsm._
 import spinal.lib.pipeline.StageableOffset
 
@@ -174,14 +174,14 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
       bus.hartToDm.setIdle()
       bus.haltRsp.valid := False
-      bus.resume.served := False
+      bus.resume.rsp.valid := False
 
       bus.halted := halted
       bus.running := running
       bus.unavailable := RegNext(ClockDomain.current.isResetActive)
 
       val doHalt = RegInit(False) setWhen(bus.haltReq && bus.running && !setup.debugMode) clearWhen(bus.haltRsp.valid)
-      val doResume = bus.resume.isPending()
+      val doResume = bus.resume.isPending(1)
 
       val fetchBypass = new Area{
         val words = p.debugVector.size.toInt/4
@@ -275,7 +275,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
           val isCause = RegInit(False)
 
           IDLE whenIsActive{
-            when(step && bus.resume.served){
+            when(step && bus.resume.rsp.valid){
               goto(SINGLE)
             }
           }
@@ -932,7 +932,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
           setup.debugMode := False
           setup.privilege := debug.dcsr.prv
           debug.running := True
-          debug.bus.resume.served := True
+          debug.bus.resume.rsp.valid := True
           goto(IDLE)
         }
       }

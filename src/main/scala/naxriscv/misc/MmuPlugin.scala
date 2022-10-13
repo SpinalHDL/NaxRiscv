@@ -4,7 +4,7 @@ import naxriscv._
 import naxriscv.Global._
 import naxriscv.fetch.FetchPlugin
 import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
-import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService, CsrRamService, CsrService, PostCommitBusy, PulseHandshake}
+import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, AddressTranslationService, CsrRamService, CsrService, PostCommitBusy}
 import naxriscv.lsu.DataCachePlugin
 import naxriscv.riscv.CSR
 import naxriscv.utilities.Plugin
@@ -143,7 +143,7 @@ class MmuPlugin(var spec : MmuSpec,
     fetch.retain()
 
     val cacheLoad = cache.newLoadPort(priority = 1)
-    val invalidatePort = PulseHandshake().setIdleAll()
+    val invalidatePort = FlowCmdRsp().setIdleAll()
   }
 
   val logic = create late new Area{
@@ -194,7 +194,7 @@ class MmuPlugin(var spec : MmuSpec,
 
     csr.onDecode(CSR.SATP){
       csr.onDecodeFlushPipeline()
-      setup.invalidatePort.request := True
+      setup.invalidatePort.cmd.valid := True
     }
 
     ram.allocationLock.release()
@@ -475,7 +475,7 @@ class MmuPlugin(var spec : MmuSpec,
     }
 
     val invalidate = new Area{
-      val requested = RegInit(True) setWhen(setup.invalidatePort.request)
+      val requested = RegInit(True) setWhen(setup.invalidatePort.cmd.valid)
       val canStart = True
       val depthMax = storageSpecs.map(_.p.levels.map(_.depth).max).max
       val counter = Reg(UInt(log2Up(depthMax)+1 bits)) init(0)
@@ -503,7 +503,7 @@ class MmuPlugin(var spec : MmuSpec,
         canStart := False
       }
 
-      setup.invalidatePort.served setWhen(done.rise(False))
+      setup.invalidatePort.rsp.valid setWhen(done.rise(False))
     }
     fetch.release()
     refill.build()

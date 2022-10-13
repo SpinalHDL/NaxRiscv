@@ -6,11 +6,15 @@ import naxriscv.utilities._
 import spinal.core._
 import spinal.core.fiber.Handle
 import spinal.lib.com.jtag.{Jtag, JtagTapFactory, JtagTapInstructionCtrl}
+import spinal.lib.cpu.riscv.debug.{DebugModule, DebugModuleParameter, DebugTransportModuleJtagTap, DebugTransportModuleJtagTapWithTunnel, DebugTransportModuleParameter, DebugTransportModuleTunneled}
 import spinal.lib.slave
 
 class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
+                         val dataCount : Int, // At least dataCount = xlens.max/32,
+                         val xlens : Seq[Int],
                          var withTap : Boolean = true,
-                         var withTunneling : Boolean = false) extends Plugin{
+                         var withTunneling : Boolean = false
+                        ) extends Plugin{
 
   val debugCd = Handle[ClockDomain].setName("debugCd")
   val noTapCd = Handle[ClockDomain].setName("jtagCd")
@@ -28,7 +32,8 @@ class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
         version = p.version + 1,
         harts = 1,
         progBufSize = 4,
-        datacount   = Global.XLEN/32
+        datacount   = dataCount,
+        xlens = xlens
       )
     )
     val ndmreset = dm.io.ndmreset.toIo()

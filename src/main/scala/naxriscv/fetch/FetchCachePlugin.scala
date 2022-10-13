@@ -2,7 +2,7 @@ package naxriscv.fetch
 
 import naxriscv.{Fetch, Global}
 import naxriscv.Global._
-import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationService, JumpService, PerformanceCounterService, PulseHandshake}
+import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationService, JumpService, PerformanceCounterService}
 import naxriscv.utilities._
 import spinal.core._
 import spinal.lib._
@@ -223,7 +223,7 @@ class FetchCachePlugin(var cacheSize : Int,
     val redoJump = getService[PcPlugin].createJumpInterface(priority)
     val historyJump = withHistory generate getService[HistoryPlugin].createJumpPort(priority)
     val refillEvent = getServiceOption[PerformanceCounterService].map(_.createEventPort(refillEventId))
-    val invalidatePort = PulseHandshake().setIdleAll
+    val invalidatePort = FlowCmdRsp().setIdleAll
 
 
     val translationStorage = translation.newStorage(translationStorageParameter)
@@ -324,7 +324,7 @@ class FetchCachePlugin(var cacheSize : Int,
     }
 
     val invalidate = new Area{
-      val requested = RegInit(False) setWhen(setup.invalidatePort.request)
+      val requested = RegInit(False) setWhen(setup.invalidatePort.cmd.valid)
       val canStart = True
       val counter = Reg(UInt(log2Up(linePerWay)+1 bits)) init(0)
       val done = counter.msb
@@ -349,7 +349,7 @@ class FetchCachePlugin(var cacheSize : Int,
         canStart := False
       }
 
-      setup.invalidatePort.served setWhen(done.rise(False))
+      setup.invalidatePort.rsp.valid setWhen(done.rise(False))
     }
 
 

@@ -145,29 +145,29 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
       }
 
       VMA_FETCH_FLUSH whenIsActive {
-        vmaPort.request   setWhen(vmaInv)
-        fetchPort.request setWhen(fetchInv)
+        vmaPort.cmd.valid   setWhen(vmaInv)
+        fetchPort.cmd.valid setWhen(fetchInv)
         goto(VMA_FETCH_WAIT)
       }
 
       VMA_FETCH_WAIT whenIsActive{
-        when(fetchPort.served) {
+        when(fetchPort.rsp.valid) {
           goto(if(lsuPort != null) LSU_FLUSH else IDLE)
         }
-        when(vmaPort.served){
+        when(vmaPort.rsp.valid){
           goto(IDLE)
         }
       }
 
       if(lsuPort != null) {
         LSU_FLUSH whenIsActive {
-          lsuPort.request := True
+          lsuPort.cmd.valid := True
           lsuPort.cmd.withFree := flushData
           goto(WAIT_LSU)
         }
 
         WAIT_LSU whenIsActive {
-          when(lsuPort.served) {
+          when(lsuPort.rsp.valid) {
             goto(IDLE)
           }
         }
