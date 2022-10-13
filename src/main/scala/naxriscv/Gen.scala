@@ -84,9 +84,7 @@ object Config{
         idle         = 7
       ),
       withTunneling = jtagTunneled,
-      withTap = withEmbeddedJtagTap,
-      dataCount = xlen/32,
-      xlens = Seq(xlen)
+      withTap = withEmbeddedJtagTap
     )
 
     //FETCH

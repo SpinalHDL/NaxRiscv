@@ -10,8 +10,6 @@ import spinal.lib.cpu.riscv.debug.{DebugModule, DebugModuleParameter, DebugTrans
 import spinal.lib.slave
 
 class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
-                         val dataCount : Int, // At least dataCount = xlens.max/32,
-                         val xlens : Seq[Int],
                          var withTap : Boolean = true,
                          var withTunneling : Boolean = false
                         ) extends Plugin{
@@ -32,8 +30,8 @@ class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
         version = p.version + 1,
         harts = 1,
         progBufSize = 4,
-        datacount   = dataCount,
-        xlens = xlens
+        datacount   = Global.XLEN/32,
+        xlens = List(Global.XLEN.get)
       )
     )
     val ndmreset = dm.io.ndmreset.toIo()
