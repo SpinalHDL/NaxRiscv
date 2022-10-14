@@ -272,8 +272,9 @@ class AlignerPlugin(var decodeCount : Int,
     val injectLogic = for(port <- injectPorts) yield new Area {
       val rvc = port.payload(1 downto 0) =/= 3
       when(port.valid){
+        output.valid := True
         output(INSTRUCTION_ALIGNED, 0) := port.payload
-        output(MASK_ALIGNED, 0) := valid
+        output(MASK_ALIGNED, 0) := True
         for(i <- 1 until DECODE_COUNT) output(MASK_ALIGNED, i) := False
         output(INSTRUCTION_SLICE_COUNT, 0) := (if(RVC) U(!rvc) else U(0))
         output(FETCH_FAULT, 0) := False
