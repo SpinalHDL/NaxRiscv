@@ -262,8 +262,7 @@ object Config{
       withRdTime = withRdTime,
       withSupervisor = withSupervisor,
       withDebug = withDebug,
-      debugTriggers = debugTriggers,
-      debugVector = SizeMapping(0x100, 0x10*4)
+      debugTriggers = debugTriggers
     ))
     if(withPerfCounters) plugins += new PerformanceCounterPlugin(
       additionalCounterCount = 4,
@@ -400,8 +399,8 @@ object Gen extends App{
       withRvc = false,
       withLoadStore = true,
       withMmu = true,
-      withDebug = false,
-      withEmbeddedJtagTap = false,
+      withDebug = true,
+      withEmbeddedJtagTap = true,
       jtagTunneled = false,
       withFloat = false,
       withDouble = false,

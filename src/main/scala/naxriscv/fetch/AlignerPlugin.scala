@@ -11,7 +11,7 @@ import naxriscv.Global._
 import naxriscv.Frontend._
 import naxriscv.Fetch._
 import naxriscv.frontend.FrontendPlugin
-import naxriscv.interfaces.{AddressTranslationService, JumpService, LockedImpl}
+import naxriscv.interfaces.{AddressTranslationService, FetchInjector, JumpService, LockedImpl}
 import naxriscv.prediction.FetchWordPrediction
 import naxriscv.utilities.{Plugin, Service}
 import spinal.lib.pipeline.Connection.M2S
@@ -23,7 +23,7 @@ import scala.collection.mutable
 
 
 class AlignerPlugin(var decodeCount : Int,
-                    var inputAt : Int) extends Plugin with FetchPipelineRequirements{
+                    var inputAt : Int) extends Plugin with FetchPipelineRequirements with FetchInjector{
 
 
   create config {
@@ -41,6 +41,12 @@ class AlignerPlugin(var decodeCount : Int,
   def addFirstWordContext(key : Stageable[_ <: Data]*): Unit = firstWordContextSpec ++= key
 
   def setSingleFetch(){ setup.singleFetch := True}
+
+  var injectPreHaltPorts = ArrayBuffer[Bool]()
+  var injectPorts = ArrayBuffer[Flow[Bits]]()
+
+  override def injectPort() = injectPorts.addRet(Flow(Bits(32 bits)))
+
 
   val setup = create early new Area{
     val fetch = getService[FetchPlugin]
@@ -261,6 +267,17 @@ class AlignerPlugin(var decodeCount : Int,
     input.flushIt(output.isFlushed, root = false)
     when(output.isFlushed){
       buffer.mask := 0
+    }
+
+    val injectLogic = for(port <- injectPorts) yield new Area {
+      val rvc = port.payload(1 downto 0) =/= 3
+      when(port.valid){
+        output(INSTRUCTION_ALIGNED, 0) := port.payload
+        output(MASK_ALIGNED, 0) := valid
+        for(i <- 1 until DECODE_COUNT) output(MASK_ALIGNED, i) := False
+        output(INSTRUCTION_SLICE_COUNT, 0) := (if(RVC) U(!rvc) else U(0))
+        output(FETCH_FAULT, 0) := False
+      }
     }
 
     setup.frontend.release()

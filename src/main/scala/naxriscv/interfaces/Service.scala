@@ -581,3 +581,7 @@ trait PerformanceCounterService extends Service with LockedImpl{
 trait PostCommitBusy extends Service{
   def postCommitBusy : Bool
 }
+
+trait FetchInjector extends Service{
+  def injectPort() : Flow[Bits]
+}
