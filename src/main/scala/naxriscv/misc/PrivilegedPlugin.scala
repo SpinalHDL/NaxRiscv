@@ -174,6 +174,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       bus.hartToDm.setIdle()
       bus.exception := False
       bus.ebreak := False
+      bus.redo := False
       bus.commit := setup.debugMode && commit.onCommit().mask.orR
       bus.resume.rsp.valid := False
 
@@ -725,6 +726,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         val dcause = p.withDebug generate Reg(UInt(3 bits))
         val debugException = p.withDebug generate RegInit(False)
         val ebreak = p.withDebug generate RegInit(False)
+        val redo = p.withDebug generate RegInit(False)
       }
 
       val xret = new Area{
@@ -751,6 +753,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         if(p.withDebug) {
           trap.debugException := False
           trap.ebreak := False
+          trap.redo := False
         }
         when(!reschedule.fromCommit && decoderInterrupt.raised){
           trap.interrupt := True
@@ -774,6 +777,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
             }
             is(CAUSE_REDO){
               setup.redoTriggered := True
+              if(p.withDebug) trap.redo := True
               goto(FLUSH_CALC)
             }
             is(CAUSE_XRET){
@@ -819,6 +823,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       FLUSH_JUMP whenIsActive{
         setup.jump.valid := True
         setup.jump.pc := U(readed).resized
+        if(p.withDebug) setup.debugBus.redo := setup.debugMode && trap.redo
         goto(IDLE)
       }
 

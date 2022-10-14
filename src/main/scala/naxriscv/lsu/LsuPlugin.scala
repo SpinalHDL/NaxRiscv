@@ -876,7 +876,7 @@ class LsuPlugin(var lqSize: Int,
                 case false => False
               })
 
-              HIT_SPECULATION := portPush.hitPrediction.likelyToHit && !speculativeHitPredictionDisabled//Keep in mind, HIT_SPECULATION is only for request comming from the LoadPlugin directly
+              HIT_SPECULATION := portPush.hitPrediction.likelyToHit && !speculativeHitPredictionDisabled //Keep in mind, HIT_SPECULATION is only for request comming from the LoadPlugin directly
               when(port.valid && isFireing){
                 for(reg <- regs) when(portPush.oh(reg.id)){
                   reg.waitOn.cacheRsp := True
@@ -1147,7 +1147,7 @@ class LsuPlugin(var lqSize: Int,
           }
 
           //Critical path extracted to help synthesis
-          val doCompletion = isFireing && !LOAD_FRESH_WAIT_SQ && !LOAD_WRITE_FAILURE && (!OLDER_STORE_HIT || stage(OLDER_STORE_BYPASS_SUCCESS)) && !missAligned && !pageFault && !pageFault && !accessFault && !tpk.IO
+          val doCompletion = isFireing && !LOAD_FRESH_WAIT_SQ && !LOAD_WRITE_FAILURE && (!OLDER_STORE_HIT || stage(OLDER_STORE_BYPASS_SUCCESS)) && !missAligned && !pageFault && !accessFault && !tpk.IO
           KeepAttribute(doCompletion)
           val success = doCompletion && !rsp.redo
           when(success){
