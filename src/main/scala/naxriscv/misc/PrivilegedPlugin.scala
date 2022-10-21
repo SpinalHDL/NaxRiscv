@@ -32,7 +32,7 @@ object PrivilegedConfig{
     archId         = 5, //As spike
     impId          = 0,
     hartId         = 0,
-    debugTriggers = 0
+    debugTriggers  = 0
   )
 }
 
@@ -279,8 +279,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         }
 
 
-        csr.read(CSR.DCSR, 3 -> nmip, 6 -> cause, 28 -> xdebugver)
-        csr.readWrite(CSR.DCSR, 0 -> prv, 2 -> step, 4 -> mprven, 9 -> stoptime, 10 -> stopcount, 11 -> stepie, 15 -> ebreakm)
+        csr.read(CSR.DCSR, 3 -> nmip, 6 -> cause,  4 -> mprven, 9 -> stoptime, 10 -> stopcount, 28 -> xdebugver)
+        csr.readWrite(CSR.DCSR, 0 -> prv, 2 -> step, 11 -> stepie, 15 -> ebreakm)
         if(p.withSupervisor) csr.readWrite(CSR.DCSR, 13 -> ebreaks)
         if(p.withUser)       csr.readWrite(CSR.DCSR, 12 -> ebreaku)
 
@@ -329,7 +329,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
           val tdata1 = new Area{
             val read = B(0, XLEN bits)
-            val tpe = Reg(UInt(4 bits)) init(2)
+            val tpe = U(2, 4 bits)
             val dmode = Reg(Bool()) init(False)
 
             val execute = RegInit(False)
@@ -342,8 +342,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
               default -> False
             )
 
-            csrrw(CSR.TDATA1, read, 2 -> execute , 3 -> u, 4-> s, 6 -> m, XLEN - 4 -> tpe, XLEN - 5 -> dmode, 12 -> action)
-
+            csrrw(CSR.TDATA1, read, 2 -> execute , 3 -> u, 4-> s, 6 -> m, 32 - 5 -> dmode, 12 -> action)
+            csrr(CSR.TDATA1, read, 32 - 4 -> tpe)
 
             //TODO action sizelo timing select sizehi maskmax
           }
@@ -354,7 +354,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
 
             val execute = new Area{
-              val enabled = tdata1.action === 1 && tdata1.execute && tdata1.privilegeHit
+              val enabled = !setup.debugMode && tdata1.action === 1 && tdata1.execute && tdata1.privilegeHit
               val slots = for(i <- 0 until Frontend.DECODE_COUNT) yield new Area {
                 val hit = enabled && value === frontend.pipeline.decoded(PC, i)
                 when(hit){
