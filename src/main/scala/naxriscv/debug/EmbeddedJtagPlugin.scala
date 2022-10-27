@@ -29,7 +29,7 @@ class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
       DebugModuleParameter(
         version = p.version + 1,
         harts = 1,
-        progBufSize = 4,
+        progBufSize = 2,
         datacount   = Global.XLEN/32,
         xlens = List(Global.XLEN.get)
       )
