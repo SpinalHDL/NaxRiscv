@@ -86,6 +86,7 @@ class CommitPlugin(var commitCount : Int,
       val frontend = getService[FrontendPlugin]
       val stage = frontend.pipeline.allocated
       stage(ROB.ID) := alloc.resized
+      stage(ROB.MSB) := U(alloc.msb)
       stage.haltIt(full)
 
       allocNext := alloc + (stage.isFireing ? U(ROB.COLS) | U(0))

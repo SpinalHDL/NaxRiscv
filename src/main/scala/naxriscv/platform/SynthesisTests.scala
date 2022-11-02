@@ -12,6 +12,16 @@ object SynthesisTests extends App{
 
     SpinalVerilog({
       new Component {
+        def pip[T <: Data](that : T) = KeepAttribute(RegNext(KeepAttribute(RegNext(that))))
+        val x = out(pip(OHMasking.roundRobinMasked(pip(in.Bits(width bits)), pip(in Bits(width-1 bits)))))
+//        val c = StreamFifoLowLatency(Bits(4 bits), width)
+//        c.io.push.toIo()
+//        c.io.pop.toIo()
+//        c.io.flush.toIo()
+//        val mask = in Bits(width bits)
+//        val result = out(OHMasking.firstV2(mask))
+
+
 //        val en = in Bool()
 //        val din = in Bool()
 //        val addr = in UInt(6 bits)
@@ -44,9 +54,9 @@ object SynthesisTests extends App{
 //        val din = in Bits(width bits)
 //        val dout = out((din << width) >> sel)
 
-        val sel = in UInt(log2Up(width) bits)
-        val din = in Bits(width bits)
-        val dout = out((din) >> sel)
+//        val sel = in UInt(log2Up(width) bits)
+//        val din = in Bits(width bits)
+//        val dout = out((din) >> sel)
 
       }.setDefinitionName(getRtlPath().split("\\.").head)
     })
@@ -54,7 +64,7 @@ object SynthesisTests extends App{
 
 
 
-  val rtls = List(gen(106))
+  val rtls = List(16, 32).map(gen)
 
   val targets = XilinxStdTargets().take(2)
   Bench(rtls, targets)
