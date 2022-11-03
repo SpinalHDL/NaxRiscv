@@ -187,7 +187,7 @@ class MultiPortWritesSymplifier(onlyTagged : Boolean = false) extends PhaseMemBl
   override def doBlackboxing(pc: PhaseContext, typo: MemTopology) : Unit = {
     if(onlyTagged && typo.mem.getTag(classOf[MultiPortWritesSymplifierTag]).isEmpty) return
 
-    if(typo.writes.size > 1 && typo.readsSync.size == 0){
+    if(typo.writes.size > 1 && typo.readsSync.size == 0 && typo.readsAsync.size != 0){
       typo.writes.foreach(w => assert(w.mask == null))
       typo.writes.foreach(w => assert(w.clockDomain == typo.writes.head.clockDomain))
       val cd = typo.writes.head.clockDomain
@@ -230,13 +230,12 @@ class MultiPortWritesSymplifier(onlyTagged : Boolean = false) extends PhaseMemBl
       ctx.foreach(_.restore())
     }
 
-    if(typo.writes.size > 1 && typo.readsAsync.size == 0){
+    if(typo.writes.size > 1 && typo.readsAsync.size == 0 && typo.readsSync.size != 0){
       typo.writes.foreach(w => assert(w.mask == null))
       typo.writes.foreach(w => assert(w.clockDomain == typo.writes.head.clockDomain))
       val cd = typo.writes.head.clockDomain
 
       import typo._
-
       val ctx = List(mem.parentScope.push(), cd.push())
 
       val c = RamSyncMwXor(

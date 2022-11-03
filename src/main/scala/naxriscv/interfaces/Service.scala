@@ -401,6 +401,7 @@ trait AddressTranslationService extends Service with LockedImpl {
   def newStorage(pAny: Any) : Any
   def newTranslationPort(stages: Seq[Stage],
                          preAddress: Stageable[UInt],
+                         allowRefill : Stageable[Bool],
                          usage: AddressTranslationPortUsage,
                          portSpec: Any,
                          storageSpec: Any): AddressTranslationRsp

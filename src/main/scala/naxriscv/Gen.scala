@@ -11,6 +11,7 @@ import naxriscv.execute.fpu._
 import naxriscv.fetch._
 import naxriscv.interfaces.CommitService
 import naxriscv.lsu._
+import naxriscv.lsu2.Lsu2Plugin
 import naxriscv.prediction._
 import naxriscv.riscv.IntRegFile
 import naxriscv.utilities._
@@ -55,6 +56,7 @@ object Config{
               branchCount : Int = 16,
               withFloat  : Boolean = false,
               withDouble : Boolean = false,
+              withLsu2 : Boolean = false,
               lqSize : Int = 16,
               sqSize : Int = 16,
               simulation : Boolean = GenerationFlags.simulation,
@@ -171,48 +173,83 @@ object Config{
 
     //LOAD / STORE
     if(withLoadStore){
-      plugins += new LsuPlugin(
-        lqSize = lqSize,
-        sqSize = sqSize,
-        loadToCacheBypass = true,
-        lqToCachePipelined = true,
-        hitPedictionEntries = 1024,
-        loadWriteRfOnPrivilegeFail = sideChannels,
-        translationStorageParameter = MmuStorageParameter(
-          levels   = List(
-            MmuStorageLevel(
-              id    = 0,
-              ways  = 4,
-              depth = 32
+      withLsu2 match {
+        case false => plugins += new LsuPlugin(
+          lqSize = lqSize,
+          sqSize = sqSize,
+          loadToCacheBypass = true,
+          lqToCachePipelined = true,
+          hitPedictionEntries = 1024,
+          loadWriteRfOnPrivilegeFail = sideChannels,
+          translationStorageParameter = MmuStorageParameter(
+            levels = List(
+              MmuStorageLevel(
+                id = 0,
+                ways = 4,
+                depth = 32
+              ),
+              MmuStorageLevel(
+                id = 1,
+                ways = 2,
+                depth = 32
+              )
             ),
-            MmuStorageLevel(
-              id    = 1,
-              ways  = 2,
-              depth = 32
-            )
+            priority = 1
           ),
-          priority = 1
-        ),
 
-        loadTranslationParameter = withMmu match {
-          case false => StaticAddressTranslationParameter(rspAt = 1)
-          case true => MmuPortParameter(
-            readAt = 0,
-            hitsAt = 0,
-            ctrlAt = 1,
-            rspAt  = 1
-          )
-        },
-        storeTranslationParameter = withMmu match {
-          case false => StaticAddressTranslationParameter(rspAt = 1)
-          case true => MmuPortParameter(
-            readAt = 1,
-            hitsAt = 1,
-            ctrlAt = 1,
-            rspAt  = 1
-          )
-        }
-      )
+          loadTranslationParameter = withMmu match {
+            case false => StaticAddressTranslationParameter(rspAt = 1)
+            case true => MmuPortParameter(
+              readAt = 0,
+              hitsAt = 0,
+              ctrlAt = 1,
+              rspAt = 1
+            )
+          },
+          storeTranslationParameter = withMmu match {
+            case false => StaticAddressTranslationParameter(rspAt = 1)
+            case true => MmuPortParameter(
+              readAt = 1,
+              hitsAt = 1,
+              ctrlAt = 1,
+              rspAt = 1
+            )
+          }
+        )
+        case true => plugins += new Lsu2Plugin(
+          lqSize = lqSize,
+          sqSize = sqSize,
+//          loadToCacheBypass = true,
+          lqToCachePipelined = true,
+//          hitPedictionEntries = 1024,
+          loadWriteRfOnPrivilegeFail = sideChannels,
+          translationStorageParameter = MmuStorageParameter(
+            levels = List(
+              MmuStorageLevel(
+                id = 0,
+                ways = 4,
+                depth = 32
+              ),
+              MmuStorageLevel(
+                id = 1,
+                ways = 2,
+                depth = 32
+              )
+            ),
+            priority = 1
+          ),
+
+          sharedTranslationParameter = withMmu match {
+            case false => StaticAddressTranslationParameter(rspAt = 2)
+            case true => MmuPortParameter(
+              readAt = 1,
+              hitsAt = 1,
+              ctrlAt = 2,
+              rspAt  = 2
+            )
+          }
+        )
+      }
     }
 
     if(!withLoadStore){
@@ -287,16 +324,20 @@ object Config{
     //    plugins += new ShiftPlugin("EU0")
     if(aluCount == 1) plugins += new BranchPlugin("EU0", writebackAt = 2, staticLatency = false)
     if(withLoadStore) {
-      withDedicatedLoadAgu match{
-        case false => plugins += new LoadPlugin("EU0")
-        case true => {
-          plugins += new ExecutionUnitBase("LOAD", writebackCountMax = 0, readPhysRsFromQueue = true)
-          plugins += new SrcPlugin("LOAD")
-          plugins += new LoadPlugin("LOAD")
+      withLsu2 match {
+        case false => {
+          withDedicatedLoadAgu match{
+            case false => plugins += new LoadPlugin("EU0")
+            case true => {
+              plugins += new ExecutionUnitBase("LOAD", writebackCountMax = 0, readPhysRsFromQueue = true)
+              plugins += new SrcPlugin("LOAD")
+              plugins += new LoadPlugin("LOAD")
+            }
+          }
+          plugins += new StorePlugin("EU0")
         }
+        case true => plugins += new AguPlugin("EU0")
       }
-
-      plugins += new StorePlugin("EU0")
     }
     plugins += new EnvCallPlugin("EU0")(rescheduleAt = 2)
     plugins += new CsrAccessPlugin("EU0")(
@@ -399,11 +440,12 @@ object Gen extends App{
       withRvc = false,
       withLoadStore = true,
       withMmu = true,
-      withDebug = true,
-      withEmbeddedJtagTap = true,
+      withDebug = false,
+      withEmbeddedJtagTap = false,
       jtagTunneled = false,
       withFloat = false,
       withDouble = false,
+      withLsu2 = true,
       ioRange = a => a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
     )
     l.foreach{
@@ -464,7 +506,9 @@ object Gen64 extends App{
       withEmbeddedJtagTap = false,
       debugTriggers = 4,
       withFloat = false,
-      withDouble = false
+      withDouble = false,
+      lqSize = 16,
+      sqSize = 16
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))

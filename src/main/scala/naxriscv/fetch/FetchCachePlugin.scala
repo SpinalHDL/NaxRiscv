@@ -270,7 +270,8 @@ class FetchCachePlugin(var cacheSize : Int,
 
     val translationPort = translation.newTranslationPort(
       stages = fetch.pipeline.stages,
-      preAddress = FETCH_PC,
+      preAddress  = FETCH_PC,
+      allowRefill = null,
       usage = AddressTranslationPortUsage.FETCH,
       portSpec = translationPortParameter,
       storageSpec = setup.translationStorage

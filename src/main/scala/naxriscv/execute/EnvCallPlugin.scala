@@ -4,7 +4,7 @@ import naxriscv.Global._
 import naxriscv.fetch.{FetchCachePlugin, FetchPlugin}
 import naxriscv.frontend.DispatchPlugin
 import naxriscv.interfaces.{AddressTranslationService, CommitService, DecoderService, MicroOp, ScheduleReason}
-import naxriscv.lsu.LsuPlugin
+import naxriscv.lsu.{LsuFlusher, LsuPlugin}
 import naxriscv.misc.PrivilegedPlugin
 import naxriscv.riscv.{CSR, Const, Rvi}
 import naxriscv.utilities._
@@ -109,8 +109,8 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
     val flushes = new StateMachine{
       val vmaPort = getService[AddressTranslationService].invalidatePort
       val fetchPort = getService[FetchCachePlugin].invalidatePort
-      val lsuPort   = getServiceOption[LsuPlugin] match {
-        case Some(lsu) => lsu.flushPort
+      val lsuPort   = getServiceOption[LsuFlusher] match {
+        case Some(lsu) => lsu.getFlushPort()
         case None => println("No LSU plugin for the EnvCallPlugin flush ???"); null
       }
 

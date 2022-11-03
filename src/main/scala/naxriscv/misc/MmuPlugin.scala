@@ -94,6 +94,7 @@ class MmuPlugin(var spec : MmuSpec,
 
   case class PortSpec(stages: Seq[Stage],
                       preAddress: Stageable[UInt],
+                      allowRefill : Stageable[Bool],
                       usage : AddressTranslationPortUsage,
                       pp: MmuPortParameter,
                       ss : StorageSpec,
@@ -115,6 +116,7 @@ class MmuPlugin(var spec : MmuSpec,
 
   override def newTranslationPort(stages: Seq[Stage],
                                   preAddress: Stageable[UInt],
+                                  allowRefill : Stageable[Bool],
                                   usage : AddressTranslationPortUsage,
                                   portSpec: Any,
                                   storageSpec: Any) = {
@@ -124,6 +126,7 @@ class MmuPlugin(var spec : MmuSpec,
       new PortSpec(
         stages        = stages,
         preAddress    = preAddress,
+        allowRefill   = allowRefill,
         usage         = usage,
         pp = pp,
         ss = ss,
@@ -243,7 +246,7 @@ class MmuPlugin(var spec : MmuSpec,
       val storage = storages.find(_.self == ps.ss).get
 
 
-      readStage(ALLOW_REFILL) := True
+      readStage(ALLOW_REFILL) := (if(allowRefill != null) readStage(allowRefill) else True)
       val allowRefillBypass = for(stageId <- pp.readAt to pp.ctrlAt) yield new Area{
         val stage = ps.stages(stageId)
         val reg = RegInit(True)

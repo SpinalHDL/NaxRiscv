@@ -31,6 +31,7 @@ class AguPlugin(val euId : String) extends Plugin{
 
     val port = lsu.newAguPort()
     eu.addRobStageable(lsu.keys.LSU_ID)
+    eu.addRobStageable(ROB.MSB)
     eu.setDecodingDefault(SEL, False)
 
     def add(microOp: MicroOp, srcKeys: List[SrcKeys], decoding: DecodeListType) = {
@@ -84,6 +85,7 @@ class AguPlugin(val euId : String) extends Plugin{
     setup.port.valid := isValid && SEL && !fired
     setup.port.address := U(SrcStageables.ADD_SUB).resized
     setup.port.robId := ROB.ID
+    setup.port.robIdMsb := ROB.MSB
     setup.port.size := U(func3(1 downto 0))
     setup.port.sc  := SC
     setup.port.amo := AMO

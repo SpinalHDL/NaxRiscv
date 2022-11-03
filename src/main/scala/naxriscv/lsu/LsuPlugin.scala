@@ -5,7 +5,7 @@ import naxriscv.{Fetch, Frontend, Global, ROB}
 import naxriscv.frontend.{DispatchPlugin, FrontendPlugin, RfDependencyPlugin}
 import naxriscv.interfaces._
 import naxriscv.riscv.{AtomicAlu, CSR, FloatRegFile, IntRegFile, Rvi}
-import naxriscv.utilities.{AddressToMask, DocPlugin, Plugin, WithRfWriteSharedSpec}
+import naxriscv.utilities.{AddressToMask, DocPlugin, Plugin, Service, WithRfWriteSharedSpec}
 import spinal.core._
 import spinal.lib._
 import spinal.lib.pipeline.Connection.M2S
@@ -246,6 +246,11 @@ case class LsuFlushPayload() extends Bundle{
   val withFree = Bool()
 }
 
+trait LsuFlusher extends Service{
+  def getFlushPort(): FlowCmdRsp[LsuFlushPayload, NoData]
+}
+
+
 class LsuPlugin(var lqSize: Int,
                 var sqSize : Int,
                 var translationStorageParameter : Any,
@@ -264,7 +269,7 @@ class LsuPlugin(var lqSize: Int,
                 var intRfWriteSharing : Any = new {},
                 var storeReadRfWithBypass : Boolean = false,
                 val loadWriteRfOnPrivilegeFail: Boolean = false //Side channel attack if true
-               ) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy with WithRfWriteSharedSpec{
+               ) extends Plugin with LockedImpl with WakeRobService with WakeRegFileService with PostCommitBusy with WithRfWriteSharedSpec with LsuFlusher{
 
   val rfWriteSharing = mutable.LinkedHashMap[RegfileSpec, Any]()
   def addRfWriteSharing(rf : RegfileSpec, key : Any) : this.type = {
@@ -282,6 +287,7 @@ class LsuPlugin(var lqSize: Int,
   def pageOffsetWidth = pageOffsetRange.size
   def pageNumberWidth = pageNumberRange.size
   override def postCommitBusy = setup.postCommitBusy
+  override def getFlushPort() : FlowCmdRsp[LsuFlushPayload, NoData]= setup.flushPort
 
   val peripheralBus = create late master(LsuPeripheralBus(PHYSICAL_WIDTH, wordWidth))
   
@@ -807,6 +813,7 @@ class LsuPlugin(var lqSize: Int,
         val translationPort = translationService.newTranslationPort(
           stages = this.stages,
           preAddress = ADDRESS_PRE_TRANSLATION,
+          allowRefill = null,
           usage = LOAD_STORE,
           portSpec = loadTranslationParameter,
           storageSpec = setup.translationStorage
@@ -1329,6 +1336,7 @@ class LsuPlugin(var lqSize: Int,
         val translationPort = translationService.newTranslationPort(
           stages = this.stages,
           preAddress = ADDRESS_PRE_TRANSLATION,
+          allowRefill = null,
           usage = LOAD_STORE,
           portSpec = storeTranslationParameter,
           storageSpec = setup.translationStorage
