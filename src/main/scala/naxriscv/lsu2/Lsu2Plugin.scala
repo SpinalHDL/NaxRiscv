@@ -290,24 +290,35 @@ class Lsu2Plugin(var lqSize: Int,
 
     case class SqRegType(id : Int) extends Area{
       val allocation = False
-      val valid = Reg(Bool())
+      val valid = RegInit(False)
       val redo = RegInit(False)
       val redoSet = False
+      val delete = False
 
       val commited = RegInit(False) //Warning, commited is meaning full even when valid == False !
       val commitedNext = CombInit(commited)
       commited := commitedNext
 
       val waitOn = new Area {
-//        val mmuRefill      = Reg(Bool())
+        val mmuRefillAny     = RegInit(False)
+        val mmuRefillAnySet  = False
+
+        mmuRefillAny   := mmuRefillAny | mmuRefillAnySet
+        redoSet.setWhen(mmuRefillAny & translationWake)
       }
 
+      when(delete){
+        valid := False
+      }
+      when(allocation){
+        valid := True
+        commited := False
+      }
       when(redoSet){
         redo := True
       }
-
-      when(allocation){ //TODO
-        valid := True
+      when(redoSet || delete){
+        waitOn.mmuRefillAny   := False
       }
     }
 
@@ -390,6 +401,7 @@ class Lsu2Plugin(var lqSize: Int,
         val io          = create(Bool())
         val amo         = create(Bool())
         val sc          = create(Bool())
+        val data        = create(Bits(wordWidth bits))
         val needTranslation = create(Bool())
 
         //Only one AMO/SC can be schedule at once, so we can store things in simple registers
@@ -531,6 +543,7 @@ class Lsu2Plugin(var lqSize: Int,
       writeSq(sq.mem.sc, port.sc)
       writeSq(sq.mem.size, port.size)
       writeSq(sq.mem.needTranslation, True)
+      writeSq(sq.mem.data, port.data)
       when(pushSq && (port.sc || port.amo)){
         sq.mem.swap      := port.swap
         sq.mem.op        := port.op

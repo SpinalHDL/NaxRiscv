@@ -446,6 +446,8 @@ object Gen extends App{
       withFloat = false,
       withDouble = false,
       withLsu2 = true,
+      lqSize = 16,
+      sqSize = 16,
       ioRange = a => a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
     )
     l.foreach{
