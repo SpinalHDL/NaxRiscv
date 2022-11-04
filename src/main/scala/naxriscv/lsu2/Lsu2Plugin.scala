@@ -8,12 +8,12 @@ import naxriscv.frontend.{DispatchPlugin, FrontendPlugin}
 import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.interfaces._
-import naxriscv.lsu.{DataCachePlugin, LsuFlushPayload, LsuFlusher, LsuPeripheralBus, LsuUtils}
+import naxriscv.lsu.{DataCachePlugin, LsuFlushPayload, LsuFlusher, LsuPeripheralBus, LsuUtils, PrefetchPredictor}
 import naxriscv.misc.RobPlugin
 import naxriscv.riscv.{CSR, FloatRegFile, Rvi}
 import spinal.core._
 import spinal.lib._
-import naxriscv.utilities.{DocPlugin, Plugin, WithRfWriteSharedSpec}
+import naxriscv.utilities.{AddressToMask, DocPlugin, Plugin, WithRfWriteSharedSpec}
 import spinal.core.fiber.hardFork
 import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline._
@@ -75,9 +75,9 @@ class Lsu2Plugin(var lqSize: Int,
                  var sqSize : Int,
                  var translationStorageParameter : Any,
                  var sharedTranslationParameter : Any,
-                 var sharedAguAt  : Int = 1,
-                 var sharedFeedAt : Int = 1, //Stage at which the d$ cmd is sent
-                 var sharedCtrlAt : Int = 4,
+                 var sharedAguAt  : Int = 0,
+                 var sharedFeedAt : Int = 0, //Stage at which the d$ cmd is sent
+                 var sharedCtrlAt : Int = 3,
                  var loadWriteRfOnPrivilegeFail : Boolean = true,
                  var lqToCachePipelined : Boolean = true,
                  var storeReadRfWithBypass : Boolean = false) extends Plugin with WakeRobService with WakeRegFileService with PostCommitBusy with WithRfWriteSharedSpec with LsuFlusher{
@@ -121,9 +121,6 @@ class Lsu2Plugin(var lqSize: Int,
     val ADDRESS_POST_TRANSLATION = Stageable(UInt(VIRTUAL_EXT_WIDTH bits))
     val DATA_MASK = Stageable(Bits(wordBytes bits))
 
-
-    val LQ_SEL_ARBI = Stageable(UInt(log2Up(lqSize) bits))
-    val SQ_SEL_ARBI = Stageable(UInt(log2Up(sqSize) bits))
 
     val AMO, LR, SC, REGULAR = Stageable(Bool())
     val MISS_ALIGNED = Stageable(Bool())
@@ -203,7 +200,6 @@ class Lsu2Plugin(var lqSize: Int,
     val regfilePorts = (for(regfile <- regfiles) yield regfile.rfSpec -> new RegfilePorts(regfile)).toMapLinked()
     val cacheLoad = cache.newLoadPort(priority = 0)
     val cacheStore = cache.newStorePort()
-    cacheStore.cmd.assignDontCare()
     val sharedCompletion = rob.newRobCompletion()
     val sharedTrap = commit.newSchedulePort(canTrap = true, canJump = false)
     val flushPort = FlowCmdRsp(LsuFlushPayload(), NoData()).setIdleAll() //TODO
@@ -440,6 +436,18 @@ class Lsu2Plugin(var lqSize: Int,
         freeNext := sqSize + ptr.free - ptr.alloc - sub + add
       }
 
+      val onCommit = new Area{
+        val event = commit.onCommit()
+        val sqAlloc = rob.readAsync(SQ_ALLOC, Global.COMMIT_COUNT, event.robId)
+        val sqCommits = (0 until Global.COMMIT_COUNT).map(slotId => U(event.mask(slotId) && sqAlloc(slotId)))
+        var commitComb = CombInit(ptr.commit)
+        for(slotId <- 0 until Global.COMMIT_COUNT){
+          val doit = event.mask(slotId) && sqAlloc(slotId)
+          when(doit) { regs.map(_.commitedNext).write(U(commitComb.dropHigh(1)), True) } //TODO this is kind of a long combinatorial path (commit -> adder -> reg set)
+          commitComb \= commitComb + U(doit)
+        }
+        ptr.commitNext := commitComb
+      }
     }
 
 
@@ -471,11 +479,9 @@ class Lsu2Plugin(var lqSize: Int,
         LQ_ID := loads.alloc.resized
         SQ_ID := stores.alloc.resized
         when(loads.requests(slotId)){
-          LSU_ID := loads.alloc
+          LSU_ID := loads.alloc.resized
           when(isFireing) {
-            lq.regs.onSel(LQ_ID){ e =>
-              e.allocation := True
-            }
+            lq.regs.onSel(LQ_ID){ _.allocation := True }
             lq.mem.sqAlloc.write(
               address = LQ_ID,
               data    = allocStage(SQ_ID, slotId)
@@ -484,10 +490,10 @@ class Lsu2Plugin(var lqSize: Int,
           loads.alloc \= loads.alloc + 1
         }
         when(stores.requests(slotId)){
-          LSU_ID := stores.alloc
+          LSU_ID := stores.alloc.resized
           when(isFireing) {
             def wr[T <: Data](mem: Mem[T], data : T) = mem.write(SQ_ID, data)
-
+            sq.regs.onSel(LQ_ID){ _.allocation := True }
           }
           stores.alloc \= stores.alloc + 1
         }
@@ -555,6 +561,51 @@ class Lsu2Plugin(var lqSize: Int,
 
     def load = "load"
     def store = "store"
+
+    val lqSqArbitration = new Pipeline {
+      val s0 = new Stage {
+        val lqRedo = B(lq.regs.map(reg => reg.redo))
+        val sqRedo = B(sq.regs.map(reg => reg.redo))
+
+        LQ_SEL_OH := OHMasking.roundRobinMasked(lqRedo, lq.ptr.priority)
+        SQ_SEL_OH := OHMasking.roundRobinMasked(sqRedo, sq.ptr.priority)
+        LQ_HIT := lqRedo.orR
+        SQ_HIT := sqRedo.orR
+        LQ_SEL := OHToUInt(LQ_SEL_OH)
+        SQ_SEL := OHToUInt(SQ_SEL_OH)
+
+        isValid := LQ_HIT || SQ_HIT
+
+        LQ_ROB_FULL := lq.mem.robIdMsb.readAsync(LQ_SEL) @@ lq.mem.robId.readAsync(LQ_SEL)
+        SQ_ROB_FULL := sq.mem.robIdMsb.readAsync(SQ_SEL) @@ sq.mem.robId.readAsync(SQ_SEL)
+
+        when(isReady) {
+          when(LQ_HIT) {
+            lq.regs.onMask(LQ_SEL_OH)(_.redo := False)
+          }
+          when(SQ_HIT) {
+            sq.regs.onMask(SQ_SEL_OH)(_.redo := False)
+          }
+        }
+      }
+
+      val s1 = new Stage(M2S()) {
+        val lqMask, sqMask  = RegInit(True)
+        val sqHit = SQ_HIT && sqMask
+        val lqHit = LQ_HIT && lqMask
+
+        val cmp = (LQ_ROB_FULL - SQ_ROB_FULL).msb
+        LQ_OLDER_THAN_SQ := !sqHit || cmp
+
+        when(sqHit && lqHit){
+          forkIt()
+        }
+
+        flushIt(rescheduling.valid, root = false)
+      }
+    }
+
+
     val sharedPip = new Pipeline{
       val stages = Array.fill(sharedCtrlAt+1)(newStage())
       connect(stages)(List(M2S()))
@@ -571,60 +622,45 @@ class Lsu2Plugin(var lqSize: Int,
       val tpk = translationPort.keys
       translationWake := translationPort.wake
 
-      val arbitration = new Area{
-        val stage = stages(0)
-        import stage._
 
-        val lqRedo = B(lq.regs.map(reg => reg.redo))
-        val sqRedo = B(sq.regs.map(reg => reg.redo))
-
-        LQ_SEL_OH := OHMasking.roundRobinMasked(lqRedo, lq.ptr.priority)
-        SQ_SEL_OH := OHMasking.roundRobinMasked(sqRedo, sq.ptr.priority)
-        LQ_HIT := lqRedo.orR
-        SQ_HIT := sqRedo.orR
-        LQ_SEL_ARBI := OHToUInt(LQ_SEL_OH)
-        SQ_SEL_ARBI := OHToUInt(SQ_SEL_OH)
-
-        isValid := LQ_HIT || SQ_HIT
-
-        LQ_ROB_FULL := lq.mem.robIdMsb.readAsync(LQ_SEL_ARBI) @@ lq.mem.robId.readAsync(LQ_SEL_ARBI)
-        SQ_ROB_FULL := sq.mem.robIdMsb.readAsync(SQ_SEL_ARBI) @@ sq.mem.robId.readAsync(SQ_SEL_ARBI)
-
-        val cmp = (LQ_ROB_FULL - SQ_ROB_FULL).msb
-        LQ_OLDER_THAN_SQ := !SQ_HIT || cmp
-        when(isReady) {
-          when(LQ_HIT && (!SQ_HIT || cmp)) {
-            lq.regs.onMask(LQ_SEL_OH)(_.redo := False)
-          }
-          when(SQ_HIT && (!LQ_HIT || !cmp)) {
-            sq.regs.onMask(SQ_SEL_OH)(_.redo := False)
-          }
-        }
-      }
 
       val feed = new Area {
         val stage = stages(sharedAguAt)
         import stage._
+
 
         HIT_SPECULATION := False //TODO
         BYPASS_TOO_EARLY := False //TODO
 
         val agu = aguPorts.head.port
         val takeAgu = (LQ_OLDER_THAN_SQ ? (agu.robIdFull - LQ_ROB_FULL).msb | (agu.robIdFull - SQ_ROB_FULL).msb)
-        takeAgu.setWhen(!LQ_HIT && !SQ_HIT)
+        takeAgu.setWhen(!lqSqArbitration.s1.isValid)
         takeAgu.clearWhen(!agu.valid)
 
-        ROB.ID := Mux[UInt](LQ_OLDER_THAN_SQ, LQ_ROB_FULL, SQ_ROB_FULL).resized
-        decoder.PHYS_RD    := lq.mem.physRd.readAsync(LQ_SEL_ARBI)
-        decoder.REGFILE_RD := lq.mem.regfileRd.readAsync(LQ_SEL_ARBI)
+        isValid := agu.valid || lqSqArbitration.s1.isValid
+        lqSqArbitration.s1.haltWhen(takeAgu)
+
+
+        val lqSelArbi = lqSqArbitration.s1(LQ_SEL)
+        val sqSelArbi = lqSqArbitration.s1(SQ_SEL)
+        LQ_OLDER_THAN_SQ := lqSqArbitration.s1(LQ_OLDER_THAN_SQ)
+        LQ_ROB_FULL := lqSqArbitration.s1(LQ_ROB_FULL)
+        SQ_ROB_FULL := lqSqArbitration.s1(SQ_ROB_FULL)
+
+          ROB.ID := Mux[UInt](LQ_OLDER_THAN_SQ, LQ_ROB_FULL, SQ_ROB_FULL).resized
+        decoder.PHYS_RD    := lq.mem.physRd.readAsync(lqSelArbi)
+        decoder.REGFILE_RD := lq.mem.regfileRd.readAsync(lqSelArbi)
 
         def readQueues[T <: Data](key : Stageable[T], lqMem : Mem[T], sqMem : Mem[T]) : Unit = {
-          stage(key, load)  := lqMem.readAsync(LQ_SEL_ARBI)
-          stage(key, store) := sqMem.readAsync(SQ_SEL_ARBI)
+          stage(key, load)  := lqMem.readAsync(lqSelArbi)
+          stage(key, store) := sqMem.readAsync(sqSelArbi)
           stage(key) := Mux[T](LQ_OLDER_THAN_SQ, (key, load), (key, store))
         }
         def readLq[T <: Data](key : Stageable[T], lqMem : Mem[T]) : Unit = {
-          stage(key) := lqMem.readAsync(LQ_SEL_ARBI)
+          stage(key) := lqMem.readAsync(lqSelArbi)
+        }
+        def readSq[T <: Data](key : Stageable[T], sqMem : Mem[T]) : Unit = {
+          stage(key) := sqMem.readAsync(sqSelArbi)
         }
         readQueues(ADDRESS_PRE_TRANSLATION , lq.mem.addressPre , sq.mem.addressPre)
         readQueues(ADDRESS_POST_TRANSLATION, lq.mem.addressPost, sq.mem.addressPost)
@@ -633,15 +669,15 @@ class Lsu2Plugin(var lqSize: Int,
         readLq(WRITE_RD, lq.mem.writeRd)
         readLq(UNSIGNED, lq.mem.unsigned)
         readLq(LR, lq.mem.lr)
+        readSq(AMO, sq.mem.amo)
+        readSq(SC, sq.mem.sc)
 
         IS_LOAD := LQ_OLDER_THAN_SQ
 
-        LQ_SEL := LQ_SEL_ARBI
-        SQ_SEL := SQ_SEL_ARBI
+        LQ_SEL := lqSelArbi
+        SQ_SEL := sqSelArbi
         when(takeAgu){
-          spawnIt()
           forkIt()
-
           NEED_TRANSLATION := True
           IS_LOAD := agu.load
           ROB.ID := agu.robIdFull.resized
@@ -650,6 +686,8 @@ class Lsu2Plugin(var lqSize: Int,
           WRITE_RD := agu.writeRd
           UNSIGNED := agu.unsigned
           LR := agu.lr
+          SC := agu.sc
+          AMO := agu.amo
           decoder.PHYS_RD := agu.physicalRd
           decoder.REGFILE_RD := agu.regfileRd
           LQ_SEL := agu.aguId.resized
@@ -735,7 +773,7 @@ class Lsu2Plugin(var lqSize: Int,
           case true  => isValid && IS_LOAD && WRITE_RD
         }
         for((spec, regfile) <- setup.regfilePorts) {
-          regfile.write.valid   := doIt && decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)
+          regfile.write.valid   := doIt && IS_LOAD && decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)
           regfile.write.address := decoder.PHYS_RD
           regfile.write.data    := rspFormated.resized
           regfile.write.robId   := ROB.ID
@@ -791,6 +829,13 @@ class Lsu2Plugin(var lqSize: Int,
 
         def onLq(body : LqRegType => Unit) = lq.regs.onMask(lqMask)(body)
         def onSq(body : SqRegType => Unit) = sq.regs.onMask(sqMask)(body)
+        def onLqSq(bodyLq : LqRegType => Unit, bodySq : SqRegType => Unit){
+          when(IS_LOAD) {
+            onLq(bodyLq)
+          } otherwise {
+            onSq(bodySq)
+          }
+        }
 
         val lqMask = UIntToOh(LQ_SEL)
         val sqMask = UIntToOh(SQ_SEL)
@@ -798,16 +843,11 @@ class Lsu2Plugin(var lqSize: Int,
         val hitSpeculationTrap = True
         val redoTrigger = False
         when(redoTrigger){
-          when(IS_LOAD) {
-            onLq(_.redoSet := True)
-          } otherwise {
-            onSq(_.redoSet := True)
-          }
+          onLqSq(_.redoSet := True, _.redoSet := True)
         }
 
         val doCompletion = False
         val refillMask = rsp.refillSlot.orMask(rsp.refillSlotAny)
-
 
         when(isFireing) {
           setup.sharedTrap.valid := HIT_SPECULATION && hitSpeculationTrap
@@ -827,35 +867,34 @@ class Lsu2Plugin(var lqSize: Int,
             setup.sharedTrap.valid := True
             setup.sharedTrap.reason := ScheduleReason.TRAP
             setup.sharedTrap.cause := CSR.MCAUSE_ENUM.LOAD_MISALIGNED
-            setup.sharedTrap.cause(2) := IS_LOAD
+            setup.sharedTrap.cause(2) := !IS_LOAD
           }.elsewhen(NEED_TRANSLATION && tpk.REDO){
-            onLq(_.waitOn.mmuRefillAnySet := True)
+            onLqSq(_.waitOn.mmuRefillAnySet := True, _.waitOn.mmuRefillAnySet := True)
             redoTrigger := translationWake
           }.elsewhen(NEED_TRANSLATION && (tpk.ACCESS_FAULT || PAGE_FAULT)){
             setup.sharedTrap.valid := True
             setup.sharedTrap.reason := ScheduleReason.TRAP
             setup.sharedTrap.cause := CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT
-            setup.sharedTrap.cause(2) := IS_LOAD
-          }.elsewhen(BYPASS_TOO_EARLY){
+            setup.sharedTrap.cause(2) := !IS_LOAD
+          }.elsewhen(IS_LOAD && BYPASS_TOO_EARLY){
             report("Implement me BYPASS_TOO_EARLY")
 //            onRegs{r =>
 //              r.waitOn.sq setWhen(!stage.resulting(OLDER_STORE_COMPLETED))
 //              r.waitOn.sqId := OLDER_STORE_ID
 //              r.waitOn.sqCompletion := !OLDER_STORE_MAY_BYPASS
 //            }
-          }.elsewhen(rsp.redo) {
+          }.elsewhen(IS_LOAD && rsp.redo) {
 //            hadSpeculativeHitTrap setWhen(HIT_SPECULATION)
             onLq(_.waitOn.cacheRefillSet := refillMask)
             redoTrigger := !refillMask.orR
-          }.elsewhen(LOAD_WRITE_FAILURE){
+          }.elsewhen(IS_LOAD && LOAD_WRITE_FAILURE){
             redoTrigger := True
           }.otherwise {
-            onLq(_.waitOn.commitSet := True)
             when(rsp.fault) {
               setup.sharedTrap.valid := True
               setup.sharedTrap.reason := ScheduleReason.TRAP
               setup.sharedTrap.cause := CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT
-              setup.sharedTrap.cause(2) := IS_LOAD
+              setup.sharedTrap.cause(2) := !IS_LOAD
             }.otherwise {
               doCompletion := True
             }
@@ -865,6 +904,7 @@ class Lsu2Plugin(var lqSize: Int,
         //Critical path extracted to help synthesis
         KeepAttribute(doCompletion)
         when(doCompletion){
+          onLqSq(_.waitOn.commitSet := True, _.commited := True)
 //          speculateHitTrapRecovered := LQ_SEL === 0 //Assume LQ_ID restart at 0 after a trap
 //          hitSpeculationTrap := False
           when(IS_LOAD) {
@@ -878,6 +918,10 @@ class Lsu2Plugin(var lqSize: Int,
             when(WRITE_RD && !HIT_SPECULATION) {
               wakeRob.valid := True
               wakeRf.valid := True
+            }
+          } otherwise {
+            when(!SC && !AMO && !tpk.IO) {
+              setup.sharedCompletion.valid := True
             }
           }
         }
@@ -897,9 +941,182 @@ class Lsu2Plugin(var lqSize: Int,
 //        }
       }
     }
+
+    val prefetch = new Area{
+      val predictor = new PrefetchPredictor(
+        lineSize = cache.lineSize,
+        addressWidth = PHYSICAL_WIDTH
+      )
+      //        predictor.io.prediction.ready := True //TODO
+    }
+
+    val writeback = new Area{
+      import sq._
+
+      val generation = RegInit(False)
+
+      val waitOn = new Area{
+        val refillSlot    = Reg(Bits(cache.refillCount bits)) init(0) //Zero when refillSlotAny
+        val refillSlotAny = Reg(Bool()) init(False)
+
+        val ready = refillSlot === 0 && !refillSlotAny
+
+        val refillSlotSet = refillSlot.getZero
+        val refillSlotAnySet = False
+
+        refillSlot := (refillSlot | refillSlotSet) & ~cache.refillCompletions
+        refillSlotAny := (refillSlotAny | refillSlotAnySet) & !cache.refillCompletions.orR
+      }
+
+      val feed = new Area{
+        val holdPrefetch = False
+        val prediction = prefetch.predictor.io.prediction.cmd.stage().haltWhen(holdPrefetch).toFlow
+        //          prediction.valid clearWhen(True) //TODO remove
+
+        //WARNING, setupCacheStore is also used by the peripheral controller to know what to do
+        val io = sq.mem.io.readAsync(ptr.writeBackReal)
+        val size = mem.size.readAsync(ptr.writeBackReal)
+        val data = mem.data.readAsync(ptr.writeBackReal)
+        val skip = False //Used for store conditional
+        val doit = ptr.writeBack =/= ptr.commit && waitOn.ready && !prediction.valid
+        val fire = CombInit(doit)
+
+        setup.cacheStore.cmd.valid := doit
+        setup.cacheStore.cmd.address := mem.addressPost.readAsync(ptr.writeBackReal)
+        setup.cacheStore.cmd.mask :=  AddressToMask(setup.cacheStore.cmd.address, size, widthOf(setup.cacheStore.cmd.mask))
+        setup.cacheStore.cmd.generation := generation
+        setup.cacheStore.cmd.data.assignDontCare()
+        setup.cacheStore.cmd.io := io
+        setup.cacheStore.cmd.prefetch := False
+        switch(size){
+          for(s <- 0 to log2Up(widthOf(setup.cacheStore.cmd.data)/8)) is(s){
+            val w = (1 << s)*8
+            setup.cacheStore.cmd.data.subdivideIn(w bits).foreach(_ := data(0, w bits))
+          }
+        }
+
+        when(prediction.valid){
+          setup.cacheStore.cmd.valid := True
+          setup.cacheStore.cmd.address := prediction.payload
+          setup.cacheStore.cmd.io := False
+          setup.cacheStore.cmd.prefetch := True
+        }
+
+
+
+        ptr.writeBack := ptr.writeBack + U(fire)
+      }
+
+      val rsp = new Area{
+        val delayed = Vec.fill(1)(cloneOf(setup.cacheStore.rsp))
+        delayed.head << setup.cacheStore.rsp
+
+        for((m,s) <- (delayed, delayed.tail).zipped) {
+          val patched = m.combStage()
+          s << patched.stage()
+          patched.refillSlot.removeAssignments()
+          patched.refillSlotAny.removeAssignments()
+          patched.refillSlot  := m.refillSlot & ~cache.refillCompletions
+          patched.refillSlotAny := m.refillSlotAny && cache.refillCompletions === 0
+        }
+
+
+        sq.ptr.onFree.valid := False
+        sq.ptr.onFree.payload := ptr.freeReal
+
+        prefetch.predictor.io.learn.valid := False
+        prefetch.predictor.io.learn.allocate := False
+        prefetch.predictor.io.learn.physical := delayed.last.address
+        when(delayed.last.valid && !delayed.last.generationKo && !delayed.last.flush && !delayed.last.prefetch){
+          prefetch.predictor.io.learn.valid := True
+          when(delayed.last.redo) {
+            waitOn.refillSlotSet := delayed.last.refillSlot
+            waitOn.refillSlotAnySet := delayed.last.refillSlotAny
+            generation := !generation
+            ptr.writeBack := ptr.free
+            prefetch.predictor.io.learn.allocate := True
+          } otherwise {
+            sq.ptr.onFree.valid := True
+          }
+        }
+
+        prefetch.predictor.io.prediction.rsp.valid   := delayed.last.valid && delayed.last.prefetch
+        prefetch.predictor.io.prediction.rsp.payload := delayed.last.refillSlot.orR
+      }
+
+
+      when(feed.doit && feed.skip){
+        setup.cacheStore.cmd.valid := False
+        feed.fire := True
+        sq.ptr.onFree.valid := True
+        ptr.writeBack := ptr.writeBack + 1
+      }
+
+      tracker.add := 0
+      when(sq.ptr.onFree.valid) {
+        tracker.add := 1
+        ptr.free := ptr.free + 1
+        ptr.priority := ptr.priority |<< 1
+        when(ptr.priority === 0){
+          ptr.priority := (default -> true)
+        }
+        for(reg <- regs) when(ptr.freeReal === reg.id){
+          reg.valid := False
+          reg.commited := False
+        }
+      }
+    }
+
+    val flush = new Area{
+      val busy = RegInit(False)
+      val doit = RegInit(False)
+      val withFree = Reg(Bool())
+      val cmdPtr, rspPtr = Reg(UInt(cache.lineRange.size+1 bits))
+      def cmd = setup.cacheStore.cmd
+      def rsp = setup.cacheStore.rsp
+
+      doit := sq.ptr.commit === sq.ptr.free
+      when(setup.flushPort.cmd.valid){
+        cmdPtr := 0
+        rspPtr := 0
+        busy   := True
+        doit   := False
+        withFree := setup.flushPort.cmd.withFree
+      }
+
+      when(busy){
+        fetch.getStage(0).haltIt()
+      }
+
+      cmd.flush := False
+      cmd.flushFree := withFree
+      when(busy && doit){
+        cmd.valid := !cmdPtr.msb
+        cmd.flush := True
+        cmd.address(cache.lineRange) := cmdPtr.resized
+
+        when(cmd.fire){
+          cmdPtr := cmdPtr + 1
+        }
+        when(rsp.fire && !rsp.generationKo){
+          when(rsp.redo){
+            cmdPtr := rspPtr
+            writeback.generation := !writeback.generation
+          } otherwise {
+            rspPtr := rspPtr + 1
+          }
+        }
+        when(rspPtr.msb && !cache.writebackBusy){
+          busy := False
+          setup.flushPort.rsp.valid := True
+        }
+      }
+    }
+
     hardFork{
       sharedPip.translationPort.pipelineLock.await()
       sharedPip.build()
+      lqSqArbitration.build()
     }
 
 
@@ -922,13 +1139,13 @@ class Lsu2Plugin(var lqSize: Int,
 //    store.writeback.feed.holdPrefetch setWhen(special.enabled)
 
     //TODO
-    sq.tracker.add := 0
-    sq.ptr.commitNext := 0
     setup.cache.lockPort.valid := False
     setup.cache.lockPort.address := 0
     setup.cacheLoad.cmd.unlocked := True
     peripheralBus.cmd.setIdle()
     assert(setup.flushPort.cmd.valid === False,"Please implement lsu flush port")
+//    setup.cacheStore.cmd.assignDontCare()
+//    slave(setup.cacheStore)
 
     val whitebox = new AreaRoot{
       val stage = frontend.pipeline.dispatch

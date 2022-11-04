@@ -242,10 +242,10 @@ object Config{
           sharedTranslationParameter = withMmu match {
             case false => StaticAddressTranslationParameter(rspAt = 2)
             case true => MmuPortParameter(
-              readAt = 1,
-              hitsAt = 1,
-              ctrlAt = 2,
-              rspAt  = 2
+              readAt = 0,
+              hitsAt = 0,
+              ctrlAt = 1,
+              rspAt  = 1
             )
           }
         )
