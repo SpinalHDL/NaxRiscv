@@ -8,7 +8,7 @@ import naxriscv.frontend.{DispatchPlugin, FrontendPlugin}
 import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
 import naxriscv.{Frontend, Global, ROB}
 import naxriscv.interfaces._
-import naxriscv.lsu.{DataCachePlugin, LsuFlushPayload, LsuFlusher, LsuUtils}
+import naxriscv.lsu.{DataCachePlugin, LsuFlushPayload, LsuFlusher, LsuPeripheralBus, LsuUtils}
 import naxriscv.misc.RobPlugin
 import naxriscv.riscv.{CSR, FloatRegFile, Rvi}
 import spinal.core._
@@ -122,6 +122,9 @@ class Lsu2Plugin(var lqSize: Int,
     val DATA_MASK = Stageable(Bits(wordBytes bits))
 
 
+    val LQ_SEL_ARBI = Stageable(UInt(log2Up(lqSize) bits))
+    val SQ_SEL_ARBI = Stageable(UInt(log2Up(sqSize) bits))
+
     val AMO, LR, SC, REGULAR = Stageable(Bool())
     val MISS_ALIGNED = Stageable(Bool())
     val PAGE_FAULT = Stageable(Bool())
@@ -209,8 +212,11 @@ class Lsu2Plugin(var lqSize: Int,
     decoder.addResourceDecoding(naxriscv.interfaces.LQ, LQ_ALLOC)
     decoder.addResourceDecoding(naxriscv.interfaces.SQ, SQ_ALLOC)
 
-    assert(flushPort.cmd.valid === False,"Please implement lsu flush port")
+    doc.property("LSU_PERIPHERAL_WIDTH", wordWidth)
+    doc.property("RVA", true)
   }
+
+  val peripheralBus = create late master(LsuPeripheralBus(PHYSICAL_WIDTH, wordWidth)).setName("LsuPlugin_peripheralBus")
 
   val logic = create late new Area{
     val imp = setup.get
@@ -233,12 +239,14 @@ class Lsu2Plugin(var lqSize: Int,
       val valid = RegInit(False)
       val redo = RegInit(False)
       val redoSet = False
+      val delete = False
+
 
 
       val waitOn = new Area {
-        val cacheRefill    = Reg(Bits(cache.refillCount bits))
-        val cacheRefillAny = Reg(Bool())
-        val mmuRefillAny   = Reg(Bool())
+        val cacheRefill    = Reg(Bits(cache.refillCount bits)) init(0)
+        val cacheRefillAny = RegInit(False)
+        val mmuRefillAny   = RegInit(False)
 
         val cacheRefillSet = cacheRefill.getZero
         val mmuRefillAnySet   = False
@@ -246,8 +254,8 @@ class Lsu2Plugin(var lqSize: Int,
         cacheRefill    := cacheRefill  | cacheRefillSet
         mmuRefillAny   := mmuRefillAny | mmuRefillAnySet
         redoSet.setWhen(
-          ((cacheRefill  ) & cache.refillCompletions).orR &&
-          (mmuRefillAny  ) & translationWake
+          (cacheRefill  & cache.refillCompletions).orR ||
+           mmuRefillAny & translationWake
         )
 
         val commitSet = False
@@ -261,15 +269,22 @@ class Lsu2Plugin(var lqSize: Int,
 
       }
 
+
+
+      when(delete){
+        valid := False
+      }
+      when(allocation){
+        valid := True
+        waitOn.commit := False
+      }
       when(redoSet){
         redo := True
+      }
+      when(redoSet || delete){
         waitOn.cacheRefill    := 0
         waitOn.cacheRefillAny := False
         waitOn.mmuRefillAny   := False
-      }
-
-      when(allocation){
-        valid := True
       }
     }
 
@@ -348,7 +363,7 @@ class Lsu2Plugin(var lqSize: Int,
         var priority = CombInit(ptr.priority)
         for(inc <- lqCommits){
           for(reg <- regs) when(free.resize(log2Up(lqSize)) === reg.id && inc){
-            reg.valid := False
+            reg.delete := True
           }
           when(inc) {
             priority \= (priority === 0) ? B(widthOf(priority) bits, default -> true).resized | (priority |<< 1)
@@ -552,17 +567,26 @@ class Lsu2Plugin(var lqSize: Int,
 
         LQ_SEL_OH := OHMasking.roundRobinMasked(lqRedo, lq.ptr.priority)
         SQ_SEL_OH := OHMasking.roundRobinMasked(sqRedo, sq.ptr.priority)
-        LQ_HIT := LQ_SEL_OH.orR
-        SQ_HIT := SQ_SEL_OH.orR
-        LQ_SEL := OHToUInt(LQ_SEL_OH)
-        SQ_SEL := OHToUInt(SQ_SEL_OH)
+        LQ_HIT := lqRedo.orR
+        SQ_HIT := sqRedo.orR
+        LQ_SEL_ARBI := OHToUInt(LQ_SEL_OH)
+        SQ_SEL_ARBI := OHToUInt(SQ_SEL_OH)
 
         isValid := LQ_HIT || SQ_HIT
 
-        LQ_ROB_FULL := lq.mem.robIdMsb.readAsync(LQ_SEL) @@ lq.mem.robId.readAsync(LQ_SEL)
-        SQ_ROB_FULL := sq.mem.robIdMsb.readAsync(SQ_SEL) @@ sq.mem.robId.readAsync(SQ_SEL)
+        LQ_ROB_FULL := lq.mem.robIdMsb.readAsync(LQ_SEL_ARBI) @@ lq.mem.robId.readAsync(LQ_SEL_ARBI)
+        SQ_ROB_FULL := sq.mem.robIdMsb.readAsync(SQ_SEL_ARBI) @@ sq.mem.robId.readAsync(SQ_SEL_ARBI)
 
-        LQ_OLDER_THAN_SQ := LQ_HIT && !(SQ_ROB_FULL - LQ_ROB_FULL).msb
+        val cmp = (LQ_ROB_FULL - SQ_ROB_FULL).msb
+        LQ_OLDER_THAN_SQ := !SQ_HIT || cmp
+        when(isReady) {
+          when(LQ_HIT && (!SQ_HIT || cmp)) {
+            lq.regs.onMask(LQ_SEL_OH)(_.redo := False)
+          }
+          when(SQ_HIT && (!LQ_HIT || !cmp)) {
+            sq.regs.onMask(SQ_SEL_OH)(_.redo := False)
+          }
+        }
       }
 
       val feed = new Area {
@@ -573,23 +597,21 @@ class Lsu2Plugin(var lqSize: Int,
         BYPASS_TOO_EARLY := False //TODO
 
         val agu = aguPorts.head.port
-        val takeAgu = (LQ_OLDER_THAN_SQ ? (LQ_ROB_FULL - agu.robIdFull).msb | (SQ_ROB_FULL - agu.robIdFull).msb)
+        val takeAgu = (LQ_OLDER_THAN_SQ ? (agu.robIdFull - LQ_ROB_FULL).msb | (agu.robIdFull - SQ_ROB_FULL).msb)
         takeAgu.setWhen(!LQ_HIT && !SQ_HIT)
         takeAgu.clearWhen(!agu.valid)
 
-
-
         ROB.ID := Mux[UInt](LQ_OLDER_THAN_SQ, LQ_ROB_FULL, SQ_ROB_FULL).resized
-        decoder.PHYS_RD    := lq.mem.physRd.readAsync(LQ_SEL)
-        decoder.REGFILE_RD := lq.mem.regfileRd.readAsync(LQ_SEL)
+        decoder.PHYS_RD    := lq.mem.physRd.readAsync(LQ_SEL_ARBI)
+        decoder.REGFILE_RD := lq.mem.regfileRd.readAsync(LQ_SEL_ARBI)
 
         def readQueues[T <: Data](key : Stageable[T], lqMem : Mem[T], sqMem : Mem[T]) : Unit = {
-          stage(key, load)  := lqMem.readAsync(LQ_SEL)
-          stage(key, store) := sqMem.readAsync(SQ_SEL)
+          stage(key, load)  := lqMem.readAsync(LQ_SEL_ARBI)
+          stage(key, store) := sqMem.readAsync(SQ_SEL_ARBI)
           stage(key) := Mux[T](LQ_OLDER_THAN_SQ, (key, load), (key, store))
         }
         def readLq[T <: Data](key : Stageable[T], lqMem : Mem[T]) : Unit = {
-          stage(key) := lqMem.readAsync(LQ_SEL)
+          stage(key) := lqMem.readAsync(LQ_SEL_ARBI)
         }
         readQueues(ADDRESS_PRE_TRANSLATION , lq.mem.addressPre , sq.mem.addressPre)
         readQueues(ADDRESS_POST_TRANSLATION, lq.mem.addressPost, sq.mem.addressPost)
@@ -601,6 +623,8 @@ class Lsu2Plugin(var lqSize: Int,
 
         IS_LOAD := LQ_OLDER_THAN_SQ
 
+        LQ_SEL := LQ_SEL_ARBI
+        SQ_SEL := SQ_SEL_ARBI
         when(takeAgu){
           spawnIt()
           forkIt()
@@ -615,6 +639,16 @@ class Lsu2Plugin(var lqSize: Int,
           LR := agu.lr
           decoder.PHYS_RD := agu.physicalRd
           decoder.REGFILE_RD := agu.regfileRd
+          LQ_SEL := agu.aguId.resized
+          SQ_SEL := agu.aguId.resized
+        } otherwise {
+          when(agu.valid){
+            when(agu.load) {
+              lq.regs.onSel(agu.aguId.resized)(_.redoSet := True)
+            } otherwise {
+              sq.regs.onSel(agu.aguId.resized)(_.redoSet := True)
+            }
+          }
         }
       }
 
@@ -759,6 +793,8 @@ class Lsu2Plugin(var lqSize: Int,
         }
 
         val doCompletion = False
+        val refillMask = rsp.refillSlot.orMask(rsp.refillSlotAny)
+
 
         when(isFireing) {
           setup.sharedTrap.valid := HIT_SPECULATION && hitSpeculationTrap
@@ -796,9 +832,8 @@ class Lsu2Plugin(var lqSize: Int,
 //            }
           }.elsewhen(rsp.redo) {
 //            hadSpeculativeHitTrap setWhen(HIT_SPECULATION)
-            val mask = rsp.refillSlot.orMask(rsp.refillSlotAny)
-            onLq(_.waitOn.cacheRefillSet := mask)
-            redoTrigger := !mask.orR
+            onLq(_.waitOn.cacheRefillSet := refillMask)
+            redoTrigger := !refillMask.orR
           }.elsewhen(LOAD_WRITE_FAILURE){
             redoTrigger := True
           }.otherwise {
@@ -856,7 +891,7 @@ class Lsu2Plugin(var lqSize: Int,
 
 
     when(rescheduling.valid){
-      lq.regs.foreach(_.valid := False)
+      lq.regs.foreach(_.delete := True)
       lq.ptr.free := 0
       lq.ptr.alloc := 0
       lq.ptr.priority := 0
@@ -879,6 +914,21 @@ class Lsu2Plugin(var lqSize: Int,
     setup.cache.lockPort.valid := False
     setup.cache.lockPort.address := 0
     setup.cacheLoad.cmd.unlocked := True
+    peripheralBus.cmd.setIdle()
+    assert(setup.flushPort.cmd.valid === False,"Please implement lsu flush port")
+
+    val whitebox = new AreaRoot{
+      val stage = frontend.pipeline.dispatch
+      Verilator.public(stage(ROB.ID))
+
+      val sqAlloc = for(slotId <- 0 until DECODE_COUNT) yield new Area{
+        val valid = Verilator.public(stage.isFireing && stage(DISPATCH_MASK, slotId) && stage(SQ_ALLOC, slotId))
+        val id = Verilator.public(CombInit(stage(SQ_ID, slotId)))
+      }
+
+      val sqFree = Verilator.public(sq.ptr.onFree.combStage())
+    }
+
 
     rob.release()
     decoder.release()
