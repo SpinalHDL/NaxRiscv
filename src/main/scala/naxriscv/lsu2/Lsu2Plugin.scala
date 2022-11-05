@@ -559,6 +559,18 @@ class Lsu2Plugin(var lqSize: Int,
       }
     }
 
+    /** Will take in programm oder the store and load which are ready for commit
+     *  For store => no execution side effects
+     *  For loads :
+     *  - No conflict
+     *    - notify commit
+     *  - Bypassable conflict
+     *    - Did the bypass already => notify commit
+     *    - Didn't bypassed => need re-execution load check (hopping for false positive) or trap redo (pessimistic)
+     *  - Not bypassable conflict
+     *    - trap redo
+     *  - Do training of bypass prediction
+     */
     val windowFilter = new Area{
       val l = new Area{
         val ptr = Reg(UInt(log2Up(lqSize) + 1 bits)) init(0)
@@ -620,7 +632,7 @@ class Lsu2Plugin(var lqSize: Int,
 
       val s1 = new Stage(M2S()) {
         val cmp = (LQ_ROB_FULL - SQ_ROB_FULL).msb
-        LQ_OLDER_THAN_SQ := !SQ_HIT || cmp
+        LQ_OLDER_THAN_SQ := !SQ_HIT || LQ_HIT && cmp
         flushIt(rescheduling.valid, root = false)
       }
     }
@@ -816,7 +828,7 @@ class Lsu2Plugin(var lqSize: Int,
           case true  => isValid && IS_LOAD && WRITE_RD
         }
         for((spec, regfile) <- setup.regfilePorts) {
-          regfile.write.valid   := doIt && IS_LOAD && decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)
+          regfile.write.valid   := doIt && IS_LOAD && !LOAD_CHECK && decoder.REGFILE_RD === decoder.REGFILE_RD.rfToId(spec)
           regfile.write.address := decoder.PHYS_RD
           regfile.write.data    := rspFormated.resized
           regfile.write.robId   := ROB.ID
