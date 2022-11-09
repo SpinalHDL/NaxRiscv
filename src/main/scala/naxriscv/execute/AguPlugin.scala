@@ -49,9 +49,9 @@ class AguPlugin(val euId : String) extends Plugin{
     val stores = ArrayBuffer(Rvi.SB, Rvi.SH, Rvi.SW)
     if(XLEN.get == 64) stores ++= List(Rvi.SD)
 
-    for(store <- stores) add(store, srcOps, List(AMO -> False, SC -> False))
-    if(RVF) add(Rvfd.FSW, srcOps, List(AMO -> False, SC -> False))
-    if(RVD) add(Rvfd.FSD, srcOps, List(AMO -> False, SC -> False))
+    for(store <- stores) add(store, srcOps, List(AMO -> False, SC -> False, LOAD -> False))
+    if(RVF) add(Rvfd.FSW, srcOps, List(AMO -> False, SC -> False, LOAD -> False))
+    if(RVD) add(Rvfd.FSD, srcOps, List(AMO -> False, SC -> False, LOAD -> False))
 
     val amos = List(
       Rvi.AMOSWAP, Rvi.AMOADD, Rvi.AMOXOR, Rvi.AMOAND, Rvi.AMOOR,
