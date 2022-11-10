@@ -10,11 +10,12 @@ import naxriscv.{Frontend, Global, ROB}
 import naxriscv.interfaces._
 import naxriscv.lsu.{DataCachePlugin, LsuFlushPayload, LsuFlusher, LsuPeripheralBus, LsuUtils, PrefetchPredictor}
 import naxriscv.misc.RobPlugin
-import naxriscv.riscv.{CSR, FloatRegFile, Rvi}
+import naxriscv.riscv.{AtomicAlu, CSR, FloatRegFile, IntRegFile, Rvi}
 import spinal.core._
 import spinal.lib._
 import naxriscv.utilities.{AddressToMask, DocPlugin, Plugin, WithRfWriteSharedSpec}
 import spinal.core.fiber.hardFork
+import spinal.lib.fsm.{State, StateMachine}
 import spinal.lib.pipeline.Connection._
 import spinal.lib.pipeline._
 
@@ -377,6 +378,7 @@ class Lsu2Plugin(var lqSize: Int,
         val sqAllocId = create(SQ_ALLOC_ID)
         val sqAllocIdOnRead = create(SQ_ALLOC_ID)
         val sqOnRead = create(UInt(log2Up(sqSize) + 1 bits))
+        val sqMask   = create(Bits(sqSize bits))
       }
 
       val ptr = new Area{
@@ -419,6 +421,11 @@ class Lsu2Plugin(var lqSize: Int,
         ptr.priority := priority
         ptr.free := ptr.free + lqCommitCount
         tracker.add := lqCommitCount
+      }
+
+      val reservation = new Area{
+        val valid = Reg(Bool()) init(False)
+        val address = Reg(UInt(PHYSICAL_WIDTH bits))
       }
     }
 
@@ -636,16 +643,17 @@ class Lsu2Plugin(var lqSize: Int,
      *    - Read physical store address/size and check it match
      */
     val windowFilter = new Pipeline {
-      val ways = Mem.fill(windowFilterWays)(new Bundle{
-        val tag = Bits(windowFilterTagWidth bits)
-        val id = UInt(windowFilterIdWidth bits)
-      })
+//      val ways = Mem.fill(windowFilterWays)(new Bundle{
+//        val tag = Bits(windowFilterTagWidth bits)
+//        val id = UInt(windowFilterIdWidth bits)
+//      })
       val feed = new Stage(){
         val l = new Area{
           val ptr             = Reg(UInt(log2Up(lqSize) + 1 bits)) init(0)
           val olderSqId       = lq.mem.sqAlloc.readAsync(ptr.resized)
           val sqAllocId       = lq.mem.sqAllocId.readAsync(ptr.resized)
           val sqOnRead        = lq.mem.sqOnRead.readAsync(ptr.resized)
+          val sqMaskOnRead    = lq.mem.sqMask.readAsync(ptr.resized)
           val sqAllocIdOnRead = lq.mem.sqAllocIdOnRead.readAsync(ptr.resized)
           val ready           = lq.mem.doWindowFilter.readAsync(ptr.resized)
           val special         = lq.mem.doSpecial.readAsync(ptr.resized)
@@ -668,7 +676,7 @@ class Lsu2Plugin(var lqSize: Int,
           val valid   = ptr =/= sq.ptr.alloc
 
           val backup = for(_ <- 0 until sqSize) yield new Area{
-            val address = Reg(UInt(windowFilterTagWidth bits))
+            val address = Reg(UInt(PHYSICAL_WIDTH - wordSizeWidth bits)) //windowFilterTagWidth
             val mask    = Reg(Bits(wordBytes bits))
           }
         }
@@ -718,42 +726,45 @@ class Lsu2Plugin(var lqSize: Int,
         val olderMask = B(loopback ? ~(endMask ^ startMask) otherwise (endMask & ~startMask))
         val olderMaskEmpty = startId === endId
 
+//    val olderMask
+//    val olderMaskEmpty
+
         val hazards = olderMask & hits
         val hazard = !olderMaskEmpty && hazards.orR
         val youngerOh = OHMasking.lastV2((hazards & B(endMask)) ## hazards)
         val youngerSel = U(OHToUInt(youngerOh).dropHigh(1))
 
-        val addressMatch = sq.mem.addressPost.readAsync(youngerSel) === l.address
-        val sizeMatch = sq.mem.size.readAsync(youngerSel) === l.size
-        val fullMatch = addressMatch && sizeMatch
-        val shouldBypass = hazard && fullMatch
-        val shouldWaitWriteback = hazard && !fullMatch
+//        val addressMatch = ??? === l.address
+//        val sizeMatch = ??? === l.size
+//        val fullMatch = addressMatch && sizeMatch
+//        val shouldBypass = hazard && fullMatch
+//        val shouldWaitWriteback = hazard && !fullMatch
         val bypass = new Area{
 //          val valid = lq.mem.bypass.valid.readAsync(l.ptr)
 //          val id    = lq.mem.bypass.id.readAsync(l.ptr)
         }
 
         val trap = setup.windowFilter.trap
-//        trap.valid      := False
-//        trap.robId      := l.robId
-//        trap.skipCommit := True
-//        trap.cause      := EnvCallPlugin.CAUSE_REDO
-//        trap.reason     := ScheduleReason.STORE_TO_LOAD_HAZARD
-//        trap.tval.assignDontCare()
+        trap.valid      := False
+        trap.robId      := l.robId
+        trap.skipCommit := True
+        trap.cause      := EnvCallPlugin.CAUSE_REDO
+        trap.reason     := ScheduleReason.STORE_TO_LOAD_HAZARD
+        trap.tval.assignDontCare()
 
         val completion = setup.windowFilter.completion
-//        completion.valid := False
-//        completion.id    := l.robId
-//
-//        when(isFireing && DO_LQ){
-//          when(hazard){
-//            trap.valid := True
-//          } otherwise {
-//            completion.valid := True
-//          }
-//        }
+        completion.valid := False
+        completion.id    := l.robId
 
-        in(trap, completion)
+        when(isFireing && DO_LQ){
+          when(hazard){
+            trap.valid := True
+          } otherwise {
+            completion.valid := True
+          }
+        }
+
+//        in(trap, completion)
       }
 
       this.stagesSet.last.flushIt(rescheduling.valid, root = false)
@@ -823,33 +834,33 @@ class Lsu2Plugin(var lqSize: Int,
 
         val lqSqFeed = lqSqArbitration.s1
 
-
         HIT_SPECULATION := False //TODO
         BYPASS_TOO_EARLY := False //TODO
 
+        val lqSelArbi = lqSqFeed(LQ_SEL)
+        val sqSelArbi = lqSqFeed(SQ_SEL)
+        val TAKE_LQ = insert(lqSqFeed(LQ_OLDER_THAN_SQ))
+        LQ_ROB_FULL := lqSqFeed(LQ_ROB_FULL)
+        SQ_ROB_FULL := lqSqFeed(SQ_ROB_FULL)
+
         val agu = aguPorts.head.port
-        val takeAgu = (LQ_OLDER_THAN_SQ ? (agu.robIdFull - LQ_ROB_FULL).msb | (agu.robIdFull - SQ_ROB_FULL).msb)
+        val takeAgu = (TAKE_LQ ? (agu.robIdFull - LQ_ROB_FULL).msb | (agu.robIdFull - SQ_ROB_FULL).msb)
         takeAgu.setWhen(!lqSqFeed.isValid)
         takeAgu.clearWhen(!agu.valid)
 
         isValid := agu.valid || lqSqFeed.isValid
         lqSqFeed.haltWhen(takeAgu)
 
-        val lqSelArbi = lqSqFeed(LQ_SEL)
-        val sqSelArbi = lqSqFeed(SQ_SEL)
-        LQ_OLDER_THAN_SQ := lqSqFeed(LQ_OLDER_THAN_SQ)
-        LQ_ROB_FULL := lqSqFeed(LQ_ROB_FULL)
-        SQ_ROB_FULL := lqSqFeed(SQ_ROB_FULL)
-
         val lqSqSerializer = new Area {
           val lqMask, sqMask = RegInit(True)
-          LQ_OLDER_THAN_SQ.clearWhen(!lqMask)
+          TAKE_LQ.clearWhen(!lqMask)
+          TAKE_LQ.setWhen(!sqMask)
 
           when(lqSqFeed(SQ_HIT) && sqMask && lqSqFeed(LQ_HIT) && lqMask) {
             lqSqFeed.haltIt()
             when(!takeAgu && isReady) {
-              lqMask clearWhen (lqSqFeed(LQ_OLDER_THAN_SQ))
-              sqMask clearWhen (!lqSqFeed(LQ_OLDER_THAN_SQ))
+              lqMask clearWhen ( TAKE_LQ)
+              sqMask clearWhen (!TAKE_LQ)
             }
           }
 
@@ -859,14 +870,14 @@ class Lsu2Plugin(var lqSize: Int,
           }
         }
 
-        ROB.ID := Mux[UInt](LQ_OLDER_THAN_SQ, LQ_ROB_FULL, SQ_ROB_FULL).resized
+        ROB.ID := Mux[UInt](TAKE_LQ || !lqSqSerializer.sqMask, LQ_ROB_FULL, SQ_ROB_FULL).resized
         decoder.PHYS_RD    := lq.mem.physRd.readAsync(lqSelArbi)
         decoder.REGFILE_RD := lq.mem.regfileRd.readAsync(lqSelArbi)
 
         def readQueues[T <: Data](key : Stageable[T], lqMem : Mem[T], sqMem : Mem[T]) : Unit = {
           stage(key, load)  := lqMem.readAsync(lqSelArbi)
           stage(key, store) := sqMem.readAsync(sqSelArbi)
-          stage(key) := Mux[T](LQ_OLDER_THAN_SQ, (key, load), (key, store))
+          stage(key) := Mux[T](TAKE_LQ, (key, load), (key, store))
         }
         def readLq[T <: Data](key : Stageable[T], lqMem : Mem[T]) : Unit = {
           stage(key) := lqMem.readAsync(lqSelArbi)
@@ -886,7 +897,7 @@ class Lsu2Plugin(var lqSize: Int,
         readSq(AMO, sq.mem.amo)
         readSq(SC, sq.mem.sc)
 
-        IS_LOAD := LQ_OLDER_THAN_SQ
+        IS_LOAD := TAKE_LQ
 
         LQ_SEL := lqSelArbi
         SQ_SEL := sqSelArbi
@@ -1129,7 +1140,7 @@ class Lsu2Plugin(var lqSize: Int,
 //          hitSpeculationTrap := False
           when(IS_LOAD) {
             lq.mem.doWindowFilter.write(LQ_SEL, True)
-            when(!LR && !tpk.IO) {
+            when(!tpk.IO) {
               when(LOAD_CHECK) {
                 setup.sharedCompletion.valid := True
                 when(!LOAD_CHECK_MATCHED){
@@ -1142,6 +1153,10 @@ class Lsu2Plugin(var lqSize: Int,
               when(WRITE_RD && !HIT_SPECULATION && !LOAD_CHECK) {
                 wakeRob.valid := True
                 wakeRf.valid := True
+              }
+              when(LR){
+                lq.reservation.valid   := True
+                lq.reservation.address := tpk.TRANSLATED
               }
             } otherwise {
               lq.mem.doSpecial.write(LQ_SEL, True)
@@ -1435,6 +1450,147 @@ class Lsu2Plugin(var lqSize: Int,
           wakeRf.valid  := True
         }
       }
+
+      val atomic = new StateMachine{
+        val IDLE, LOAD_CMD, LOAD_RSP, ALU, COMPLETION, SYNC, TRAP = new State
+        setEntry(IDLE)
+
+        setEncoding(binaryOneHot)
+
+        val readed = Reg(Bits(XLEN bits))
+        val alu = new AtomicAlu(
+          op   = sq.mem.op,
+          swap = sq.mem.swap,
+          mem  = readed(0, XLEN bits),
+          rf   = storeData(0, XLEN bits),
+          isWord = storeSize === 2
+        )
+
+        val result = Reg(Bits(XLEN bits))
+        val reservationHit = RegNext(lq.reservation.valid && lq.reservation.address === storeAddress)
+
+        when(enabled && isAtomic){
+          setup.cacheLoad.translated.physical := storeAddress
+          setup.cacheLoad.translated.abord    := False
+        }
+
+        val lockPort = setup.cache.lockPort
+        lockPort.valid := False
+        lockPort.address := storeAddress.resized
+        setup.cacheLoad.cmd.unlocked := True //As we already fenced on the dispatch stage
+        when(!isActive(IDLE)) {
+          lockPort.valid := True
+        }
+
+        IDLE whenIsActive {
+          when(enabled && isAtomic){
+            when(sq.ptr.commit === sq.ptr.free){
+              when(storeSc){
+                goto(ALU)
+              } otherwise {
+                goto(LOAD_CMD)
+              }
+            }
+          }
+        }
+
+        LOAD_CMD whenIsActive{
+          val cmd = setup.cacheLoad.cmd //If you move that in another stage, be carefull to update loadFeedAt usages (sq d$ writeback rsp delay)
+          cmd.valid   := True
+          cmd.virtual := storeAddress.resized
+          cmd.size    := storeSize
+          cmd.redoOnDataHazard := False
+          when(cmd.fire){
+            goto(LOAD_RSP)
+          }
+        }
+
+        val comp = new Area{
+          val wakeRf, rfWrite = RegInit(False)
+
+          when(wakeRf){
+            sharedPip.ctrl.wakeRf.valid := True
+            sharedPip.ctrl.wakeRf.physical := sq.mem.physRd
+            sharedPip.ctrl.wakeRf.regfile  := sq.mem.regfileRd
+            wakeRob.valid := True
+          }
+
+          val writePort = setup.regfilePorts(IntRegFile).write
+          when(rfWrite) {
+            writePort.valid := True
+            writePort.address := sq.mem.physRd
+            writePort.robId := robId
+          }
+        }
+
+        LOAD_RSP onEntry{
+          comp.rfWrite := True
+        }
+
+        //TODO lock the cache line ! (think that's already done ?)
+        LOAD_RSP whenIsActive{
+          val rsp = setup.cacheLoad.rsp
+          sharedPip.cacheRsp.specialOverride := True
+          readed := sharedPip.cacheRsp.rspFormated(0, XLEN bits)
+
+          sharedPip.cacheRsp.rspAddress  := storeAddress.resized
+          sharedPip.cacheRsp.rspSize     := storeSize
+          if(XLEN.get == 64) sharedPip.cacheRsp.rspUnsigned := False
+
+          when(rsp.fire){
+            comp.rfWrite := False
+            when(rsp.redo){
+              goto(IDLE)
+            } elsewhen (rsp.fault) {
+              goto(TRAP)
+            } otherwise {
+              goto(ALU)
+            }
+          }
+        }
+
+        TRAP whenIsActive{
+          setup.specialTrap.valid := True
+          goto(IDLE)
+        }
+
+        ALU whenIsActive{
+          result := alu.result
+          goto(COMPLETION)
+        }
+
+        COMPLETION.onEntry{
+          comp.wakeRf  := sq.mem.writeRd
+          comp.rfWrite := storeSc && sq.mem.writeRd
+        }
+        COMPLETION whenIsActive{
+          setup.specialCompletion.valid := True
+          comp.wakeRf := False
+          comp.rfWrite := False
+          comp.writePort.data := 0
+          comp.writePort.data(0) := !reservationHit
+          goto(SYNC)
+        }
+
+        SYNC.whenIsActive{
+          when(storeAmo) {
+            writeback.feed.data(0, XLEN bits) := result
+          }
+          when(storeSc && !reservationHit){
+            writeback.feed.skip := True
+          }
+
+          when(sq.ptr.onFree.valid) {
+            fire := True
+            when(storeSc) {
+              lq.reservation.valid := False
+            }
+            goto(IDLE)
+          }
+        }
+
+        frontend.pipeline.dispatch.haltIt(isActive(SYNC))
+      }
     }
 
     hardFork{
@@ -1467,14 +1623,15 @@ class Lsu2Plugin(var lqSize: Int,
 //    store.writeback.feed.holdPrefetch setWhen(special.enabled)
 
     //TODO
-    setup.cache.lockPort.valid := False
-    setup.cache.lockPort.address := 0
-    setup.cacheLoad.cmd.unlocked := True
+//    setup.cache.lockPort.valid := False
+//    setup.cache.lockPort.address := 0
+//    setup.cacheLoad.cmd.unlocked := True
 //    peripheralBus.cmd.setIdle()
     //todo remove LOAD_CHECK ?
-    assert(setup.flushPort.cmd.valid === False,"Please implement lsu flush port")
+//    assert(setup.flushPort.cmd.valid === False,"Please implement lsu flush port")
     sqWritebackEvent.setIdle()
     sqBypassEvent.setIdle()
+    //TODO WARNING, AMO / SC should write the windowfilter
 //    setup.cacheStore.cmd.assignDontCare()
 //    slave(setup.cacheStore)
 
