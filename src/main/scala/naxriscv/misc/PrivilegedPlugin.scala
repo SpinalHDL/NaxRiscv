@@ -183,6 +183,9 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       bus.unavailable := RegNext(ClockDomain.current.isResetActive)
       val enterHalt = running.getAheadValue().fall(False)
 
+      val reseting   = RegNext(False) init(True)
+      bus.haveReset := RegInit(False) setWhen(reseting) clearWhen(bus.ackReset)
+
       val doHalt = RegInit(False) setWhen(bus.haltReq && bus.running && !setup.debugMode) clearWhen(enterHalt)
       val doResume = bus.resume.isPending(1)
 
