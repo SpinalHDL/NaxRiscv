@@ -628,9 +628,9 @@ class Lsu2Plugin(var lqSize: Int,
         val sqWritebackDone = (sqId - sq.ptr.free).msb
         val sqDataDone      = sq.regs.map(_.dataValid).read(sqId.resized)
 
-        val canBypass       = tagHit && read.rsp.allowBypass
+        val canBypass       = tagHit && read.rsp.valid && read.rsp.allowBypass
         val waitOnWriteback = tagHit && read.rsp.valid && !sqWritebackDone
-        val waitOnData      = tagHit && read.rsp.valid && read.rsp.allowBypass && !sqWritebackDone && !sqDataDone
+        val waitOnData      = canBypass && !sqWritebackDone && !sqDataDone
         val waitIt          = waitOnWriteback || waitOnData
 
         waitOnWriteback clearWhen(sqWritebackEvent.valid && sqWritebackEvent.payload === sqId)
@@ -677,6 +677,11 @@ class Lsu2Plugin(var lqSize: Int,
     /** Will take in programm oder the store and load which are ready for commit
      *  For store => no execution side effects
      *  For loads :
+     *  status :
+     *  - Reality check : No conflict / bypassable / not bypassable
+     *  - Execution check : Bypass execution correct / lateEnough
+     *  - Did SF prediction delayed load execution ?
+     *
      *  - No conflict
      *    - Didn't bypass => OK, notify commit
      *    - Did bypass => KO, trap redo, unlearn stuff
@@ -800,6 +805,9 @@ class Lsu2Plugin(var lqSize: Int,
         val shouldGo        = !hazard
         val shouldBypass    =  hazard &&  youngerWordMatch
         val shouldWriteback =  hazard && !youngerWordMatch
+
+//        val youngerDelta = l.olderSqId - youngerSel
+//        val lateEnough = youngerSel - l.sqOnRead
 
         val waitedWriteback = lq.mem.sf.writeback.readAsync(l.ptr.resized)
         val sf = new Area{
