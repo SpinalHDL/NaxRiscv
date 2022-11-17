@@ -229,7 +229,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         val prv = RegInit(U"11")
         val step = RegInit(False) //TODO
         val nmip = False
-        val mprven = False
+        val mprven = True
         val cause = RegInit(U"000")
         val stoptime = False
         val stopcount = False
@@ -944,7 +944,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         setup.jump.pc    := U(readed).resized
 
         setup.privilege  := xret.targetPrivilege
-        setup.xretAwayFromMachine clearWhen(xret.targetPrivilege < 3)
+        setup.xretAwayFromMachine setWhen(xret.targetPrivilege < 3)
         switch(reschedule.tval(1 downto 0)){
           is(3){
             machine.mstatus.mpp  := 0
