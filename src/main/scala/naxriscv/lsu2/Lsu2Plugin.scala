@@ -165,7 +165,7 @@ class Lsu2Plugin(var lqSize: Int,
     val SF_DELTA  = Stageable(SQ_ID)
     val SF_SQ_ALLOC = Stageable(UInt(log2Up(sqSize)+1 bits))
 
-    val OLDER_STORE_MAY_BYPASS  = Stageable(Bool())
+    val OLDER_STORE_WAIT_FEED  = Stageable(Bool())
     val OLDER_STORE_BYPASS_SUCCESS  = Stageable(Bool())
     val OLDER_STORE_HIT  = Stageable(Bool())
     val OLDER_STORE_ID = Stageable(SQ_ID)
@@ -268,7 +268,7 @@ class Lsu2Plugin(var lqSize: Int,
 
     val translationWake = Bool()
     val sqWritebackEvent = Flow(SQ_ID)
-    val sqDataEvent    = Flow(SQ_ID)
+    val sqFeedEvent      = Flow(SQ_ID)
     case class LqRegType(id : Int) extends Area{
       val allocation = False
       val valid      = RegInit(False)
@@ -288,24 +288,24 @@ class Lsu2Plugin(var lqSize: Int,
         val cacheRefillAny = RegInit(False)
         val mmuRefillAny   = RegInit(False)
         val sqWriteback    = RegInit(False)
-        val sqBypass       = RegInit(False)
+        val sqFeed         = RegInit(False)
         val sqId           = Reg(SQ_ID)
 
         val cacheRefillSet  = cacheRefill.getZero
         val mmuRefillAnySet = False
         val sqWritebackSet  = False
-        val sqBypassSet     = False
+        val sqFeedSet     = False
 
         cacheRefill  := cacheRefill  | cacheRefillSet
         mmuRefillAny := mmuRefillAny | mmuRefillAnySet
         sqWriteback  := sqWriteback  | sqWritebackSet
-        sqBypass     := sqBypass     | sqBypassSet
+        sqFeed       := sqFeed       | sqFeedSet
 
         redoSet.setWhen(
           (cacheRefill  &  cache.refillCompletions).orR ||
            mmuRefillAny && translationWake ||
            sqWriteback  && sqWritebackEvent.valid && sqWritebackEvent.payload === sqId ||
-           sqBypass     && sqDataEvent.valid    && sqDataEvent.payload    === sqId
+           sqFeed     && sqFeedEvent.valid    && sqFeedEvent.payload    === sqId
         )
       }
 
@@ -325,7 +325,7 @@ class Lsu2Plugin(var lqSize: Int,
         waitOn.cacheRefill    := 0
         waitOn.cacheRefillAny := False
         waitOn.mmuRefillAny   := False
-        waitOn.sqBypass       := False
+        waitOn.sqFeed         := False
         waitOn.sqWriteback    := False
       }
     }
@@ -675,13 +675,13 @@ class Lsu2Plugin(var lqSize: Int,
         val waitOnData      = canBypass && !sqWritebackDone && !sqDataDone
 //        val waitIt          = waitOnWriteback || waitOnData
 
-        waitOnWriteback clearWhen(sqWritebackEvent.valid && sqWritebackEvent.payload === sqId)
-        waitOnData      clearWhen(sqDataEvent.valid      && sqDataEvent.payload      === sqId)
-        waitOnWriteback clearWhen(read.rsp.allowBypass && !waitOnData)
-
-        writeLq(lq.mem.sf.writeback, tagHit && read.rsp.valid)
-        writeLq(lq.mem.sf.bypass   , tagHit && read.rsp.valid && read.rsp.allowBypass)
-        writeLq(lq.mem.sf.delta    , read.rsp.delta)
+//        waitOnWriteback clearWhen(sqWritebackEvent.valid && sqWritebackEvent.payload === sqId)
+//        waitOnData      clearWhen(sqDataEvent.valid      && sqDataEvent.payload      === sqId)
+//        waitOnWriteback clearWhen(read.rsp.allowBypass && !waitOnData)
+//
+//        writeLq(lq.mem.sf.writeback, tagHit && read.rsp.valid)
+//        writeLq(lq.mem.sf.bypass   , tagHit && read.rsp.valid && read.rsp.allowBypass)
+//        writeLq(lq.mem.sf.delta    , read.rsp.delta)
 
 //        when(pushLq){
 //          lq.regs.onSel(port.aguId.resized) { r =>
@@ -720,8 +720,6 @@ class Lsu2Plugin(var lqSize: Int,
           r.address.mask       := dataMask
         }
       }
-      sqDataEvent.valid := pushSq
-      sqDataEvent.payload := port.aguId.resized
     }
 
 
@@ -859,7 +857,6 @@ class Lsu2Plugin(var lqSize: Int,
         SQ_SEL := sqSelArbi
 
         when(takeAgu){
-          forkIt()
           NEED_TRANSLATION := True
           IS_LOAD := agu.load
           ROB.ID := agu.robIdFull.resized
@@ -886,6 +883,9 @@ class Lsu2Plugin(var lqSize: Int,
             }
           }
         }
+
+        sqFeedEvent.valid   := isFireing && !IS_LOAD
+        sqFeedEvent.payload := SQ_SEL
 
         DATA_MASK := AddressToMask(ADDRESS_PRE_TRANSLATION, SIZE, wordBytes)
         LQCHECK_START_ID := sq.mem.lqAlloc.readAsync(SQ_SEL)
@@ -981,7 +981,7 @@ class Lsu2Plugin(var lqSize: Int,
           val data = sq.mem.data.readAsync(OLDER_STORE_ID)
 
           OLDER_STORE_BYPASS_SUCCESS     := !translationFailure && fullMatch
-          OLDER_STORE_MAY_BYPASS         :=  translationFailure
+          OLDER_STORE_WAIT_FEED         :=  translationFailure
         }
 
         when(isFireing && NEED_TRANSLATION) {
@@ -1131,9 +1131,10 @@ class Lsu2Plugin(var lqSize: Int,
 
         MISS_ALIGNED := (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
         PAGE_FAULT   := (IS_LOAD ? !tpk.ALLOW_READ | !tpk.ALLOW_WRITE) || tpk.PAGE_FAULT
-//        ACCESS_FAULT := rsp.fault || tpk.ACCESS_FAULT
         REGULAR      := !tpk.IO && !AMO && !SC
 
+        val lqMask = UIntToOh(LQ_SEL)
+        val sqMask = UIntToOh(SQ_SEL)
         def onLq(body : LqRegType => Unit) = lq.regs.onMask(lqMask)(body)
         def onSq(body : SqRegType => Unit) = sq.regs.onMask(sqMask)(body)
         def onLqSq(bodyLq : LqRegType => Unit, bodySq : SqRegType => Unit){
@@ -1143,9 +1144,6 @@ class Lsu2Plugin(var lqSize: Int,
             onSq(bodySq)
           }
         }
-
-        val lqMask = UIntToOh(LQ_SEL)
-        val sqMask = UIntToOh(SQ_SEL)
         
         val hitSpeculationTrap = True
         val redoTrigger = False
@@ -1174,9 +1172,10 @@ class Lsu2Plugin(var lqSize: Int,
             setup.sharedTrap.cause(2) := !IS_LOAD
           }.elsewhen(IS_LOAD && OLDER_STORE_HIT && !OLDER_STORE_BYPASS_SUCCESS){
             onLq{r =>
-              r.waitOn.sqWritebackSet setWhen(!stage.resulting(OLDER_STORE_COMPLETED))
-              r.waitOn.sqBypassSet setWhen(!OLDER_STORE_MAY_BYPASS)
               r.waitOn.sqId := OLDER_STORE_ID
+              r.waitOn.sqFeedSet setWhen(OLDER_STORE_WAIT_FEED)
+              r.waitOn.sqWritebackSet := True
+              r.redoSet := stage.resulting(OLDER_STORE_COMPLETED)
             }
           }.elsewhen(IS_LOAD && rsp.redo) {
 //            hadSpeculativeHitTrap setWhen(HIT_SPECULATION)
