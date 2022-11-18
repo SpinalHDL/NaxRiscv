@@ -82,6 +82,11 @@ class Lsu2Plugin(var lqSize: Int,
                  var sharedCtrlAt : Int = 3,
                  var loadWriteRfOnPrivilegeFail : Boolean = true,
                  var lqToCachePipelined : Boolean = true,
+                 var hitPedictionEntries : Int = 1024,
+                 var hitPredictionCounterWidth : Int = 6,
+                 var hitPredictionErrorPenality : Int = 20,
+                 var hazardPedictionEntries : Int = 128,
+                 var hazardPredictionTagWidth : Int = 16,
                  var windowFilterWays : Int = 2,
                  var windowFilterEntries : Int = 8, //TODO
                  var windowFilterTagWidth : Int = 10, //TODO
@@ -99,7 +104,7 @@ class Lsu2Plugin(var lqSize: Int,
   override def postCommitBusy = setup.postCommitBusy
   override def getFlushPort() : FlowCmdRsp[LsuFlushPayload, NoData]= setup.flushPort
   def windowFilterAddressWidth = log2Up(windowFilterEntries)
-
+  def withHazardPrediction = hazardPedictionEntries != 0
 
   case class AguPortSpec(port : Flow[AguPort])
   val aguPorts = ArrayBuffer[AguPortSpec]()
@@ -154,7 +159,7 @@ class Lsu2Plugin(var lqSize: Int,
     val NEED_TRANSLATION = Stageable(Bool())
     val LOAD_WRITE_FAILURE = Stageable(Bool()) //True when register file write port was busy (need redo)
 
-    val HIT_SPECULATION, HIT_SPECULATION_WRITE_RD = Stageable(Bool())
+    val HIT_SPECULATION = Stageable(Bool())
 //    val HIT_SPECULATION_COUNTER = Stageable(SInt(hitPredictionCounterWidth bits))
 
     val IS_LOAD = Stageable(Bool())
@@ -163,7 +168,7 @@ class Lsu2Plugin(var lqSize: Int,
 
     val SF_BYPASS = Stageable(Bool())
     val SF_DELTA  = Stageable(SQ_ID)
-    val SF_SQ_ALLOC = Stageable(UInt(log2Up(sqSize)+1 bits))
+    val LQ_SQ_ALLOC = Stageable(UInt(log2Up(sqSize)+1 bits))
 
     val OLDER_STORE_WAIT_FEED  = Stageable(Bool())
     val OLDER_STORE_BYPASS_SUCCESS  = Stageable(Bool())
@@ -187,11 +192,23 @@ class Lsu2Plugin(var lqSize: Int,
     val YOUNGER_LOAD_PC         = Stageable(PC)
     val YOUNGER_LOAD_ROB        = Stageable(ROB.ID)
     val YOUNGER_LOAD_RESCHEDULE = Stageable(Bool())
+    val YOUNGER_LOAD_ID         = Stageable(LQ_ID)
+
+    val LOAD_HAZARD_PRED_VALID = Stageable(Bool())
+    val LOAD_HAZARD_PRED_DELTA = Stageable(SQ_ID)
+    val LOAD_HAZARD_PRED_HIT   = Stageable(Bool())
+    val LOAD_HAZARD_PRED_SQID  = Stageable(SQ_ID)
+    val LOAD_HAZARD_PRED_HIT_FEEDED = Stageable(Bool())
+
+
+    val HIT_SPECULATION_COUNTER = Stageable(SInt(hitPredictionCounterWidth bits))
+    val LOAD_FRESH      = Stageable(Bool())
+    val LOAD_FRESH_PC   = Stageable(PC())
   }
   import keys._
 
-  override def wakeRobs    = List(logic.get.sharedPip.ctrl.wakeRob, logic.get.special.wakeRob)
-  override def wakeRegFile = List(logic.get.sharedPip.ctrl.wakeRf , logic.get.special.wakeRf)
+  override def wakeRobs    = List(logic.get.sharedPip.hitSpeculation.wakeRob, logic.get.sharedPip.ctrl.wakeRob, logic.get.special.wakeRob)
+  override def wakeRegFile = List(logic.get.sharedPip.hitSpeculation.wakeRf , logic.get.sharedPip.ctrl.wakeRf , logic.get.special.wakeRf)
   def flushPort = setup.flushPort
 
 
@@ -311,15 +328,17 @@ class Lsu2Plugin(var lqSize: Int,
 
 
 
-      when(delete){
-        valid := False
-      }
+
       when(allocation){
         valid := True
         sqChecked := False
       }
       when(redoSet){
         redo := True
+      }
+      when(delete){
+        valid := False
+        redo := False
       }
       when(redoSet || delete){
         waitOn.cacheRefill    := 0
@@ -355,15 +374,17 @@ class Lsu2Plugin(var lqSize: Int,
         redoSet.setWhen(mmuRefillAny & translationWake)
       }
 
-      when(delete){
-        valid := False
-      }
+
       when(allocation){
         valid := True
         dataValid := False
       }
       when(redoSet){
         redo := True
+      }
+      when(delete){
+        valid := False
+        redo := False
       }
       when(redoSet || delete){
         waitOn.mmuRefillAny   := False
@@ -418,10 +439,13 @@ class Lsu2Plugin(var lqSize: Int,
           val bypass = create(Bool())
           val delta  = create(SF_DELTA)
         }
-//        val bypass = new Area{
-//          val done = create(Bool())
-//          val sqId  = create(SQ_ID)
-//        }
+        val hazardPrediction = withHazardPrediction generate new Area {
+          val valid = create(LOAD_HAZARD_PRED_VALID)
+          val delta = create(LOAD_HAZARD_PRED_DELTA)
+        }
+        val hitPrediction = new Area{
+          val counter = create(HIT_SPECULATION_COUNTER)
+        }
       }
 
       val ptr = new Area{
@@ -471,6 +495,38 @@ class Lsu2Plugin(var lqSize: Int,
         val valid = Reg(Bool()) init(False)
         val address = Reg(UInt(PHYSICAL_WIDTH bits))
       }
+
+      val hazardPrediction = withHazardPrediction generate new Area{
+        def hash(pc : UInt)  : Bits = pc(Fetch.SLICE_RANGE_LOW + log2Up(hazardPedictionEntries), hazardPredictionTagWidth bits).asBits
+        def index(pc : UInt) : UInt = pc(Fetch.SLICE_RANGE_LOW, log2Up(hazardPedictionEntries) bits)
+        case class HazardPredictionEntry() extends Bundle {
+          val tag = Bits(hazardPredictionTagWidth bits)
+          val delta = UInt(log2Up(sqSize) bits)
+        }
+        val mem = Mem.fill(hazardPedictionEntries)(HazardPredictionEntry())
+//        if(GenerationFlags.simulation){ //TODO
+//          mem.initBigInt(List.fill(mem.wordCount)(BigInt(0)))
+//        }
+        val write = mem.writePort
+        write.setIdle
+      }
+
+      val hitPrediction = new Area {
+        def index(pc: UInt): UInt = pc(Fetch.SLICE_RANGE_LOW, log2Up(hitPedictionEntries) bits)
+
+        case class HitPredictionEntry() extends Bundle {
+          val counter = SInt(hitPredictionCounterWidth bits)
+        }
+
+        val mem = Mem.fill(hitPedictionEntries)(HitPredictionEntry())
+        if(GenerationFlags.simulation){
+          mem.initBigInt(List.fill(mem.wordCount)(BigInt(0)))
+        }
+        val writePort = mem.writePort
+        val writeLast = writePort.stage()
+      }
+
+
     }
 
 
@@ -651,7 +707,42 @@ class Lsu2Plugin(var lqSize: Int,
         }
       }
 
+      val hazardPrediction = withHazardPrediction generate new Area{
+        val read = lq.hazardPrediction.mem.readSyncPort
+        read.cmd.valid := port.earlySample
+        read.cmd.payload := lq.hazardPrediction.index(port.earlyPc)
+
+        val hash = lq.hazardPrediction.hash(port.pc)
+        val hit = read.rsp.tag === hash
+        writeLq(lq.mem.hazardPrediction.valid, hit)
+        writeLq(lq.mem.hazardPrediction.delta, read.rsp.delta)
+//        val sqAlloc = mem.sqAlloc.readAsync(port.lqId)
+//        val sqId = (sqAlloc - 1).resize(log2Up(sqSize))
+//        val freeAlready  = sq.ptr.isFree(sqAlloc)
+//        val freeDetected = sq.ptr.onFree.valid && sq.ptr.onFree.payload === sqId.resized
+//        val waitSq = hit && !freeDetected && !freeAlready //TODO
+      }
+
+      val hitPrediction = new Area{
+        val read = lq.hitPrediction.mem.readSyncPort
+        read.cmd.valid := port.earlySample
+        read.cmd.payload := lq.hitPrediction.index(port.earlyPc)
+
+        def write = lq.hitPrediction.writePort
+
+        val bypassHit = RegNext(read.cmd.payload === write.address && write.valid)
+        val bypassData = RegNext(write.data)
+        when(bypassHit){
+          read.rsp := bypassData
+        }
+
+        val likelyToHit = read.rsp.counter.msb
+
+        writeLq(lq.mem.hitPrediction.counter, read.rsp.counter)
+      }
+
       val lqsqAlloc = lq.mem.sqAlloc.readAsync(port.aguId.resized)
+
 
       val sf = new Area{
         val read = storeForwarding.mem.readSyncPort
@@ -781,6 +872,9 @@ class Lsu2Plugin(var lqSize: Int,
       translationWake := translationPort.wake
 
 
+      val hadSpeculativeHitTrap = False
+      val speculateHitTrapRecovered = False
+      val speculativeHitPredictionDisabled = RegInit(False) setWhen(hadSpeculativeHitTrap) clearWhen(speculateHitTrapRecovered)
 
       val feed = new Area {
         val stage = stages(sharedAguAt)
@@ -847,16 +941,24 @@ class Lsu2Plugin(var lqSize: Int,
         readLq(LR, lq.mem.lr)
         readLq(SF_BYPASS, lq.mem.sf.bypass)
         readLq(SF_DELTA, lq.mem.sf.delta)
-        readLq(SF_SQ_ALLOC, lq.mem.sqAlloc)
+        readLq(LQ_SQ_ALLOC, lq.mem.sqAlloc)
+//        readLq(HIT_SPECULATION_COUNTER, lq.mem.hitPrediction.counter)
+        if(withHazardPrediction) {
+          readLq(LOAD_HAZARD_PRED_VALID, lq.mem.hazardPrediction.valid)
+          readLq(LOAD_HAZARD_PRED_DELTA, lq.mem.hazardPrediction.delta)
+        }
+
         readSq(AMO, sq.mem.amo)
         readSq(SC, sq.mem.sc)
 
         IS_LOAD := TAKE_LQ
-
         LQ_SEL := lqSelArbi
         SQ_SEL := sqSelArbi
+        LOAD_FRESH := False
+        HIT_SPECULATION_COUNTER := aguPush(0).hitPrediction.read.rsp.counter
 
         when(takeAgu){
+          LOAD_FRESH := True
           NEED_TRANSLATION := True
           IS_LOAD := agu.load
           ROB.ID := agu.robIdFull.resized
@@ -873,7 +975,13 @@ class Lsu2Plugin(var lqSize: Int,
           SQ_SEL := agu.aguId.resized
           SF_BYPASS := aguPush(0).sf.canBypass
           SF_DELTA  := aguPush(0).sf.read.rsp.delta
-          SF_SQ_ALLOC := aguPush(0).lqsqAlloc
+          LQ_SQ_ALLOC := aguPush(0).lqsqAlloc
+          HIT_SPECULATION := HIT_SPECULATION_COUNTER.msb && !speculativeHitPredictionDisabled
+
+          if(withHazardPrediction) {
+            LOAD_HAZARD_PRED_VALID := aguPush(0).hazardPrediction.hit
+            LOAD_HAZARD_PRED_DELTA := aguPush(0).hazardPrediction.read.rsp.delta
+          }
         } otherwise {
           when(agu.valid){
             when(agu.load) {
@@ -901,6 +1009,34 @@ class Lsu2Plugin(var lqSize: Int,
           SQ_YOUNGER_MASK := youngerMask
           SQCHECK_NO_OLDER := olderMaskEmpty
         }
+
+        if(withHazardPrediction){
+          val absolute = LQ_SQ_ALLOC - LOAD_HAZARD_PRED_DELTA - 1
+          LOAD_HAZARD_PRED_SQID := absolute.resized
+          LOAD_HAZARD_PRED_HIT := LOAD_HAZARD_PRED_VALID && !sq.regs.map(_.virtualValid).read(LOAD_HAZARD_PRED_SQID) && !(absolute-sq.ptr.free).msb
+
+          //Ensure we don't miss a feed event in flight
+          LOAD_HAZARD_PRED_HIT_FEEDED := False
+          for(s <- stages.dropWhile(_ != stage).tail){
+            s.overloaded(LOAD_HAZARD_PRED_HIT_FEEDED) := s(LOAD_HAZARD_PRED_HIT_FEEDED) ||
+              sqFeedEvent.valid && sqFeedEvent.payload === s(LOAD_HAZARD_PRED_SQID)
+          }
+        }
+        LOAD_FRESH_PC := agu.pc
+      }
+
+      val hitSpeculation = new Area{
+        val stage = stages(sharedFeedAt + cache.loadRspLatency - 2)
+        import stage._
+
+        val wakeRob = Flow(WakeRob())
+        wakeRob.valid := isFireing && IS_LOAD && HIT_SPECULATION
+        wakeRob.robId := ROB.ID
+
+        val wakeRf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false, withRfBypass = true, rfLatency = 2))
+        wakeRf.valid    := isFireing && IS_LOAD && HIT_SPECULATION && WRITE_RD
+        wakeRf.physical := decoder.PHYS_RD
+        wakeRf.regfile  := decoder.REGFILE_RD
       }
 
       val feedCache = new Area{
@@ -958,7 +1094,7 @@ class Lsu2Plugin(var lqSize: Int,
         OLDER_STORE_ID := olderSel
         OLDER_STORE_OH := olderOh
 
-        when(isFireing && IS_LOAD) {
+        when(isFireing && IS_LOAD && (if(withHazardPrediction) !LOAD_HAZARD_PRED_HIT else True)) {
           lq.regs.onSel(LQ_SEL) { r =>
             r.sqChecked := True
           }
@@ -971,7 +1107,9 @@ class Lsu2Plugin(var lqSize: Int,
 
         OLDER_STORE_COMPLETED := sq.ptr.onFreeLast.valid && sq.ptr.onFreeLast.payload === OLDER_STORE_ID
         for(s <- stages.dropWhile(_ != stage)){
-          s.overloaded(OLDER_STORE_COMPLETED) := s(OLDER_STORE_COMPLETED) || sq.ptr.onFree.valid && sq.ptr.onFree.payload === s(OLDER_STORE_ID)
+          s.overloaded(OLDER_STORE_COMPLETED) := s(OLDER_STORE_COMPLETED) ||
+            sq.ptr.onFree.valid && sq.ptr.onFree.payload === s(OLDER_STORE_ID) ||
+            OLDER_STORE_WAIT_FEED && sqFeedEvent.valid && sqFeedEvent.payload === s(OLDER_STORE_ID)
         }
 
         val bypass = new Area{
@@ -1030,6 +1168,7 @@ class Lsu2Plugin(var lqSize: Int,
         YOUNGER_LOAD_PC := lq.mem.pc(youngerSel)
         YOUNGER_LOAD_ROB := lq.mem.robId.readAsync(youngerSel)
         YOUNGER_LOAD_RESCHEDULE := youngerHit
+        YOUNGER_LOAD_ID := youngerSel
       }
 
 
@@ -1144,8 +1283,7 @@ class Lsu2Plugin(var lqSize: Int,
             onSq(bodySq)
           }
         }
-        
-        val hitSpeculationTrap = True
+
         val redoTrigger = False
         when(redoTrigger){
           onLqSq(_.redoSet := True, _.redoSet := True)
@@ -1155,7 +1293,12 @@ class Lsu2Plugin(var lqSize: Int,
         val refillMask = rsp.refillSlot.orMask(rsp.refillSlotAny)
 
         when(isFireing) {
-          setup.sharedTrap.valid := HIT_SPECULATION && hitSpeculationTrap
+          when(IS_LOAD && HIT_SPECULATION && (!doCompletion || tpk.IO)) {
+            setup.sharedTrap.valid := True
+            hadSpeculativeHitTrap := True
+            setup.sharedTrap.cause      := EnvCallPlugin.CAUSE_REDO
+            setup.sharedTrap.reason     := ScheduleReason.LOAD_HIT_MISS_PREDICTED
+          }
 
           when(MISS_ALIGNED){
             setup.sharedTrap.valid := True
@@ -1170,12 +1313,15 @@ class Lsu2Plugin(var lqSize: Int,
             setup.sharedTrap.reason := ScheduleReason.TRAP
             setup.sharedTrap.cause := CSR.MCAUSE_ENUM.LOAD_ACCESS_FAULT
             setup.sharedTrap.cause(2) := !IS_LOAD
-          }.elsewhen(IS_LOAD && OLDER_STORE_HIT && !OLDER_STORE_BYPASS_SUCCESS){
+          }.elsewhen(IS_LOAD && (OLDER_STORE_HIT && !OLDER_STORE_BYPASS_SUCCESS || LOAD_HAZARD_PRED_HIT)){
+            val waitFeed = LOAD_HAZARD_PRED_HIT || OLDER_STORE_WAIT_FEED
+            val sqId     = LOAD_HAZARD_PRED_HIT ?[UInt] LOAD_HAZARD_PRED_SQID | OLDER_STORE_ID
+            val redoNow  = LOAD_HAZARD_PRED_HIT ? stage.resulting(LOAD_HAZARD_PRED_HIT_FEEDED) | stage.resulting(OLDER_STORE_COMPLETED)
             onLq{r =>
-              r.waitOn.sqId := OLDER_STORE_ID
-              r.waitOn.sqFeedSet setWhen(OLDER_STORE_WAIT_FEED)
+              r.waitOn.sqId := sqId
               r.waitOn.sqWritebackSet := True
-              r.redoSet := stage.resulting(OLDER_STORE_COMPLETED)
+              r.waitOn.sqFeedSet setWhen(waitFeed)
+              r.redoSet setWhen(redoNow)
             }
           }.elsewhen(IS_LOAD && rsp.redo) {
 //            hadSpeculativeHitTrap setWhen(HIT_SPECULATION)
@@ -1199,9 +1345,9 @@ class Lsu2Plugin(var lqSize: Int,
         KeepAttribute(doCompletion)
         when(doCompletion){
           onSq(_.commited := True)
-//          speculateHitTrapRecovered := LQ_SEL === 0 //Assume LQ_ID restart at 0 after a trap
 //          hitSpeculationTrap := False
           when(IS_LOAD) {
+            speculateHitTrapRecovered := LQ_SEL === 0 //Assume LQ_ID restart at 0 after a trap
             when(!tpk.IO) {
               setup.sharedCompletion.valid := True
               when(WRITE_RD && !HIT_SPECULATION) {
@@ -1222,6 +1368,12 @@ class Lsu2Plugin(var lqSize: Int,
               setup.sharedTrap.trap     := False
               setup.sharedTrap.reason   := ScheduleReason.STORE_TO_LOAD_HAZARD
               setup.sharedTrap.robId    := YOUNGER_LOAD_ROB
+
+              val hz = lq.hazardPrediction //TODO being able to unlearn bad entries
+              hz.write.valid := True
+              hz.write.address  := lq.hazardPrediction.index(YOUNGER_LOAD_PC)
+              hz.write.data.tag := lq.hazardPrediction.hash(YOUNGER_LOAD_PC)
+              hz.write.data.delta := (lq.mem.sqAlloc.readAsync(YOUNGER_LOAD_ID) - SQ_SEL - 1).resized
             }
             when(!SC && !AMO && !tpk.IO) {
               setup.sharedCompletion.valid := True
@@ -1231,19 +1383,19 @@ class Lsu2Plugin(var lqSize: Int,
           }
         }
 
-//        val hitPrediction = new Area{
-//          def onSuccess = S(-1)
-//          def onFailure = S(hitPredictionErrorPenality)
-//          val next = HIT_SPECULATION_COUNTER +^ (success ? onSuccess | onFailure)
-//
-//          val writePort = lq.hitPrediction.writePort
-//          writePort.valid    := isFireing && LOAD_FRESH
-//          writePort.address  := lq.hitPrediction.index(LOAD_FRESH_PC)
-//          writePort.data.counter := next.sat(widthOf(next) - hitPredictionCounterWidth bits)
+        val hitPrediction = new Area{
+          def onSuccess = S(-1)
+          def onFailure = S(hitPredictionErrorPenality)
+          val next = HIT_SPECULATION_COUNTER +^ ((doCompletion && !tpk.IO) ? onSuccess | onFailure)
+
+          val writePort = lq.hitPrediction.writePort
+          writePort.valid    := isFireing && IS_LOAD && LOAD_FRESH
+          writePort.address  := lq.hitPrediction.index(LOAD_FRESH_PC)
+          writePort.data.counter := next.sat(widthOf(next) - hitPredictionCounterWidth bits)
 //          when(!tpk.REDO && !tpk.PAGE_FAULT && !tpk.ACCESS_FAULT && tpk.IO && tpk.ALLOW_READ){
 //            writePort.data.counter := writePort.data.counter.maxValue
 //          }
-//        }
+        }
       }
     }
 
