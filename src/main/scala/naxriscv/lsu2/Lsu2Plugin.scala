@@ -21,24 +21,6 @@ import spinal.lib.pipeline._
 
 import scala.collection.mutable.ArrayBuffer
 
-/*
-vs the original LsuPlugin :
-
-Pipeline rework ->
-- Use the issue queue / EU0 to track depdencies and provide the data to store (greatly reducing area)
-  So, no more store data fetch and store completion pipeline
-- Load and store address pipeline are now fused, avoiding duplicating MMU ports. This will also allow store prefetch
-
-Out of oder rework ->
-- Store to load bypass info will be provided via a predictor instead of a CAM, reducing the need to have early address
-- Store to load hazard will be checked via re-execution of the load
-- To reduce load re-execution, a store vulnerability window filter is added
-- Load to load on the same address ordering (snoop / line refill) will be on the side of the re-execution filter
-
-Overall it should save quite a lot of area, and also reduce timings pressure (no CAM).
-Also increasing LQ/SQ size will have much less impact on area and timings.
- */
-
 case class AguPort(aguIdSize : Int,
                    wordWidth : Int,
                    physicalRdWidth : Int,
@@ -137,8 +119,6 @@ class Lsu2Plugin(var lqSize: Int,
     val AMO, LR, SC, REGULAR = Stageable(Bool())
     val MISS_ALIGNED = Stageable(Bool())
     val PAGE_FAULT = Stageable(Bool())
-    val ACCESS_FAULT = Stageable(Bool())
-    val STORE_DO_TRAP = Stageable(Bool())
 
     val LQ_HIT = Stageable(Bool())
     val SQ_HIT = Stageable(Bool())
@@ -147,9 +127,6 @@ class Lsu2Plugin(var lqSize: Int,
     val SQ_ID = Stageable(UInt(log2Up(sqSize) bits))
 
     val LQ_OLDER_THAN_SQ = Stageable(Bool())
-
-    val LQ_ROB_ID = Stageable(ROB.ID)
-    val SQ_ROB_ID = Stageable(ROB.ID)
 
     val ROB_FULL = Stageable(UInt(ROB.ID_WIDTH + 1 bits))
     val LQ_ROB_FULL = Stageable(ROB_FULL)
@@ -160,14 +137,12 @@ class Lsu2Plugin(var lqSize: Int,
     val LOAD_WRITE_FAILURE = Stageable(Bool()) //True when register file write port was busy (need redo)
 
     val HIT_SPECULATION = Stageable(Bool())
-//    val HIT_SPECULATION_COUNTER = Stageable(SInt(hitPredictionCounterWidth bits))
+    val HIT_SPECULATION_COUNTER = Stageable(SInt(hitPredictionCounterWidth bits))
 
     val IS_LOAD = Stageable(Bool())
 
     val SQ_ALLOC_ID = Stageable(UInt(windowFilterIdWidth bits))
 
-    val SF_BYPASS = Stageable(Bool())
-    val SF_DELTA  = Stageable(SQ_ID)
     val LQ_SQ_ALLOC = Stageable(UInt(log2Up(sqSize)+1 bits))
 
     val OLDER_STORE_WAIT_FEED  = Stageable(Bool())
@@ -178,7 +153,6 @@ class Lsu2Plugin(var lqSize: Int,
     val OLDER_STORE_OH = Stageable(Bits(sqSize bits))
 
     val LQCHECK_START_ID = Stageable(UInt(log2Up(lqSize) + 1 bits))
-    //      val LQCHECK_HITS_EARLY = Stageable(Bits(lqSize bits))
     val LQCHECK_HITS = Stageable(Bits(lqSize bits))
     val LQCHECK_NO_YOUNGER = Stageable(Bool())
 
@@ -186,7 +160,6 @@ class Lsu2Plugin(var lqSize: Int,
     val SQCHECK_HITS = Stageable(Bits(sqSize bits))
     val SQCHECK_NO_OLDER = Stageable(Bool())
     val SQ_YOUNGER_MASK = Stageable(UInt(sqSize bits))
-    val SQ_YOUNGER_MASK_EMPTY = Stageable(Bool())
 
 
     val YOUNGER_LOAD_PC         = Stageable(PC)
@@ -200,8 +173,6 @@ class Lsu2Plugin(var lqSize: Int,
     val LOAD_HAZARD_PRED_SQID  = Stageable(SQ_ID)
     val LOAD_HAZARD_PRED_HIT_FEEDED = Stageable(Bool())
 
-
-    val HIT_SPECULATION_COUNTER = Stageable(SInt(hitPredictionCounterWidth bits))
     val LOAD_FRESH      = Stageable(Bool())
     val LOAD_FRESH_PC   = Stageable(PC())
   }
@@ -391,22 +362,6 @@ class Lsu2Plugin(var lqSize: Int,
       }
     }
 
-    val storeForwarding = new Area{
-      val loadBypassPredEntries = 128
-      val loadBypassPredTagWidth = 10
-      def addressOf(pc: UInt): UInt = pc(Fetch.SLICE_RANGE_LOW, log2Up(loadBypassPredEntries) bits)
-      def tagOf(pc: UInt): UInt = pc(Fetch.SLICE_RANGE_LOW + log2Up(loadBypassPredEntries), loadBypassPredTagWidth bits)
-      case class Entry() extends Bundle{
-        val tag = UInt(loadBypassPredTagWidth bits)
-        val delta = UInt(log2Up(sqSize) bits)
-        val allowBypass = Bool()
-        val valid = Bool()
-      }
-      val mem = Mem.fill(loadBypassPredEntries)(Entry())
-
-      val write = mem.writePort()
-    }
-
     val lq = new Area{
       val regs = List.tabulate(lqSize)(LqRegType)
 
@@ -434,11 +389,6 @@ class Lsu2Plugin(var lqSize: Int,
         val sqAllocIdOnRead = create(SQ_ALLOC_ID)
         val sqOnRead = create(UInt(log2Up(sqSize) + 1 bits))
         val sqMask   = create(Bits(sqSize bits))
-        val sf = new Area{
-          val writeback = create(Bool())
-          val bypass = create(Bool())
-          val delta  = create(SF_DELTA)
-        }
         val hazardPrediction = withHazardPrediction generate new Area {
           val valid = create(LOAD_HAZARD_PRED_VALID)
           val delta = create(LOAD_HAZARD_PRED_DELTA)
@@ -741,53 +691,6 @@ class Lsu2Plugin(var lqSize: Int,
         writeLq(lq.mem.hitPrediction.counter, read.rsp.counter)
       }
 
-      val lqsqAlloc = lq.mem.sqAlloc.readAsync(port.aguId.resized)
-
-
-      val sf = new Area{
-        val read = storeForwarding.mem.readSyncPort
-        read.cmd.valid := port.earlySample
-        read.cmd.payload := storeForwarding.addressOf(port.earlyPc)
-
-        val bypassHit  = RegNext(read.cmd.payload === storeForwarding.write.address && storeForwarding.write.valid)
-        val bypassData = RegNext(storeForwarding.write.data)
-        when(bypassHit){
-          read.rsp := bypassData
-        }
-
-        val tagHit = read.rsp.tag === storeForwarding.tagOf(port.pc)
-
-        val sqId = (lqsqAlloc - read.rsp.delta - 1)
-        val sqWritebackDone = (sqId - sq.ptr.free).msb
-        val sqDataDone      = sq.regs.map(_.dataValid).read(sqId.resized)
-
-        val canBypass       = tagHit && read.rsp.valid && read.rsp.allowBypass
-        val waitOnWriteback = tagHit && read.rsp.valid && !sqWritebackDone
-        val waitOnData      = canBypass && !sqWritebackDone && !sqDataDone
-//        val waitIt          = waitOnWriteback || waitOnData
-
-//        waitOnWriteback clearWhen(sqWritebackEvent.valid && sqWritebackEvent.payload === sqId)
-//        waitOnData      clearWhen(sqDataEvent.valid      && sqDataEvent.payload      === sqId)
-//        waitOnWriteback clearWhen(read.rsp.allowBypass && !waitOnData)
-//
-//        writeLq(lq.mem.sf.writeback, tagHit && read.rsp.valid)
-//        writeLq(lq.mem.sf.bypass   , tagHit && read.rsp.valid && read.rsp.allowBypass)
-//        writeLq(lq.mem.sf.delta    , read.rsp.delta)
-
-//        when(pushLq){
-//          lq.regs.onSel(port.aguId.resized) { r =>
-//            r.sqChecked := True
-//          }
-//        }
-      }
-//          lq.regs.onSel(port.aguId.resized){r =>
-//            r.waitOn.sqWritebackSet setWhen(waitOnWriteback)
-//            r.waitOn.sqBypassSet    setWhen(waitOnData)
-//            r.waitOn.sqId := sqId.resized
-//          }
-//        }
-//      }
-
       writeSq(sq.mem.addressPre, port.address)
       writeSq(sq.mem.robId     , port.robId)
       writeSq(sq.mem.robIdMsb  , port.robIdMsb)
@@ -812,8 +715,6 @@ class Lsu2Plugin(var lqSize: Int,
         }
       }
     }
-
-
 
     def load = "load"
     def store = "store"
@@ -939,10 +840,7 @@ class Lsu2Plugin(var lqSize: Int,
         readLq(WRITE_RD, lq.mem.writeRd)
         readLq(UNSIGNED, lq.mem.unsigned)
         readLq(LR, lq.mem.lr)
-        readLq(SF_BYPASS, lq.mem.sf.bypass)
-        readLq(SF_DELTA, lq.mem.sf.delta)
         readLq(LQ_SQ_ALLOC, lq.mem.sqAlloc)
-//        readLq(HIT_SPECULATION_COUNTER, lq.mem.hitPrediction.counter)
         if(withHazardPrediction) {
           readLq(LOAD_HAZARD_PRED_VALID, lq.mem.hazardPrediction.valid)
           readLq(LOAD_HAZARD_PRED_DELTA, lq.mem.hazardPrediction.delta)
@@ -973,10 +871,8 @@ class Lsu2Plugin(var lqSize: Int,
           decoder.REGFILE_RD := agu.regfileRd
           LQ_SEL := agu.aguId.resized
           SQ_SEL := agu.aguId.resized
-          SF_BYPASS := aguPush(0).sf.canBypass
-          SF_DELTA  := aguPush(0).sf.read.rsp.delta
-          LQ_SQ_ALLOC := aguPush(0).lqsqAlloc
-          HIT_SPECULATION := HIT_SPECULATION_COUNTER.msb && !speculativeHitPredictionDisabled
+          LQ_SQ_ALLOC := lq.mem.sqAlloc.readAsync(agu.aguId.resized)
+          HIT_SPECULATION := aguPush(0).hitPrediction.likelyToHit && !speculativeHitPredictionDisabled
 
           if(withHazardPrediction) {
             LOAD_HAZARD_PRED_VALID := aguPush(0).hazardPrediction.hit
@@ -1828,7 +1724,6 @@ class Lsu2Plugin(var lqSize: Int,
 //    store.writeback.feed.holdPrefetch setWhen(special.enabled)
 
     //TODO
-    storeForwarding.write.setIdle()
 //    setup.cache.lockPort.valid := False
 //    setup.cache.lockPort.address := 0
 //    setup.cacheLoad.cmd.unlocked := True
