@@ -19,6 +19,7 @@ object AguPlugin extends AreaObject{
   val SC = Stageable(Bool())
   val LR = Stageable(Bool())
   val LOAD = Stageable(Bool())
+  val FLOAT = Stageable(Bool())
 }
 
 class AguPlugin(val euId : String) extends Plugin{
@@ -49,16 +50,16 @@ class AguPlugin(val euId : String) extends Plugin{
     val stores = ArrayBuffer(Rvi.SB, Rvi.SH, Rvi.SW)
     if(XLEN.get == 64) stores ++= List(Rvi.SD)
 
-    for(store <- stores) add(store, srcOps, List(AMO -> False, SC -> False, LOAD -> False))
-    if(RVF) add(Rvfd.FSW, srcOps, List(AMO -> False, SC -> False, LOAD -> False))
-    if(RVD) add(Rvfd.FSD, srcOps, List(AMO -> False, SC -> False, LOAD -> False))
+    for(store <- stores) add(store, srcOps, List(AMO -> False, SC -> False, LOAD -> False, FLOAT -> False))
+    if(RVF) add(Rvfd.FSW, srcOps, List(AMO -> False, SC -> False, LOAD -> False, FLOAT -> True))
+    if(RVD) add(Rvfd.FSD, srcOps, List(AMO -> False, SC -> False, LOAD -> False, FLOAT -> True))
 
     val amos = List(
       Rvi.AMOSWAP, Rvi.AMOADD, Rvi.AMOXOR, Rvi.AMOAND, Rvi.AMOOR,
       Rvi.AMOMIN, Rvi.AMOMAX, Rvi.AMOMINU, Rvi.AMOMAXU
     )
-    for(amo <- amos) add(amo, List(sk.Op.SRC1, sk.SRC1.RF), List(AMO -> True, SC -> False, LOAD -> False))
-    add(Rvi.SC, List(sk.Op.SRC1, sk.SRC1.RF), List(AMO -> False, SC -> True, LOAD -> False))
+    for(amo <- amos) add(amo, List(sk.Op.SRC1, sk.SRC1.RF), List(AMO -> True, SC -> False, LOAD -> False, FLOAT -> False))
+    add(Rvi.SC, List(sk.Op.SRC1, sk.SRC1.RF), List(AMO -> False, SC -> True, LOAD -> False, FLOAT -> False))
 
 
 //    val all = stores ++ amos ++ List(Rvi.SC)
@@ -102,7 +103,7 @@ class AguPlugin(val euId : String) extends Plugin{
     setup.port.load := LOAD
 
     setup.port.data := eu.apply(IntRegFile, RS2).resized
-    if(RVF) when(decoder.REGFILE_RS(RS2) === decoder.REGFILE_RS(RS2).rfToId(FloatRegFile)) {
+    if(RVF) when(FLOAT) {
       setup.port.data := eu.apply(FloatRegFile, RS2).resized
     }
     eu.release()

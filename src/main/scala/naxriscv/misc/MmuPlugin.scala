@@ -8,6 +8,7 @@ import naxriscv.interfaces.{AddressTranslationPortUsage, AddressTranslationRsp, 
 import naxriscv.lsu.DataCachePlugin
 import naxriscv.riscv.CSR
 import naxriscv.utilities.Plugin
+import spinal.core
 import spinal.core._
 import spinal.lib._
 import spinal.lib.fsm._
@@ -509,7 +510,7 @@ class MmuPlugin(var spec : MmuSpec,
       setup.invalidatePort.rsp.valid setWhen(done.rise(False))
     }
     fetch.release()
-    refill.build()
+    core.fiber.hardFork(refill.build())
   }
 }
 
