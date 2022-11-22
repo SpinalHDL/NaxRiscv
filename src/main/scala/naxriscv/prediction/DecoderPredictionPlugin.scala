@@ -21,7 +21,12 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
                                var pcAddAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                var pcPredictionAt: FrontendPlugin => Stage = _.pipeline.decoded,
                                var applyAt : FrontendPlugin => Stage = _.pipeline.serialized,
-                               var flushOnBranch : Boolean = false) extends Plugin with DecoderPrediction{
+                               var flushOnBranch : Boolean = false,
+                               var rasDepth : Int = 16) extends Plugin with DecoderPrediction{
+
+  val RAS_PUSH_PTR = Stageable(UInt(log2Up(rasDepth) bits))
+  val RAS_POP_PTR  = Stageable(UInt(log2Up(rasDepth) bits))
+
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
     val fetch = getService[FetchPlugin]
@@ -32,11 +37,15 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
     val priority = JumpService.Priorities.DECODE_PREDICTION
     val decodeJump = jump.createJumpInterface(priority)
     val historyPush = getService[HistoryPlugin].createPushPort(priority, DISPATCH_COUNT)
+    val decoder = getService[DecoderPlugin]
 
     frontend.retain()
     fetch.retain()
     rob.retain()
     branchContext.retain()
+
+    decoder.addDecodingToRob(RAS_PUSH_PTR)
+    decoder.addDecodingToRob(RAS_POP_PTR)
   }
 
   val logic = create late new Area{
@@ -83,7 +92,6 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
     }
 
     val ras = new Area{
-      val rasDepth = 32
       val mem = new Area{
         val stack = Mem.fill(rasDepth)(PC)
         if(GenerationFlags.simulation){
@@ -103,6 +111,15 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
       write.valid := ptr.pushIt
       write.address := ptr.push
       write.data.assignDontCare()
+
+      //Restore the RAS ptr on reschedules
+      val reschedule = commit.reschedulingPort(onCommit = false)
+      val healPush = rob.readAsyncSingle(RAS_PUSH_PTR, reschedule.robId)
+      val healPop  = rob.readAsyncSingle(RAS_POP_PTR , reschedule.robId)
+      when(reschedule.valid){
+        ptr.push := healPush
+        ptr.pop  := healPop
+      }
     }
 
 
@@ -200,6 +217,8 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
           when(DISPATCH_MASK && RAS_POP) { //WARNING use resulting DISPATCH_MASK ! (if one day things are moved around)
             ras.ptr.popIt := True
           }
+          RAS_PUSH_PTR := ras.ptr.push
+          RAS_POP_PTR  := ras.ptr.pop
         }
       }
 
