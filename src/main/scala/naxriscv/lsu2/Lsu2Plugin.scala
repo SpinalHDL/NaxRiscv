@@ -455,7 +455,7 @@ class Lsu2Plugin(var lqSize: Int,
         def hash(pc : UInt)  : Bits = pc(Fetch.SLICE_RANGE_LOW + log2Up(hazardPredictionEntries), hazardPredictionTagWidth bits).asBits
         def index(pc : UInt) : UInt = pc(Fetch.SLICE_RANGE_LOW, log2Up(hazardPredictionEntries) bits)
         case class HazardPredictionEntry() extends Bundle {
-          val score = UInt(hazardPredictionScoreWidth bits)
+          val score = UInt(hazardPredictionScoreWidth bits) //0 mean not valid
           val tag   = Bits(hazardPredictionTagWidth bits)
           val delta = UInt(log2Up(sqSize) bits)
         }
@@ -463,8 +463,11 @@ class Lsu2Plugin(var lqSize: Int,
         if(GenerationFlags.simulation){
           mem.initBigInt(List.fill(mem.wordCount)(BigInt(0)))
         }
-        val write = mem.writePort
-        write.setIdle
+        val hazard = False
+        def addHazard(read : Flow[UInt]) = hazard setWhen(read.valid && read.payload === write.address)
+
+        val write = Flow(MemWriteCmd(mem)).setIdle
+        mem.writePort << write.throwWhen(hazard)
       }
 
       val hitPrediction = new Area {
@@ -478,7 +481,11 @@ class Lsu2Plugin(var lqSize: Int,
         if(GenerationFlags.simulation){
           mem.initBigInt(List.fill(mem.wordCount)(BigInt(0)))
         }
-        val write = mem.writePort
+        val hazard = False
+        def addHazard(read : Flow[UInt]) = hazard setWhen(read.valid && read.payload === write.address)
+
+        val write = Flow(MemWriteCmd(mem))
+        mem.writePort << write.throwWhen(hazard)
       }
     }
 
@@ -656,6 +663,8 @@ class Lsu2Plugin(var lqSize: Int,
         read.cmd.valid := port.earlySample
         read.cmd.payload := lq.hazardPrediction.index(port.earlyPc)
 
+        lq.hazardPrediction.addHazard(read.cmd)
+
         val hash = lq.hazardPrediction.hash(port.pc)
         val hit = read.rsp.score =/= 0 && read.rsp.tag === hash
         writeLq(lq.mem.hazardPrediction.valid, hit)
@@ -666,14 +675,9 @@ class Lsu2Plugin(var lqSize: Int,
         val read = lq.hitPrediction.mem.readSyncPort
         read.cmd.valid := port.earlySample
         read.cmd.payload := lq.hitPrediction.index(port.earlyPc)
+        lq.hitPrediction.addHazard(read.cmd)
 
         def write = lq.hitPrediction.write
-
-        val bypassHit = RegNext(read.cmd.payload === write.address && write.valid)
-        val bypassData = RegNext(write.data)
-        when(bypassHit){
-          read.rsp := bypassData
-        }
 
         val likelyToHit = read.rsp.counter.msb
 
@@ -1331,13 +1335,10 @@ class Lsu2Plugin(var lqSize: Int,
           def onFailure = S(hitPredictionErrorPenality)
           val next = HIT_SPECULATION_COUNTER +^ ((doCompletion && !IS_IO) ? onSuccess | onFailure)
 
-          val writePort = lq.hitPrediction.writePort
-          writePort.valid    := isFireing && IS_LOAD && LOAD_FRESH && !SP_FP_ADDRESS
-          writePort.address  := lq.hitPrediction.index(LOAD_FRESH_PC)
-          writePort.data.counter := next.sat(widthOf(next) - hitPredictionCounterWidth bits)
-//          when(!tpk.REDO && !tpk.PAGE_FAULT && !tpk.ACCESS_FAULT && IS_IO && tpk.ALLOW_READ){
-//            writePort.data.counter := writePort.data.counter.maxValue
-//          }
+          val write = lq.hitPrediction.write
+          write.valid    := isFireing && IS_LOAD && LOAD_FRESH && !SP_FP_ADDRESS
+          write.address  := lq.hitPrediction.index(LOAD_FRESH_PC)
+          write.data.counter := next.sat(widthOf(next) - hitPredictionCounterWidth bits)
         }
       }
     }
@@ -1804,3 +1805,18 @@ class Lsu2Plugin(var lqSize: Int,
 //make compile && obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf --pass-symbol pass --trace --trace-ref --trace-gem5
 //make test-clean output/riscv_tests/rv32ui-p-sw/PASS ARGS="--trace --trace-ref --trace-gem5 --spike-debug --output-dir output"
 //make test-fast -j && find . -name PASS
+
+/*
+linux =>
+STATS :
+  IPC               0.584914
+  cycles            220264982
+  commits           128836090
+  reschedules       3252691
+  trap              21096
+  branch miss       1785500
+  jump miss         1204090
+  storeToLoadHazard 5889
+  loadHitMiss       161668
+
+ */
