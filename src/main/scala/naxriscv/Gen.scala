@@ -56,7 +56,7 @@ object Config{
               branchCount : Int = 16,
               withFloat  : Boolean = false,
               withDouble : Boolean = false,
-              withLsu2 : Boolean = false,
+              withLsu2 : Boolean = true,
               lqSize : Int = 16,
               sqSize : Int = 16,
               simulation : Boolean = GenerationFlags.simulation,
