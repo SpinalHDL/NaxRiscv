@@ -5,7 +5,7 @@ import naxriscv.fetch._
 import naxriscv.lsu._
 import naxriscv.misc._
 import naxriscv.utilities._
-import naxriscv.compatibility.{EnforceSyncRamPhase, MultiPortWritesSymplifier}
+import naxriscv.compatibility.{EnforceSyncRamPhase, MemReadDuringWritePatcherPhase, MultiPortWritesSymplifier}
 import naxriscv.debug.EmbeddedJtagPlugin
 import naxriscv.platform.ScalaInterpreter.evaluate
 import spinal.core._
@@ -145,6 +145,7 @@ object LitexGen extends App{
   }.parse(args))
 
   val spinalConfig = SpinalConfig(inlineRom = true, targetDirectory = netlistDirectory)
+  spinalConfig.addTransformationPhase(new MemReadDuringWritePatcherPhase)
   spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
   spinalConfig.addStandardMemBlackboxing(blackboxByteEnables)
   spinalConfig.addTransformationPhase(new EnforceSyncRamPhase)
@@ -306,8 +307,10 @@ Nax : timed 5026 gametics in 4958 realtics (35.480034 fps)
       timed 5026 gametics in 3692 realtics (47.646263 fps)
       timed 5026 gametics in 3444 realtics (51.077236 fps) (no more memcpy for doom flush)
       timed 5026 gametics in 3395 realtics (51.814434 fps)
+      timed 5026 gametics in 3187 realtics (55.196110 fps) (LSU2)
       timed 5026 gametics in 2369 realtics (74.254959 fps) (-1)
       timed 5026 gametics in 2301 realtics (76.449371 fps) (-1)
+      timed 5026 gametics in 2375 realtics (74.067368 fps) (LSU2)
 Vex : timed 5026 gametics in 5606 realtics (31.378880 fps)
       timed 5026 gametics in 5238 realtics (33.583427 fps)
       timed 5026 gametics in 4866 realtics (36.150841 fps) (-1)
@@ -320,6 +323,7 @@ Nax : timed 5026 gametics in 2040 realtics (86.230392 fps)
       timed 5026 gametics in 1781 realtics (98.770355 fps)
       timed 5026 gametics in 1786 realtics (98.493843 fps)
       timed 5026 gametics in 1751 realtics (100.462593 fps)
+      timed 5026 gametics in 1737 realtics (101.272308 fps) (LSU2)
 Vex : timed 5026 gametics in 3851 realtics (45.679043 fps)
 
 no draw no blit :
@@ -560,5 +564,42 @@ I_InitFb 800x600, 3200 32bpp
 [    3.751280] Freeing unused kernel image (initmem) memory: 212K
 [    3.756451] Kernel memory protection not selected by kernel config.
 [    3.762731] Run /init as init process
+
+
+
+dri => -extension GLX ?
+lsof /usr/lib/riscv64-linux-gnu/dri/swrast_dri.so
+
+/etc/X11/xorg.conf
+Section "Extensions"
+	Option "GLX" "Disable"
+EndSection
+
+cat /var/log/Xorg.0.log
+
+cp /var/run/lightdm/root/:0 /tmp/lightdmauth
+chmod a+r /tmp/lightdmauth
+export XAUTHORITY=/tmp/lightdmauth
+export DISPLAY=unix:0
+
+xauth -f /tmp/lightdmauth
+list
+exit
+
+xdotool type root
+xdotool key Tab
+xdotool type root
+xdotool key Return
+
+
+/usr/games/chocolate-doom -iwad Doom1.WAD  -1 -nosound &
+/usr/games/openttd -v sdl -b 8bpp-optimized -s null -m null &
+SDL_NOMOUSE=1 VisualBoyAdvance -1  emu/Tetris.gb &
+
+Debian setup :
+set dns, configure eth0, enable time over internet
+enable root ssh
+disable x11 GLX extention
+enable HVC0
 
  */

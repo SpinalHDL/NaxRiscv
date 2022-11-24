@@ -223,6 +223,8 @@ class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedIm
           case FPU => fpSpec.addNeeds(key, one)
           case RM => rmSpec.addNeeds(key, one)
           case r if resourceToStageable.contains(r) => resourceToSpec(r).addNeeds(key, one)
+          case naxriscv.interfaces.SQ =>
+          case naxriscv.interfaces.LQ =>
         }
       }
 

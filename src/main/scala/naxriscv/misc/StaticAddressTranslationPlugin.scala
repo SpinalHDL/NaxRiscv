@@ -33,6 +33,7 @@ class StaticAddressTranslationPlugin( var physicalWidth : Int,
 
   override def newTranslationPort(stages: Seq[Stage],
                          preAddress: Stageable[UInt],
+                         allowRefill : Stageable[Bool],
                          usage: AddressTranslationPortUsage,
                          portSpec: Any,
                          storageSpec: Any): AddressTranslationRsp = {

@@ -98,7 +98,7 @@ Here is a konata visualisation of the trace produced by --trace-gem5 when runnin
 
 ```shell
 cd $NAXRISCV/src/test/cpp/naxriscv
-./obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/rv32im/dhrystone.elf --pass-symbol=pass
+./obj_dir/VNaxRiscv --load-elf ../../../../ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf --pass-symbol=pass
 ```
 
 # Run a riscv-test

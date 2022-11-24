@@ -187,7 +187,7 @@ class MultiPortWritesSymplifier(onlyTagged : Boolean = false) extends PhaseMemBl
   override def doBlackboxing(pc: PhaseContext, typo: MemTopology) : Unit = {
     if(onlyTagged && typo.mem.getTag(classOf[MultiPortWritesSymplifierTag]).isEmpty) return
 
-    if(typo.writes.size > 1 && typo.readsSync.size == 0){
+    if(typo.writes.size > 1 && typo.readsSync.size == 0 && typo.readsAsync.size != 0){
       typo.writes.foreach(w => assert(w.mask == null))
       typo.writes.foreach(w => assert(w.clockDomain == typo.writes.head.clockDomain))
       val cd = typo.writes.head.clockDomain
@@ -230,13 +230,12 @@ class MultiPortWritesSymplifier(onlyTagged : Boolean = false) extends PhaseMemBl
       ctx.foreach(_.restore())
     }
 
-    if(typo.writes.size > 1 && typo.readsAsync.size == 0){
+    if(typo.writes.size > 1 && typo.readsAsync.size == 0 && typo.readsSync.size != 0){
       typo.writes.foreach(w => assert(w.mask == null))
       typo.writes.foreach(w => assert(w.clockDomain == typo.writes.head.clockDomain))
       val cd = typo.writes.head.clockDomain
 
       import typo._
-
       val ctx = List(mem.parentScope.push(), cd.push())
 
       val c = RamSyncMwXor(
@@ -331,6 +330,36 @@ class MemReadDuringWriteHazardPhase extends PhaseMemBlackboxing{
         }
       }
 
+      ctx.foreach(_.restore())
+    }
+  }
+}
+
+class MemReadDuringWritePatcherPhase extends PhaseMemBlackboxing{
+  override def doBlackboxing(pc: PhaseContext, typo: MemTopology) = {
+    import typo._
+    for(read <- typo.readsSync if read.readUnderWrite == eitherFirst){
+      val ctx = List(mem.parentScope.push(), read.clockDomain.push())
+
+      val readed = Bits(read.getWidth bits)
+      readed.assignFrom(read)
+      wrapConsumers(typo, read, readed)
+
+      for(write <- typo.writes){
+        assert(read.width == write.width && read.clockDomain == write.clockDomain)
+        assert(write.mask == null)
+        val hazard = RegInit(False)
+        val data = Reg(Bits(mem.width bits))
+        when(read.readEnable.asInstanceOf[Bool]){
+          hazard := write.writeEnable.asInstanceOf[Bool] && write.address.asInstanceOf[UInt] === read.address.asInstanceOf[UInt]
+          data := write.data.asInstanceOf[Bits]
+        }
+        when(hazard){
+           readed := data
+        }
+      }
+
+      read.readUnderWrite = dontCare
       ctx.foreach(_.restore())
     }
   }

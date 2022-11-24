@@ -4,6 +4,7 @@ import naxriscv.execute.ExecutionUnitBase
 import naxriscv.fetch._
 import naxriscv.frontend.FrontendPlugin
 import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
+import naxriscv.lsu2.Lsu2Plugin
 import naxriscv.misc.{CommitPlugin, MmuPlugin, PrivilegedConfig, PrivilegedPlugin}
 import spinal.core._
 import spinal.lib.Timeout
@@ -21,6 +22,18 @@ class XilinxDebug extends Plugin {
         patch(p.logic.special.isIo)
         p.logic.sq.regs.foreach(e => patch(e.data.inRf))
         patch(p.logic.sq.ptr.commit)
+      }
+      case p : Lsu2Plugin => {
+        patch(p.logic.special.enabled)
+        patch(p.logic.special.isIo)
+        patch(p.logic.sq.ptr.commit)
+        p.logic.sharedPip.stages.foreach{s =>
+          patch(s.valid)
+          patch(s(ROB.ID))
+          patch(s(p.keys.IS_LOAD))
+        }
+        patch(p.logic.sharedPip.stages.last(p.keys.IS_IO))
+        patch(p.logic.sharedPip.stages.last(p.keys.CTRL))
       }
       case p : MmuPlugin => {
         patch(p.logic.refill.busy)
@@ -76,6 +89,7 @@ class XilinxDebug extends Plugin {
           patch(noCommit.state.setName("noCommitTrigger" + cycles))
         }
         addTimeout(256)
+        addTimeout(1000)
         addTimeout(2000)
         patch(p.logic.whitebox.robToPc.valid)
         patch(p.logic.whitebox.robToPc.robId)

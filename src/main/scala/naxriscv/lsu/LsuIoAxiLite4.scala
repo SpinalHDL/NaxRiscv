@@ -1,5 +1,6 @@
 package naxriscv.lsu
 
+import naxriscv.lsu2.Lsu2Plugin
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -10,8 +11,8 @@ class LsuPeripheralAxiLite4(ioDataWidth : Int,
                             reg_stage_cmd : Boolean = false,
                             reg_stage_ret: Boolean = true) extends Plugin{
   val logic = create late new Area{
-    val cache = getService[LsuPlugin]
-    val native = cache.peripheralBus.setAsDirectionLess
+    val peripheralBus = getServiceOption[LsuPlugin].map(_.peripheralBus).getOrElse(getServiceOption[Lsu2Plugin].map(_.peripheralBus).get)
+    val native = peripheralBus.setAsDirectionLess
     val resized = native.resize(ioDataWidth)
     val axiRaw = resized.toAxiLite4()
     val axi = master(cloneOf(axiRaw))
