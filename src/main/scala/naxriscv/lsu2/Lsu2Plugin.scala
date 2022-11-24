@@ -505,7 +505,8 @@ class Lsu2Plugin(var lqSize: Int,
         val sc          = create(Bool())
         val data        = create(Bits(wordWidth bits))
         val needTranslation = create(Bool())
-        val doSpecial       = create(Bool())
+        val feededOnce  = create(Bool())
+        val doSpecial   = create(Bool())
         val doNotBypass = create(Bool())
         val lqAlloc = Mem.fill(sqSize)(UInt(log2Up(lqSize) + 1 bits))
 
@@ -601,6 +602,7 @@ class Lsu2Plugin(var lqSize: Int,
             sq.regs.onSel(SQ_ID){ _.allocation := True }
             sq.mem.doSpecial.write(SQ_ID, False)
             sq.mem.lqAlloc.write(SQ_ID, loads.alloc)
+            sq.mem.feededOnce.write(SQ_ID, False)
           }
           stores.alloc \= stores.alloc + 1
         }
@@ -903,7 +905,7 @@ class Lsu2Plugin(var lqSize: Int,
         if(withHazardPrediction){
           val absolute = LQ_SQ_ALLOC - LOAD_HAZARD_PRED_DELTA - 1
           LOAD_HAZARD_PRED_SQID := absolute.resized
-          LOAD_HAZARD_PRED_HIT := LOAD_HAZARD_PRED_VALID && !sq.regs.map(_.virtualValid).read(LOAD_HAZARD_PRED_SQID) && !(absolute-sq.ptr.free).msb
+          LOAD_HAZARD_PRED_HIT := LOAD_HAZARD_PRED_VALID && !sq.mem.feededOnce.readAsync(LOAD_HAZARD_PRED_SQID) && !(absolute-sq.ptr.free).msb
 
           //Ensure we don't miss a feed event in flight
           LOAD_HAZARD_PRED_HIT_FEEDED := False
@@ -913,6 +915,10 @@ class Lsu2Plugin(var lqSize: Int,
           }
         }
         LOAD_FRESH_PC := agu.pc
+
+        when(isFireing && !IS_LOAD){
+          sq.mem.feededOnce.write(SQ_ID, True)
+        }
       }
 
       val hitSpeculation = new Area{
@@ -1805,6 +1811,8 @@ class Lsu2Plugin(var lqSize: Int,
 
 /*
 linux =>
+Saving random seed: [    1.458574] random: dd: uninitialized urandom read (512 bytes read)
+
 STATS :
   IPC               0.584914
   cycles            220264982
@@ -1815,5 +1823,16 @@ STATS :
   jump miss         1204090
   storeToLoadHazard 5889
   loadHitMiss       161668
+
+Saving random seed: [    1.424028] random: dd: uninitialized urandom read (512 bytes read)
+  IPC               0.597798
+  cycles            216230950
+  commits           129262516
+  reschedules       2893070
+  trap              20873
+  branch miss       1765135
+  jump miss         867779
+  storeToLoadHazard 5879
+  loadHitMiss       159106
 
  */
