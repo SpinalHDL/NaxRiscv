@@ -659,11 +659,9 @@ class Lsu2Plugin(var lqSize: Int,
       }
 
       val hazardPrediction = withHazardPrediction generate new Area{
-        val read = lq.hazardPrediction.mem.readSyncPort
+        val read = lq.hazardPrediction.mem.readSyncPort(readUnderWrite = eitherFirst)
         read.cmd.valid := port.earlySample
         read.cmd.payload := lq.hazardPrediction.index(port.earlyPc)
-
-        lq.hazardPrediction.addHazard(read.cmd)
 
         val hash = lq.hazardPrediction.hash(port.pc)
         val hit = read.rsp.score =/= 0 && read.rsp.tag === hash
@@ -672,10 +670,9 @@ class Lsu2Plugin(var lqSize: Int,
       }
 
       val hitPrediction = new Area{
-        val read = lq.hitPrediction.mem.readSyncPort
+        val read = lq.hitPrediction.mem.readSyncPort(readUnderWrite = eitherFirst)
         read.cmd.valid := port.earlySample
         read.cmd.payload := lq.hitPrediction.index(port.earlyPc)
-        lq.hitPrediction.addHazard(read.cmd)
 
         def write = lq.hitPrediction.write
 

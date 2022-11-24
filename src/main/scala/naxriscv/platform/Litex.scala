@@ -5,7 +5,7 @@ import naxriscv.fetch._
 import naxriscv.lsu._
 import naxriscv.misc._
 import naxriscv.utilities._
-import naxriscv.compatibility.{EnforceSyncRamPhase, MultiPortWritesSymplifier}
+import naxriscv.compatibility.{EnforceSyncRamPhase, MemReadDuringWritePatcherPhase, MultiPortWritesSymplifier}
 import naxriscv.debug.EmbeddedJtagPlugin
 import naxriscv.platform.ScalaInterpreter.evaluate
 import spinal.core._
@@ -145,6 +145,7 @@ object LitexGen extends App{
   }.parse(args))
 
   val spinalConfig = SpinalConfig(inlineRom = true, targetDirectory = netlistDirectory)
+  spinalConfig.addTransformationPhase(new MemReadDuringWritePatcherPhase)
   spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
   spinalConfig.addStandardMemBlackboxing(blackboxByteEnables)
   spinalConfig.addTransformationPhase(new EnforceSyncRamPhase)

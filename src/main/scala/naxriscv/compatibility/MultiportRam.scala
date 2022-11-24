@@ -335,6 +335,36 @@ class MemReadDuringWriteHazardPhase extends PhaseMemBlackboxing{
   }
 }
 
+class MemReadDuringWritePatcherPhase extends PhaseMemBlackboxing{
+  override def doBlackboxing(pc: PhaseContext, typo: MemTopology) = {
+    import typo._
+    for(read <- typo.readsSync if read.readUnderWrite == eitherFirst){
+      val ctx = List(mem.parentScope.push(), read.clockDomain.push())
+
+      val readed = Bits(read.getWidth bits)
+      readed.assignFrom(read)
+      wrapConsumers(typo, read, readed)
+
+      for(write <- typo.writes){
+        assert(read.width == write.width && read.clockDomain == write.clockDomain)
+        assert(write.mask == null)
+        val hazard = RegInit(False)
+        val data = Reg(Bits(mem.width bits))
+        when(read.readEnable.asInstanceOf[Bool]){
+          hazard := write.writeEnable.asInstanceOf[Bool] && write.address.asInstanceOf[UInt] === read.address.asInstanceOf[UInt]
+          data := write.data.asInstanceOf[Bits]
+        }
+        when(hazard){
+           readed := data
+        }
+      }
+
+      read.readUnderWrite = dontCare
+      ctx.foreach(_.restore())
+    }
+  }
+}
+
 class MemReadAsyncForceWriteFirst extends PhaseMemBlackboxing{
   override def doBlackboxing(pc: PhaseContext, typo: MemTopology) : Unit = {
     import typo._

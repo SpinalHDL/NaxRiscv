@@ -460,6 +460,7 @@ object Gen extends App{
   {
     val spinalConfig = SpinalConfig(inlineRom = true)
     spinalConfig.addTransformationPhase(new MemReadDuringWriteHazardPhase)
+    spinalConfig.addTransformationPhase(new MemReadDuringWritePatcherPhase)
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
     //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
 
@@ -524,6 +525,7 @@ object Gen64 extends App{
   {
     val spinalConfig = SpinalConfig(inlineRom = true, anonymSignalPrefix = "_zz")
     spinalConfig.addTransformationPhase(new MemReadDuringWriteHazardPhase)
+    spinalConfig.addTransformationPhase(new MemReadDuringWritePatcherPhase)
     spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
     //  spinalConfig.addTransformationPhase(new MultiPortReadSymplifier)
 
