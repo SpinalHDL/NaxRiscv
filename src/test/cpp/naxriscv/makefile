@@ -9,7 +9,7 @@ SPIKE_BUILD=$(realpath ${SPIKE}/build)
 
 TRACE?=yes
 #LOCKSTEP?=yes
-ALLOCATOR_CHECKS?=yes
+ALLOCATOR_CHECKS?=no
 ADDCFLAGS += -CFLAGS -Iobj_dir
 ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE}/riscv)
 ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE}/fesvr)
