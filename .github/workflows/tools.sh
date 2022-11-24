@@ -1,6 +1,7 @@
 #!/bin/bash
 
 install_verilator(){
+  sudo apt-get update
   sudo apt install -y git make autoconf g++ flex libfl-dev bison  # First time prerequisites
   git clone http://git.veripool.org/git/verilator   # Only first time
   unset VERILATOR_ROOT  # For bash
@@ -40,6 +41,7 @@ install_elfio(){
 }
 
 install_packages(){
+  sudo apt-get update
   sudo apt install -y zlib1g-dev libboost-all-dev libboost-dev libasio-dev device-tree-compiler libsdl2-2.0-0 libsdl2-dev
 }
 
