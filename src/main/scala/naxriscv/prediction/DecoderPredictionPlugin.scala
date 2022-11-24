@@ -25,7 +25,6 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
                                var rasDepth : Int = 16) extends Plugin with DecoderPrediction{
 
   val RAS_PUSH_PTR = Stageable(UInt(log2Up(rasDepth) bits))
-  val RAS_POP_PTR  = Stageable(UInt(log2Up(rasDepth) bits))
 
   val setup = create early new Area{
     val frontend = getService[FrontendPlugin]
@@ -45,7 +44,6 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
     branchContext.retain()
 
     decoder.addDecodingToRob(RAS_PUSH_PTR)
-    decoder.addDecodingToRob(RAS_POP_PTR)
   }
 
   val logic = create late new Area{
@@ -115,7 +113,7 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
       //Restore the RAS ptr on reschedules
       val reschedule = commit.reschedulingPort(onCommit = false)
       val healPush = rob.readAsyncSingle(RAS_PUSH_PTR, reschedule.robId)
-      val healPop  = rob.readAsyncSingle(RAS_POP_PTR , reschedule.robId)
+      val healPop  = healPush-1
       when(reschedule.valid){
         ptr.push := healPush
         ptr.pop  := healPop
@@ -218,7 +216,6 @@ class DecoderPredictionPlugin( var decodeAt: FrontendPlugin => Stage = _.pipelin
             ras.ptr.popIt := True
           }
           RAS_PUSH_PTR := ras.ptr.push
-          RAS_POP_PTR  := ras.ptr.pop
         }
       }
 
