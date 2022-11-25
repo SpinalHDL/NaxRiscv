@@ -817,6 +817,10 @@ case class FpuCore(p : FpuParameter) extends Component{
         val f32ManPos        = p.mantissaWidth + 2 - 23
         val roundAdjusted    = insert(muxDouble(merge.FORMAT)(MAN_SHIFTED(0, 2 bits))(MAN_SHIFTED(f32ManPos - 2, 2 bits) | U(MAN_SHIFTED(f32ManPos - 2 - 1 downto 0).orR, 2 bits)))
         val manLsb           = insert(muxDouble(merge.FORMAT)(MAN_SHIFTED(2))(MAN_SHIFTED(f32ManPos)))
+
+        val fw    = io.ports(0).floatWake
+        fw.valid := isFireing
+        fw.robId := merge.ROBID
       }
       import s1._
 

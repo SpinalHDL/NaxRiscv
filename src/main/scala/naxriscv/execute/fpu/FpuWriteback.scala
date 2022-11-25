@@ -32,6 +32,7 @@ class FpuWriteback() extends Plugin  with WakeRobService with WakeRegFileService
   def getRoundingMode() : Bits = logic.rm
 
   val setup = create early new Area{
+    val floatWake = slave(Flow(FpuFloatWake(ROB.ID_WIDTH)))
     val floatWriteback = slave(Flow(FpuFloatWriteback(ROB.ID_WIDTH, 32 + Global.RVD.get.toInt*32)))
     val integerWriteback = slave(Stream(FpuIntWriteback(ROB.ID_WIDTH, XLEN)))
     val rob = getService[RobService]
@@ -39,7 +40,7 @@ class FpuWriteback() extends Plugin  with WakeRobService with WakeRegFileService
     val commit = getService[CommitService]
     val rfFloat = findService[RegfileService](_.rfSpec == FloatRegFile)
     val rfInteger = findService[RegfileService](_.rfSpec == IntRegFile)
-    val floatWrite   = rfFloat.newWrite(false, 1)
+    val floatWrite   = rfFloat.newWrite(false, 0)
     val integerSharing = getRfWriteSharing(IntRegFile)
     val integerWrite = rfInteger.newWrite(integerSharing.withReady, 1, integerSharing.key, integerSharing.priority)
     val robfloatWriteback = rob.newRobCompletion()
@@ -140,21 +141,22 @@ class FpuWriteback() extends Plugin  with WakeRobService with WakeRegFileService
 
 
     val float = new Area {
-      val physical = rob.readAsyncSingle(decoder.PHYS_RD, floatWriteback.robId)
+      val wakePhysical = rob.readAsyncSingle(decoder.PHYS_RD, floatWake.robId)
+      val writePhysical = Delay(wakePhysical, 2)
 
       val wakeRob = Flow(WakeRob())
-      wakeRob.valid := floatWriteback.fire
-      wakeRob.robId := floatWriteback.robId
+      wakeRob.valid := floatWake.fire
+      wakeRob.robId := floatWake.robId
 
-      val wakeRf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false, withRfBypass = false, rfLatency = 1))
-      wakeRf.valid := floatWriteback.fire
-      wakeRf.physical := physical
+      val wakeRf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false, withRfBypass = false, rfLatency = 0))
+      wakeRf.valid := floatWake.fire
+      wakeRf.physical := wakePhysical
       wakeRf.regfile := decoder.REGFILE_RD.rfToId(FloatRegFile)
 
       floatWrite.valid := floatWriteback.fire
       floatWrite.robId := floatWriteback.robId
       floatWrite.data := floatWriteback.value
-      floatWrite.address := physical
+      floatWrite.address := writePhysical
 
       rob.writeSingle(
         key = FLOAT_FLAGS,

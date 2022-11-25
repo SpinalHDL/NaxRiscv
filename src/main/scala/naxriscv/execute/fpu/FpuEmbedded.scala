@@ -13,6 +13,7 @@ class FpuEmbedded extends Plugin {
     val intCmd = getService[FpuIntegerExecute].setup.intCmd.setAsDirectionLess
     val wb = getService[FpuWriteback]
     val floatWriteback = wb.setup.floatWriteback.setAsDirectionLess
+    val floatWake = wb.setup.floatWake.setAsDirectionLess
     val integerWriteback = wb.setup.integerWriteback.setAsDirectionLess
 
     val core = FpuCore(FpuParameter(
@@ -28,6 +29,7 @@ class FpuEmbedded extends Plugin {
     port.floatCmd << floatCmd.s2mPipe(flush= port.unschedule)
     port.intCmd << intCmd.s2mPipe(flush = port.unschedule)
     port.floatWriteback >> floatWriteback
+    port.floatWake >> floatWake
     port.intWriteback.halfPipe(flush = port.unschedule) >> integerWriteback
     port.unschedule := getService[FpuWriteback].setup.unschedule
   }
