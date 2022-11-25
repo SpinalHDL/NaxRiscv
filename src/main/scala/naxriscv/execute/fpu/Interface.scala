@@ -112,6 +112,10 @@ case class FpuFloatWriteback(robIdWidth : Int, valueWidth : Int) extends Bundle{
   val value = Bits(valueWidth bits)
 }
 
+case class FpuFloatWake(robIdWidth : Int) extends Bundle{
+  val robId = UInt(robIdWidth bits)
+}
+
 case class FpuIntCmd(rv64 : Boolean, robIdWidth : Int) extends Bundle {
   val opcode = FpuOpcode()
   val arg = Bits(2 bits)
@@ -131,15 +135,16 @@ case class FpuIntWriteback(robIdWidth : Int, rsIntWidth : Int) extends Bundle{
 
 
 case class FpuPort(p : FpuParameter) extends Bundle with IMasterSlave {
-  val floatCmd = Stream(FpuFloatCmd(p.rvd, p.robIdWidth))
+  val floatCmd       = Stream(FpuFloatCmd(p.rvd, p.robIdWidth))
   val floatWriteback = Flow(FpuFloatWriteback(p.robIdWidth, p.rsFloatWidth))
-  val intCmd = Stream(FpuIntCmd(p.rv64, p.robIdWidth))
-  val intWriteback = Stream(FpuIntWriteback(p.robIdWidth, p.rsIntWidth))
-  val unschedule = Bool()
+  val floatWake      = Flow(FpuFloatWake(p.robIdWidth))
+  val intCmd         = Stream(FpuIntCmd(p.rv64, p.robIdWidth))
+  val intWriteback   = Stream(FpuIntWriteback(p.robIdWidth, p.rsIntWidth))
+  val unschedule     = Bool()
 
   override def asMaster(): Unit = {
     master(floatCmd, intCmd)
-    slave(floatWriteback, intWriteback)
+    slave(floatWake, floatWriteback, intWriteback)
     out(unschedule)
   }
 }
