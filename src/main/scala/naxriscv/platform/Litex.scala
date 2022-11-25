@@ -592,9 +592,9 @@ xdotool type root
 xdotool key Return
 
 
-/usr/games/chocolate-doom -iwad Doom1.WAD  -1 -nosound &
-/usr/games/openttd -v sdl -b 8bpp-optimized -s null -m null &
-SDL_NOMOUSE=1 VisualBoyAdvance -1  emu/Tetris.gb &
+nohup /usr/games/chocolate-doom -iwad Doom1.WAD  -1 -nosound &
+nohup /usr/games/openttd -v sdl -b 8bpp-optimized -s null -m null &
+SDL_NOMOUSE=1 nohup VisualBoyAdvance -1  emu/Tetris.gb &
 
 Debian setup :
 set dns, configure eth0, enable time over internet

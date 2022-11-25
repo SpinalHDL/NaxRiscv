@@ -8,7 +8,7 @@ import scala.collection.mutable.ArrayBuffer
 
 object Stats extends App{
   val population = 16
-  val spaceSize = 4096/4
+  val spaceSize = 256
 //  val population = 23
 //  val spaceSize = 365
 
@@ -16,7 +16,14 @@ object Stats extends App{
   for(i <- 0 until population){
     prob *= 1.0*(spaceSize-i)/spaceSize
   }
+  println(1.0*(spaceSize-1)/spaceSize)
   println(prob)
+
+
+  val loads = 16
+  val stores = 16
+  println(Math.pow(1-1.0/spaceSize, stores))
+  println(Math.pow(Math.pow(1-1.0/spaceSize, stores),loads))
 }
 
 
