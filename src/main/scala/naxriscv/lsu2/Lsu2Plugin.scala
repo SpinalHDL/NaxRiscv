@@ -111,6 +111,7 @@ class Lsu2Plugin(var lqSize: Int,
     val WRITE_RD = Stageable(Bool())
     val ADDRESS_PRE_TRANSLATION = Stageable(UInt(VIRTUAL_EXT_WIDTH bits))
     val ADDRESS_POST_TRANSLATION = Stageable(UInt(PHYSICAL_WIDTH bits))
+    val ADDRESS_TRANSLATED = Stageable(UInt(PHYSICAL_WIDTH bits))
     val DATA_MASK = Stageable(Bits(wordBytes bits))
 
 
@@ -954,12 +955,13 @@ class Lsu2Plugin(var lqSize: Int,
         import stage._
 
         when(!NEED_TRANSLATION){
-          setup.cacheLoad.translated.physical := ADDRESS_POST_TRANSLATION
+          ADDRESS_TRANSLATED := ADDRESS_POST_TRANSLATION
           IS_IO := TRANSLATED_AS_IO
         } otherwise {
-          setup.cacheLoad.translated.physical := tpk.TRANSLATED
+          ADDRESS_TRANSLATED := tpk.TRANSLATED
           IS_IO := tpk.IO
         }
+        setup.cacheLoad.translated.physical := ADDRESS_TRANSLATED
         setup.cacheLoad.translated.abord := NEED_TRANSLATION ? (stage(tpk.IO) || tpk.PAGE_FAULT || tpk.ACCESS_FAULT || !tpk.ALLOW_READ || tpk.REDO) | TRANSLATED_AS_IO
       }
 
@@ -1032,7 +1034,7 @@ class Lsu2Plugin(var lqSize: Int,
         }
 
         val bypass = new Area{
-          val addressMatch = sq.mem.addressPost.readAsync(OLDER_STORE_ID) === tpk.TRANSLATED //TODO could check less
+          val addressMatch = sq.mem.addressPost.readAsync(OLDER_STORE_ID) === ADDRESS_TRANSLATED //TODO could check less
           val fullMatch = addressMatch && sq.mem.size.readAsync(OLDER_STORE_ID) === SIZE && !sq.mem.doNotBypass.readAsync(OLDER_STORE_ID)
           val translationFailure = sq.mem.needTranslation.readAsync(OLDER_STORE_ID)
           val data = sq.mem.data.readAsync(OLDER_STORE_ID)
