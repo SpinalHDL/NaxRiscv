@@ -181,13 +181,14 @@ class DispatchPlugin(var slotCount : Int = 0,
       queue.io.push.valid := isFireing
       stage.haltIt(!queue.io.push.ready) //Assume ready at 0 when not full
 
+      val skip = !stage(0 until DISPATCH_COUNT)(DISPATCH_MASK).orR
       val fenceOlder   = isValid && (0 until DISPATCH_COUNT).map(slotId => stage(DISPATCH_MASK, slotId) && stage(FENCE_OLDER, slotId)).orR
       val fenceYounger = isValid && (0 until DISPATCH_COUNT).map(slotId => stage(DISPATCH_MASK, slotId) && stage(FENCE_YOUNGER, slotId)).orR
-      val fenceYoungerLast = RegNextWhen(fenceYounger, isFireing) init(False)
+      val fenceYoungerLast = RegNextWhen(fenceYounger, isFireing && !skip) init(False)
 
       val commitNotWaitingOnUs = ((commit.currentCommitRobId ^ ROB.ID) >> log2Up(DISPATCH_COUNT)).orR
       stage.haltIt(fenceOlder && commitNotWaitingOnUs)
-      stage.haltIt(fenceYoungerLast && commitNotWaitingOnUs)
+      stage.haltIt(fenceYoungerLast && commitNotWaitingOnUs && !skip)
 
       val slots = for(slotId <- 0 until Frontend.DISPATCH_COUNT) yield new Area{
         val slot = queue.io.push.slots(slotId)
