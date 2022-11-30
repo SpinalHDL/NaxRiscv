@@ -1,21 +1,41 @@
 package naxriscv.utilities
+import naxriscv.Frontend.DISPATCH_MASK
 import naxriscv.{Frontend, ROB}
 import naxriscv.execute.ExecutionUnitBase
 import naxriscv.fetch._
-import naxriscv.frontend.FrontendPlugin
+import naxriscv.frontend.{DispatchPlugin, FrontendPlugin}
 import naxriscv.lsu.{DataCachePlugin, LsuPlugin}
 import naxriscv.lsu2.Lsu2Plugin
-import naxriscv.misc.{CommitPlugin, MmuPlugin, PrivilegedConfig, PrivilegedPlugin}
+import naxriscv.misc.{CommitPlugin, MmuPlugin, PrivilegedConfig, PrivilegedPlugin, RobPlugin}
 import spinal.core._
 import spinal.lib.Timeout
 class XilinxDebug extends Plugin {
   val logic = create late new Area{
-    def patch(that : Data) = if(that != null) that.addAttribute("mark_debug", "true")
+    def patch(that : Data) = that.addAttribute("mark_debug", "true")
     framework.plugins.foreach{
-      case p : FetchCachePlugin => patch(p.logic.refill.valid)
+      case p : FetchCachePlugin => {
+        patch(p.logic.refill.valid)
+      }
       case p : DataCachePlugin => {
         p.logic.cache.writeback.slots.foreach(s => patch(s.valid))
         p.logic.cache.refill.slots.foreach(s => patch(s.valid))
+        patch(p.lockPort)
+        patch(p.logic.cache.io.load.cmd.valid)
+        patch(p.logic.cache.io.load.cmd.unlocked)
+        patch(p.logic.cache.io.load.rsp.valid)
+        patch(p.logic.cache.io.load.rsp.redo)
+        patch(p.logic.cache.io.load.rsp.refillSlot)
+        patch(p.logic.cache.io.load.rsp.refillSlotAny)
+        patch(p.logic.cache.io.load.rsp.fault)
+
+        patch(p.logic.cache.io.store.cmd.valid)
+        patch(p.logic.cache.io.store.cmd.generation)
+        patch(p.logic.cache.io.store.rsp.valid)
+        patch(p.logic.cache.io.store.rsp.redo)
+        patch(p.logic.cache.io.store.rsp.fault)
+        patch(p.logic.cache.io.store.rsp.generationKo)
+        patch(p.logic.cache.io.store.rsp.refillSlot)
+        patch(p.logic.cache.io.store.rsp.refillSlotAny)
       }
       case p : LsuPlugin => {
         patch(p.logic.special.enabled)
@@ -24,9 +44,13 @@ class XilinxDebug extends Plugin {
         patch(p.logic.sq.ptr.commit)
       }
       case p : Lsu2Plugin => {
+        p.logic.builders.get
         patch(p.logic.special.enabled)
         patch(p.logic.special.isIo)
+        patch(p.logic.special.atomic.stateReg)
         patch(p.logic.sq.ptr.commit)
+        patch(p.logic.sq.ptr.writeBack)
+        patch(p.logic.sq.ptr.free)
         p.logic.sharedPip.stages.foreach{s =>
           patch(s.valid)
           patch(s(ROB.ID))
@@ -34,6 +58,7 @@ class XilinxDebug extends Plugin {
         }
         patch(p.logic.sharedPip.stages.last(p.keys.IS_IO))
         patch(p.logic.sharedPip.stages.last(p.keys.CTRL))
+        patch(p.logic.sharedPip.stages.last(p.keys.HIT_SPECULATION))
       }
       case p : MmuPlugin => {
         patch(p.logic.refill.busy)
@@ -101,12 +126,28 @@ class XilinxDebug extends Plugin {
         patch(p.logic.whitebox.commit)
       }
       case p : FetchPlugin => p.pipeline.stages.foreach(s => patch(s.valid))
-      case p : FrontendPlugin => p.pipeline.stagesSet.foreach(s => patch(s.valid))
+      case p : FrontendPlugin => {
+        p.builder.get
+        p.pipeline.stagesSet.foreach(s => patch(s.valid))
+        p.pipeline.decoded.internals.request.halts.foreach(e => patch(e))
+        p.pipeline.dispatch.internals.request.halts.foreach(e => patch(e))
+        patch(p.pipeline.dispatch(ROB.ID))
+        p.pipeline.dispatch(0 until Frontend.DECODE_COUNT)(DISPATCH_MASK).foreach(patch)
+      }
       case p : ExecutionUnitBase if p.euId == "EU0" => {
         p.pipeline.stagesSet.foreach(s => patch(s.valid))
         p.pipeline.stagesSet.foreach(s => patch(s(ROB.ID)))
       }
       case p : DebugScratchCsrPlugin => patch(p.logic.data)
+      case p : RobPlugin => {
+        p.logic.get
+        p.completions.foreach(e => patch(e.bus))
+      }
+      case p : DispatchPlugin => {
+        patch(p.logic.push.fenceYounger)
+        patch(p.logic.push.fenceYoungerLast)
+        patch(p.logic.push.commitNotWaitingOnUs)
+      }
       case _ =>
     }
   }

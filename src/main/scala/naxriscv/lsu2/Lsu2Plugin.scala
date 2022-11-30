@@ -1682,7 +1682,6 @@ class Lsu2Plugin(var lqSize: Int,
           comp.rfWrite := True
         }
 
-        //TODO lock the cache line ! (think that's already done ?)
         LOAD_RSP whenIsActive{
           val rsp = setup.cacheLoad.rsp
           sharedPip.cacheRsp.specialOverride := True
@@ -1695,7 +1694,7 @@ class Lsu2Plugin(var lqSize: Int,
           when(rsp.fire){
             comp.rfWrite := False
             when(rsp.redo){
-              goto(IDLE)
+              goto(LOAD_CMD)
             } elsewhen (rsp.fault) {
               goto(TRAP)
             } otherwise {
@@ -1748,10 +1747,11 @@ class Lsu2Plugin(var lqSize: Int,
       }
     }
 
-    hardFork{
+    val builders = hardFork{
       sharedPip.translationPort.pipelineLock.await()
       sharedPip.build()
       lqSqArbitration.build()
+      special.atomic.build()
     }
 
 
@@ -1837,4 +1837,7 @@ Saving random seed: [    1.424028] random: dd: uninitialized urandom read (512 b
   storeToLoadHazard 5879
   loadHitMiss       159106
 
+riscv64-unknown-elf-gcc  -o0 -g3 -march=rv32ima -mabi=ilp32 main.c
+sudo cpio -idv < ../rootfs.cpio
+sudo rm ../rootfs.cpio && sudo find | sudo cpio -o  -H newc > ../rootfs.cpio
  */
