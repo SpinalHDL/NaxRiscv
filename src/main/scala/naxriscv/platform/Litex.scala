@@ -577,14 +577,15 @@ EndSection
 
 cat /var/log/Xorg.0.log
 
+xauth -f /tmp/lightdmauth
+list
+exit
+
+
 cp /var/run/lightdm/root/:0 /tmp/lightdmauth
 chmod a+r /tmp/lightdmauth
 export XAUTHORITY=/tmp/lightdmauth
 export DISPLAY=unix:0
-
-xauth -f /tmp/lightdmauth
-list
-exit
 
 xdotool type root
 xdotool key Tab
@@ -592,9 +593,10 @@ xdotool type root
 xdotool key Return
 
 
-nohup /usr/games/chocolate-doom -iwad Doom1.WAD  -1 -nosound &
 nohup /usr/games/openttd -v sdl -b 8bpp-optimized -s null -m null &
+nohup /usr/games/chocolate-doom -iwad Doom1.WAD  -1 -nosound &
 SDL_NOMOUSE=1 nohup VisualBoyAdvance -1  emu/Tetris.gb &
+nohup xterm -geometry 120x15 -e  watch whetstone/raystones &
 
 Debian setup :
 set dns, configure eth0, enable time over internet
