@@ -60,7 +60,9 @@ object Config{
               lqSize : Int = 16,
               sqSize : Int = 16,
               simulation : Boolean = GenerationFlags.simulation,
-              sideChannels : Boolean = false): ArrayBuffer[Plugin] ={
+              sideChannels : Boolean = false,
+              dispatchSlots : Int = 32,
+              robSize : Int = 64): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
 
     val fpu = withFloat || withDouble
@@ -142,7 +144,7 @@ object Config{
     plugins += new RfDependencyPlugin()
     plugins += new RfAllocationPlugin(riscv.IntRegFile)
     plugins += new DispatchPlugin(
-      slotCount = 32,
+      slotCount = dispatchSlots,
       robIdAt = withDistributedRam.toInt //Not having it enabled allows ram block inferation on execution unit context reads
     )
 
@@ -280,8 +282,8 @@ object Config{
 
     //MISC
     plugins += new RobPlugin(
-      robSize = 64,
-      completionWithReg = false
+      robSize = robSize,
+      completionWithReg = !withDistributedRam
     )
     plugins += new CommitPlugin(
       commitCount = decodeCount,
