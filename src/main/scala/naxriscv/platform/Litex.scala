@@ -93,7 +93,7 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int, toPeripheral : UI
     priv.int.machine.timer       := clintCtrl.io.timerInterrupt(0)
     priv.int.machine.software    := clintCtrl.io.softwareInterrupt(0)
     priv.int.machine.external    := plicCtrl.io.targets(0)
-    priv.int.supervisor.external := plicCtrl.io.targets(1)
+    if(priv.int.supervisor.external != null) priv.int.supervisor.external := plicCtrl.io.targets(1)
     priv.rdtime                  := clintCtrl.io.time
   }
 }
@@ -464,6 +464,7 @@ chocolate-doom -2 -timedemo demo1.lmp
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true' --with-jtag-tap --build --load
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1' --with-jtag-instruction --build --load
 python3 -m litex_boards.targets.digilent_arty --variant=a7-100  --cpu-type=naxriscv  --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1'  --build --load
+python3 -m litex_boards.targets.efinix_titanium_ti60_f225_dev_kit --cpu-type=naxriscv --xlen=32 --scala-args='rvc=false,rvf=false,rvd=false,alu-count=1,decode-count=1,mmu=false,supervisor=false,distributed-ram=false,dispatch-slots=16,rob-size=32' --build
 
 
 
