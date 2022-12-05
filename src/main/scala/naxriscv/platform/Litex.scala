@@ -93,7 +93,7 @@ class NaxRiscvLitex(plugins : ArrayBuffer[Plugin], xlen : Int, toPeripheral : UI
     priv.int.machine.timer       := clintCtrl.io.timerInterrupt(0)
     priv.int.machine.software    := clintCtrl.io.softwareInterrupt(0)
     priv.int.machine.external    := plicCtrl.io.targets(0)
-    if(priv.int.supervisor.external != null) priv.int.supervisor.external := plicCtrl.io.targets(1)
+    if(priv.int.supervisor != null) priv.int.supervisor.external := plicCtrl.io.targets(1)
     priv.rdtime                  := clintCtrl.io.time
   }
 }
