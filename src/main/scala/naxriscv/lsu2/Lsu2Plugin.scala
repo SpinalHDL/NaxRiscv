@@ -670,6 +670,7 @@ class Lsu2Plugin(var lqSize: Int,
         val hit = read.rsp.score =/= 0 && read.rsp.tag === hash
         writeLq(lq.mem.hazardPrediction.valid, hit)
         writeLq(lq.mem.hazardPrediction.delta, read.rsp.delta)
+        writeLq(lq.mem.hazardPrediction.score, read.rsp.score)
       }
 
       val hitPrediction = new Area{
