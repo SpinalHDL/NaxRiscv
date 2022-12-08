@@ -62,7 +62,8 @@ object Config{
               simulation : Boolean = GenerationFlags.simulation,
               sideChannels : Boolean = false,
               dispatchSlots : Int = 32,
-              robSize : Int = 64): ArrayBuffer[Plugin] ={
+              robSize : Int = 64,
+              withCoherency : Boolean = false): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
 
     val fpu = withFloat || withDouble
@@ -277,7 +278,8 @@ object Config{
       reducedBankWidth = false,
       //      loadHitAt      = 2
       //      loadRspAt      = 3,
-      loadRefillCheckEarly = false
+      loadRefillCheckEarly = false,
+      withCoherency = withCoherency
     )
 
     //MISC
@@ -450,6 +452,7 @@ object Gen extends App{
       withLsu2 = true,
       lqSize = 16,
       sqSize = 16,
+      withCoherency = true,
       ioRange = a => a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
     )
     l.foreach{

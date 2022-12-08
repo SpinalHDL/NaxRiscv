@@ -96,7 +96,8 @@ case class DataMemBusParameter( addressWidth: Int,
                                 readIdCount : Int,
                                 writeIdCount : Int,
                                 lineSize: Int,
-                                withReducedBandwidth : Boolean){
+                                withReducedBandwidth : Boolean,
+                                withCoherency : Boolean){
 
   val readIdWidth = log2Up(readIdCount)
   val writeIdWidth = log2Up(writeIdCount)
@@ -105,12 +106,16 @@ case class DataMemBusParameter( addressWidth: Int,
 case class DataMemReadCmd(p : DataMemBusParameter) extends Bundle {
   val id = UInt(p.readIdWidth bits)
   val address = UInt(p.addressWidth bits)
+  val unique = p.withCoherency generate Bool()
+  val data = p.withCoherency generate Bool()
 }
 
 case class DataMemReadRsp(p : DataMemBusParameter) extends Bundle {
   val id = UInt(p.readIdWidth bits)
   val data = Bits(p.dataWidth bits)
   val error = Bool()
+  val unique = p.withCoherency generate Bool()
+  val shared = p.withCoherency generate Bool()
 }
 
 case class DataMemReadBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
@@ -253,12 +258,41 @@ case class DataMemWriteBus(p : DataMemBusParameter) extends Bundle with IMasterS
 }
 
 
+case class DataMemProbeCmd(p : DataMemBusParameter) extends Bundle {
+  val address = UInt(p.addressWidth bits)
+  val id = UInt(p.writeIdWidth bits)
+}
+
+case class DataMemProbeRsp(p : DataMemBusParameter) extends Bundle {
+  val id = UInt(p.writeIdWidth bits)
+}
+
+case class DataMemProbeBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
+  val cmd = Stream(DataMemProbeCmd(p))
+  val rsp = Stream(DataMemProbeRsp(p))
+
+  override def asMaster() = {
+    master(cmd)
+    slave(rsp)
+  }
+
+
+  def <<(m : DataMemProbeBus): Unit ={
+    m.cmd >> this.cmd
+    m.rsp << this.rsp
+  }
+}
+
+
+
 case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
   val read = DataMemReadBus(p)
   val write = DataMemWriteBus(p)
+  val probe = p.withCoherency generate DataMemProbeBus(p)
 
   override def asMaster() = {
     master(read, write)
+    slave(probe)
   }
 
   def resizer(newDataWidth : Int) : DataMemBus = new Composite(this, "resizer") {
@@ -276,6 +310,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
 
 
   def toAxi4(): Axi4 = new Composite(this, "toAxi4"){
+    assert(!p.withCoherency)
     val idWidth = p.readIdWidth max p.writeIdWidth
 
     val axiConfig = Axi4Config(
@@ -350,6 +385,7 @@ class DataCache(val cacheSize: Int,
                 val cpuDataWidth: Int,
                 val preTranslationWidth: Int,
                 val postTranslationWidth: Int,
+                val withCoherency : Boolean = false,
                 val loadRefillCheckEarly : Boolean = true,
                 val storeRefillCheckEarly : Boolean = true,
                 val lineSize: Int = 64,
@@ -378,7 +414,8 @@ class DataCache(val cacheSize: Int,
     readIdCount   = refillCount,
     writeIdCount  = writebackCount,
     lineSize      = lineSize,
-    withReducedBandwidth = false
+    withReducedBandwidth = false,
+    withCoherency = withCoherency
   )
 
   val io = new Bundle {
@@ -435,7 +472,6 @@ class DataCache(val cacheSize: Int,
   val ABORD = Stageable(Bool())
   val CPU_WORD = Stageable(Bits(cpuWordWidth bits))
   val CPU_MASK = Stageable(Bits(cpuWordWidth/8 bits))
-//  val TAGS_CORRUPTED = Stageable(Bool())
   val WAYS_HAZARD = Stageable(Bits(wayCount bits))
   val REDO_ON_DATA_HAZARD = Stageable(Bool())
   val BANK_BUSY = Stageable(Bits(bankCount bits))
@@ -449,6 +485,7 @@ class DataCache(val cacheSize: Int,
     val loaded = Bool()
     val address = UInt(tagWidth bits)
     val fault = Bool()
+    val unique = withCoherency generate Bool()
   }
 
   case class Status() extends Bundle{
@@ -581,6 +618,7 @@ class DataCache(val cacheSize: Int,
       val way = Reg(UInt(log2Up(wayCount) bits))
       val cmdSent = Reg(Bool())
       val priority = Reg(Bits(refillCount-1 bits)) //TODO Check it
+      val unique = withCoherency generate Reg(Bool())
 
       // This counter ensure that load which started before the end of the refill memory transfer but ended after the end
       // of the memory transfer do see that there was a refill ongoing and that they need to retry
@@ -603,6 +641,7 @@ class DataCache(val cacheSize: Int,
       val address = UInt(postTranslationWidth bits)
       val way = UInt(log2Up(wayCount) bits)
       val victim = Bits(writebackCount bits)
+      val unique = Bool()
     }).setIdle()
 
     for (slot <- slots) when(push.valid) {
@@ -616,6 +655,7 @@ class DataCache(val cacheSize: Int,
         slot.loadedCounter := 0
         slot.victim := push.victim
         slot.writebackHazards := 0
+        if(withCoherency) slot.unique := push.unique
       } otherwise {
         val freeFiltred = free.asBools.patch(slot.id, Nil, 1)
         (slot.priority.asBools, freeFiltred).zipped.foreach(_ clearWhen(_))
@@ -633,6 +673,7 @@ class DataCache(val cacheSize: Int,
       io.mem.read.cmd.valid := arbiter.hit && !writebackHazard
       io.mem.read.cmd.id := arbiter.sel
       io.mem.read.cmd.address := cmdAddress
+      if(withCoherency) io.mem.read.cmd.unique := slots.map(_.unique).read(arbiter.sel)
       whenMasked(slots, arbiter.oh){slot =>
         slot.writebackHazards := writebackHazards
         slot.cmdSent setWhen(io.mem.read.cmd.ready && !writebackHazard)
@@ -676,14 +717,18 @@ class DataCache(val cacheSize: Int,
           slots.map(_.loaded).write(io.mem.read.rsp.id, True)
           fire := True
           io.refillCompletions(io.mem.read.rsp.id) := True
-
-          when(faulty) {
+          when(faulty || withCoherency.mux(!io.mem.read.rsp.unique, False)) {
             reservation.takeIt()
             waysWrite.mask(way) := True
             waysWrite.address := rspAddress(lineRange)
-            waysWrite.tag.loaded := True
             waysWrite.tag.fault := True
             waysWrite.tag.address := rspAddress(tagRange)
+            if(withCoherency){
+              waysWrite.tag.unique := io.mem.read.rsp.unique
+              waysWrite.tag.loaded := io.mem.read.rsp.shared || io.mem.read.rsp.unique || faulty
+            } else {
+              waysWrite.tag.loaded := True
+            }
           }
         }
       }
@@ -1010,11 +1055,13 @@ class DataCache(val cacheSize: Int,
         refill.push.address := ADDRESS_POST_TRANSLATION
         refill.push.way := refillWay
         refill.push.victim := writeback.free.andMask(refillWayNeedWriteback)
+        refill.push.unique := False
 
         waysWrite.mask(refillWay) := True
         waysWrite.address := ADDRESS_PRE_TRANSLATION(lineRange)
         waysWrite.tag.loaded := True
         waysWrite.tag.fault := False
+        if(withCoherency) waysWrite.tag.unique := True
         waysWrite.tag.address := ADDRESS_POST_TRANSLATION(tagRange)
 
         status.write.valid := True
@@ -1145,23 +1192,27 @@ class DataCache(val cacheSize: Int,
       GENERATION_OK := GENERATION === target || PREFETCH
 
       val reservation = tagsOrStatusWriteArbitration.create(3)
-      val refillWay = CombInit(wayRandom.value)
-      val refillWayNeedWriteback = WAYS_TAGS(refillWay).loaded && STATUS(refillWay).dirty
+      val replacedWay = CombInit(wayRandom.value)
+      val replacedWayNeedWriteback = WAYS_TAGS(replacedWay).loaded && STATUS(replacedWay).dirty
       val refillHit = (REFILL_HITS & B(refill.slots.map(!_.loaded))).orR
-      val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, refillWay)
+      val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, replacedWay)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
       val wasClean = !(B(STATUS.map(_.dirty)) & WAYS_HITS).orR
       val bankBusy = !FLUSH && !PREFETCH && (WAYS_HITS & refill.read.bankWriteNotif).orR
+      val hitUnique = withCoherency.mux((WAYS_HITS & B(WAYS_TAGS.map(_.unique))).orR, True)
 
-      REDO := MISS || waysHitHazard || bankBusy || refillHit || (wasClean && !reservation.win)
+      REDO := MISS || waysHitHazard || bankBusy || refillHit || (wasClean && !reservation.win) || !hitUnique
       MISS := !WAYS_HIT && !waysHitHazard && !refillHit
 
-      val canRefill = !refill.full && !lineBusy && !load.ctrl.startRefill && reservation.win && !(refillWayNeedWriteback && writeback.full)
-      val askRefill = MISS && canRefill && !refillHit
+      val canRefill = !refill.full && !lineBusy && !load.ctrl.startRefill && reservation.win
+      val askRefill = MISS && canRefill && !refillHit && !(replacedWayNeedWriteback && writeback.full)
+      val askUpgrade = !MISS && canRefill && !hitUnique
       val startRefill = isValid && GENERATION_OK && askRefill
+      val startUpgrade = isValid && GENERATION_OK && askUpgrade
+
 
       REFILL_SLOT_FULL := MISS && !refillHit && refill.full
-      REFILL_SLOT := refill.free.andMask(askRefill)
+      REFILL_SLOT := refill.free.andMask(askRefill || askUpgrade)
 
       val writeCache = isValid && GENERATION_OK && !REDO && !PREFETCH
       val setDirty = writeCache && wasClean
@@ -1176,11 +1227,17 @@ class DataCache(val cacheSize: Int,
       val canFlush = reservation.win && !writeback.full && !refill.slots.map(_.valid).orR && !resulting(WAYS_HAZARD).orR
       val startFlush = isValid && FLUSH && GENERATION_OK && needFlush && canFlush
 
+      val refillWay = CombInit(replacedWay)
+      when(askUpgrade){
+        refillWay := wayId
+      }
+
       when(FLUSH){
         REDO := needFlush || resulting(WAYS_HAZARD).orR
         setDirty := False
         writeCache := False
         startRefill := False
+        startUpgrade := False
       }
 
       when(IO){
@@ -1188,9 +1245,10 @@ class DataCache(val cacheSize: Int,
         MISS := False
         setDirty := False
         writeCache := False
+        startUpgrade := False
       }
 
-      when(startRefill || setDirty || startFlush){
+      when(startRefill || startUpgrade || setDirty || startFlush){
         reservation.takeIt()
         status.write.valid := True
         status.write.address := ADDRESS_POST_TRANSLATION(lineRange)
@@ -1198,20 +1256,22 @@ class DataCache(val cacheSize: Int,
       }
 
       when(startRefill || startFlush){
-        writeback.push.valid := refillWayNeedWriteback || startFlush
+        writeback.push.valid := replacedWayNeedWriteback || startFlush
         writeback.push.address := (WAYS_TAGS(writeback.push.way).address @@ ADDRESS_POST_TRANSLATION(lineRange)) << lineRange.low
         writeback.push.way := FLUSH ? needFlushSel | refillWay
       }
 
-      when(startRefill){
+      when(startRefill || startUpgrade){
         refill.push.valid := True
         refill.push.address := ADDRESS_POST_TRANSLATION
         refill.push.way := refillWay
-        refill.push.victim := writeback.free.andMask(refillWayNeedWriteback)
+        refill.push.victim := writeback.free.andMask(replacedWayNeedWriteback && askRefill)
+        refill.push.unique := True
 
         waysWrite.mask(refillWay) := True
         waysWrite.address := ADDRESS_POST_TRANSLATION(lineRange)
         waysWrite.tag.loaded := True
+        if(withCoherency) waysWrite.tag.unique := True
         waysWrite.tag.fault := False
         waysWrite.tag.address := ADDRESS_POST_TRANSLATION(tagRange)
 
