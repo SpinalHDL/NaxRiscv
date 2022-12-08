@@ -503,7 +503,7 @@ public:
     u32 readyTrigger = 100;
     u32 latency = 2;
     void setLatency(int cycles){
-        latency = cycles;
+        latency = cycles*2;
     }
     void setBandwidth(float ratio){
         readyTrigger = 128*ratio;
@@ -586,7 +586,7 @@ public:
     u32 readyTrigger = 100;
     u32 latency = 2;
     void setLatency(int cycles){
-        latency = cycles;
+        latency = cycles*2;
     }
     void setBandwidth(float ratio){
         readyTrigger = 128*ratio;
