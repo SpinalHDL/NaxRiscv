@@ -633,6 +633,7 @@ class DataCache(val cacheSize: Int,
       val priority = Reg(Bits(refillCount-1 bits)) //TODO Check it
       val unique = withCoherency generate Reg(Bool())
       val data = withCoherency generate Reg(Bool())
+      val kill = withCoherency generate Reg(Bool())
 
       // This counter ensure that load/store which started before the end of the refill memory transfer but ended after the end
       // of the memory transfer do see that there was a refill ongoing and that they need to retry
@@ -672,6 +673,7 @@ class DataCache(val cacheSize: Int,
         if(withCoherency) {
           slot.unique := push.unique
           slot.data := push.data
+          slot.kill := False
         }
       } otherwise {
         val freeFiltred = free.asBools.patch(slot.id, Nil, 1)
@@ -699,6 +701,7 @@ class DataCache(val cacheSize: Int,
         slot.cmdSent setWhen(io.mem.read.cmd.ready && !writebackHazard)
       }
 
+      val rspKill = withCoherency.mux(slots.map(_.kill).read(io.mem.read.rsp.id), False)
       val rspWithData = withCoherency.mux(slots.map(_.data).read(io.mem.read.rsp.id), True)
       val rspAddress = slots.map(_.address).read(io.mem.read.rsp.id)
       val way = slots.map(_.way).read(io.mem.read.rsp.id)
@@ -739,7 +742,7 @@ class DataCache(val cacheSize: Int,
           fire := True
           io.refillCompletions(io.mem.read.rsp.id) := True
           reservation.takeIt()
-          waysWrite.mask(way) := True
+          waysWrite.mask(way) := !rspKill
           waysWrite.address := rspAddress(lineRange)
           waysWrite.tag.fault := faulty
           waysWrite.tag.address := rspAddress(tagRange)
@@ -1337,12 +1340,13 @@ class DataCache(val cacheSize: Int,
       }
 
       val snoop = withCoherency generate new Area {
-        val askWriteback = PROBE && WAYS_HIT && !wasClean && !PROBE_UNIQUE
-        val askTagUpdate = PROBE && WAYS_HIT && (!PROBE_SHARED || !PROBE_UNIQUE && hitUnique)
+        val askSomething = PROBE && WAYS_HIT
+        val askWriteback = !wasClean && !PROBE_UNIQUE
+        val askTagUpdate = (!PROBE_SHARED || !PROBE_UNIQUE && hitUnique)
+        val askRefillKill = !PROBE_SHARED && !PROBE_UNIQUE
         val success = !waysHitHazard && !(askTagUpdate && reservation.win) && !(askWriteback && (reservation.win || writeback.full))
 
-        //todo writeback ongoing => writeback will responde the snoop, also snoop may delet refill, also not allowed to way hazard
-        when(isValid) {
+        when(isValid && askSomething) {
           when(askWriteback || askTagUpdate) {
             reservation.takeIt()
           }
@@ -1368,6 +1372,12 @@ class DataCache(val cacheSize: Int,
               status.write.address := ADDRESS_POST_TRANSLATION(lineRange)
               status.write.data := STATUS
               whenMasked(status.write.data, WAYS_HITS)(_.dirty := False)
+            }
+
+            when(askRefillKill){
+              for((slot, hit) <- (refill.slots, REFILL_HITS.asBools).zipped){
+                slot.kill setWhen(hit && !slot.data) //Refill slot which are doing a shared -> unique transition need to be killed
+              }
             }
           }
         }
