@@ -279,7 +279,8 @@ object Config{
       //      loadHitAt      = 2
       //      loadRspAt      = 3,
       loadRefillCheckEarly = false,
-      withCoherency = withCoherency
+      withCoherency = withCoherency,
+      probeIdWidth = 4
     )
 
     //MISC

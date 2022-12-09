@@ -59,7 +59,7 @@ case class DataLoadRsp(dataWidth : Int, refillCount : Int) extends Bundle {
 case class DataStorePort(postTranslationWidth: Int,
                          dataWidth: Int,
                          refillCount : Int) extends Bundle with IMasterSlave {
-  val cmd = Flow(DataStoreCmd(postTranslationWidth, dataWidth))
+  val cmd = Stream(DataStoreCmd(postTranslationWidth, dataWidth))
   val rsp = Flow(DataStoreRsp(postTranslationWidth, refillCount))
 
   override def asMaster() = {
@@ -95,6 +95,7 @@ case class DataMemBusParameter( addressWidth: Int,
                                 dataWidth: Int,
                                 readIdCount : Int,
                                 writeIdCount : Int,
+                                probeIdWidth : Int,
                                 lineSize: Int,
                                 withReducedBandwidth : Boolean,
                                 withCoherency : Boolean){
@@ -260,16 +261,22 @@ case class DataMemWriteBus(p : DataMemBusParameter) extends Bundle with IMasterS
 
 case class DataMemProbeCmd(p : DataMemBusParameter) extends Bundle {
   val address = UInt(p.addressWidth bits)
-  val id = UInt(p.writeIdWidth bits)
+  val id = UInt(p.probeIdWidth bits)
+  val unique = Bool()
+  val shared = Bool()
 }
 
 case class DataMemProbeRsp(p : DataMemBusParameter) extends Bundle {
-  val id = UInt(p.writeIdWidth bits)
+  val id = UInt(p.probeIdWidth bits)
+  val address = UInt(p.addressWidth bits)
+  val unique = Bool()
+  val shared = Bool()
+  val redo = Bool()
 }
 
 case class DataMemProbeBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
-  val cmd = Stream(DataMemProbeCmd(p))
-  val rsp = Stream(DataMemProbeRsp(p))
+  val cmd = Flow(DataMemProbeCmd(p))
+  val rsp = Flow(DataMemProbeRsp(p))
 
   override def asMaster() = {
     master(cmd)
@@ -386,6 +393,7 @@ class DataCache(val cacheSize: Int,
                 val preTranslationWidth: Int,
                 val postTranslationWidth: Int,
                 val withCoherency : Boolean = false,
+                val probeIdWidth : Int = -1,
                 val loadRefillCheckEarly : Boolean = true,
                 val storeRefillCheckEarly : Boolean = true,
                 val lineSize: Int = 64,
@@ -413,6 +421,7 @@ class DataCache(val cacheSize: Int,
     dataWidth     = memDataWidth,
     readIdCount   = refillCount,
     writeIdCount  = writebackCount,
+    probeIdWidth  = probeIdWidth,
     lineSize      = lineSize,
     withReducedBandwidth = false,
     withCoherency = withCoherency
@@ -505,7 +514,10 @@ class DataCache(val cacheSize: Int,
   val REFILL_SLOT_FULL = Stageable(Bool())
   val GENERATION, GENERATION_OK = Stageable(Bool())
   val PREFETCH = Stageable(Bool())
-  val SNOOP = Stageable(Bool())
+  val PROBE = Stageable(Bool())
+  val PROBE_UNIQUE = Stageable(Bool())
+  val PROBE_SHARED = Stageable(Bool())
+  val PROBE_ID = Stageable(UInt(probeIdWidth bits))
   val FLUSH = Stageable(Bool())
   val FLUSH_FREE = Stageable(Bool())
 
@@ -1143,6 +1155,23 @@ class DataCache(val cacheSize: Int,
 
       GENERATION := io.store.cmd.generation
       WAYS_HAZARD := 0
+
+      io.store.cmd.ready := True
+      if(withCoherency) {
+        PROBE := io.mem.probe.cmd.valid
+        PROBE_SHARED := io.mem.probe.cmd.shared
+        PROBE_UNIQUE := io.mem.probe.cmd.unique
+        PROBE_ID := io.mem.probe.cmd.id
+        when(io.mem.probe.cmd.valid){
+          io.store.cmd.ready := False
+          isValid := True
+          ADDRESS_POST_TRANSLATION := io.mem.probe.cmd.address
+          IO := False
+          FLUSH := False
+          FLUSH_FREE := False
+          PREFETCH := False
+        }
+      }
     }
 
     val fetch = new Area {
@@ -1193,9 +1222,9 @@ class DataCache(val cacheSize: Int,
 
     val ctrl = new Area {
       import controlStage._
-      if(!withCoherency) SNOOP := False
+      if(!withCoherency) PROBE := False
 
-      GENERATION_OK := GENERATION === target || PREFETCH || SNOOP
+      GENERATION_OK := GENERATION === target || PREFETCH || PROBE
 
       val reservation = tagsOrStatusWriteArbitration.create(3)
       val replacedWay = CombInit(wayRandom.value)
@@ -1204,8 +1233,9 @@ class DataCache(val cacheSize: Int,
       val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, replacedWay)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
       val wasClean = !(B(STATUS.map(_.dirty)) & WAYS_HITS).orR
-      val bankBusy = !FLUSH && !PREFETCH && !SNOOP && (WAYS_HITS & refill.read.bankWriteNotif).orR
+      val bankBusy = !FLUSH && !PREFETCH && !PROBE && (WAYS_HITS & refill.read.bankWriteNotif).orR
       val hitUnique = withCoherency.mux((WAYS_HITS & B(WAYS_TAGS.map(_.unique))).orR, True)
+      val hitFault = (WAYS_HITS & B(WAYS_TAGS.map(_.fault))).orR
 
       REDO := MISS || waysHitHazard || bankBusy || refillHit || (wasClean && !reservation.win) || !hitUnique
       MISS := !WAYS_HIT && !waysHitHazard && !refillHit
@@ -1219,7 +1249,7 @@ class DataCache(val cacheSize: Int,
       REFILL_SLOT_FULL := MISS && !refillHit && refill.full
       REFILL_SLOT := refill.free.andMask(askRefill || askUpgrade)
 
-      val writeCache = isValid && GENERATION_OK && !REDO && !PREFETCH && !SNOOP
+      val writeCache = isValid && GENERATION_OK && !REDO && !PREFETCH && !PROBE
       val setDirty = writeCache && wasClean
       val wayId = OHToUInt(WAYS_HITS)
       val bankHitId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_POST_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
@@ -1302,8 +1332,52 @@ class DataCache(val cacheSize: Int,
         waysWrite.tag.loaded := False
       }
 
-      when(isValid && REDO && GENERATION_OK && !PREFETCH && !SNOOP){
+      when(isValid && REDO && GENERATION_OK && !PREFETCH && !PROBE){
         target := !target
+      }
+
+      val snoop = withCoherency generate new Area {
+        val askWriteback = PROBE && WAYS_HIT && !wasClean && !PROBE_UNIQUE
+        val askTagUpdate = PROBE && WAYS_HIT && (!PROBE_SHARED || !PROBE_UNIQUE && hitUnique)
+        val success = !waysHitHazard && !(askTagUpdate && reservation.win) && !(askWriteback && (reservation.win || writeback.full))
+
+        //todo writeback ongoing => writeback will responde the snoop, also snoop may delet refill, also not allowed to way hazard
+        when(isValid) {
+          when(askWriteback || askTagUpdate) {
+            reservation.takeIt()
+          }
+
+          when(success) {
+            when(askWriteback || askTagUpdate) {
+              reservation.takeIt()
+
+              waysWrite.mask(refillWay) := True
+              waysWrite.address := ADDRESS_POST_TRANSLATION(lineRange)
+              waysWrite.tag.loaded := PROBE_SHARED || PROBE_UNIQUE
+              waysWrite.tag.fault := hitFault
+              waysWrite.tag.unique := hitUnique && PROBE_UNIQUE
+              waysWrite.tag.address := ADDRESS_POST_TRANSLATION(tagRange)
+            }
+
+            when(askWriteback) {
+              writeback.push.valid := True
+              writeback.push.address := ADDRESS_POST_TRANSLATION
+              writeback.push.way := wayId
+
+              status.write.valid := True
+              status.write.address := ADDRESS_POST_TRANSLATION(lineRange)
+              status.write.data := STATUS
+              whenMasked(status.write.data, WAYS_HITS)(_.dirty := False)
+            }
+          }
+        }
+
+        io.mem.probe.rsp.valid  := isValid && PROBE
+        io.mem.probe.rsp.unique := WAYS_HIT && PROBE_SHARED
+        io.mem.probe.rsp.shared := WAYS_HIT && PROBE_UNIQUE && hitUnique
+        io.mem.probe.rsp.address := ADDRESS_POST_TRANSLATION
+        io.mem.probe.rsp.id := PROBE_ID
+        io.mem.probe.rsp.redo   := !success
       }
     }
 
@@ -1311,7 +1385,7 @@ class DataCache(val cacheSize: Int,
       import rspStage._
 
       assert(rspStage == controlStage, "Need to implement refillSlot bypass otherwise")
-      io.store.rsp.valid := isValid && !SNOOP
+      io.store.rsp.valid := isValid && !PROBE
       io.store.rsp.generationKo := !GENERATION_OK
       io.store.rsp.fault := False //TODO
       io.store.rsp.redo := REDO

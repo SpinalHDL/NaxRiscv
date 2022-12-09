@@ -1386,7 +1386,7 @@ class Lsu2Plugin(var lqSize: Int,
         val data = mem.data.readAsync(ptr.writeBackReal)
         val skip = False //Used for store conditional
         val doit = ptr.writeBack =/= ptr.commit && waitOn.ready && !prediction.valid
-        val fire = CombInit(doit)
+        val fire = CombInit(doit) && setup.cacheStore.cmd.ready
 
         setup.cacheStore.cmd.valid := doit
         setup.cacheStore.cmd.address := mem.addressPost.readAsync(ptr.writeBackReal)
