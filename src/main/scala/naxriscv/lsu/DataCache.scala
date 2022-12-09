@@ -96,6 +96,7 @@ case class DataMemBusParameter( addressWidth: Int,
                                 readIdCount : Int,
                                 writeIdCount : Int,
                                 probeIdWidth : Int,
+                                ackIdWidth : Int,
                                 lineSize: Int,
                                 withReducedBandwidth : Boolean,
                                 withCoherency : Boolean){
@@ -117,14 +118,20 @@ case class DataMemReadRsp(p : DataMemBusParameter) extends Bundle {
   val error = Bool()
   val unique = p.withCoherency generate Bool()
   val shared = p.withCoherency generate Bool()
+  val ackId =  p.withCoherency generate UInt(p.ackIdWidth bits)
+}
+
+case class DataMemReadAck(p : DataMemBusParameter) extends Bundle {
+  val ackId = UInt(p.ackIdWidth bits)
 }
 
 case class DataMemReadBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
   val cmd = Stream(DataMemReadCmd(p))
   val rsp = Stream(DataMemReadRsp(p))
+  val ack = p.withCoherency generate Stream(DataMemReadAck(p))
 
   override def asMaster() = {
-    master(cmd)
+    master(cmd, ack)
     slave(rsp)
   }
 
@@ -266,21 +273,24 @@ case class DataMemProbeCmd(p : DataMemBusParameter) extends Bundle {
   val shared = Bool()
 }
 
-case class DataMemProbeRsp(p : DataMemBusParameter) extends Bundle {
+case class DataMemProbeRsp(p : DataMemBusParameter, fromProbe : Boolean) extends Bundle {
   val id = UInt(p.probeIdWidth bits)
   val address = UInt(p.addressWidth bits)
   val unique = Bool()
   val shared = Bool()
-  val redo = Bool()
+  val redo = fromProbe generate  Bool()
+  val writeback = fromProbe generate  Bool()
 }
+
 
 case class DataMemProbeBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
   val cmd = Flow(DataMemProbeCmd(p))
-  val rsp = Flow(DataMemProbeRsp(p))
+  val rsp = Flow(DataMemProbeRsp(p, true))
+  val rspWb = Stream(DataMemProbeRsp(p, false))
 
   override def asMaster() = {
     master(cmd)
-    slave(rsp)
+    slave(rsp, rspWb)
   }
 
 
@@ -394,6 +404,7 @@ class DataCache(val cacheSize: Int,
                 val postTranslationWidth: Int,
                 val withCoherency : Boolean = false,
                 val probeIdWidth : Int = -1,
+                val ackIdWidth   : Int = -1,
                 val loadRefillCheckEarly : Boolean = true,
                 val storeRefillCheckEarly : Boolean = true,
                 val lineSize: Int = 64,
@@ -422,6 +433,7 @@ class DataCache(val cacheSize: Int,
     readIdCount   = refillCount,
     writeIdCount  = writebackCount,
     probeIdWidth  = probeIdWidth,
+    ackIdWidth = ackIdWidth,
     lineSize      = lineSize,
     withReducedBandwidth = false,
     withCoherency = withCoherency
@@ -634,6 +646,8 @@ class DataCache(val cacheSize: Int,
       val unique = withCoherency generate Reg(Bool())
       val data = withCoherency generate Reg(Bool())
       val kill = withCoherency generate Reg(Bool())
+      val ackId = withCoherency generate Reg(UInt(ackIdWidth bits))
+      val ackValid = withCoherency generate RegInit(False)
 
       // This counter ensure that load/store which started before the end of the refill memory transfer but ended after the end
       // of the memory transfer do see that there was a refill ongoing and that they need to retry
@@ -643,13 +657,15 @@ class DataCache(val cacheSize: Int,
       loadedCounter := loadedCounter + U(loaded).resized
       valid clearWhen (loadedCounter === loadedCounterMax)
 
+      val free = !valid && withCoherency.mux(!ackValid, True)
+
       val victim = Reg(Bits(writebackCount bits))
       val writebackHazards = Reg(Bits(writebackCount bits)) //TODO Check it
     }
     def isLineBusy(address : UInt, way : UInt) = slots.map(s => s.valid && s.way === way && s.address(lineRange) === address(lineRange)).orR
 
-    val free = B(OHMasking.first(slots.map(!_.valid)))
-    val full = slots.map(_.valid).andR
+    val free = B(OHMasking.first(slots.map(_.free)))
+    val full = slots.map(!_.free).andR
 
     val push = Flow(new Bundle{
       val address = UInt(postTranslationWidth bits)
@@ -738,7 +754,6 @@ class DataCache(val cacheSize: Int,
         wordIndex := wordIndex + 1
         when(wordIndex === wordIndex.maxValue || !rspWithData) {
           hadError := False
-          slots.map(_.loaded).write(io.mem.read.rsp.id, True)
           fire := True
           io.refillCompletions(io.mem.read.rsp.id) := True
           reservation.takeIt()
@@ -752,7 +767,24 @@ class DataCache(val cacheSize: Int,
           } else {
             waysWrite.tag.loaded := True
           }
+          slots.onSel(io.mem.read.rsp.id){ s =>
+            s.loaded := True
+            if(withCoherency) {
+              s.ackValid := True
+              s.ackId := io.mem.read.rsp.ackId
+            }
+          }
         }
+      }
+    }
+
+    val ackSender = withCoherency generate new Area{
+      val requests = slots.map(_.ackValid)
+      val oh = OHMasking.first(requests)
+      io.mem.read.ack.valid := requests.orR
+      io.mem.read.ack.ackId := OhMux.or(oh, slots.map(_.ackId))
+      when(io.mem.read.ack.ready){
+        slots.onMask(oh)(_.ackValid := False)
       }
     }
   }
@@ -769,6 +801,15 @@ class DataCache(val cacheSize: Int,
       val victimBufferReady = Reg(Bool())
       val readRspDone = Reg(Bool())
       val writeCmdDone = Reg(Bool())
+      val writeRspDone = Reg(Bool())
+
+      val probe = withCoherency generate new Area{
+        val valid = Reg(Bool())
+        val id = Reg(UInt(probeIdWidth bits))
+        val shared = Reg(Bool())
+      }
+
+      val free = !valid && withCoherency.mux(!probe.valid, True)
 
       refill.read.writebackHazards(id) := valid && address(refillRange) === refill.read.cmdAddress(refillRange)
       when(fire){ refill.slots.foreach(_.writebackHazards(id) := False) }
@@ -778,12 +819,13 @@ class DataCache(val cacheSize: Int,
 
     def isLineBusy(address : UInt, way : UInt) = False//slots.map(s => s.valid && s.way === way && s.address(lineRange) === address(lineRange)).orR
 
-    val free = B(OHMasking.first(slots.map(!_.valid)))
-    val full = slots.map(_.valid).andR
+    val free = B(OHMasking.first(slots.map(_.free)))
+    val full = slots.map(!_.free).andR
 
     val push = Flow(new Bundle{
       val address = UInt(postTranslationWidth bits)
       val way = UInt(log2Up(wayCount) bits)
+      val shared = withCoherency generate Bool()
     }).setIdle()
 
     for (slot <- slots) when(push.valid) {
@@ -796,6 +838,11 @@ class DataCache(val cacheSize: Int,
         slot.victimBufferReady := False
         slot.writeCmdDone := False
         slot.priority.setAll()
+        slot.writeRspDone := False
+        if(withCoherency) {
+          slot.probe.valid := False
+          slot.probe.shared := push.shared
+        }
       } otherwise {
         val freeFiltred = free.asBools.patch(slot.id, Nil, 1)
         (slot.priority.asBools, freeFiltred).zipped.foreach(_ clearWhen (_))
@@ -899,7 +946,22 @@ class DataCache(val cacheSize: Int,
       io.mem.write.cmd.last := cmd.last
 
       when(io.mem.write.rsp.valid){
-        whenIndexed(slots, io.mem.write.rsp.id)(_.fire := True)
+        whenIndexed(slots, io.mem.write.rsp.id) { s =>
+          s.fire := True
+        }
+      }
+
+      val probeRsp = withCoherency generate new Area{
+        val requests = slots.map(s => !s.valid && s.probe.valid)
+        val oh = OHMasking.first(requests)
+        io.mem.probe.rspWb.valid := requests.orR
+        io.mem.probe.rspWb.address := OhMux.or(oh, slots.map(_.address(refillRange) << refillRange.low))
+        io.mem.probe.rspWb.id := OhMux.or(oh, slots.map(_.probe.id))
+        io.mem.probe.rspWb.shared := OhMux.or(oh, slots.map(_.probe.shared))
+        io.mem.probe.rspWb.unique := False
+        when(io.mem.probe.rspWb.ready){
+          slots.onMask(oh)(_.probe.valid := False)
+        }
       }
     }
   }
@@ -1092,6 +1154,7 @@ class DataCache(val cacheSize: Int,
         writeback.push.valid := refillWayNeedWriteback
         writeback.push.address := (WAYS_TAGS(refillWay).address @@ ADDRESS_PRE_TRANSLATION(lineRange)) << lineRange.low
         writeback.push.way := refillWay
+        if(withCoherency) writeback.push.shared := False
       }
 
       REFILL_SLOT_FULL := MISS && !refillHit && refill.full
@@ -1297,6 +1360,7 @@ class DataCache(val cacheSize: Int,
         writeback.push.valid := replacedWayNeedWriteback || startFlush
         writeback.push.address := (WAYS_TAGS(writeback.push.way).address @@ ADDRESS_POST_TRANSLATION(lineRange)) << lineRange.low
         writeback.push.way := FLUSH ? needFlushSel | refillWay
+        if(withCoherency) writeback.push.shared := False
       }
 
       when(startRefill || startUpgrade){
@@ -1367,6 +1431,7 @@ class DataCache(val cacheSize: Int,
               writeback.push.valid := True
               writeback.push.address := ADDRESS_POST_TRANSLATION
               writeback.push.way := wayId
+              writeback.push.shared := PROBE_SHARED
 
               status.write.valid := True
               status.write.address := ADDRESS_POST_TRANSLATION(lineRange)
@@ -1388,6 +1453,16 @@ class DataCache(val cacheSize: Int,
         io.mem.probe.rsp.address := ADDRESS_POST_TRANSLATION
         io.mem.probe.rsp.id := PROBE_ID
         io.mem.probe.rsp.redo   := !success
+        io.mem.probe.rsp.writeback := False
+
+        val writebackHits = for(slot <- writeback.slots) yield new Area {
+          val hit = slot.valid && slot.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange) && !slot.fire
+          when(io.mem.probe.rsp.valid && !io.mem.probe.rsp.redo && hit){
+            slot.probe.valid := True
+            slot.probe.id := PROBE_ID
+            io.mem.probe.rsp.writeback := True
+          }
+        }
       }
     }
 

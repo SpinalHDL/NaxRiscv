@@ -280,7 +280,8 @@ object Config{
       //      loadRspAt      = 3,
       loadRefillCheckEarly = false,
       withCoherency = withCoherency,
-      probeIdWidth = 4
+      probeIdWidth = 4,
+      ackIdWidth = 4
     )
 
     //MISC
@@ -453,7 +454,7 @@ object Gen extends App{
       withLsu2 = true,
       lqSize = 16,
       sqSize = 16,
-      withCoherency = true,
+//      withCoherency = true,
       ioRange = a => a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
     )
     l.foreach{

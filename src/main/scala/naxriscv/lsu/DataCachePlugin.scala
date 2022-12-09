@@ -38,7 +38,8 @@ class DataCachePlugin(var memDataWidth : Int,
                       var tagsReadAsync : Boolean = true,
                       var reducedBankWidth : Boolean = false,
                       var withCoherency : Boolean = false,
-                      var probeIdWidth : Int = -1
+                      var probeIdWidth : Int = -1,
+                      var ackIdWidth : Int = -1
                      ) extends Plugin with LockedImpl{
   def loadRspLatency = loadRspAt
   def storeRspLatency = storeRspAt
@@ -136,7 +137,8 @@ class DataCachePlugin(var memDataWidth : Int,
       tagsReadAsync    = tagsReadAsync,
       reducedBankWidth = reducedBankWidth,
       withCoherency    = withCoherency,
-      probeIdWidth     = probeIdWidth
+      probeIdWidth     = probeIdWidth,
+      ackIdWidth       = ackIdWidth
     )
 
     setup.writebackBusy <> cache.io.writebackBusy
