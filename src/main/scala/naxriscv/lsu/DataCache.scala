@@ -505,6 +505,7 @@ class DataCache(val cacheSize: Int,
   val REFILL_SLOT_FULL = Stageable(Bool())
   val GENERATION, GENERATION_OK = Stageable(Bool())
   val PREFETCH = Stageable(Bool())
+  val SNOOP = Stageable(Bool())
   val FLUSH = Stageable(Bool())
   val FLUSH_FREE = Stageable(Bool())
 
@@ -619,6 +620,7 @@ class DataCache(val cacheSize: Int,
       val cmdSent = Reg(Bool())
       val priority = Reg(Bits(refillCount-1 bits)) //TODO Check it
       val unique = withCoherency generate Reg(Bool())
+      val data = withCoherency generate Reg(Bool())
 
       // This counter ensure that load/store which started before the end of the refill memory transfer but ended after the end
       // of the memory transfer do see that there was a refill ongoing and that they need to retry
@@ -641,6 +643,7 @@ class DataCache(val cacheSize: Int,
       val way = UInt(log2Up(wayCount) bits)
       val victim = Bits(writebackCount bits)
       val unique = Bool()
+      val data = Bool()
     }).setIdle()
 
     for (slot <- slots) when(push.valid) {
@@ -654,7 +657,10 @@ class DataCache(val cacheSize: Int,
         slot.loadedCounter := 0
         slot.victim := push.victim
         slot.writebackHazards := 0
-        if(withCoherency) slot.unique := push.unique
+        if(withCoherency) {
+          slot.unique := push.unique
+          slot.data := push.data
+        }
       } otherwise {
         val freeFiltred = free.asBools.patch(slot.id, Nil, 1)
         (slot.priority.asBools, freeFiltred).zipped.foreach(_ clearWhen(_))
@@ -672,12 +678,16 @@ class DataCache(val cacheSize: Int,
       io.mem.read.cmd.valid := arbiter.hit && !writebackHazard
       io.mem.read.cmd.id := arbiter.sel
       io.mem.read.cmd.address := cmdAddress
-      if(withCoherency) io.mem.read.cmd.unique := slots.map(_.unique).read(arbiter.sel)
+      if(withCoherency) {
+        io.mem.read.cmd.unique := slots.map(_.unique).read(arbiter.sel)
+        io.mem.read.cmd.data := slots.map(_.data).read(arbiter.sel)
+      }
       whenMasked(slots, arbiter.oh){slot =>
         slot.writebackHazards := writebackHazards
         slot.cmdSent setWhen(io.mem.read.cmd.ready && !writebackHazard)
       }
 
+      val rspWithData = withCoherency.mux(slots.map(_.data).read(io.mem.read.rsp.id), True)
       val rspAddress = slots.map(_.address).read(io.mem.read.rsp.id)
       val way = slots.map(_.way).read(io.mem.read.rsp.id)
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
@@ -686,7 +696,7 @@ class DataCache(val cacheSize: Int,
       val bankWriteNotif = B(0, bankCount bits)
       for ((bank, bankId) <- banks.zipWithIndex) {
         if (!reducedBankWidth) {
-          bankWriteNotif(bankId) := io.mem.read.rsp.valid && way === bankId
+          bankWriteNotif(bankId) := io.mem.read.rsp.valid && rspWithData && way === bankId
           bank.write.valid := bankWriteNotif(bankId)
           bank.write.address := rspAddress(lineRange) @@ wordIndex
           bank.write.data := io.mem.read.rsp.data
@@ -694,7 +704,7 @@ class DataCache(val cacheSize: Int,
           val sel = U(bankId) - way
           val groupSel = way(log2Up(bankCount) - 1 downto log2Up(bankCount / memToBankRatio))
           val subSel = sel(log2Up(bankCount / memToBankRatio) - 1 downto 0)
-          bankWriteNotif(bankId) := io.mem.read.rsp.valid && groupSel === (bankId >> log2Up(bankCount / memToBankRatio))
+          bankWriteNotif(bankId) := io.mem.read.rsp.valid && rspWithData && groupSel === (bankId >> log2Up(bankCount / memToBankRatio))
           bank.write.valid := bankWriteNotif(bankId)
           bank.write.address := rspAddress(lineRange) @@ wordIndex @@ (subSel)
           bank.write.data := io.mem.read.rsp.data.subdivideIn(bankCount / memToBankRatio slices)(subSel)
@@ -711,7 +721,7 @@ class DataCache(val cacheSize: Int,
       io.mem.read.rsp.ready := True
       when(io.mem.read.rsp.valid) {
         wordIndex := wordIndex + 1
-        when(wordIndex === wordIndex.maxValue) {
+        when(wordIndex === wordIndex.maxValue || !rspWithData) {
           hadError := False
           slots.map(_.loaded).write(io.mem.read.rsp.id, True)
           fire := True
@@ -1053,6 +1063,7 @@ class DataCache(val cacheSize: Int,
         refill.push.way := refillWay
         refill.push.victim := writeback.free.andMask(refillWayNeedWriteback)
         refill.push.unique := False
+        refill.push.data := True
 
         waysWrite.mask(refillWay) := True
         waysWrite.address := ADDRESS_PRE_TRANSLATION(lineRange)
@@ -1182,8 +1193,9 @@ class DataCache(val cacheSize: Int,
 
     val ctrl = new Area {
       import controlStage._
+      if(!withCoherency) SNOOP := False
 
-      GENERATION_OK := GENERATION === target || PREFETCH
+      GENERATION_OK := GENERATION === target || PREFETCH || SNOOP
 
       val reservation = tagsOrStatusWriteArbitration.create(3)
       val replacedWay = CombInit(wayRandom.value)
@@ -1192,7 +1204,7 @@ class DataCache(val cacheSize: Int,
       val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, replacedWay)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
       val wasClean = !(B(STATUS.map(_.dirty)) & WAYS_HITS).orR
-      val bankBusy = !FLUSH && !PREFETCH && (WAYS_HITS & refill.read.bankWriteNotif).orR
+      val bankBusy = !FLUSH && !PREFETCH && !SNOOP && (WAYS_HITS & refill.read.bankWriteNotif).orR
       val hitUnique = withCoherency.mux((WAYS_HITS & B(WAYS_TAGS.map(_.unique))).orR, True)
 
       REDO := MISS || waysHitHazard || bankBusy || refillHit || (wasClean && !reservation.win) || !hitUnique
@@ -1207,7 +1219,7 @@ class DataCache(val cacheSize: Int,
       REFILL_SLOT_FULL := MISS && !refillHit && refill.full
       REFILL_SLOT := refill.free.andMask(askRefill || askUpgrade)
 
-      val writeCache = isValid && GENERATION_OK && !REDO && !PREFETCH
+      val writeCache = isValid && GENERATION_OK && !REDO && !PREFETCH && !SNOOP
       val setDirty = writeCache && wasClean
       val wayId = OHToUInt(WAYS_HITS)
       val bankHitId = if(!reducedBankWidth) wayId else (wayId >> log2Up(bankCount/memToBankRatio)) @@ ((wayId + (ADDRESS_POST_TRANSLATION(log2Up(bankWidth/8), log2Up(bankCount) bits))).resize(log2Up(bankCount/memToBankRatio)))
@@ -1260,6 +1272,7 @@ class DataCache(val cacheSize: Int,
         refill.push.way := refillWay
         refill.push.victim := writeback.free.andMask(replacedWayNeedWriteback && askRefill)
         refill.push.unique := True
+        refill.push.data := askRefill
 
         waysWrite.mask(refillWay) := True
         waysWrite.address := ADDRESS_POST_TRANSLATION(lineRange)
@@ -1289,7 +1302,7 @@ class DataCache(val cacheSize: Int,
         waysWrite.tag.loaded := False
       }
 
-      when(isValid && REDO && GENERATION_OK && !PREFETCH){
+      when(isValid && REDO && GENERATION_OK && !PREFETCH && !SNOOP){
         target := !target
       }
     }
@@ -1298,7 +1311,7 @@ class DataCache(val cacheSize: Int,
       import rspStage._
 
       assert(rspStage == controlStage, "Need to implement refillSlot bypass otherwise")
-      io.store.rsp.valid := isValid
+      io.store.rsp.valid := isValid && !SNOOP
       io.store.rsp.generationKo := !GENERATION_OK
       io.store.rsp.fault := False //TODO
       io.store.rsp.redo := REDO
