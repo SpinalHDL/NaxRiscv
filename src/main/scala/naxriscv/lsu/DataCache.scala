@@ -620,11 +620,10 @@ class DataCache(val cacheSize: Int,
       val priority = Reg(Bits(refillCount-1 bits)) //TODO Check it
       val unique = withCoherency generate Reg(Bool())
 
-      // This counter ensure that load which started before the end of the refill memory transfer but ended after the end
+      // This counter ensure that load/store which started before the end of the refill memory transfer but ended after the end
       // of the memory transfer do see that there was a refill ongoing and that they need to retry
-      // Store will consider refill slots which a loaded as ready for a write already
       val loaded = Reg(Bool())
-      val loadedCounterMax = loadControlAt-1
+      val loadedCounterMax = (loadControlAt-1) max (storeControlAt-1)
       val loadedCounter = Reg(UInt(log2Up(loadedCounterMax+1) bits))
       loadedCounter := loadedCounter + U(loaded).resized
       valid clearWhen (loadedCounter === loadedCounterMax)
@@ -717,18 +716,16 @@ class DataCache(val cacheSize: Int,
           slots.map(_.loaded).write(io.mem.read.rsp.id, True)
           fire := True
           io.refillCompletions(io.mem.read.rsp.id) := True
-          when(faulty || withCoherency.mux(!io.mem.read.rsp.unique, False)) {
-            reservation.takeIt()
-            waysWrite.mask(way) := True
-            waysWrite.address := rspAddress(lineRange)
-            waysWrite.tag.fault := True
-            waysWrite.tag.address := rspAddress(tagRange)
-            if(withCoherency){
-              waysWrite.tag.unique := io.mem.read.rsp.unique
-              waysWrite.tag.loaded := io.mem.read.rsp.shared || io.mem.read.rsp.unique || faulty
-            } else {
-              waysWrite.tag.loaded := True
-            }
+          reservation.takeIt()
+          waysWrite.mask(way) := True
+          waysWrite.address := rspAddress(lineRange)
+          waysWrite.tag.fault := faulty
+          waysWrite.tag.address := rspAddress(tagRange)
+          if(withCoherency){
+            waysWrite.tag.unique := io.mem.read.rsp.unique
+            waysWrite.tag.loaded := io.mem.read.rsp.shared || io.mem.read.rsp.unique || faulty
+          } else {
+            waysWrite.tag.loaded := True
           }
         }
       }
@@ -1059,10 +1056,7 @@ class DataCache(val cacheSize: Int,
 
         waysWrite.mask(refillWay) := True
         waysWrite.address := ADDRESS_PRE_TRANSLATION(lineRange)
-        waysWrite.tag.loaded := True
-        waysWrite.tag.fault := False
-        if(withCoherency) waysWrite.tag.unique := True
-        waysWrite.tag.address := ADDRESS_POST_TRANSLATION(tagRange)
+        waysWrite.tag.loaded := False
 
         status.write.valid := True
         status.write.address := ADDRESS_PRE_TRANSLATION(lineRange)
@@ -1194,7 +1188,7 @@ class DataCache(val cacheSize: Int,
       val reservation = tagsOrStatusWriteArbitration.create(3)
       val replacedWay = CombInit(wayRandom.value)
       val replacedWayNeedWriteback = WAYS_TAGS(replacedWay).loaded && STATUS(replacedWay).dirty
-      val refillHit = (REFILL_HITS & B(refill.slots.map(!_.loaded))).orR
+      val refillHit = (REFILL_HITS & B(refill.slots.map(_.valid))).orR
       val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, replacedWay)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
       val wasClean = !(B(STATUS.map(_.dirty)) & WAYS_HITS).orR
@@ -1209,7 +1203,6 @@ class DataCache(val cacheSize: Int,
       val askUpgrade = !MISS && canRefill && !hitUnique
       val startRefill = isValid && GENERATION_OK && askRefill
       val startUpgrade = isValid && GENERATION_OK && askUpgrade
-
 
       REFILL_SLOT_FULL := MISS && !refillHit && refill.full
       REFILL_SLOT := refill.free.andMask(askRefill || askUpgrade)
@@ -1270,10 +1263,7 @@ class DataCache(val cacheSize: Int,
 
         waysWrite.mask(refillWay) := True
         waysWrite.address := ADDRESS_POST_TRANSLATION(lineRange)
-        waysWrite.tag.loaded := True
-        if(withCoherency) waysWrite.tag.unique := True
-        waysWrite.tag.fault := False
-        waysWrite.tag.address := ADDRESS_POST_TRANSLATION(tagRange)
+        waysWrite.tag.loaded := False
 
         whenIndexed(status.write.data, refillWay)(_.dirty := False)
       }
