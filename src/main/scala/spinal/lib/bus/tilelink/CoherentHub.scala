@@ -54,13 +54,15 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     m = MastersParameters(
       List(MasterParameters(
         name = this,
-        emits = MasterTransfers(
-          get = TransferSupport(1, p.blockSize),
-          putFull = TransferSupport(p.blockSize),
-          putPartial = TransferSupport(1, p.blockSize)
-        ),
-        sourceId = SizeMapping(0, downIdCount),
-        addressRange = upParam.m.masters.flatMap(_.addressRange).distinctLinked.toList
+        sources = List(MasterSource(
+          id = SizeMapping(0, downIdCount),
+          emits    = MasterTransfers(
+            get        = TransferSupport(1, p.blockSize),
+            putFull    = TransferSupport(p.blockSize),
+            putPartial = TransferSupport(1, p.blockSize)
+          ),
+          addressRange = upParam.m.masters.flatMap(_.sources.flatMap(_.addressRange)).distinctLinked.toList
+        ))
       ))
     ),
     s = SlavesParameters(slaves = Nil),
@@ -187,7 +189,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         for((port, node) <- (s.probe.ports, nodes).zipped){
           val mapping = nodeToMasterMaskMapping(node)
           for((mpp , id) <- mapping){
-            when(!mpp.sourceId.hit(push.source)){
+            when(!mpp.sources.map(_.id.hit(push.source)).orR){
               port.pending(id) := True
             }
           }
@@ -237,7 +239,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         bus.valid   := requests.orR
         bus.opcode  := Opcode.B.PROBE_BLOCK
         bus.param   := input.param
-        bus.source  := OhMux(masterOh, mapping.keys.map(m => U(m.sourceId.lowerBound, upBusParam.sourceWidth bits)).toList)
+        bus.source  := OhMux(masterOh, mapping.keys.map(m => U(m.bSourceId, upBusParam.sourceWidth bits)).toList)
         bus.address := input.address
         bus.size    := log2Up(p.blockSize)
         when(bus.fire){
@@ -253,7 +255,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     val rsps = for((node, nodeId) <- p.nodes.zipWithIndex.filter(_._1.withBCE)) yield new Area{
       val c = upstream.c.toProbeRsp(nodeId)
       val mapping = nodeToMasterMaskMapping(node)
-      val sourceIdHits = p.nodes.flatMap(_.m.masters).map(m => m -> m.sourceId.hit(c.source)).toMapLinked()
+      val sourceIdHits = p.nodes.flatMap(_.m.masters).map(m => m -> m.sources.map(_.id.hit(c.source)).orR).toMapLinked()
       val onSlots = for(slot <- slots) yield new Area{
         val hit = slot.valid && slot.lineConflict.youngest && slot.address(lineRange) === c.address
         val ctx = slot.probe.ports(nodeId)
@@ -339,22 +341,28 @@ object CoherentHubGen extends App{
           m = MastersParameters(List(
             MasterParameters(
               name = null,
-              emits = MasterTransfers(
-                acquireT = TransferSupport(64),
-                acquireB = TransferSupport(64),
-                probeAckData = TransferSupport(64)
-              ),
-              sourceId = SizeMapping(0, 4),
-              addressRange = List(SizeMapping(0, 1 << 16))
+              sources = List(MasterSource(
+                emits = MasterTransfers(
+                  acquireT = TransferSupport(64),
+                  acquireB = TransferSupport(64),
+                  probeAckData = TransferSupport(64)
+                ),
+                id = SizeMapping(0, 4),
+                addressRange = List(SizeMapping(0, 1 << 16))
+              ))
             ))
           ),
           s = SlavesParameters(List(
             SlaveParameters(
               name = null,
-              emits = SlaveTransfers(
-                probe = TransferSupport(64)
-              ),
-              sinkId = SizeMapping(0, 8)
+              sinks = List(
+                SlaveSink(
+                  emits = SlaveTransfers(
+                    probe = TransferSupport(64)
+                  ),
+                  id = SizeMapping(0, 8)
+                )
+              )
             )
           )),
           dataBytes = 4
