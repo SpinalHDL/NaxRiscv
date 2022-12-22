@@ -5,13 +5,13 @@ import spinal.lib._
 import spinal.lib.bus.misc.AddressMapping
 
 
-case class SlaveTransfers(probe:      TransferSupport = TransferSupport.none,
-                          arithmetic: TransferSupport = TransferSupport.none,
-                          logical:    TransferSupport = TransferSupport.none,
-                          get:        TransferSupport = TransferSupport.none,
-                          putFull:    TransferSupport = TransferSupport.none,
-                          putPartial: TransferSupport = TransferSupport.none,
-                          hint:       TransferSupport = TransferSupport.none
+case class SlaveTransfers(probe:      SizeRange = SizeRange.none,
+                          arithmetic: SizeRange = SizeRange.none,
+                          logical:    SizeRange = SizeRange.none,
+                          get:        SizeRange = SizeRange.none,
+                          putFull:    SizeRange = SizeRange.none,
+                          putPartial: SizeRange = SizeRange.none,
+                          hint:       SizeRange = SizeRange.none
                          )  {
   def withBCE = probe.some
   def withDataB = putFull.some || putPartial.some
@@ -36,7 +36,7 @@ case class SlaveTransfers(probe:      TransferSupport = TransferSupport.none,
   )
   // Reduce rendering to a simple yes/no per field
   override def toString = {
-    def str(x: TransferSupport, flag: String) = if (x.none) "" else flag
+    def str(x: SizeRange, flag: String) = if (x.none) "" else flag
     def flags = Vector(
       str(probe,      "P"),
       str(arithmetic, "A"),
@@ -73,31 +73,26 @@ case class SlaveTransfers(probe:      TransferSupport = TransferSupport.none,
 
 object SlaveTransfers {
   def unknownEmits = SlaveTransfers(
-    arithmetic = TransferSupport(1, 4096),
-    logical    = TransferSupport(1, 4096),
-    get        = TransferSupport(1, 4096),
-    putFull    = TransferSupport(1, 4096),
-    putPartial = TransferSupport(1, 4096),
-    hint       = TransferSupport(1, 4096),
-    probe      = TransferSupport(1, 4096))
+    arithmetic = SizeRange(1, 4096),
+    logical    = SizeRange(1, 4096),
+    get        = SizeRange(1, 4096),
+    putFull    = SizeRange(1, 4096),
+    putPartial = SizeRange(1, 4096),
+    hint       = SizeRange(1, 4096),
+    probe      = SizeRange(1, 4096))
   def unknownSupports = SlaveTransfers()
   def intersect(values : Seq[SlaveTransfers]) : SlaveTransfers = values.reduce(_ intersect _)
 }
 
-case class SlaveSink(id           : AddressMapping,
-                     emits        : SlaveTransfers){
-  def withSinkOffset(offset : Int) = copy(id = id.withOffset(offset))
-  val sinkWidth = id.width
-}
 
 
-case class SlaveParameters (name         : Nameable,
-                            sinks        : Seq[SlaveSink]) extends OverridedEqualsHashCode {
-  val sinkWidth = sinks.map(_.sinkWidth).max
+case class SlaveParameters (name    : Nameable,
+                            sinkId  : AddressMapping,
+                            emits : SlaveTransfers) extends OverridedEqualsHashCode {
+  val sinkWidth = sinkId.width
   def withSinkOffset(offset : Int): SlaveParameters ={
-    copy(sinks = sinks.map(_.withSinkOffset(offset)))
+    copy(sinkId = sinkId.withOffset(offset))
   }
-  val emits = SlaveTransfers.intersect(sinks.map(_.emits))
 }
 
 

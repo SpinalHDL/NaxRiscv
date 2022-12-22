@@ -29,12 +29,12 @@ case class BusParameter(addressWidth  : Int,
   val size        = HardType(UInt(sizeWidth bits))
 }
 
-object TransferSupport{
-  def none = TransferSupport(0, 0)
-  def apply(x: Int) : TransferSupport = TransferSupport(x, x)
+object SizeRange{
+  def none = SizeRange(0, 0)
+  def apply(x: Int) : SizeRange = SizeRange(x, x)
 }
 
-case class TransferSupport(min : Int, max : Int){
+case class SizeRange(min : Int, max : Int){
 
   require (min <= max, s"Min transfer $min > max transfer $max")
   require (min >= 0 && max >= 0, s"TransferSupport must be positive, got: ($min, $max)")
@@ -47,19 +47,19 @@ case class TransferSupport(min : Int, max : Int){
   def contains(x: Int) = isPow2(x) && min <= x && x <= max
   def containsLg(x: Int) = contains(1 << x)
 
-  def contains(x: TransferSupport) = x.none || (min <= x.min && x.max <= max)
+  def contains(x: SizeRange) = x.none || (min <= x.min && x.max <= max)
 
-  def intersect(x: TransferSupport) =
-    if (x.max < min || max < x.min) TransferSupport.none
-    else TransferSupport(scala.math.max(min, x.min), scala.math.min(max, x.max))
+  def intersect(x: SizeRange) =
+    if (x.max < min || max < x.min) SizeRange.none
+    else SizeRange(scala.math.max(min, x.min), scala.math.min(max, x.max))
 
-  def mincover(x: TransferSupport) = {
+  def mincover(x: SizeRange) = {
     if (none) {
       x
     } else if (x.none) {
       this
     } else {
-      TransferSupport(scala.math.min(min, x.min), scala.math.max(max, x.max))
+      SizeRange(scala.math.min(min, x.min), scala.math.max(max, x.max))
     }
   }
 

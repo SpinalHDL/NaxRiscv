@@ -5,15 +5,15 @@ import spinal.lib._
 import spinal.lib.bus.misc.AddressMapping
 
 
-case class MasterTransfers(acquireT     : TransferSupport = TransferSupport.none,
-                           acquireB     : TransferSupport = TransferSupport.none,
-                           arithmetic   : TransferSupport = TransferSupport.none,
-                           logical      : TransferSupport = TransferSupport.none,
-                           get          : TransferSupport = TransferSupport.none,
-                           putFull      : TransferSupport = TransferSupport.none,
-                           putPartial   : TransferSupport = TransferSupport.none,
-                           hint         : TransferSupport = TransferSupport.none,
-                           probeAckData : TransferSupport = TransferSupport.none){
+case class MasterTransfers(acquireT     : SizeRange = SizeRange.none,
+                           acquireB     : SizeRange = SizeRange.none,
+                           arithmetic   : SizeRange = SizeRange.none,
+                           logical      : SizeRange = SizeRange.none,
+                           get          : SizeRange = SizeRange.none,
+                           putFull      : SizeRange = SizeRange.none,
+                           putPartial   : SizeRange = SizeRange.none,
+                           hint         : SizeRange = SizeRange.none,
+                           probeAckData : SizeRange = SizeRange.none){
 
   def withBCE = acquireT.some || acquireB.some
   def withDataA = putFull.some
@@ -41,7 +41,7 @@ case class MasterTransfers(acquireT     : TransferSupport = TransferSupport.none
     probeAckData = probeAckData.mincover(rhs.probeAckData))
   // Reduce rendering to a simple yes/no per field
   override def toString = {
-    def str(x: TransferSupport, flag: String) = if (x.none) "" else flag
+    def str(x: SizeRange, flag: String) = if (x.none) "" else flag
     def flags = Vector(
       str(acquireT,   "T"),
       str(acquireB,   "B"),
@@ -80,14 +80,14 @@ case class MasterTransfers(acquireT     : TransferSupport = TransferSupport.none
 
 object MasterTransfers {
   def unknownEmits = MasterTransfers(
-    acquireT   = TransferSupport(1, 4096),
-    acquireB   = TransferSupport(1, 4096),
-    arithmetic = TransferSupport(1, 4096),
-    logical    = TransferSupport(1, 4096),
-    get        = TransferSupport(1, 4096),
-    putFull    = TransferSupport(1, 4096),
-    putPartial = TransferSupport(1, 4096),
-    hint       = TransferSupport(1, 4096))
+    acquireT   = SizeRange(1, 4096),
+    acquireB   = SizeRange(1, 4096),
+    arithmetic = SizeRange(1, 4096),
+    logical    = SizeRange(1, 4096),
+    get        = SizeRange(1, 4096),
+    putFull    = SizeRange(1, 4096),
+    putPartial = SizeRange(1, 4096),
+    hint       = SizeRange(1, 4096))
   def unknownSupports = MasterTransfers()
 
   def intersect(values : Seq[MasterTransfers]) : MasterTransfers = values.reduce(_ intersect _)
@@ -103,14 +103,14 @@ case class MasterSource(id           : AddressMapping,
 }
 
 case class MasterParameters (name    : Nameable,
-                             sources : Seq[MasterSource]) extends OverridedEqualsHashCode {
-  val addressWidth = log2Up(sources.flatMap(_.addressRange.map(_.highestBound)).max+1)
+                             mapping : Seq[MasterSource]) extends OverridedEqualsHashCode {
+  val addressWidth = log2Up(mapping.flatMap(_.addressRange.map(_.highestBound)).max+1)
   def withSourceOffset(offset : Int): MasterParameters ={
-    copy(sources = sources.map(_.withSourceOffset(offset)))
+    copy(mapping = mapping.map(_.withSourceOffset(offset)))
   }
-  val emits = MasterTransfers.intersect(sources.map(_.emits))
-  val sourceWidth = sources.map(_.id.width).max
-  def bSourceId = sources.head.bSourceId
+  val emits = MasterTransfers.intersect(mapping.map(_.emits))
+  val sourceWidth = mapping.map(_.id.width).max
+  def bSourceId = mapping.head.bSourceId
 }
 
 
