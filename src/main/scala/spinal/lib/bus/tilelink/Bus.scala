@@ -37,8 +37,10 @@ object Opcode extends AreaRoot{
   }
 
   val D = new SpinalEnum{
-    val GRANT, GRANT_DATA, RELEASE_ACK = newElement()
+    val ACCESS_ACK, ACCESS_ACK_DATA, GRANT, GRANT_DATA, RELEASE_ACK = newElement()
     defaultEncoding = SpinalEnumEncoding("enc")(
+      ACCESS_ACK      -> 0,
+      ACCESS_ACK_DATA -> 1,
       GRANT       -> 4,
       GRANT_DATA  -> 5,
       RELEASE_ACK -> 6
@@ -117,8 +119,6 @@ case class ChannelD(override val p : BusParameter) extends BusFragment(p, p.with
 case class ChannelE(p : BusParameter) extends Bundle {
   val sink    = p.sink()
 }
-
-
 
 case class Bus(p : BusParameter) extends Bundle with IMasterSlave{
   val a = Stream(ChannelA(p))

@@ -12,28 +12,27 @@ package object tilelink {
   }
 
   implicit class TilelinkBusFragmentPimper[T <: BusFragment] (ch : Stream[T]){
+    def fillBeatCache() = signalCache(ch -> "fillBeatCache") (new Composite(ch){
+      val beat = Reg(UInt(ch.p.beatWidth bits)) init(0)
+      val last = beat === sizeToBeatMinusOne(ch.p, ch.size)
+      when(ch.fire){
+        beat := beat + 1
+        when(last){
+          beat := 0
+        }
+      }
+    })
+
     def isLast() : Bool = {
       ch.withData match {
         case false => True
-        case true => signalCache(ch -> "isLast"){
-          new Composite(ch, "isLast"){
-            val beat = Reg(UInt(ch.p.beatWidth bits)) init(0)
-            val value = beat === sizeToBeatMinusOne(ch.p, ch.size)
-            when(ch.fire){
-              beat := beat + 1
-              when(value){
-                beat := 0
-              }
-            }
-          }.value
-        }
+        case true => fillBeatCache().last
       }
-
     }
 
     def isFirst() : Bool = ch.withData match {
       case false => True
-      case true => signalCache(ch)(RegNext(isLast(), ch.fire) init(True) setCompositeName(ch, "isFirst"))
+      case true => fillBeatCache().beat === 0
     }
   }
 }

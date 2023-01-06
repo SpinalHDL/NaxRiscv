@@ -111,6 +111,7 @@ case class MasterParameters (name    : Nameable,
   val emits = MasterTransfers.intersect(mapping.map(_.emits))
   val sourceWidth = mapping.map(_.id.width).max
   def bSourceId = mapping.head.bSourceId
+  def sourceHit(source : UInt) = mapping.map(_.id.hit(source)).orR
 }
 
 
@@ -122,5 +123,6 @@ case class MastersParameters(masters   : Seq[MasterParameters]) extends Override
   val withBCE = masters.map(_.emits.withBCE).reduce(_ || _)
   def withDataA = masters.map(_.emits.withDataA).reduce(_ || _)
   def withDataD = masters.map(_.emits.withDataD).reduce(_ || _)
+  def sourceHit(source : UInt) = masters.map(_.sourceHit(source)).orR
 }
 
