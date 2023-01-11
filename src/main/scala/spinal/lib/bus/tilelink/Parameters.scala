@@ -23,6 +23,7 @@ case class BusParameter(addressWidth : Int,
   val sizeWidth   = log2Up(sizeMax+1)
   val beatMax     = (sizeBytes+dataBytes-1)/dataBytes
   val beatWidth   = log2Up(beatMax)
+  val dataBytesLog2Up = log2Up(dataBytes)
 
   val address     = HardType(UInt(addressWidth bits))
   val data        = HardType(Bits(dataWidth bits))
@@ -30,6 +31,7 @@ case class BusParameter(addressWidth : Int,
   val source      = HardType(UInt(sourceWidth bits))
   val sink        = HardType(UInt(sinkWidth bits))
   val size        = HardType(UInt(sizeWidth bits))
+  val beat        = HardType(UInt(beatWidth  bits))
 }
 
 object SizeRange{

@@ -5,7 +5,7 @@ import spinal.lib._
 
 package object tilelink {
   def sizeToBeatMinusOne(p : BusParameter, size : UInt) : UInt = signalCache(p, size){
-    (0 until p.sizeMax).map(s => U(1 << s)/p.dataBytes).read(size)
+    (0 to p.sizeMax).map(s => U(1 << s)/p.dataBytes-1).read(size)
   }
   implicit class BusFragmentPimper(ch : BusFragment){
     def sizeToBeatMinusOne = tilelink.sizeToBeatMinusOne(ch.p, ch.size)
@@ -14,7 +14,7 @@ package object tilelink {
   implicit class TilelinkBusFragmentPimper[T <: BusFragment] (ch : Stream[T]){
     def fillBeatCache() = signalCache(ch -> "fillBeatCache") (new Composite(ch){
       val beat = Reg(UInt(ch.p.beatWidth bits)) init(0)
-      val last = beat === sizeToBeatMinusOne(ch.p, ch.size)
+      val last = !ch.withBeats || beat === sizeToBeatMinusOne(ch.p, ch.size)
       when(ch.fire){
         beat := beat + 1
         when(last){

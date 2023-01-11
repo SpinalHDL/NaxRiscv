@@ -20,6 +20,14 @@ class SlaveAgent(bus : Bus, cd : ClockDomain) {
     ???
   }
 
+  def onPutPartialData(source : Int,
+                       address : Long,
+                       size : Int,
+                       mask : Array[Byte],
+                       data : Array[Byte]): Unit ={
+    ???
+  }
+
   def accessAckData(source : Int,
                     data : Seq[Byte],
                     denied : Boolean = false,
@@ -35,8 +43,27 @@ class SlaveAgent(bus : Bus, cd : ClockDomain) {
         p.source  #= source
         p.sink    #= 0
         p.denied  #= denied
-        p.data    #= buf
-        p.corrupt #= corrupt
+        if(bus.p.withDataD) {
+          p.data    #= buf
+          p.corrupt #= corrupt
+        }
+      }
+    }
+  }
+  def accessAck(source : Int,
+                size : Int,
+                denied : Boolean = false): Unit ={
+    driver.d.enqueue { p =>
+      val buf = new Array[Byte](bus.p.dataBytes)
+      p.opcode  #= Opcode.D.ACCESS_ACK
+      p.param   #= 0
+      p.size    #= size
+      p.source  #= source
+      p.sink    #= 0
+      p.denied  #= denied
+      if(bus.p.withDataD) {
+        p.data.randomize()
+        p.corrupt #= false
       }
     }
   }
@@ -49,6 +76,7 @@ class SlaveAgent(bus : Bus, cd : ClockDomain) {
       val size = p.size.toInt
       opcode match {
         case Opcode.A.GET => onGet(source, address, 1 << size)
+        case Opcode.A.PUT_PARTIAL_DATA => onPutPartialData(source, address, size, p.mask.toBytes, p.data.toBytes)
       }
     }
 

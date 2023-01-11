@@ -75,8 +75,9 @@ object Param{
 
 
 
-class BusFragment(val p : BusParameter, val withData : Boolean) extends Bundle {
-  val size    = p.size()
+abstract class BusFragment(val p : BusParameter, val withData : Boolean) extends Bundle {
+  def size      : UInt
+  def withBeats : Bool
 }
 
 case class ChannelA(override val p : BusParameter) extends BusFragment(p, p.withDataA) {
@@ -84,37 +85,54 @@ case class ChannelA(override val p : BusParameter) extends BusFragment(p, p.with
   val param   = Bits(3 bits)
   val source  = p.source()
   val address = p.address()
+  val size    = p.size()
   val mask    = p.withDataA generate p.mask()
   val data    = p.withDataA generate p.data()
   val corrupt = p.withDataA generate Bool()
+  override def withBeats = p.withDataA.mux(List(Opcode.A.PUT_FULL_DATA(), Opcode.A.PUT_PARTIAL_DATA()).sContains(opcode), False)
 }
 case class ChannelB(override val p : BusParameter) extends BusFragment(p, p.withDataB) {
   val opcode  = Opcode.B()
   val param   = Bits(3 bits)
   val source  = p.source()
   val address = p.address()
+  val size    = p.size()
   val mask    = p.withDataB generate p.mask()
   val data    = p.withDataB generate p.data()
   val corrupt = p.withDataB generate Bool()
+  override def withBeats = p.withDataB.mux(False, False) //TODO
 }
 case class ChannelC(override val p : BusParameter) extends BusFragment(p, true) {
   val opcode  = Opcode.C()
   val param   = Bits(3 bits)
   val source  = p.source()
   val address = p.address()
+  val size    = p.size()
   val data    = p.data()
   val corrupt = Bool()
   def isProbeKind()   = opcode === Opcode.C.PROBE_ACK || opcode === Opcode.C.PROBE_ACK_DATA
   def isReleaseKind() = opcode === Opcode.C.RELEASE   || opcode === Opcode.C.RELEASE_DATA
+  override def withBeats = List(Opcode.C.PROBE_ACK_DATA(), Opcode.C.RELEASE_DATA()).sContains(opcode)
 }
 case class ChannelD(override val p : BusParameter) extends BusFragment(p, p.withDataD) {
   val opcode  = Opcode.D()
   val param   = Bits(3 bits)
   val source  = p.source()
   val sink    = p.sink()
-  val denied  = p.withDataD generate Bool()
+  val size    = p.size()
+  val denied  = Bool()
   val data    = p.withDataD generate p.data()
   val corrupt = p.withDataD generate Bool()
+  override def withBeats = p.withDataD.mux(List(Opcode.D.ACCESS_ACK_DATA(), Opcode.D.GRANT_DATA()).sContains(opcode), False)
+  def withDontCareData(): ChannelD ={
+    val ret = ChannelD(p.copy(withDataD = true))
+    ret.assignSomeByName(this)
+    ret.data.assignDontCare()
+    ret.corrupt.assignDontCare()
+    ret
+  }
+
+  override def clone = ChannelD(p)
 }
 case class ChannelE(p : BusParameter) extends Bundle {
   val sink    = p.sink()

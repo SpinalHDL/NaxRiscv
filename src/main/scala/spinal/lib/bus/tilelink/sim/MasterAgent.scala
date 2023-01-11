@@ -24,7 +24,7 @@ class MasterAgent (bus : Bus, cd : ClockDomain) {
       val size    = b.size.toInt
 
       opcode match{
-        case Opcode.B.PROBE_BLOCK => probeBlock(param, source, address, 1 << size)
+        case Opcode.B.PROBE_BLOCK => probeBlock(source, param, address, 1 << size)
       }
     }
     val dm = StreamMonitor(bus.d, cd){ p =>
@@ -32,10 +32,10 @@ class MasterAgent (bus : Bus, cd : ClockDomain) {
     }
   }
 
-  def probeBlock(param : Int,
-                source : Int,
-                address : Long,
-                bytes : Int): Unit ={
+  def probeBlock(source : Int,
+                 param : Int,
+                 address : Long,
+                 bytes : Int): Unit ={
     ???
   }
 
@@ -57,7 +57,7 @@ class MasterAgent (bus : Bus, cd : ClockDomain) {
   }
 
 
-  def get(address : BigInt, bytes : Int, source : Int) : Seq[Byte] = {
+  def get(source : Int, address : BigInt, bytes : Int) : Seq[Byte] = {
     driver.a.enqueue{p =>
       p.opcode  #= Opcode.A.GET
       p.param   #= 0
@@ -88,5 +88,61 @@ class MasterAgent (bus : Bus, cd : ClockDomain) {
     }
     mutex.await()
     data
+  }
+
+  def putFullData(source : Int, address : BigInt, data : Seq[Byte]) : Boolean = {
+    val size = log2Up(data.length)
+    for(offset <- 0 until data.length by bus.p.dataBytes) {
+      driver.a.enqueue { p =>
+        val buf = new Array[Byte](bus.p.dataBytes)
+        (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
+        p.opcode #= Opcode.A.PUT_FULL_DATA
+        p.param #= 0
+        p.size #= size
+        p.source #= source
+        p.address #= address + offset
+        p.mask #= (BigInt(1) << bus.p.dataBytes)-1
+        p.data #= buf
+        p.corrupt #= false
+      }
+    }
+    val mutex = SimMutex().lock()
+    var denied = false
+    monitor.d(source) = {d =>
+      monitor.d(source) = null
+      denied = d.denied.toBoolean
+      mutex.unlock()
+    }
+    mutex.await()
+    denied
+  }
+
+  def putPartialData(source : Int, address : BigInt, data : Seq[Byte], mask : Seq[Boolean]) : Boolean = {
+    val size = log2Up(data.length)
+    for(offset <- 0 until data.length by bus.p.dataBytes) {
+      driver.a.enqueue { p =>
+        val buf = new Array[Byte](bus.p.dataBytes)
+        (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
+        val buf2 = Array.fill[Byte]((bus.p.dataBytes+7)/8)(0)
+        (0 until bus.p.dataBytes).foreach(i => buf2(i >> 3) = (buf2(i >> 3) | (mask(offset + i).toInt << (i & 7))).toByte)
+        p.opcode #= Opcode.A.PUT_PARTIAL_DATA
+        p.param #= 0
+        p.size #= size
+        p.source #= source
+        p.address #= address + offset
+        p.mask #= buf2
+        p.data #= buf
+        p.corrupt #= false
+      }
+    }
+    val mutex = SimMutex().lock()
+    var denied = false
+    monitor.d(source) = {d =>
+      monitor.d(source) = null
+      denied = d.denied.toBoolean
+      mutex.unlock()
+    }
+    mutex.await()
+    denied
   }
 }
