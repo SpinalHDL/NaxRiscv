@@ -13,8 +13,9 @@ case class CoherentHubParameters(nodes : Seq[NodeParameters],
                                  cacheSize: Int,
                                  wayCount: Int,
                                  lineSize : Int,
-                                 cBufferCount : Int = 4,
-                                 aBufferCount : Int = 4){
+                                 aBufferCount: Int = 4,
+                                 cBufferCount: Int = 2,
+                                 cSourceCount: Int = 4) {
   val addressWidth = nodes.map(_.m.addressWidth).max
   val waySize = cacheSize/wayCount
   val linePerWay = waySize/lineSize
@@ -57,8 +58,8 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
   import p._
 
   val slotDownOffset = 0
-  val cDownIdOffset = slotDownOffset + slotCount*2
-  val downIdCount = cDownIdOffset + p.cBufferCount
+  val cDownIdOffset = slotDownOffset + (1 << log2Up(slotCount max p.cSourceCount))
+  val downIdCount = cDownIdOffset + p.cSourceCount
 
   val bps = p.nodes.map(_.toBusParameter())
   val upParam = NodeParameters.mergeMasters(p.nodes)
@@ -85,7 +86,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       List(MasterParameters(
         name = this,
         mapping = List(MasterSource(
-          id = SizeMapping(0, downIdCount),
+          id = SizeMapping(0, slotCount),
           emits    = MasterTransfers(
             get        = SizeRange(1, p.blockSize)
           ),
@@ -98,6 +99,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
   )
   val downPutBusParam = downPutParam.toBusParameter()
   val downGetBusParam = downGetParam.toBusParameter()
+  val wordsPerBlock = blockSize / upBusParam.dataBytes
 
 //  val writebackParam = NodeParameters(
 //    m = MastersParameters(
@@ -150,10 +152,12 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     val id = i
     val fire = False
     val valid = RegInit(False) clearWhen(fire)
+    assert(!(fire && !valid))
     val address = Reg(upBusParam.address) //TODO optimize in mem
 //    val source  = Reg(upBusParam.source())
     val shared = Reg(Bool())
     val unique = Reg(Bool())
+    val fireOnDownD = Reg(Bool())
     val tagsReaded = Reg(Bool())
     val readSent, writeSent = Reg(Bool())
     val readMem, writeMem = Reg(Bool())
@@ -179,6 +183,19 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     }
   }
 
+  val slotsC = for(i <- 0 until cSourceCount) yield new Area{
+    val id = i
+    val fire = False
+    val valid = RegInit(False) clearWhen(fire)
+    val release = Reg(Bool())
+    val source = Reg(upBusParam.source)
+    //TODO unlock probe
+
+    def spawn(): Unit ={
+
+    }
+  }
+
   val slotsMem = new Area{
     val address = Mem.fill(slotCount)(upBusParam.address)
     val size    = Mem.fill(slotCount)(upBusParam.size)
@@ -189,6 +206,17 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
   def slotSize(oh : Bits) = slotsMem.size.readAsync(OHToUInt(oh))
   def slotSource(oh : Bits) = slotsMem.source.readAsync(OHToUInt(oh))
 
+  case class Payload() extends Bundle {
+    val mask = upBusParam.mask()
+    val data = upBusParam.data()
+  }
+
+  case class ContextC() extends Bundle{
+    val address = upBusParam.address()
+    val source = upBusParam.source()
+    val slot = UInt(log2Up(cSourceCount) bits)
+  }
+
   val withDataA = p.nodes.exists(_.m.withDataA)
   val upstream = new Area{
     val buses = io.ups.zipWithIndex.map{case (bus, id) => bus.withSourceOffset(id, upParam.m.sourceWidth)}
@@ -197,10 +225,6 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       val withoutData = buses.filter(!_.p.withDataA).map(_.a).toList
       val withData = withDataA generate new Area{
         val buffer =  new Area{
-          case class Payload() extends Bundle {
-            val mask = upBusParam.mask()
-            val data = upBusParam.data()
-          }
           val ram = Mem.fill(aBufferCount*p.blockSize/upParam.dataBytes)(Payload())
           val allocated = Reg(Bits(aBufferCount bits)) init(0)
           val set, clear = B(0, aBufferCount bits)
@@ -231,8 +255,44 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       val toSlot = StreamArbiterFactory().noLock.roundRobin.on(aList)
     }
     val c = new Area{
-      val toProbeRsp = buses.map(bus => bus.c.toFlow.takeWhen(bus.c.isProbeKind))
-      assert(buses.map(bus => !(bus.c.valid && bus.c.opcode === Opcode.C.PROBE_ACK_DATA)).andR, "Need to be implemented")
+      val perBus = for(bus <- buses) yield new Area {
+        val (probeFork, dataFork) = StreamFork2(bus.c)
+        val toProbeRsp = probeFork.toFlow.takeWhen(bus.c.isProbeKind)
+        val toData = dataFork.takeWhen(dataFork.isDataKind())
+        assert(!(bus.c.valid && bus.c.opcode === Opcode.C.PROBE_ACK_DATA), "Need to be implemented")
+      }
+
+      val merged = new Area{
+        val arbitred = StreamArbiterFactory().lowerFirst.lambdaLock[ChannelA](_.isLast()).on(perBus.map(_.toData))
+        val (bufferFork, ctrlFork) = StreamFork2(arbitred)
+        val buffer = bufferFork.translateWith(bufferFork.data).queue(cBufferCount*wordsPerBlock).m2sPipe()
+        val slotOh = B(OHMasking.firstV2(slotsC.map(!_.valid).asBits))
+        val toCtrlUnbuffered = Stream(ContextC())
+        toCtrlUnbuffered.arbitrationFrom(ctrlFork.takeWhen(ctrlFork.isFirst()))
+        toCtrlUnbuffered.address := ctrlFork.address
+        toCtrlUnbuffered.source := ctrlFork.source
+        toCtrlUnbuffered.slot := OHToUInt(slotOh)
+        val toCtrl = toCtrlUnbuffered.haltWhen(slotsC.map(_.valid).andR).halfPipe()
+
+        when(toCtrlUnbuffered.fire){
+          slotsC.onMask(slotOh){ s =>
+            s.valid := True
+            s.release := ctrlFork.opcode === Opcode.C.RELEASE_DATA
+            s.source := ctrlFork.source
+            s.spawn()
+          }
+        }
+      }
+    }
+    val e = new Area{
+      val perBuses = for(bus <- buses) yield new Area{
+        bus.e.ready := True
+        when(bus.e.fire) {
+          slots.onSel(bus.e.sink.resized) { s =>
+            s.fire := True
+          }
+        }
+      }
     }
   }
 
@@ -244,8 +304,8 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     val full = slots.map(_.valid).andR
     val lineConflicts = B(for(slot <- slots) yield slot.valid && slot.lineConflict.youngest && slot.address(lineRange) === push.address(lineRange))
     val shared,  unique = Bool()
-    val put, get = False
-
+    val put, get, acquireBlock = False
+    acquireBlock setWhen(push.opcode === Opcode.A.ACQUIRE_BLOCK)
     switch(push.opcode){
       is(Opcode.A.ACQUIRE_BLOCK, Opcode.A.ACQUIRE_PERM){
         shared := push.param === Param.Grow.NtoB
@@ -278,8 +338,9 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
 //        s.source := push.source
         s.shared := shared
         s.unique := unique
+        s.fireOnDownD := put | get
         s.writeMem := put
-        s.readMem := get
+        s.readMem := get || acquireBlock
         s.lineConflict.youngest := True
         s.lineConflict.valid := lineConflicts.orR
         s.lineConflict.slotId := OHToUInt(lineConflicts)
@@ -352,7 +413,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     }
 
     val rsps = for((node, nodeId) <- p.nodes.zipWithIndex.filter(_._1.withBCE)) yield new Area{
-      val c = upstream.c.toProbeRsp(nodeId)
+      val c = upstream.c.perBus(nodeId).toProbeRsp
       val mapping = nodeToMasterMaskMapping(node)
       val sourceIdHits = p.nodes.flatMap(_.m.masters).map(m => m -> m.sourceHit(c.source)).toMapLinked()
       val onSlots = for(slot <- slots) yield new Area{
@@ -376,39 +437,66 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
   val SLOT_ID = Stageable(UInt(log2Up(slotCount) bits))
   val READ = Stageable(Bool())
   val WRITE = Stageable(Bool())
+  val FROM_C = Stageable(Bool())
   val SOURCE = Stageable(upBusParam.source)
 
-  val readPip = new Area{
+
+
+  val ctrl = new Area{
     val aRead = Stream(ChannelA(downGetBusParam))
+    val aWrite = Stream(ChannelA(downPutBusParam))
+
     //    val aWriteThrough = Stream(ChannelA(downBusParam))
-
-
     val frontend = new Pipeline{
+      //TODO avoid tasking something which will be blocked by an already busy $read / ?write pipeling
       val s0 = new Stage {
-        val requests = slots.map(s => s.valid && s.tagsReaded && s.probe.filtred && s.probe.ports.map(_.empty).andR && s.readMem && !s.readSent)
+        val fromC = upstream.c.merged.toCtrl
+        val requests = slots.map(s => s.valid && s.tagsReaded && s.probe.filtred && s.probe.ports.map(_.empty).andR && (s.readMem && !s.readSent || s.writeMem && !s.writeSent))
         val arbiter = StreamArbiterFactory().noLock.roundRobin.build(NoData(), slotCount).io
         (arbiter.inputs, requests).zipped.foreach(_.valid := _)
         driveFrom(arbiter.output)
         SLOT_ID := OHToUInt(arbiter.chosenOH)
         ADDRESS := slotAddress(arbiter.chosenOH)
         SIZE := slotSize(arbiter.chosenOH)
+        READ := OhMux.or(arbiter.chosenOH, slots.map(_.readMem))
+        WRITE := OhMux.or(arbiter.chosenOH, slots.map(_.writeMem))
+        SOURCE := slotSource(arbiter.chosenOH)
 
-        slots.onMask(arbiter.chosenOH){s =>
-          s.readSent := True
+        when(isFireing && !FROM_C) {
+          slots.onMask(arbiter.chosenOH) { s =>
+            s.readSent setWhen (s.readMem)
+            s.writeSent setWhen (s.writeMem)
+          }
         }
 
-        val ordering = io.ordering.toDownGet
-        val source = slotSource(arbiter.chosenOH)
-        ordering.valid := isFireing
-        (ordering.upId,  ordering.upSource) := source
+        val oGet = io.ordering.toDownGet
+        oGet.valid := isFireing && READ
+        (oGet.upId,  oGet.upSource) := this(SOURCE)
+
+        val oPut = io.ordering.toDownPut
+        oPut.valid := isFireing && WRITE
+        (oPut.upId,  oPut.upSource) := this(SOURCE)
+
+
+        fromC.ready := isReady
+        FROM_C := False
+        when(fromC.valid){
+          isValid := True
+          ADDRESS := fromC.address
+          SOURCE  := fromC.source
+          SIZE    := log2Up(blockSize)
+          READ    := False
+          WRITE   := True
+          FROM_C  := True
+        }
       }
       val s1 = new Stage(Connection.DIRECT())
     }
 
-    val stageables = List(SLOT_ID, ADDRESS, SIZE)
+    val stageables = List(SLOT_ID, ADDRESS, SIZE, READ, WRITE, SOURCE, FROM_C)
     val readMem = new Pipeline{
       val s0 = new Stage{
-        driveFrom(frontend.s1, True, stageables)
+        driveFrom(frontend.s1, READ, stageables)
       }
       val s1 = new Stage(Connection.M2S()){
         haltIt(aRead.isStall)
@@ -422,32 +510,10 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       build()
     }
 
-    frontend.build()
-  }
-
-  val writePip = new Area{
-    val aWrite = Stream(ChannelA(downPutBusParam))
-
-    val frontend = new Pipeline{
-      val s0 = new Stage {
-        val requests = slots.map(s => s.valid && s.tagsReaded && s.probe.filtred && s.probe.ports.map(_.empty).andR && s.writeMem && !s.writeSent)
-        val arbiter = StreamArbiterFactory().noLock.roundRobin.build(NoData(), slotCount).io
-        (arbiter.inputs, requests).zipped.foreach(_.valid := _)
-        driveFrom(arbiter.output)
-        SLOT_ID := OHToUInt(arbiter.chosenOH)
-        ADDRESS := slotAddress(arbiter.chosenOH)
-        SIZE := slotSize(arbiter.chosenOH)
-        SOURCE := slotSource(arbiter.chosenOH)
-
-        slots.onMask(arbiter.chosenOH){s =>
-          s.writeSent := True
-        }
-
-        val ordering = io.ordering.toDownPut
-        ordering.valid := isFireing
-        (ordering.upId,  ordering.upSource) := this(SOURCE)
+    val writePip = new Pipeline{
+      val s0 = new Stage{
+        driveFrom(frontend.s1, WRITE, stageables)
       }
-
       val s1 = new Stage(Connection.M2S()){
         val upBufferRead = upstream.a.withData.buffer.ram.readSyncPort()
         val upBufferHits = upstream.a.withData.buffer.source.map(_ === SOURCE).asBits & upstream.a.withData.buffer.allocated
@@ -485,11 +551,29 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         aWrite.mask    := s2.BUFFER.mask
         aWrite.data    := s2.BUFFER.data
         aWrite.corrupt := False
+
+        val cData = upstream.c.merged.buffer
+        cData.ready := False
+        when(FROM_C){
+          when(!cData.valid){
+            haltIt()
+            aWrite.valid := False
+          }
+          when(isValid) {
+            cData.ready := isReady
+          }
+          aWrite.mask.setAll()
+          aWrite.data := cData.payload
+          aWrite.source := cDownIdOffset
+        }
       }
+
+      build
     }
 
     frontend.build()
   }
+
 
   case class DispatchD(d : Stream[ChannelD], oh : Bits)
   val dispatchD = ArrayBuffer[DispatchD]()
@@ -504,35 +588,50 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       val upD = Stream(ChannelD(upBusParam))
       upD << downD
       upD.source.removeAssignments() := upSource
-      upD.sink.removeAssignments() := 0 //TODO
+      upD.sink.removeAssignments() := slotId
       dispatchD += DispatchD(upD, upHits)
       when(downD.fire && isLast) {
-        slots.onSel(slotId) { s =>
-          s.valid := False
+        slots.onSel(downD.source.resized) { s =>
+          when(s.fireOnDownD){
+            s.fire := True
+          }
         }
       }
     }
     val put = new Area{
       val downD = io.downPut.d
+      val fromC = downD.source >= cDownIdOffset
+      val toUp = !fromC || slotsC.map(_.release).read(downD.source.resized)
       val slotId = downD.source.resize(log2Up(slotCount))
-      val upSource = slotsMem.source.readAsync(slotId)
+      val upSourceFromSlot = slotsMem.source.readAsync(slotId)
+      val upSourceFromSlotC = slotsC.map(_.source).read(downD.source.resized)
+      val upSource = fromC ? upSourceFromSlotC | upSourceFromSlot
       val upHits = B(p.nodes.map(_.m.sourceHit(upSource)))
       val upD = Stream(ChannelD(upBusParam))
       upD << downD.translateWith(downD.withDontCareData())
       upD.source.removeAssignments() := upSource
       upD.sink.removeAssignments() := 0 //TODO
+      when(fromC){
+        upD.opcode := Opcode.D.RELEASE_ACK
+      }
       dispatchD += DispatchD(upD, upHits)
       when(downD.fire) {
-        slots.onSel(slotId) { s =>
-          s.valid := False
+        when(fromC){
+          slotsC.onSel(downD.source.resized) { s =>
+            s.fire := True
+          }
+        } otherwise {
+          slots.onSel(downD.source.resized) { s =>
+            s.fire := True
+          }
         }
       }
     }
   }
 
   val mergeDownA = new Area{
-    io.downGet.a << StreamArbiterFactory().lowerFirst.lambdaLock[ChannelA](_.isLast()).on(List(readPip.aRead))
-    io.downPut.a << StreamArbiterFactory().lowerFirst.lambdaLock[ChannelA](_.isLast()).on(List(writePip.aWrite))
+    io.downGet.a << StreamArbiterFactory().lowerFirst.lambdaLock[ChannelA](_.isLast()).on(List(ctrl.aRead))
+    io.downPut.a << StreamArbiterFactory().lowerFirst.lambdaLock[ChannelA](_.isLast()).on(List(ctrl.aWrite))
   }
 
   val dispatchUpD = new Area{
@@ -549,11 +648,6 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       (group.map(upstream.buses.apply), dispatch).zipped.foreach(_.d << _)
     }
   }
-
-  //TODO remove
-  upstream.buses.foreach{bus =>
-    bus.e.ready := True
-  }
 }
 
 
@@ -561,43 +655,46 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
 
 
 object CoherentHubGen extends App{
-  def basicConfig = CoherentHubParameters(
-    nodes     = List.fill(1)(
-      NodeParameters(
-        m = MastersParameters(List.tabulate(4)(mId =>
-          MasterParameters(
-            name = null,
-            mapping = List.fill(1)(MasterSource(
-              emits = MasterTransfers(
-                get = SizeRange(64),
-                putFull = SizeRange(64),
-                putPartial = SizeRange(64),
-                acquireT = SizeRange(64),
-                acquireB = SizeRange(64),
-                probeAckData = SizeRange(64)
-              ),
-              id = SizeMapping(mId*4, 4),
-              addressRange = List(SizeMapping(0, 1 << 16))
+  def basicConfig = {
+    val slotCount = 2
+    CoherentHubParameters(
+      nodes     = List.fill(1)(
+        NodeParameters(
+          m = MastersParameters(List.tabulate(4)(mId =>
+            MasterParameters(
+              name = null,
+              mapping = List.fill(1)(MasterSource(
+                emits = MasterTransfers(
+                  get = SizeRange(64),
+                  putFull = SizeRange(64),
+                  putPartial = SizeRange(64),
+                  acquireT = SizeRange(64),
+                  acquireB = SizeRange(64),
+                  probeAckData = SizeRange(64)
+                ),
+                id = SizeMapping(mId*4, 4),
+                addressRange = List(SizeMapping(0, 1 << 16))
+              ))
             ))
-          ))
-        ),
-        s = SlavesParameters(List(
-          SlaveParameters(
-            name = null,
-            emits = SlaveTransfers(
-              probe = SizeRange(64)
-            ),
-            sinkId = SizeMapping(0, 8)
-          )
-        )),
-        dataBytes = 4
-      )
-    ),
-    slotCount = 2,
-    cacheSize = 1024,
-    wayCount  = 2,
-    lineSize  = 64
-  )
+          ),
+          s = SlavesParameters(List(
+            SlaveParameters(
+              name = null,
+              emits = SlaveTransfers(
+                probe = SizeRange(64)
+              ),
+              sinkId = SizeMapping(0, slotCount)
+            )
+          )),
+          dataBytes = 4
+        )
+      ),
+      slotCount = slotCount,
+      cacheSize = 1024,
+      wayCount  = 2,
+      lineSize  = 64
+    )
+  }
   def gen = new CoherentHub(basicConfig)
   SpinalVerilog(gen)
 

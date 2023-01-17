@@ -124,5 +124,6 @@ case class MastersParameters(masters   : Seq[MasterParameters]) extends Override
   def withDataA = masters.map(_.emits.withDataA).reduce(_ || _)
   def withDataD = masters.map(_.emits.withDataD).reduce(_ || _)
   def sourceHit(source : UInt) = masters.map(_.sourceHit(source)).orR
+  def getMasterFromSource(source : Int) = masters.find(_.mapping.exists(_.id.hit(source))).get
 }
 

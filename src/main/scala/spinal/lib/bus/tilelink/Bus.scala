@@ -55,11 +55,21 @@ object Param{
     val toN = 2
   }
   val Prune = new Area {
+    def fromTo(from : Int, to : Int) = (from, to) match {
+      case (Cap.toT, Cap.toB) => TtoB
+      case (Cap.toT, Cap.toN) => TtoN
+      case (Cap.toB, Cap.toN) => BtoN
+    }
     val TtoB = 0
     val TtoN = 1
     val BtoN = 2
   }
   val Report = new Area {
+    def fromCap(cap : Int) = cap match {
+      case Cap.toT => TtoT
+      case Cap.toB => BtoB
+      case Cap.toN => NtoN
+    }
     val TtoT = 3
     val BtoB = 4
     val NtoN = 5
@@ -68,6 +78,23 @@ object Param{
     val NtoB = 0
     val NtoT = 1
     val BtoT = 2
+  }
+
+  def reportPruneToCap(param : Int) = param match {
+    case Prune.TtoB  => Cap.toB
+    case Prune.TtoN  => Cap.toN
+    case Prune.BtoN  => Cap.toN
+    case Report.TtoT => Cap.toT
+    case Report.BtoB => Cap.toB
+    case Report.NtoN => Cap.toN
+  }
+  def reportPruneToCap(from : Int, to : Int) = (from, to) match {
+    case (Cap.toT, Cap.toB) => Prune.TtoB
+    case (Cap.toT, Cap.toN) => Prune.TtoN
+    case (Cap.toB, Cap.toN) => Prune.BtoN
+    case (Cap.toT, Cap.toT) => Report.TtoT
+    case (Cap.toB, Cap.toB) => Report.BtoB
+    case (Cap.toN, Cap.toN) => Report.NtoN
   }
 }
 
@@ -112,6 +139,7 @@ case class ChannelC(override val p : BusParameter) extends BusFragment(p, true) 
   val corrupt = Bool()
   def isProbeKind()   = opcode === Opcode.C.PROBE_ACK || opcode === Opcode.C.PROBE_ACK_DATA
   def isReleaseKind() = opcode === Opcode.C.RELEASE   || opcode === Opcode.C.RELEASE_DATA
+  def isDataKind() = opcode === Opcode.C.PROBE_ACK_DATA   || opcode === Opcode.C.RELEASE_DATA
   override def withBeats = List(Opcode.C.PROBE_ACK_DATA(), Opcode.C.RELEASE_DATA()).sContains(opcode)
 }
 case class ChannelD(override val p : BusParameter) extends BusFragment(p, p.withDataD) {
