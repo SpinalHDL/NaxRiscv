@@ -93,7 +93,7 @@ object CoherentHubTesterUtils{
 
 
 
-    for(_ <- 0 until 8) {
+    for(r <- 0 until 8) {
       val busId = 0
 
       def acquireBlock(agent : MasterAgent,
@@ -106,6 +106,7 @@ object CoherentHubTesterUtils{
         val block = agent.acquireBlock(source, param, address, bytes){
           ref = globalMem.readBytes(address, bytes)
         }
+        block.ordering(globalMem.write(address, block.data))
         block.retain()
         println("*")
         println(block.data.mkString(" "))
@@ -148,10 +149,9 @@ object CoherentHubTesterUtils{
       def releaseData(agent : MasterAgent,
                       source : Int,
                       param : Int,
-                      address : Long,
-                      data : Array[Byte]): Unit ={
-        ups(0).agent.releaseData(source, param, address, data){
-          globalMem.write(address, data)
+                      block : Block): Unit ={
+        ups(0).agent.releaseData(source, param, block.address, block.data){
+          globalMem.write(block.address, block.data)
         }
       }
 
@@ -173,16 +173,14 @@ object CoherentHubTesterUtils{
         fork{
           cd.waitSamplingWhere(block.probe.nonEmpty)
           cd.waitSampling(Random.nextInt(100))
-
-//          block.dirty = true
-//          block.data(2) = 0x44
-          block.ordering(globalMem.write(0x1000 + i * 0x40, block.data))
+          block.dirty = true
+          block.data(2) = (r+0x30).toByte
           block.release()
 //          ups(busId).agent.block.changeBlockCap(0, 0x1000 + i * 0x40, Param.Cap.toN)
         }
         val block2 = acquireBlock(ups(busId).agent, 4, Param.Grow.NtoT, 0x1000 + i * 0x40, 0x40)
         block2.release()
-//        releaseData(ups(busId).agent, 4, Param.Prune.TtoN, 0x1000 + i * 0x40, data)
+//        releaseData(ups(busId).agent, 4, Param.Prune.TtoN, block)
         cd.waitSampling(10)
       }
 

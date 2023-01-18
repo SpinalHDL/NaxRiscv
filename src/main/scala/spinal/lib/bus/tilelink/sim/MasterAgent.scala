@@ -7,11 +7,12 @@ import spinal.lib.sim.{StreamDriver, StreamMonitor, StreamReadyRandomizer}
 
 import scala.collection.{breakOut, mutable}
 
-class Block(var cap : Int,
-                 var dirty : Boolean = false,
-                 var data : Array[Byte] = null,
-                 var orderingBody : () => Unit = () => Unit,
-                 var retains : Int = 0){
+class Block(val address : Long,
+            var cap : Int,
+            var dirty : Boolean = false,
+            var data : Array[Byte] = null,
+            var orderingBody : () => Unit = () => Unit,
+            var retains : Int = 0){
   def retain() = retains += 1
   def release() = {
     assert(retains > 0)
@@ -133,7 +134,7 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
               source = probe.source,
               address = probe.address,
               data = block.data
-            )(block.orderingBody)
+            )(block.orderingBody())
           }
         }
         case None =>
@@ -229,7 +230,7 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
         mutex.unlock()
         val param = d.param.toInt
         onGrant(source, address, param)
-        b = new Block(param, false, data){
+        b = new Block(address, param, false, data){
           override def release() = {
             super.release()
             if(retains == 0) probe match {

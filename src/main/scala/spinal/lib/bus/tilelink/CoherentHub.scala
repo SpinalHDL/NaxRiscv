@@ -162,13 +162,14 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     val readSent, writeSent = Reg(Bool())
     val readMem, writeMem = Reg(Bool())
 
-    val lineConflict = new Area{
+    val lineConflict = new Area{ //TODO implement and check works
       val youngest = Reg(Bool()) //TODO set when conflict is resolved
       val valid = Reg(Bool()) //TODO clear
       val slotId = Reg(UInt(log2Up(slotCount) bits))
     }
 
     val probe = new Area{
+      val waitAckData = Reg(Bool())
       val filtred = Reg(Bool())
       val ports = for((node, id) <- p.nodes.zipWithIndex) yield new Area{
         val pending =  Reg(Bits(nodeToMasterMaskMapping(node).size bits)) init(0)
@@ -180,6 +181,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     def spawn(): Unit ={
       readSent := False
       writeSent := False
+      probe.waitAckData := False
     }
   }
 
@@ -189,7 +191,10 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     val valid = RegInit(False) clearWhen(fire)
     val release = Reg(Bool())
     val source = Reg(upBusParam.source)
-    //TODO unlock probe
+    val probe = new Area{
+      val valid = !release
+      val id = Reg(UInt(log2Up(slotCount) bits))
+    }
 
     def spawn(): Unit ={
 
@@ -259,7 +264,6 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         val (probeFork, dataFork) = StreamFork2(bus.c)
         val toProbeRsp = probeFork.toFlow.takeWhen(bus.c.isProbeKind)
         val toData = dataFork.takeWhen(dataFork.isDataKind())
-        assert(!(bus.c.valid && bus.c.opcode === Opcode.C.PROBE_ACK_DATA), "Need to be implemented")
       }
 
       val merged = new Area{
@@ -274,11 +278,14 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         toCtrlUnbuffered.slot := OHToUInt(slotOh)
         val toCtrl = toCtrlUnbuffered.haltWhen(slotsC.map(_.valid).andR).halfPipe()
 
+        val hits = slots.map(slot => slot.valid && slot.lineConflict.youngest && slot.address(lineRange) === toCtrlUnbuffered.address(lineRange))
+        val sel = OHToUInt(hits)
         when(toCtrlUnbuffered.fire){
           slotsC.onMask(slotOh){ s =>
             s.valid := True
             s.release := ctrlFork.opcode === Opcode.C.RELEASE_DATA
             s.source := ctrlFork.source
+            s.probe.id := sel
             s.spawn()
           }
         }
@@ -416,11 +423,14 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       val c = upstream.c.perBus(nodeId).toProbeRsp
       val mapping = nodeToMasterMaskMapping(node)
       val sourceIdHits = p.nodes.flatMap(_.m.masters).map(m => m -> m.sourceHit(c.source)).toMapLinked()
+      val isAckData = c.opcode === Opcode.C.PROBE_ACK_DATA
       val onSlots = for(slot <- slots) yield new Area{
         val hit = slot.valid && slot.lineConflict.youngest && slot.address(lineRange) === c.address(lineRange)
         val ctx = slot.probe.ports(nodeId)
         val notEnough = slot.unique && List(Param.Prune.TtoB, Param.Report.TtoT, Param.Report.BtoB).map(c.param === _).orR
-
+        when(c.fire && hit && isAckData){
+          slot.probe.waitAckData := True
+        }
         val update = for((m, id) <- mapping){
           when(c.fire && sourceIdHits(m)){
             ctx.inflight(id) := False
@@ -451,15 +461,15 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       //TODO avoid tasking something which will be blocked by an already busy $read / ?write pipeling
       val s0 = new Stage {
         val fromC = upstream.c.merged.toCtrl
-        val requests = slots.map(s => s.valid && s.tagsReaded && s.probe.filtred && s.probe.ports.map(_.empty).andR && (s.readMem && !s.readSent || s.writeMem && !s.writeSent))
+        val requests = slots.map(s => s.valid && !s.probe.waitAckData && s.tagsReaded && s.probe.filtred && s.probe.ports.map(_.empty).andR && (s.readMem && !s.readSent || s.writeMem && !s.writeSent))
         val arbiter = StreamArbiterFactory().noLock.roundRobin.build(NoData(), slotCount).io
         (arbiter.inputs, requests).zipped.foreach(_.valid := _)
         driveFrom(arbiter.output)
         SLOT_ID := OHToUInt(arbiter.chosenOH)
         ADDRESS := slotAddress(arbiter.chosenOH)
         SIZE := slotSize(arbiter.chosenOH)
-        READ := OhMux.or(arbiter.chosenOH, slots.map(_.readMem))
-        WRITE := OhMux.or(arbiter.chosenOH, slots.map(_.writeMem))
+        READ := OhMux.or(arbiter.chosenOH, slots.map(s => s.readMem && !s.readSent ))
+        WRITE := OhMux.or(arbiter.chosenOH, slots.map(s => s.writeMem && !s.writeSent ))
         SOURCE := slotSource(arbiter.chosenOH)
 
         when(isFireing && !FROM_C) {
@@ -601,14 +611,16 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     val put = new Area{
       val downD = io.downPut.d
       val fromC = downD.source >= cDownIdOffset
-      val toUp = !fromC || slotsC.map(_.release).read(downD.source.resized)
+      val slotCRelease = slotsC.map(_.release).read(downD.source.resized)
+      val slotCProbeId = slotsC.map(_.probe.id).read(downD.source.resized)
+      val toUp = !fromC || slotCRelease
       val slotId = downD.source.resize(log2Up(slotCount))
       val upSourceFromSlot = slotsMem.source.readAsync(slotId)
       val upSourceFromSlotC = slotsC.map(_.source).read(downD.source.resized)
       val upSource = fromC ? upSourceFromSlotC | upSourceFromSlot
       val upHits = B(p.nodes.map(_.m.sourceHit(upSource)))
       val upD = Stream(ChannelD(upBusParam))
-      upD << downD.translateWith(downD.withDontCareData())
+      upD << downD.takeWhen(toUp).translateWith(downD.withDontCareData())
       upD.source.removeAssignments() := upSource
       upD.sink.removeAssignments() := 0 //TODO
       when(fromC){
@@ -619,6 +631,11 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         when(fromC){
           slotsC.onSel(downD.source.resized) { s =>
             s.fire := True
+          }
+          when(!slotCRelease){
+            slots.onSel(slotCProbeId){slot =>
+              slot.probe.waitAckData := False
+            }
           }
         } otherwise {
           slots.onSel(downD.source.resized) { s =>
