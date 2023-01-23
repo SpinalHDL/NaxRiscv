@@ -157,7 +157,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     val valid = RegInit(False) clearWhen(fire)
     assert(!(fire && !valid))
     val address = Reg(upBusParam.address) //TODO optimize in mem
-//    val source  = Reg(upBusParam.source())
+    val source  = Reg(upBusParam.source())
     val shared = Reg(Bool())
     val unique = Reg(Bool())
     val fireOnDownD = Reg(Bool())
@@ -189,6 +189,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       readSent := False
       writeSent := False
       probe.waitAckData := False
+      aquireBtoT := False
       bToTRspSent := False
       probe.gotToN := False
     }
@@ -220,6 +221,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     val address = Mem.fill(slotCount)(upBusParam.address)
     val size    = Mem.fill(slotCount)(upBusParam.size)
     val source  = Mem.fill(slotCount)(upBusParam.source)
+//    val selfSource = Mem.fill(slotCount)(upBusParam.source)
     val opcode  = Mem.fill(slotCount)(Opcode.A())
   }
 
@@ -332,7 +334,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     val lineConflicts = B(for(slot <- slots) yield slot.valid && slot.lineConflict.youngest && slot.address(lineRange) === push.address(lineRange))
     val shared,  unique = Bool()
     val put, get, acquireBlock = False
-    acquireBlock setWhen(push.opcode === Opcode.A.ACQUIRE_BLOCK && push.param =/= Param.Grow.BtoT)
+    acquireBlock setWhen(push.opcode === Opcode.A.ACQUIRE_BLOCK)
     switch(push.opcode){
       is(Opcode.A.ACQUIRE_BLOCK, Opcode.A.ACQUIRE_PERM){
         shared := push.param === Param.Grow.NtoB
@@ -350,11 +352,15 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       }
     }
 
+    val mastersOh = B(upParam.m.masters.map(_.sourceHit(push.source)))
+    val mastersSource = upParam.m.masters.map(v => U(v.bSourceId, upBusParam.sourceWidth bits)).toList
+//    val selfSource = OHMux.mux(mastersOh, mastersSource)
     push.ready := !full
     when(push.fire){
       slotsMem.address.write(sel, push.address)
       slotsMem.size.write(sel, push.size)
       slotsMem.source.write(sel, push.source)
+//      slotsMem.selfSource.write(sel, selfSource)
       slotsMem.opcode.write(sel, push.opcode)
       slots.onMask(lineConflicts){ s =>
         s.lineConflict.youngest := False
@@ -363,13 +369,12 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         s.valid := True
         s.spawn()
         s.address := push.address
-//        s.source := push.source
+        s.source := push.source
         s.shared := shared
         s.unique := unique
         s.fireOnDownD := put | get
         s.writeMem := put
         s.readMem := get || acquireBlock
-        s.aquireBtoT := push.opcode === Opcode.A.ACQUIRE_BLOCK && push.param === Param.Grow.BtoT
         s.lineConflict.youngest := True
         s.lineConflict.valid := lineConflicts.orR
         s.lineConflict.slotId := OHToUInt(lineConflicts)
@@ -380,7 +385,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         for ((port, node) <- (s.probe.ports, nodes).zipped) {
           val mapping = nodeToMasterMaskMapping(node)
           for ((mpp, id) <- mapping) {
-            when(!mpp.sourceHit(push.source)/* || isBtoT*/) { //isBtoT is required to ensure the master copy wasn't probed out
+            when(!mpp.sourceHit(push.source) || isBtoT) { //isBtoT is required to ensure the master copy wasn't probed out
               port.pending(id) := True
             }
           }
@@ -440,6 +445,9 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         bus.source  := OhMux(masterOh, mapping.keys.map(m => U(m.bSourceId, upBusParam.sourceWidth bits)).toList)
         bus.address := input.address
         bus.size    := log2Up(p.blockSize)
+        when(isTargetingSlotSource){
+          bus.source := input.slotSource
+        }
         when(bus.fire){
           fired.asBools.onMask(masterOh)(_ := True)
         }
@@ -455,11 +463,12 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       val mapping = nodeToMasterMaskMapping(node)
       val sourceIdHits = p.nodes.flatMap(_.m.masters).map(m => m -> m.sourceHit(c.source)).toMapLinked()
       val isAckData = c.opcode === Opcode.C.PROBE_ACK_DATA
+      val keeptCopy = List(Param.Prune.TtoB, Param.Report.TtoT, Param.Report.BtoB).map(c.param === _).orR
       val onSlots = for(slot <- slots) yield new Area{
-        val addressHit = slot.valid && slot.address(lineRange) === c.address(lineRange)
-        val hit = addressHit && slot.lineConflict.oldest
+        val hit = slot.valid && slot.address(lineRange) === c.address(lineRange) && slot.lineConflict.oldest
         val ctx = slot.probe.ports(nodeId)
-        val notEnough = slot.unique && List(Param.Prune.TtoB, Param.Report.TtoT, Param.Report.BtoB).map(c.param === _).orR
+        val selfProbe = hit && slot.source === c.source
+        val notEnough = !selfProbe && slot.unique && keeptCopy
         when(c.fire && hit && isAckData){
           slot.probe.waitAckData := True
         }
@@ -469,6 +478,10 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
               ctx.inflight(id) := False
               ctx.pending(id) setWhen (notEnough) //Redo the probe
             }
+          }
+          when(selfProbe && keeptCopy){
+            slot.readMem := False
+            slot.aquireBtoT := True
           }
         }
       }

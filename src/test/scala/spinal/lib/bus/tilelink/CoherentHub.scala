@@ -263,17 +263,16 @@ class CoherentHubTester extends AnyFunSuite {
       import utils._
       var block = acquireBlock(ups(0).agent, 0, Param.Grow.NtoB, 0x1000, 0x40)
       block.release()
-//      for (i <- 0 until 10) {
-
-      val block2 = acquireBlock(ups(0).agent, 4, Param.Grow.NtoT, 0x1000, 0x40)
-      block2.release()
-      assert(block.cap == Param.Cap.toN)
-      block = acquireBlock(ups(0).agent, 0, Param.Grow.BtoT, 0x1000, 0x40)
-      assert(block.cap == Param.Cap.toT)
-//      }
+      for (i <- 0 until 10) {
+        val block2 = acquireBlock(ups(0).agent, 4, Param.Grow.NtoT, 0x1000, 0x40)
+        block2.release()
+        assert(block.cap == Param.Cap.toN)
+        block = acquireBlock(ups(0).agent, 0, Param.Grow.BtoT, 0x1000, 0x40)
+        block.release()
+        assert(block.cap == Param.Cap.toT)
+      }
     }
   }
-  //TODO test BtoT probed out
 
   test("miaou"){
     doSim(basicGen){ utils =>
