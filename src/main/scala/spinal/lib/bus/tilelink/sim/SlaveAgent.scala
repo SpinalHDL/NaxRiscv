@@ -23,7 +23,7 @@ class SlaveAgent(bus : Bus, cd : ClockDomain) {
   def onPutPartialData(source : Int,
                        address : Long,
                        size : Int,
-                       mask : Array[Byte],
+                       mask : Array[Boolean],
                        data : Array[Byte]): Unit ={
     ???
   }
@@ -74,9 +74,10 @@ class SlaveAgent(bus : Bus, cd : ClockDomain) {
       val source = p.source.toInt
       val address = p.address.toLong
       val size = p.size.toInt
+      val offset = (address & (bus.p.dataBytes-1)).toInt
       opcode match {
         case Opcode.A.GET => onGet(source, address, 1 << size)
-        case Opcode.A.PUT_PARTIAL_DATA => onPutPartialData(source, address, size, p.mask.toBytes, p.data.toBytes)
+        case Opcode.A.PUT_PARTIAL_DATA => onPutPartialData(source, address, size, p.mask.toBytes.flatMap(v => (0 to 7).map(i => ((v>>i)&1).toBoolean)).drop(offset), p.data.toBytes.drop(offset))
       }
     }
 

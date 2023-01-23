@@ -393,7 +393,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
   }.axi
 }
 
-
+//TODO L1 status tracking into L2 need to be exact, so need to notify when going from shared to invalid/another line.
 class DataCache(val cacheSize: Int,
                 val wayCount: Int,
                 val refillCount : Int,

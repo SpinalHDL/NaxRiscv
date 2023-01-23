@@ -6,6 +6,7 @@ import spinal.lib.bus.tilelink._
 import spinal.lib.sim.{StreamDriver, StreamMonitor, StreamReadyRandomizer}
 
 import scala.collection.{breakOut, mutable}
+import scala.util.Random
 
 class Block(val address : Long,
             var cap : Int,
@@ -103,6 +104,7 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     val sourceToMaster = (0 until  1 << bus.p.sourceWidth).map(source => bus.p.node.m.getMasterFromSource(source))
     val blocks = mutable.HashMap[(MasterParameters, Long), Block]()
     def apply(source : Int, address : Long) = blocks(sourceToMaster(source) -> address)
+    def contains(source : Int, address : Long) = blocks.contains(sourceToMaster(source) -> address)
     def update(key : (Int, Long), block : Block) = {
       val key2 = (sourceToMaster(key._1) -> key._2)
       assert(!blocks.contains(key2))
@@ -115,7 +117,7 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
       val block = apply(source, address)
       val oldCap = block.cap
       cap match {
-        case Param.Cap.toN => removeBlock(source, address)
+        case Param.Cap.toN => block.cap = Param.Cap.toN; removeBlock(source, address)
         case _ => block.cap = Param.Cap.toB
       }
       block.probe match {
@@ -149,7 +151,7 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
                  param : Int,
                  address : Long,
                  bytes : Int): Unit ={
-    ???
+//    ???
   }
 
   def probeAck(source : Int,
@@ -217,30 +219,45 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     var b : Block = null
     var sink = -1
     monitor.d(source) = {d =>
-      val raw = d.data.toBytes
-      for(i <- 0 until bus.p.dataBytes){
-        data(offset + i) = raw(i)
-      }
-      assert(!d.denied.toBoolean)
-      assert(!d.corrupt.toBoolean)
+      d.opcode.toEnum match {
+        case Opcode.D.GRANT => {
+          val param = d.param.toInt
+          sink = d.sink.toInt
+          b = block(source, address)
+          assert(b.cap == Param.Cap.toB)
+          b.cap = Param.Cap.toT
+          monitor.d(source) = null
+          mutex.unlock()
+          onGrant(source, address, param)
+        }
+        case Opcode.D.GRANT_DATA => { //TODO on naxriscv, may sent a aquire BtoT but may have been probed out meanwhile => test
+          assert(!block.contains(source, address))
+          val raw = d.data.toBytes
+          for(i <- 0 until bus.p.dataBytes){
+            data(offset + i) = raw(i)
+          }
+          assert(!d.denied.toBoolean)
+          assert(!d.corrupt.toBoolean)
 
-      offset += bus.p.dataBytes
-      if(offset == bytes){
-        monitor.d(source) = null
-        mutex.unlock()
-        val param = d.param.toInt
-        onGrant(source, address, param)
-        b = new Block(address, param, false, data){
-          override def release() = {
-            super.release()
-            if(retains == 0) probe match {
-              case Some(probe) => block.changeBlockCap(probe.source, probe.address, probe.param)
-              case None =>
+          offset += bus.p.dataBytes
+          if(offset == bytes){
+            monitor.d(source) = null
+            mutex.unlock()
+            val param = d.param.toInt
+            onGrant(source, address, param)
+            b = new Block(address, param, false, data){
+              override def release() = {
+                super.release()
+                if(retains == 0) probe match {
+                  case Some(probe) => block.changeBlockCap(probe.source, probe.address, probe.param)
+                  case None =>
+                }
+              }
             }
+            block(source -> address) = b
+            sink = d.sink.toInt
           }
         }
-        block(source -> address) = b
-        sink = d.sink.toInt
       }
     }
     mutex.await()
@@ -271,17 +288,19 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     val mutex = SimMutex().lock()
     val data = new Array[Byte](bytes)
     var offset = 0
+    val byteOffset = (address & (bus.p.dataBytes-1)).toInt
     monitor.d(source) = {d =>
       assert(d.opcode.toEnum == Opcode.D.ACCESS_ACK_DATA)
       val raw = d.data.toBytes
       for(i <- 0 until bus.p.dataBytes){
-        data(offset + i) = raw(i)
+        val ptr = offset + i - byteOffset
+        if(ptr >= 0 && ptr < bytes) data(ptr) = raw(i)
       }
       assert(!d.denied.toBoolean)
       assert(!d.corrupt.toBoolean)
 
       offset += bus.p.dataBytes
-      if(offset == bytes){
+      if(offset >= bytes){
         monitor.d(source) = null
         mutex.unlock()
       }
@@ -332,7 +351,15 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     for(offset <- 0 until data.length by bus.p.dataBytes) {
       driver.a.enqueue { p =>
         val buf = new Array[Byte](bus.p.dataBytes)
-        (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
+        val byteOffset = (address & (bus.p.dataBytes-1)).toInt
+        val bytes = data.size
+        for(i <- 0 until bus.p.dataBytes){
+          val ptr = offset + i - byteOffset
+          (ptr >= 0 && ptr < bytes) match {
+            case false => buf(i) = Random.nextInt().toByte
+            case true  => buf(i) = data(ptr)
+          }
+        }
         p.opcode #= Opcode.A.PUT_FULL_DATA
         p.param #= 0
         p.size #= size
@@ -363,9 +390,23 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     for(offset <- 0 until data.length by bus.p.dataBytes) {
       driver.a.enqueue { p =>
         val buf = new Array[Byte](bus.p.dataBytes)
-        (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
+//        (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
         val buf2 = Array.fill[Byte]((bus.p.dataBytes+7)/8)(0)
-        (0 until bus.p.dataBytes).foreach(i => buf2(i >> 3) = (buf2(i >> 3) | (mask(offset + i).toInt << (i & 7))).toByte)
+//        (0 until bus.p.dataBytes).foreach(i => buf2(i >> 3) = (buf2(i >> 3) | (mask(offset + i).toInt << (i & 7))).toByte)
+
+        val byteOffset = (address & (bus.p.dataBytes-1)).toInt
+        val bytes = data.size
+        for(i <- 0 until bus.p.dataBytes){
+          val ptr = offset + i - byteOffset
+          (ptr >= 0 && ptr < bytes) match {
+            case false => buf(i) = Random.nextInt().toByte
+            case true  => {
+              buf(i) = data(ptr)
+              buf2(i >> 3) = (buf2(i >> 3) | (mask(ptr).toInt << (i & 7))).toByte
+            }
+          }
+        }
+
         p.opcode #= Opcode.A.PUT_PARTIAL_DATA
         p.param #= 0
         p.size #= size
