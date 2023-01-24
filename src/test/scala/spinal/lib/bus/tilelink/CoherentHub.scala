@@ -89,7 +89,7 @@ object CoherentHubTesterUtils{
       }
       block.ordering(globalMem.write(address, block.data))
       if(block.retains == 0) block.retain()
-//      println(f"* $address%x")
+//      println(f"* $address%x $source")
 //      println(toHex(block.data))
 //      println(toHex(ref))
       assert((block.data, ref).zipped.forall(_ == _))
@@ -388,27 +388,42 @@ class CoherentHubTester extends AnyFunSuite {
       }
 
       val distribution = new WeightedDistribution[Unit]()
-//      distribution(100){
-//        val bytes = blockSizes.toList.randomPick()
-//        val address = rand.address(bytes)
-//        val source = m.mapping.randomPick().id.randomPick().toInt
-//        get(agent, source, address, bytes)
-//      }
-
-//      distribution(100){
-//        val bytes = blockSizes.toList.randomPick()
-//        val address = rand.address(bytes)
-//        val source = m.mapping.randomPick().id.randomPick().toInt
-//        val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
-//        val mask = Array.fill[Boolean](bytes)(Random.nextInt(2).toBoolean)
-//        putPartialData(agent, source, address , data,mask)
-//      }
+      distribution(100){
+        val bytes = blockSizes.toList.randomPick()
+        val address = rand.address(bytes)
+        val source = m.mapping.randomPick().id.randomPick().toInt
+        val addressBlock = address & ~(blockSize.toLong-1)
+              agent.block.get(source, addressBlock) match {
+                case Some(b) => agent.block.changeBlockCap(source, addressBlock, Param.Cap.toN)
+          case None =>
+        }
+        get(agent, source, address, bytes)
+      }
 
       distribution(100){
         val bytes = blockSizes.toList.randomPick()
         val address = rand.address(bytes)
         val source = m.mapping.randomPick().id.randomPick().toInt
         val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
+        val mask = Array.fill[Boolean](bytes)(Random.nextInt(2).toBoolean)
+        val addressBlock = address & ~(blockSize.toLong-1)
+              agent.block.get(source, addressBlock) match {
+                case Some(b) => agent.block.changeBlockCap(source, addressBlock, Param.Cap.toN)
+          case None =>
+        }
+        putPartialData(agent, source, address , data,mask)
+      }
+
+      distribution(100){
+        val bytes = blockSizes.toList.randomPick()
+        val address = rand.address(bytes)
+        val source = m.mapping.randomPick().id.randomPick().toInt
+        val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
+        val addressBlock = address & ~(blockSize.toLong-1)
+        agent.block.get(source, addressBlock) match {
+          case Some(b) => agent.block.changeBlockCap(source, addressBlock, Param.Cap.toN)
+          case None =>
+        }
         putFullData(agent, source, address , data)
       }
 

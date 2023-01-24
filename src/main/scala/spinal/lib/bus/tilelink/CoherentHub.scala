@@ -23,6 +23,7 @@ case class CoherentHubParameters(nodes : Seq[NodeParameters],
   val lineRange = tagRange.low-1 downto log2Up(lineSize)
   val wordRange = log2Up(lineSize)-1 downto log2Up(nodes.head.dataBytes)
   val refillRange = tagRange.high downto lineRange.low
+  val blockRange = addressWidth-1 downto log2Up(lineSize)
   val blockSize = lineSize
 }
 
@@ -447,7 +448,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         bus.opcode  := Opcode.B.PROBE_BLOCK
         bus.param   := (isTargetingSlotSource ? B(Param.Cap.toT, 3 bits) | input.param)
         bus.source  := OhMux(masterOh, mapping.keys.map(m => U(m.bSourceId, upBusParam.sourceWidth bits)).toList)
-        bus.address := input.address
+        bus.address := input.address(blockRange) @@ U(0, blockRange.low bits)
         bus.size    := log2Up(p.blockSize)
         when(isTargetingSlotSource){
           bus.source := input.slotSource
