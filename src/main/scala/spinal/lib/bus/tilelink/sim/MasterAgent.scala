@@ -26,7 +26,8 @@ case class Probe(source : Int, param : Int, address : Long, size : Int, perm : B
 
 }
 
-class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
+class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
+  val debug = true
   val driver = new Area{
     val a = StreamDriver.queue(bus.a, cd)._2
     val b = StreamReadyRandomizer(bus.b, cd)
@@ -104,6 +105,7 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     val sourceToMaster = (0 until  1 << bus.p.sourceWidth).map(source => bus.p.node.m.getMasterFromSource(source))
     val blocks = mutable.HashMap[(MasterParameters, Long), Block]()
     def apply(source : Int, address : Long) = blocks(sourceToMaster(source) -> address)
+    def get(source : Int, address : Long) = blocks.get(sourceToMaster(source) -> address)
     def contains(source : Int, address : Long) = blocks.contains(sourceToMaster(source) -> address)
     def update(key : (Int, Long), block : Block) = {
       val key2 = (sourceToMaster(key._1) -> key._2)
@@ -115,6 +117,10 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     }
     def changeBlockCap(source : Int, address : Long, cap : Int) = {
       val block = apply(source, address)
+      if(debug) println(f"src=$source addr=$address%x ${block.cap} -> $cap time=${simTime()}")
+      if(simTime() == 1540220){
+        println(2)
+      }
       val oldCap = block.cap
       cap match {
         case Param.Cap.toN => block.cap = Param.Cap.toN; removeBlock(source, address)
@@ -131,12 +137,15 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
               address = probe.address,
               bytes = probe.size
             )
-            case true => probeAckData(
-              param = Param.reportPruneToCap(oldCap, cap),
-              source = probe.source,
-              address = probe.address,
-              data = block.data
-            )(block.orderingBody())
+            case true => {
+              probeAckData(
+                param = Param.reportPruneToCap(oldCap, cap),
+                source = probe.source,
+                address = probe.address,
+                data = block.data
+              )(block.orderingBody())
+              block.dirty = false
+            }
           }
         }
         case None =>
@@ -176,7 +185,8 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
                    address : Long,
                    data : Seq[Byte])
                  (orderingBody : => Unit) : Unit = {
-    ordering(source)(orderingBody)
+//    ordering(source)(orderingBody)
+    orderingBody
     val size = log2Up(data.length)
     for (offset <- 0 until data.length by bus.p.dataBytes) {
       driver.c.enqueue { p =>
@@ -254,6 +264,7 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
                 }
               }
             }
+            if(debug) println(f"src=$source addr=$address%x 2 -> $param time=${simTime()}")
             block(source -> address) = b
             sink = d.sink.toInt
           }
@@ -365,7 +376,7 @@ class MasterAgent (bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
         p.size #= size
         p.source #= source
         p.address #= address + offset
-        p.mask #= (BigInt(1) << bus.p.dataBytes)-1
+        p.mask #= ((BigInt(1) << bus.p.dataBytes.min(data.size))-1) << (address.toInt & (bus.p.dataBytes-1))
         p.data #= buf
         p.corrupt #= false
       }

@@ -183,6 +183,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         val empty = (pending ## inflight) === 0
       }
       val gotToN = Reg(Bool())
+      val isShared = Reg(Bool())
     }
 
     def spawn(): Unit ={
@@ -192,6 +193,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       aquireBtoT := False
       bToTRspSent := False
       probe.gotToN := False
+      probe.isShared := False
     }
   }
 
@@ -238,6 +240,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     val address = upBusParam.address()
     val source = upBusParam.source()
     val slot = UInt(log2Up(cSourceCount) bits)
+    val probe = Bool()
   }
 
   val withDataA = p.nodes.exists(_.m.withDataA)
@@ -298,6 +301,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         toCtrlUnbuffered.address := ctrlFork.address
         toCtrlUnbuffered.source := ctrlFork.source
         toCtrlUnbuffered.slot := OHToUInt(slotOh)
+        toCtrlUnbuffered.probe := ctrlFork.opcode === Opcode.C.PROBE_ACK_DATA
         val toCtrl = toCtrlUnbuffered.haltWhen(slotsC.map(_.valid).andR).halfPipe()
 
         val hits = slots.map(slot => slot.valid && slot.lineConflict.oldest && slot.address(lineRange) === toCtrlUnbuffered.address(lineRange))
@@ -396,7 +400,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
 
   val probe = new Area{
     val sel = new Area{
-      val pendings = Vec(slots.map(s => s.probe.ports.map(_.pending.orR).orR))
+      val pendings = Vec(slots.map(s => s.lineConflict.oldest && s.probe.ports.map(_.pending.orR).orR))
       val arbiter = StreamArbiterFactory().roundRobin.build(NoData(), slotCount).io
       Vec(arbiter.inputs.map(_.valid)) := pendings
       when(arbiter.output.fire){
@@ -469,10 +473,13 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         val ctx = slot.probe.ports(nodeId)
         val selfProbe = hit && slot.source === c.source
         val notEnough = !selfProbe && slot.unique && keeptCopy
-        when(c.fire && hit && isAckData){
-          slot.probe.waitAckData := True
-        }
         when(hit && c.fire){
+          when(isAckData){
+            slot.probe.waitAckData := True
+          }
+          when(!notEnough && keeptCopy){
+            slot.probe.isShared := True
+          }
           for((m, id) <- mapping) {
             when(sourceIdHits(m)) {
               ctx.inflight(id) := False
@@ -536,7 +543,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         (oGet.upId,  oGet.upSource) := this(SOURCE)
 
         val oPut = io.ordering.toDownPut
-        oPut.valid := isFireing && WRITE
+        oPut.valid := isFireing && WRITE && !(FROM_C && fromC.probe)
         (oPut.upId,  oPut.upSource) := this(SOURCE)
 
 
@@ -545,6 +552,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         when(fromC.valid){
           isValid := True
           ADDRESS := fromC.address
+          SLOT_ID := fromC.slot.resized
           SOURCE  := fromC.source
           SIZE    := log2Up(blockSize)
           READ    := False
@@ -589,11 +597,15 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         upBufferRead.cmd.valid := False
         upBufferRead.cmd.payload := upBufferId @@ (BEAT_ADDRESS.resize(log2Up(p.blockSize)) >> log2Up(downPutParam.dataBytes))
         when(isForked){
-          upBufferRead.cmd.valid := True
+          when(!FROM_C) {
+            upBufferRead.cmd.valid := True
+          }
           counter := counter + 1
           when(isLast){
             counter := 0
-            upstream.a.withData.buffer.clear := upBufferHits
+            when(!FROM_C) {
+              upstream.a.withData.buffer.clear := upBufferHits
+            }
           }
         }
       }
@@ -626,7 +638,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
           }
           aWrite.mask.setAll()
           aWrite.data := cData.payload
-          aWrite.source := cDownIdOffset
+          aWrite.source := (cDownIdOffset | this(SLOT_ID).resized).resized
         }
       }
 
@@ -647,15 +659,21 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       val slotId = downD.source.resize(log2Up(slotCount))
       val upSource = slotsMem.source.readAsync(slotId)
       val slotOpcode = slotsMem.opcode.readAsync(slotId)
+      val isShared = slots.map(s => s.probe.isShared).read(slotId)
       val upHits = B(p.nodes.map(_.m.sourceHit(upSource)))
       val upD = Stream(ChannelD(upBusParam))
-      upD << downD
-      upD.source.removeAssignments() := upSource
-      upD.sink.removeAssignments() := slotId
-      upD.opcode.removeAssignments() := slotOpcode.muxListDc(List(
+      upD.arbitrationFrom(downD)
+      upD.size := downD.size
+      upD.denied := downD.denied
+      upD.data := downD.data
+      upD.corrupt := downD.corrupt
+      upD.source := upSource
+      upD.sink := slotId
+      upD.opcode := slotOpcode.muxListDc(List(
         Opcode.A.GET           -> Opcode.D.ACCESS_ACK_DATA(),
         Opcode.A.ACQUIRE_BLOCK -> Opcode.D.GRANT_DATA()
       ))
+      upD.param := (isShared ? B(Param.Cap.toB, 3 bits) | B(Param.Cap.toT, 3 bits))
       dispatchD += DispatchD(upD, upHits)
       when(downD.fire && isLast) {
         slots.onSel(downD.source.resized) { s =>
@@ -760,8 +778,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
 
 
 object CoherentHubGen extends App{
-  def basicConfig = {
-    val slotCount = 2
+  def basicConfig(slotCount : Int = 2) = {
     CoherentHubParameters(
       nodes     = List.fill(1)(
         NodeParameters(
@@ -800,7 +817,7 @@ object CoherentHubGen extends App{
       lineSize  = 64
     )
   }
-  def gen = new CoherentHub(basicConfig)
+  def gen = new CoherentHub(basicConfig(8))
   SpinalVerilog(gen)
 
 }

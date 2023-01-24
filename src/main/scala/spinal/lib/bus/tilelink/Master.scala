@@ -99,7 +99,7 @@ case class MasterSource(id           : AddressMapping,
                         emits        : MasterTransfers,
                         addressRange : Seq[AddressMapping]){
   def withSourceOffset(offset : Int) = copy(id = id.withOffset(offset))
-  def bSourceId = id.lowerBound
+  def bSourceId = id.lowerBound.toInt
 }
 
 case class MasterParameters (name    : Nameable,
