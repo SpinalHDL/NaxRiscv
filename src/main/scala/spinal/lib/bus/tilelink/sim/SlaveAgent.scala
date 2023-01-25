@@ -7,11 +7,13 @@ import spinal.lib.sim.{StreamDriver, StreamMonitor, StreamReadyRandomizer}
 
 class SlaveAgent(bus : Bus, cd : ClockDomain) {
   val driver = new Area{
-    val a = StreamReadyRandomizer(bus.a, cd)
-    val b = bus.p.withBCE generate StreamDriver.queue(bus.b, cd)._2
-    val c = bus.p.withBCE generate StreamReadyRandomizer(bus.c, cd)
-    val d = StreamDriver.queue(bus.d, cd)._2
-    val e = bus.p.withBCE generate StreamReadyRandomizer(bus.e, cd)
+    val aInst = StreamReadyRandomizer(bus.a, cd)
+    val bTuple = bus.p.withBCE generate StreamDriver.queue(bus.b, cd)
+    def bInst = bTuple._1
+    def b = bTuple._2
+    val cInst = bus.p.withBCE generate StreamReadyRandomizer(bus.c, cd)
+    val (dInst, d) = StreamDriver.queue(bus.d, cd)
+    val eInst = bus.p.withBCE generate StreamReadyRandomizer(bus.e, cd)
   }
 
   def onGet(source : Int,

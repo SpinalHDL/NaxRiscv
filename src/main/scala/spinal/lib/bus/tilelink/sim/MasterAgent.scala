@@ -29,11 +29,11 @@ case class Probe(source : Int, param : Int, address : Long, size : Int, perm : B
 class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
   val debug = true
   val driver = new Area{
-    val a = StreamDriver.queue(bus.a, cd)._2
-    val b = StreamReadyRandomizer(bus.b, cd)
-    val c = StreamDriver.queue(bus.c, cd)._2
-    val d = StreamReadyRandomizer(bus.d, cd)
-    val e = StreamDriver.queue(bus.e, cd)._2
+    val (aInst, a) = StreamDriver.queue(bus.a, cd)
+    val bInst = StreamReadyRandomizer(bus.b, cd)
+    val (cInst, c) = StreamDriver.queue(bus.c, cd)
+    val dInst = StreamReadyRandomizer(bus.d, cd)
+    val (eInst, e) = StreamDriver.queue(bus.e, cd)
   }
 
   val monitor = new Area{
@@ -103,7 +103,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
 
   val block = new Area{
     val sourceToMaster = (0 until  1 << bus.p.sourceWidth).map(source => bus.p.node.m.getMasterFromSource(source))
-    val blocks = mutable.HashMap[(MasterParameters, Long), Block]()
+    val blocks = mutable.LinkedHashMap[(MasterParameters, Long), Block]()
     def apply(source : Int, address : Long) = blocks(sourceToMaster(source) -> address)
     def get(source : Int, address : Long) = blocks.get(sourceToMaster(source) -> address)
     def contains(source : Int, address : Long) = blocks.contains(sourceToMaster(source) -> address)
@@ -118,9 +118,6 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     def changeBlockCap(source : Int, address : Long, cap : Int) = {
       val block = apply(source, address)
       if(debug) println(f"src=$source addr=$address%x ${block.cap} -> $cap time=${simTime()}")
-      if(simTime() == 1540220){
-        println(2)
-      }
       val oldCap = block.cap
       cap match {
         case Param.Cap.toN => block.cap = Param.Cap.toN; removeBlock(source, address)
@@ -238,6 +235,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
           b.cap = Param.Cap.toT
           monitor.d(source) = null
           mutex.unlock()
+          if(debug) println(f"src=$source addr=$address%x 1 -> 2 time=${simTime()}")
           onGrant(source, address, param)
         }
         case Opcode.D.GRANT_DATA => { //TODO on naxriscv, may sent a aquire BtoT but may have been probed out meanwhile => test
@@ -354,6 +352,34 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
 
     denied
   }
+
+
+  def release(source : Int, param : Int, address : Long, bytes : Int) : Boolean = {
+    val mutex = SimMutex().lock()
+    driver.c.enqueue { p =>
+      p.opcode #= Opcode.C.RELEASE
+      p.param #= param
+      p.size #= log2Up(bytes)
+      p.source #= source
+      p.address #= address
+      p.data.randomize()
+      p.corrupt #= false
+    }
+    var denied = false
+    monitor.d(source) = {d =>
+      monitor.d(source) = null
+      assert(d.opcode.toEnum == Opcode.D.RELEASE_ACK)
+      mutex.unlock()
+    }
+    mutex.await()
+    ordering.checkDone(source)
+
+    val newCap = Param.reportPruneToCap(param)
+    this.block.changeBlockCap(source, address, newCap)
+
+    denied
+  }
+
 
   def putFullData(source : Int, address : Long, data : Seq[Byte])
                  (orderingBody : => Unit) : Boolean = {

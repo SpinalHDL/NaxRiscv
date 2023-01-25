@@ -88,7 +88,6 @@ object CoherentHubTesterUtils{
         ref = globalMem.readBytes(address, bytes)
       }
       block.ordering(globalMem.write(address, block.data))
-      if(block.retains == 0) block.retain()
 //      println(f"* $address%x $source")
 //      println(toHex(block.data))
 //      println(toHex(ref))
@@ -135,10 +134,15 @@ object CoherentHubTesterUtils{
       ups(0).agent.releaseData(source, param, block.address, block.data){
         globalMem.write(block.address, block.data)
       }
+      block.dirty = false
     }
 
-
-
+    def release(agent : MasterAgent,
+                    source : Int,
+                    param : Int,
+                    block : Block): Unit ={
+      ups(0).agent.release(source, param, block.address, blockSize)
+    }
   }
 }
 
@@ -161,7 +165,7 @@ class CoherentHubTester extends AnyFunSuite {
           if(up.a.valid.toBoolean && up.a.ready.toBoolean){
             timeout = 0
           }
-          if(timeout == 500){
+          if(timeout == 2000){
             simFailure("No activity :(")
           }
 
@@ -221,6 +225,7 @@ class CoherentHubTester extends AnyFunSuite {
       import utils._
       for (i <- 0 until 10) {
         val block = acquireBlock(ups(0).agent, 0, Param.Grow.NtoT, 0x1000 + i * 0x40, 0x40)
+        block.retain()
         fork {
           cd.waitSamplingWhere(block.probe.nonEmpty)
           cd.waitSampling(Random.nextInt(20))
@@ -229,7 +234,6 @@ class CoherentHubTester extends AnyFunSuite {
           block.release()
         }
         val block2 = acquireBlock(ups(0).agent, 4, Param.Grow.NtoT, 0x1000 + i * 0x40, 0x40)
-        block2.release()
       }
     }
   }
@@ -239,6 +243,7 @@ class CoherentHubTester extends AnyFunSuite {
       import utils._
       val block = acquireBlock(ups(0).agent, 0, Param.Grow.NtoT, 0x1000, 0x40)
       for (i <- 0 until 10) {
+        block.retain()
         fork {
           cd.waitSamplingWhere(block.probe.nonEmpty)
           cd.waitSampling(Random.nextInt(20))
@@ -247,7 +252,6 @@ class CoherentHubTester extends AnyFunSuite {
           block.release()
         }
         val block2 = acquireBlock(ups(0).agent, 4, Param.Grow.NtoB, 0x1000, 0x40)
-        block2.release()
         assert(block.cap == Param.Cap.toB)
         acquireBlock(ups(0).agent, 0, Param.Grow.BtoT, 0x1000, 0x40)
         assert(block.cap == Param.Cap.toT)
@@ -259,6 +263,7 @@ class CoherentHubTester extends AnyFunSuite {
     doSim(basicGen) { utils =>
       import utils._
       val block = acquireBlock(ups(0).agent, 0, Param.Grow.NtoT, 0x1000, 0x40)
+      block.retain()
       for (i <- 0 until 10) {
         fork {
           cd.waitSamplingWhere(block.probe.nonEmpty)
@@ -266,7 +271,6 @@ class CoherentHubTester extends AnyFunSuite {
           block.release()
         }
         val block2 = acquireBlock(ups(0).agent, 4, Param.Grow.NtoB, 0x1000, 0x40)
-        block2.release()
         assert(block.cap == Param.Cap.toB)
         acquireBlock(ups(0).agent, 0, Param.Grow.BtoT, 0x1000, 0x40)
         assert(block.cap == Param.Cap.toT)
@@ -277,13 +281,10 @@ class CoherentHubTester extends AnyFunSuite {
     doSim(basicGen) { utils =>
       import utils._
       var block = acquireBlock(ups(0).agent, 0, Param.Grow.NtoB, 0x1000, 0x40)
-      block.release()
       for (i <- 0 until 10) {
         val block2 = acquireBlock(ups(0).agent, 4, Param.Grow.NtoT, 0x1000, 0x40)
-        block2.release()
         assert(block.cap == Param.Cap.toN)
         block = acquireBlock(ups(0).agent, 0, Param.Grow.BtoT, 0x1000, 0x40)
-        block.release()
         assert(block.cap == Param.Cap.toT)
       }
     }
@@ -292,17 +293,13 @@ class CoherentHubTester extends AnyFunSuite {
     doSim(basicGen) { utils =>
       import utils._
       var block = acquireBlock(ups(0).agent, 0, Param.Grow.NtoB, 0x1000, 0x40)
-      block.release()
       var block2 = acquireBlock(ups(0).agent, 4, Param.Grow.NtoB, 0x1000, 0x40)
-      block2.release()
       assert(block.cap == Param.Cap.toB)
       assert(block.cap == Param.Cap.toB)
       acquireBlock(ups(0).agent, 0, Param.Grow.BtoT, 0x1000, 0x40)
-      block.release()
       assert(block.cap == Param.Cap.toT)
       assert(block2.cap == Param.Cap.toN)
       block2 = acquireBlock(ups(0).agent, 4, Param.Grow.BtoT, 0x1000, 0x40)
-      block2.release()
       assert(block.cap == Param.Cap.toN)
       assert(block2.cap == Param.Cap.toT)
     }
@@ -317,6 +314,7 @@ class CoherentHubTester extends AnyFunSuite {
         for (i <- 0 until 1) {
           val data = Array.fill[Byte](0x40)(Random.nextInt().toByte)
           val block = acquireBlock(ups(busId).agent, 0, Param.Grow.NtoT, 0x1000 + i * 0x40, 0x40)
+          block.retain()
           fork{
             cd.waitSamplingWhere(block.probe.nonEmpty)
             cd.waitSampling(Random.nextInt(100))
@@ -326,7 +324,6 @@ class CoherentHubTester extends AnyFunSuite {
             //          ups(busId).agent.block.changeBlockCap(0, 0x1000 + i * 0x40, Param.Cap.toN)
           }
           val block2 = acquireBlock(ups(busId).agent, 4, Param.Grow.NtoT, 0x1000 + i * 0x40, 0x40)
-          block2.release()
           //        releaseData(ups(busId).agent, 4, Param.Prune.TtoN, block)
           cd.waitSampling(10)
         }
@@ -378,8 +375,11 @@ class CoherentHubTester extends AnyFunSuite {
       }
 
       val locks = mutable.HashMap[Long, SimMutex]()
+
+      var randomAddress = 0l
       def lock(address : Long) = {
         val l = locks.getOrElseUpdate(address, new SimMutex(randomized = true))
+        if(Random.nextBoolean()) randomAddress = address
         l.lock()
       }
       def unlock(address : Long) = {
@@ -387,95 +387,157 @@ class CoherentHubTester extends AnyFunSuite {
         l.unlock()
       }
 
-      val distribution = new WeightedDistribution[Unit]()
-      distribution(100){
-        val bytes = blockSizes.toList.randomPick()
-        val address = rand.address(bytes)
-        val source = m.mapping.randomPick().id.randomPick().toInt
-        val addressBlock = address & ~(blockSize.toLong-1)
-              agent.block.get(source, addressBlock) match {
-                case Some(b) => agent.block.changeBlockCap(source, addressBlock, Param.Cap.toN)
-          case None =>
-        }
-        get(agent, source, address, bytes)
-      }
 
-      distribution(100){
-        val bytes = blockSizes.toList.randomPick()
-        val address = rand.address(bytes)
-        val source = m.mapping.randomPick().id.randomPick().toInt
-        val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
-        val mask = Array.fill[Boolean](bytes)(Random.nextInt(2).toBoolean)
-        val addressBlock = address & ~(blockSize.toLong-1)
-              agent.block.get(source, addressBlock) match {
-                case Some(b) => agent.block.changeBlockCap(source, addressBlock, Param.Cap.toN)
-          case None =>
-        }
-        putPartialData(agent, source, address , data,mask)
-      }
 
-      distribution(100){
-        val bytes = blockSizes.toList.randomPick()
-        val address = rand.address(bytes)
-        val source = m.mapping.randomPick().id.randomPick().toInt
-        val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
-        val addressBlock = address & ~(blockSize.toLong-1)
-        agent.block.get(source, addressBlock) match {
-          case Some(b) => agent.block.changeBlockCap(source, addressBlock, Param.Cap.toN)
-          case None =>
-        }
-        putFullData(agent, source, address , data)
+      fork {
+        disableSimWave()
+        sleep(13067670-400000)
+//        enableSimWave()
       }
+      for(source <- m.mapping.flatMap(e => e.id.lowerBound.toInt to e.id.highestBound.toInt)) {
+        val distribution = new WeightedDistribution[Unit]()
 
-      //Read block
-      distribution(100){
-        val address = rand.address(blockSize)
-        val source = m.mapping.randomPick().id.randomPick().toInt
-        val data = Array.fill[Byte](blockSize)(Random.nextInt().toByte)
-        lock(address)
-        var b : Block = null
-        agent.block.get(source, address) match {
-          case Some(x) => b = x
-          case None => {
-            b = acquireBlock(agent, source, Param.Grow.NtoB, address, blockSize)
-            b.release()
+        def releaseBlockIfExists(address : Long): Unit ={
+          lock(address)
+          agent.block.get(source, address) match {
+            case Some(block) => {
+              block.retain()
+              block.dirty match {
+                case false => release(agent,source,Param.reportPruneToCap(block.cap, Param.Cap.toN), block)
+                case true  => releaseData(agent,source,Param.reportPruneToCap(block.cap, Param.Cap.toN), block)
+              }
+              block.release()
+            }
+            case None =>
           }
+          unlock(address)
         }
-        unlock(address)
-      }
 
-      //Write block
-      distribution(100){
-        val address = rand.address(blockSize)
-        val source = m.mapping.randomPick().id.randomPick().toInt
-        val data = Array.fill[Byte](blockSize)(Random.nextInt().toByte)
-        lock(address)
-        var b : Block = null
-        agent.block.get(source, address) match {
-          case Some(x) => b = x
-          case None => {
-            b = acquireBlock(agent, source, Param.Grow.NtoT, address, blockSize)
-            b.release()
+        distribution(100){
+          val bytes = blockSizes.toList.randomPick()
+          val address = rand.address(bytes)
+          releaseBlockIfExists(address & ~(blockSize.toLong-1))
+          get(agent, source, address, bytes)
+        }
+
+        distribution(100){
+          val bytes = blockSizes.toList.randomPick()
+          val address = rand.address(bytes)
+          val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
+          val mask = Array.fill[Boolean](bytes)(Random.nextInt(2).toBoolean)
+          releaseBlockIfExists(address & ~(blockSize.toLong-1))
+          putPartialData(agent, source, address , data,mask)
+        }
+
+        distribution(100){
+          val bytes = blockSizes.toList.randomPick()
+          val address = rand.address(bytes)
+          val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
+          releaseBlockIfExists(address & ~(blockSize.toLong-1))
+          putFullData(agent, source, address , data)
+        }
+
+        //Read block
+        distribution(100){
+          val address = rand.address(blockSize)
+          val data = Array.fill[Byte](blockSize)(Random.nextInt().toByte)
+          lock(address)
+          var b : Block = null
+          agent.block.get(source, address) match {
+            case Some(x) => b = x
+            case None => {
+              b = acquireBlock(agent, source, Param.Grow.NtoB, address, blockSize)
+            }
           }
+          unlock(address)
         }
-        if(b.cap > Param.Cap.toT){
-          b = acquireBlock(agent, source, Param.Grow.BtoT, address, blockSize)
-          b.release()
-        }
-        assert(b.cap == Param.Cap.toT, f"$source $address%x")
-        b.dirty = true
-        for(i <- 0 until blockSize){
-          if(Random.nextBoolean()) b.data(i) = Random.nextInt().toByte
-        }
-        unlock(address)
-      }
 
+        //Write block
+        distribution(100){
+          val address = rand.address(blockSize)
+          val data = Array.fill[Byte](blockSize)(Random.nextInt().toByte)
+          lock(address)
+          var b : Block = null
+          agent.block.get(source, address) match {
+            case Some(x) => b = x
+            case None => {
+              b = acquireBlock(agent, source, Param.Grow.NtoT, address, blockSize)
+            }
+          }
+          if(b.cap > Param.Cap.toT){
+            b = acquireBlock(agent, source, Param.Grow.BtoT, address, blockSize)
+          }
+          assert(b.cap == Param.Cap.toT, f"$source $address%x")
+          if(Random.nextFloat() < 0.8) {
+            b.dirty = true
+            for (i <- 0 until blockSize) {
+              if (Random.nextBoolean()) b.data(i) = Random.nextInt().toByte
+            }
+          }
+          unlock(address)
+        }
 
-      disableSimWave()
-      for(r <- 0 until 100000) {
-        distribution.randomExecute()
+        //release
+        distribution(50){
+          val address = randomAddress
+          lock(address)
+          agent.block.get(source, address) match {
+            case Some(block) => {
+              block.retain()
+              val capTarget = block.cap match {
+                case Param.Cap.toB => Param.Cap.toN
+                case Param.Cap.toT => List(Param.Cap.toN, Param.Cap.toB).randomPick()
+              }
+              block.dirty match {
+                case false => release(agent,source,Param.reportPruneToCap(block.cap, capTarget), block)
+                case true  => releaseData(agent,source,Param.reportPruneToCap(block.cap, capTarget), block)
+              }
+              block.release()
+            }
+            case None =>
+          }
+          unlock(address)
+        }
+
+        for (r <- 0 until 40000) {
+          distribution.randomExecute()
+          cd.waitSampling(Random.nextInt(50))
+        }
       }
     }
+    fork{
+      while(true){
+        ups.randomPick().agent.driver.bInst.factor = 1.1f-Random.nextFloat()*Random.nextFloat()
+        ups.randomPick().agent.driver.dInst.factor = 1.1f-Random.nextFloat()*Random.nextFloat()
+        ups.randomPick().agent.driver.aInst.transactionDelay  = () => {
+          val x = Random.nextDouble()
+          (x*x*Random.nextInt(10)).toInt
+        }
+        ups.randomPick().agent.driver.cInst.transactionDelay  = () => {
+          val x = Random.nextDouble()
+          (x*x*Random.nextInt(10)).toInt
+        }
+        ups.randomPick().agent.driver.eInst.transactionDelay  = () => {
+          val x = Random.nextDouble()
+          (x*x*Random.nextInt(10)).toInt
+        }
+        downs.randomPick().agent.driver.aInst.factor = 1.1f-Random.nextFloat()*Random.nextFloat()
+//        downs.randomPick().agent.driver.cInst.factor = 1-Random.nextFloat()*Random.nextFloat()
+//        downs.randomPick().agent.driver.eInst.factor = 1-Random.nextFloat()*Random.nextFloat()
+//        downs.randomPick().agent.driver.bInst.transactionDelay  = () => {
+//          val x = Random.nextDouble()
+//          (x*x*Random.nextInt(10)).toInt
+//        }
+        downs.randomPick().agent.driver.dInst.transactionDelay  = () => {
+          val x = Random.nextDouble()
+          (x*x*Random.nextInt(10)).toInt
+        }
+
+        cd.waitSampling(1000)
+
+      }
+    }
+
     threads.foreach(_.join())
   }
 
@@ -488,7 +550,7 @@ class CoherentHubTester extends AnyFunSuite {
 
 object CoherencyHubSynt extends App{
   val rtls = ArrayBuffer[Rtl]()
-  rtls += Rtl(SpinalVerilog(Rtl.ffIo(new CoherentHub(CoherentHubGen.basicConfig(8)))))
+  rtls += Rtl(SpinalVerilog(Rtl.ffIo(new CoherentHub(CoherentHubGen.basicConfig(1)))))
   val targets = XilinxStdTargets().take(2)
 
   Bench(rtls, targets)
