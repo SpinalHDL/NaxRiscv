@@ -3,7 +3,7 @@ package spinal.lib.bus.tilelink.sim
 import spinal.core._
 import spinal.core.sim._
 import spinal.lib.bus.tilelink._
-import spinal.lib.sim.{StreamDriver, StreamMonitor, StreamReadyRandomizer}
+import spinal.lib.sim.{StreamDriver, StreamDriverOoo, StreamMonitor, StreamReadyRandomizer}
 
 import scala.collection.{breakOut, mutable}
 import scala.util.Random
@@ -29,11 +29,11 @@ case class Probe(source : Int, param : Int, address : Long, size : Int, perm : B
 class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
   val debug = true
   val driver = new Area{
-    val (aInst, a) = StreamDriver.queue(bus.a, cd)
-    val bInst = StreamReadyRandomizer(bus.b, cd)
-    val (cInst, c) = StreamDriver.queue(bus.c, cd)
-    val dInst = StreamReadyRandomizer(bus.d, cd)
-    val (eInst, e) = StreamDriver.queue(bus.e, cd)
+    val a = StreamDriverOoo(bus.a, cd)
+    val b = StreamReadyRandomizer(bus.b, cd)
+    val c = StreamDriverOoo(bus.c, cd)
+    val d = StreamReadyRandomizer(bus.d, cd)
+    val e = StreamDriverOoo(bus.e, cd)
   }
 
   val monitor = new Area{
@@ -164,7 +164,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
                param : Int,
                address : Long,
                bytes : Int): Unit ={
-    driver.c.enqueue{p =>
+    driver.c.single{p =>
       p.opcode  #= Opcode.C.PROBE_ACK
       p.param   #= param
       p.size    #= log2Up(bytes)
@@ -182,20 +182,22 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
                    address : Long,
                    data : Seq[Byte])
                  (orderingBody : => Unit) : Unit = {
-//    ordering(source)(orderingBody)
+    //    ordering(source)(orderingBody)
     orderingBody
     val size = log2Up(data.length)
-    for (offset <- 0 until data.length by bus.p.dataBytes) {
-      driver.c.enqueue { p =>
-        val buf = new Array[Byte](bus.p.dataBytes)
-        (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
-        p.opcode #= Opcode.C.PROBE_ACK_DATA
-        p.param #= param
-        p.size #= size
-        p.source #= source
-        p.address #= address + offset
-        p.data #= buf
-        p.corrupt #= false
+    driver.c.burst { push =>
+      for (offset <- 0 until data.length by bus.p.dataBytes) {
+        push { p =>
+          val buf = new Array[Byte](bus.p.dataBytes)
+          (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
+          p.opcode #= Opcode.C.PROBE_ACK_DATA
+          p.param #= param
+          p.size #= size
+          p.source #= source
+          p.address #= address + offset
+          p.data #= buf
+          p.corrupt #= false
+        }
       }
     }
   }
@@ -207,7 +209,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
                    bytes : Int)
                   (orderingBody : => Unit): Block ={
     ordering(source)(orderingBody)
-    driver.a.enqueue{p =>
+    driver.a.single{p =>
       p.opcode  #= Opcode.A.ACQUIRE_BLOCK
       p.param   #= param
       p.size    #= log2Up(bytes)
@@ -271,7 +273,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     }
     mutex.await()
     ordering.checkDone(source)
-    driver.e.enqueue{p =>
+    driver.e.single{p =>
       p.sink  #= sink
     }
 
@@ -283,7 +285,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
   def get(source : Int, address : Long, bytes : Int)
          (orderingBody : => Unit) : Seq[Byte] = {
     ordering(source)(orderingBody)
-    driver.a.enqueue{p =>
+    driver.a.single{p =>
       p.opcode  #= Opcode.A.GET
       p.param   #= 0
       p.size    #= log2Up(bytes)
@@ -323,17 +325,19 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
                  (orderingBody : => Unit) : Boolean = {
     ordering(source)(orderingBody)
     val size = log2Up(data.length)
-    for(offset <- 0 until data.length by bus.p.dataBytes) {
-      driver.c.enqueue { p =>
-        val buf = new Array[Byte](bus.p.dataBytes)
-        (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
-        p.opcode #= Opcode.C.RELEASE_DATA
-        p.param #= param
-        p.size #= size
-        p.source #= source
-        p.address #= address + offset
-        p.data #= buf
-        p.corrupt #= false
+    driver.c.burst { push =>
+      for (offset <- 0 until data.length by bus.p.dataBytes) {
+        push { p =>
+          val buf = new Array[Byte](bus.p.dataBytes)
+          (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
+          p.opcode #= Opcode.C.RELEASE_DATA
+          p.param #= param
+          p.size #= size
+          p.source #= source
+          p.address #= address + offset
+          p.data #= buf
+          p.corrupt #= false
+        }
       }
     }
     val mutex = SimMutex().lock()
@@ -356,7 +360,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
 
   def release(source : Int, param : Int, address : Long, bytes : Int) : Boolean = {
     val mutex = SimMutex().lock()
-    driver.c.enqueue { p =>
+    driver.c.single { p =>
       p.opcode #= Opcode.C.RELEASE
       p.param #= param
       p.size #= log2Up(bytes)
@@ -385,26 +389,28 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
                  (orderingBody : => Unit) : Boolean = {
     ordering(source)(orderingBody)
     val size = log2Up(data.length)
-    for(offset <- 0 until data.length by bus.p.dataBytes) {
-      driver.a.enqueue { p =>
-        val buf = new Array[Byte](bus.p.dataBytes)
-        val byteOffset = (address & (bus.p.dataBytes-1)).toInt
-        val bytes = data.size
-        for(i <- 0 until bus.p.dataBytes){
-          val ptr = offset + i - byteOffset
-          (ptr >= 0 && ptr < bytes) match {
-            case false => buf(i) = Random.nextInt().toByte
-            case true  => buf(i) = data(ptr)
+    driver.a.burst { push =>
+      for (offset <- 0 until data.length by bus.p.dataBytes) {
+        push { p =>
+          val buf = new Array[Byte](bus.p.dataBytes)
+          val byteOffset = (address & (bus.p.dataBytes - 1)).toInt
+          val bytes = data.size
+          for (i <- 0 until bus.p.dataBytes) {
+            val ptr = offset + i - byteOffset
+            (ptr >= 0 && ptr < bytes) match {
+              case false => buf(i) = Random.nextInt().toByte
+              case true => buf(i) = data(ptr)
+            }
           }
+          p.opcode #= Opcode.A.PUT_FULL_DATA
+          p.param #= 0
+          p.size #= size
+          p.source #= source
+          p.address #= address + offset
+          p.mask #= ((BigInt(1) << bus.p.dataBytes.min(data.size)) - 1) << (address.toInt & (bus.p.dataBytes - 1))
+          p.data #= buf
+          p.corrupt #= false
         }
-        p.opcode #= Opcode.A.PUT_FULL_DATA
-        p.param #= 0
-        p.size #= size
-        p.source #= source
-        p.address #= address + offset
-        p.mask #= ((BigInt(1) << bus.p.dataBytes.min(data.size))-1) << (address.toInt & (bus.p.dataBytes-1))
-        p.data #= buf
-        p.corrupt #= false
       }
     }
     val mutex = SimMutex().lock()
@@ -424,34 +430,36 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
                     (orderingBody : => Unit) : Boolean = {
     ordering(source)(orderingBody)
     val size = log2Up(data.length)
-    for(offset <- 0 until data.length by bus.p.dataBytes) {
-      driver.a.enqueue { p =>
-        val buf = new Array[Byte](bus.p.dataBytes)
-//        (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
-        val buf2 = Array.fill[Byte]((bus.p.dataBytes+7)/8)(0)
-//        (0 until bus.p.dataBytes).foreach(i => buf2(i >> 3) = (buf2(i >> 3) | (mask(offset + i).toInt << (i & 7))).toByte)
+    driver.a.burst { push =>
+      for (offset <- 0 until data.length by bus.p.dataBytes) {
+        push { p =>
+          val buf = new Array[Byte](bus.p.dataBytes)
+          //        (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
+          val buf2 = Array.fill[Byte]((bus.p.dataBytes + 7) / 8)(0)
+          //        (0 until bus.p.dataBytes).foreach(i => buf2(i >> 3) = (buf2(i >> 3) | (mask(offset + i).toInt << (i & 7))).toByte)
 
-        val byteOffset = (address & (bus.p.dataBytes-1)).toInt
-        val bytes = data.size
-        for(i <- 0 until bus.p.dataBytes){
-          val ptr = offset + i - byteOffset
-          (ptr >= 0 && ptr < bytes) match {
-            case false => buf(i) = Random.nextInt().toByte
-            case true  => {
-              buf(i) = data(ptr)
-              buf2(i >> 3) = (buf2(i >> 3) | (mask(ptr).toInt << (i & 7))).toByte
+          val byteOffset = (address & (bus.p.dataBytes - 1)).toInt
+          val bytes = data.size
+          for (i <- 0 until bus.p.dataBytes) {
+            val ptr = offset + i - byteOffset
+            (ptr >= 0 && ptr < bytes) match {
+              case false => buf(i) = Random.nextInt().toByte
+              case true => {
+                buf(i) = data(ptr)
+                buf2(i >> 3) = (buf2(i >> 3) | (mask(ptr).toInt << (i & 7))).toByte
+              }
             }
           }
-        }
 
-        p.opcode #= Opcode.A.PUT_PARTIAL_DATA
-        p.param #= 0
-        p.size #= size
-        p.source #= source
-        p.address #= address + offset
-        p.mask #= buf2
-        p.data #= buf
-        p.corrupt #= false
+          p.opcode #= Opcode.A.PUT_PARTIAL_DATA
+          p.param #= 0
+          p.size #= size
+          p.source #= source
+          p.address #= address + offset
+          p.mask #= buf2
+          p.data #= buf
+          p.corrupt #= false
+        }
       }
     }
     val mutex = SimMutex().lock()

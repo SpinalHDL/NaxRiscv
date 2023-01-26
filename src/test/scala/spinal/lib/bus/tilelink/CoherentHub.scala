@@ -391,8 +391,8 @@ class CoherentHubTester extends AnyFunSuite {
 
       fork {
         disableSimWave()
-        sleep(13067670-400000)
-//        enableSimWave()
+//         sleep(13067670-400000)
+        enableSimWave()
       }
       for(source <- m.mapping.flatMap(e => e.id.lowerBound.toInt to e.id.highestBound.toInt)) {
         val distribution = new WeightedDistribution[Unit]()
@@ -507,28 +507,28 @@ class CoherentHubTester extends AnyFunSuite {
     }
     fork{
       while(true){
-        ups.randomPick().agent.driver.bInst.factor = 1.1f-Random.nextFloat()*Random.nextFloat()
-        ups.randomPick().agent.driver.dInst.factor = 1.1f-Random.nextFloat()*Random.nextFloat()
-        ups.randomPick().agent.driver.aInst.transactionDelay  = () => {
+        ups.randomPick().agent.driver.b.factor = 1.1f-Random.nextFloat()*Random.nextFloat()
+        ups.randomPick().agent.driver.d.factor = 1.1f-Random.nextFloat()*Random.nextFloat()
+        ups.randomPick().agent.driver.a.ctrl.transactionDelay  = () => {
           val x = Random.nextDouble()
           (x*x*Random.nextInt(10)).toInt
         }
-        ups.randomPick().agent.driver.cInst.transactionDelay  = () => {
+        ups.randomPick().agent.driver.c.ctrl.transactionDelay  = () => {
           val x = Random.nextDouble()
           (x*x*Random.nextInt(10)).toInt
         }
-        ups.randomPick().agent.driver.eInst.transactionDelay  = () => {
+        ups.randomPick().agent.driver.e.ctrl.transactionDelay  = () => {
           val x = Random.nextDouble()
           (x*x*Random.nextInt(10)).toInt
         }
-        downs.randomPick().agent.driver.aInst.factor = 1.1f-Random.nextFloat()*Random.nextFloat()
+        downs.randomPick().agent.driver.a.factor = 1.1f-Random.nextFloat()*Random.nextFloat()
 //        downs.randomPick().agent.driver.cInst.factor = 1-Random.nextFloat()*Random.nextFloat()
 //        downs.randomPick().agent.driver.eInst.factor = 1-Random.nextFloat()*Random.nextFloat()
 //        downs.randomPick().agent.driver.bInst.transactionDelay  = () => {
 //          val x = Random.nextDouble()
 //          (x*x*Random.nextInt(10)).toInt
 //        }
-        downs.randomPick().agent.driver.dInst.transactionDelay  = () => {
+        downs.randomPick().agent.driver.d.ctrl.transactionDelay  = () => {
           val x = Random.nextDouble()
           (x*x*Random.nextInt(10)).toInt
         }

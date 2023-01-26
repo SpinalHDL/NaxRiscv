@@ -3,17 +3,15 @@ package spinal.lib.bus.tilelink.sim
 import spinal.core._
 import spinal.core.sim._
 import spinal.lib.bus.tilelink._
-import spinal.lib.sim.{StreamDriver, StreamMonitor, StreamReadyRandomizer}
+import spinal.lib.sim.{StreamDriver, StreamDriverOoo, StreamMonitor, StreamReadyRandomizer}
 
 class SlaveAgent(bus : Bus, cd : ClockDomain) {
   val driver = new Area{
-    val aInst = StreamReadyRandomizer(bus.a, cd)
-    val bTuple = bus.p.withBCE generate StreamDriver.queue(bus.b, cd)
-    def bInst = bTuple._1
-    def b = bTuple._2
-    val cInst = bus.p.withBCE generate StreamReadyRandomizer(bus.c, cd)
-    val (dInst, d) = StreamDriver.queue(bus.d, cd)
-    val eInst = bus.p.withBCE generate StreamReadyRandomizer(bus.e, cd)
+    val a = StreamReadyRandomizer(bus.a, cd)
+    val b = bus.p.withBCE generate StreamDriverOoo(bus.b, cd)
+    val c = bus.p.withBCE generate StreamReadyRandomizer(bus.c, cd)
+    val d = StreamDriverOoo(bus.d, cd)
+    val e = bus.p.withBCE generate StreamReadyRandomizer(bus.e, cd)
   }
 
   def onGet(source : Int,
@@ -35,19 +33,21 @@ class SlaveAgent(bus : Bus, cd : ClockDomain) {
                     denied : Boolean = false,
                     corrupt : Boolean = false): Unit ={
     val size = log2Up(data.size)
-    for(offset <- 0 until data.size by bus.p.dataBytes){
-      driver.d.enqueue { p =>
-        val buf = new Array[Byte](bus.p.dataBytes)
-        (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
-        p.opcode  #= Opcode.D.ACCESS_ACK_DATA
-        p.param   #= 0
-        p.size    #= size
-        p.source  #= source
-        p.sink    #= 0
-        p.denied  #= denied
-        if(bus.p.withDataD) {
-          p.data    #= buf
-          p.corrupt #= corrupt
+    driver.d.burst { push =>
+      for (offset <- 0 until data.size by bus.p.dataBytes) {
+        push { p =>
+          val buf = new Array[Byte](bus.p.dataBytes)
+          (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
+          p.opcode #= Opcode.D.ACCESS_ACK_DATA
+          p.param #= 0
+          p.size #= size
+          p.source #= source
+          p.sink #= 0
+          p.denied #= denied
+          if (bus.p.withDataD) {
+            p.data #= buf
+            p.corrupt #= corrupt
+          }
         }
       }
     }
@@ -55,17 +55,19 @@ class SlaveAgent(bus : Bus, cd : ClockDomain) {
   def accessAck(source : Int,
                 size : Int,
                 denied : Boolean = false): Unit ={
-    driver.d.enqueue { p =>
-      val buf = new Array[Byte](bus.p.dataBytes)
-      p.opcode  #= Opcode.D.ACCESS_ACK
-      p.param   #= 0
-      p.size    #= size
-      p.source  #= source
-      p.sink    #= 0
-      p.denied  #= denied
-      if(bus.p.withDataD) {
-        p.data.randomize()
-        p.corrupt #= false
+    driver.d.burst { push =>
+      push { p =>
+        val buf = new Array[Byte](bus.p.dataBytes)
+        p.opcode #= Opcode.D.ACCESS_ACK
+        p.param #= 0
+        p.size #= size
+        p.source #= source
+        p.sink #= 0
+        p.denied #= denied
+        if (bus.p.withDataD) {
+          p.data.randomize()
+          p.corrupt #= false
+        }
       }
     }
   }
