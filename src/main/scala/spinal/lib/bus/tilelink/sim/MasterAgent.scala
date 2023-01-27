@@ -64,7 +64,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
                   }
                   b.retains match {
                     case 0 => block.changeBlockCap(source, address, param)
-                    case _ =>
+                    case _ =>  println(f"Retained $address%x ${simTime()}")
                   }
                 }
               }
@@ -123,30 +123,32 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
         case Param.Cap.toN => block.cap = Param.Cap.toN; removeBlock(source, address)
         case _ => block.cap = Param.Cap.toB
       }
-      block.probe match {
-        case Some(probe) => {
-          block.probe = None
-          assert(probe.perm == false)
-          block.dirty match {
-            case false => probeAck(
-              param = Param.reportPruneToCap(oldCap, cap),
-              source = probe.source,
-              address = probe.address,
-              bytes = probe.size
-            )
-            case true => {
-              probeAckData(
+//      if(block.retains == 0) {
+        block.probe match {
+          case Some(probe) => {
+            block.probe = None
+            assert(probe.perm == false)
+            block.dirty match {
+              case false => probeAck(
                 param = Param.reportPruneToCap(oldCap, cap),
                 source = probe.source,
                 address = probe.address,
-                data = block.data
-              )(block.orderingBody())
-              block.dirty = false
+                bytes = probe.size
+              )
+              case true => {
+                probeAckData(
+                  param = Param.reportPruneToCap(oldCap, cap),
+                  source = probe.source,
+                  address = probe.address,
+                  data = block.data
+                )(block.orderingBody())
+                block.dirty = false
+              }
             }
           }
+          case None =>
         }
-        case None =>
-      }
+//      }
     }
 
     def retain(source : Int, address : Long) = blocks(sourceToMaster(source) -> address).retain()
@@ -237,7 +239,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
           b.cap = Param.Cap.toT
           monitor.d(source) = null
           mutex.unlock()
-          if(debug) println(f"src=$source addr=$address%x 1 -> 2 time=${simTime()}")
+          if(debug) println(f"src=$source addr=$address%x 1 -> 0 time=${simTime()}")
           onGrant(source, address, param)
         }
         case Opcode.D.GRANT_DATA => { //TODO on naxriscv, may sent a aquire BtoT but may have been probed out meanwhile => test
@@ -259,7 +261,10 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
               override def release() = {
                 super.release()
                 if(retains == 0) probe match {
-                  case Some(probe) => block.changeBlockCap(probe.source, probe.address, probe.param)
+                  case Some(probe) => {
+                    println(f"Retained probe execute $address%x ${simTime()}")
+                    block.changeBlockCap(probe.source, probe.address, probe.param)
+                  }
                   case None =>
                 }
               }

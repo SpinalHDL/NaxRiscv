@@ -83,14 +83,13 @@ object CoherentHubTesterUtils{
                      address : Long,
                      bytes : Int): Block ={
       var ref: Array[Byte] = null
-      val agent = ups(0).agent
       val block = agent.acquireBlock(source, param, address, bytes){
         ref = globalMem.readBytes(address, bytes)
       }
       block.ordering(globalMem.write(address, block.data))
-//      println(f"* $address%x $source")
-//      println(toHex(block.data))
-//      println(toHex(ref))
+      println(f"* $address%x $source")
+      println(toHex(block.data))
+      println(toHex(ref))
       assert((block.data, ref).zipped.forall(_ == _))
       block
     }
@@ -101,19 +100,19 @@ object CoherentHubTesterUtils{
             address : Long,
             bytes : Int): Unit ={
       var ref: Array[Byte] = null
-      val data = ups(0).agent.get(source, address, bytes){
+      val data = agent.get(source, address, bytes){
         ref = globalMem.readBytes(address, bytes)
       }
-//      println(f"* $address%x")
-//      println(toHex(data))
-//      println(toHex(ref))
+      println(f"* $address%x")
+      println(toHex(data))
+      println(toHex(ref))
       assert((data, ref).zipped.forall(_ == _))
     }
     def putFullData(agent : MasterAgent,
                     source : Int,
                     address : Long,
                     data : Array[Byte]): Unit ={
-      assert(!ups(0).agent.putFullData(source, address, data){
+      assert(!agent.putFullData(source, address, data){
         globalMem.write(address, data)
       })
     }
@@ -122,7 +121,7 @@ object CoherentHubTesterUtils{
                        address : Long,
                        data : Array[Byte],
                        mask : Array[Boolean]): Unit ={
-      assert(!ups(0).agent.putPartialData(source, address, data, mask){
+      assert(!agent.putPartialData(source, address, data, mask){
         globalMem.write(address, data, mask)
       })
     }
@@ -131,17 +130,17 @@ object CoherentHubTesterUtils{
                     source : Int,
                     param : Int,
                     block : Block): Unit ={
-      ups(0).agent.releaseData(source, param, block.address, block.data){
+      block.dirty = false
+      agent.releaseData(source, param, block.address, block.data){
         globalMem.write(block.address, block.data)
       }
-      block.dirty = false
     }
 
     def release(agent : MasterAgent,
                     source : Int,
                     param : Int,
                     block : Block): Unit ={
-      ups(0).agent.release(source, param, block.address, blockSize)
+      agent.release(source, param, block.address, blockSize)
     }
   }
 }
@@ -151,7 +150,10 @@ class CoherentHubTester extends AnyFunSuite {
 
   class Gen(val gen : () => CoherentHub)
   def Gen(gen : => CoherentHub) : Gen = new Gen(() => gen)
-  val basicGen = Gen(new CoherentHub(CoherentHubGen.basicConfig(2)))
+  val basicGen = Gen(new CoherentHub(CoherentHubGen.basicConfig(
+    slotsCount = 2,
+    nodesCount = 2
+  )))
 
   val gens = mutable.HashMap[Gen, SimCompiled[CoherentHub]]()
   def doSim(gen : Gen)(body : CoherentHubTesterUtils.Testbench => Unit) = {
@@ -179,43 +181,50 @@ class CoherentHubTester extends AnyFunSuite {
   test("get") {
     doSim(basicGen) { utils =>
       import utils._
-      for(bytes <- (6 downto 0).map(1 << _)) {
-        get(ups(0).agent, 0, 0x1000, bytes)
-      }
-      for(bytes <- (6 downto 0).map(1 << _)) {
-        get(ups(0).agent, 0, 0x1000+bytes, bytes)
+
+      for(agent <- ups.map(_.agent)) {
+        for (bytes <- (6 downto 0).map(1 << _)) {
+          get(agent, 0, 0x1000, bytes)
+        }
+        for (bytes <- (6 downto 0).map(1 << _)) {
+          get(agent, 0, 0x1000 + bytes, bytes)
+        }
       }
     }
   }
   test("putFull") {
     doSim(basicGen) { utils =>
       import utils._
-      for(bytes <- (6 downto 0).map(1 << _)) {
-        val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
-        putFullData(ups(0).agent, 0, 0x1000 , data)
-        get(ups(0).agent, 0, 0x1000, data.size)
-      }
-      for(bytes <- (6 downto 0).map(1 << _)) {
-        val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
-        putFullData(ups(0).agent, 0, 0x1000+bytes , data)
-        get(ups(0).agent, 0, 0x1000+bytes, data.size)
+      for(agent <- ups.map(_.agent)) {
+        for (bytes <- (6 downto 0).map(1 << _)) {
+          val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
+          putFullData(agent, 0, 0x1000, data)
+          get(agent, 0, 0x1000, data.size)
+        }
+        for (bytes <- (6 downto 0).map(1 << _)) {
+          val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
+          putFullData(agent, 0, 0x1000 + bytes, data)
+          get(agent, 0, 0x1000 + bytes, data.size)
+        }
       }
     }
   }
   test("putPartial") {
     doSim(basicGen) { utils =>
       import utils._
-      for(bytes <- (6 downto 0).map(1 << _)) {
-        val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
-        val mask = Array.fill[Boolean](bytes)(Random.nextInt(2).toBoolean)
-        putPartialData(ups(0).agent, 0, 0x1000 , data,mask)
-        get(ups(0).agent, 0, 0x1000, data.size)
-      }
-      for(bytes <- (6 downto 0).map(1 << _)) {
-        val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
-        val mask = Array.fill[Boolean](bytes)(Random.nextInt(2).toBoolean)
-        putPartialData(ups(0).agent, 0, 0x1000+bytes , data,mask)
-        get(ups(0).agent, 0, 0x1000+bytes, data.size)
+      for(agent <- ups.map(_.agent)) {
+        for (bytes <- (6 downto 0).map(1 << _)) {
+          val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
+          val mask = Array.fill[Boolean](bytes)(Random.nextInt(2).toBoolean)
+          putPartialData(agent, 0, 0x1000, data, mask)
+          get(agent, 0, 0x1000, data.size)
+        }
+        for (bytes <- (6 downto 0).map(1 << _)) {
+          val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
+          val mask = Array.fill[Boolean](bytes)(Random.nextInt(2).toBoolean)
+          putPartialData(agent, 0, 0x1000 + bytes, data, mask)
+          get(agent, 0, 0x1000 + bytes, data.size)
+        }
       }
     }
   }
@@ -391,7 +400,7 @@ class CoherentHubTester extends AnyFunSuite {
 
       fork {
         disableSimWave()
-//         sleep(13067670-400000)
+        sleep(111195110-1000000)
         enableSimWave()
       }
       for(source <- m.mapping.flatMap(e => e.id.lowerBound.toInt to e.id.highestBound.toInt)) {
@@ -488,9 +497,14 @@ class CoherentHubTester extends AnyFunSuite {
                 case Param.Cap.toB => Param.Cap.toN
                 case Param.Cap.toT => List(Param.Cap.toN, Param.Cap.toB).randomPick()
               }
+              println(f"Release $address%x ${simTime()}")
               block.dirty match {
                 case false => release(agent,source,Param.reportPruneToCap(block.cap, capTarget), block)
                 case true  => releaseData(agent,source,Param.reportPruneToCap(block.cap, capTarget), block)
+              }
+              assert(block.cap == capTarget && block.dirty == false)
+              if(simTime() > 111190097){
+                println("asd")
               }
               block.release()
             }

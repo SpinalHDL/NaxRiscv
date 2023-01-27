@@ -94,7 +94,7 @@ case class NodeParameters(m : MastersParameters,
 
 object NodeParameters{
   def mergeMasters(nodes : Seq[NodeParameters]): NodeParameters ={
-    val sourcePreWidth = log2Up(nodes.map(_.m.sourceWidth).max)
+    val sourcePreWidth = nodes.map(_.m.sourceWidth).max
     NodeParameters(
       m = MastersParameters(
         masters = nodes.zipWithIndex.flatMap{

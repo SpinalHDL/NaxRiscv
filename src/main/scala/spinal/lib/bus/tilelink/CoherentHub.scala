@@ -65,6 +65,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
 
   val bps = p.nodes.map(_.toBusParameter())
   val upParam = NodeParameters.mergeMasters(p.nodes)
+  val upParamPerNodeSourceWidth = nodes.map(_.m.sourceWidth).max
   val upBusParam = upParam.toBusParameter()
   val downPutParam = NodeParameters(
     m = MastersParameters(
@@ -102,6 +103,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
   val downPutBusParam = downPutParam.toBusParameter()
   val downGetBusParam = downGetParam.toBusParameter()
   val wordsPerBlock = blockSize / upBusParam.dataBytes
+  def upSourceToNodeOh(source : UInt) = UIntToOh(source.takeHigh(log2Up(p.nodes.size)).asUInt)
 
 //  val writebackParam = NodeParameters(
 //    m = MastersParameters(
@@ -247,9 +249,8 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
 
   val withDataA = p.nodes.exists(_.m.withDataA)
   val upstream = new Area{
-    val buses = io.ups.zipWithIndex.map{case (bus, id) => bus.withSourceOffset(id, upParam.m.sourceWidth)}
+    val buses = io.ups.zipWithIndex.map{case (bus, id) => bus.withSourceOffset(id << upParamPerNodeSourceWidth, upParam.m.sourceWidth)}
     val a = new Area{
-
       val withoutData = buses.filter(!_.p.withDataA).map(_.a).toList
       val withData = withDataA generate new Area{
         val buffer =  new Area{
@@ -392,9 +393,9 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         for ((port, node) <- (s.probe.ports, nodes).zipped) {
           val mapping = nodeToMasterMaskMapping(node)
           for ((mpp, id) <- mapping) {
-            when(!mpp.sourceHit(push.source) || isBtoT) { //isBtoT is required to ensure the master copy wasn't probed out
+            //when(!mpp.sourceHit(push.source) || isBtoT) { //isBtoT is required to ensure the master copy wasn't probed out
               port.pending(id) := True
-            }
+            //}
           }
         }
       }
@@ -471,14 +472,14 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     val rsps = for((node, nodeId) <- p.nodes.zipWithIndex.filter(_._1.withBCE)) yield new Area{
       val c = upstream.c.perBus(nodeId).toProbeRsp
       val mapping = nodeToMasterMaskMapping(node)
-      val sourceIdHits = p.nodes.flatMap(_.m.masters).map(m => m -> m.sourceHit(c.source)).toMapLinked()
+      val sourceIdHits = node.m.masters.map(m => m -> m.sourceHit(c.source.resize(upParamPerNodeSourceWidth))).toMapLinked()
       val isAckData = c.opcode === Opcode.C.PROBE_ACK_DATA
       val keeptCopy = List(Param.Prune.TtoB, Param.Report.TtoT, Param.Report.BtoB).map(c.param === _).orR
       val onSlots = for(slot <- slots) yield new Area{
         val hit = slot.valid && slot.address(lineRange) === c.address(lineRange) && slot.lineConflict.oldest
         val ctx = slot.probe.ports(nodeId)
         val selfProbe = hit && slot.source === c.source
-        val notEnough = !selfProbe && slot.unique && keeptCopy
+        val notEnough = False //!selfProbe && slot.unique && keeptCopy
         when(hit && c.fire){
           when(isAckData){
             slot.probe.waitAckData := True
@@ -489,7 +490,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
           for((m, id) <- mapping) {
             when(sourceIdHits(m)) {
               ctx.inflight(id) := False
-              ctx.pending(id) setWhen (notEnough) //Redo the probe
+              //ctx.pending(id) setWhen (notEnough) //Redo the probe
             }
           }
           when(selfProbe && keeptCopy){
@@ -535,7 +536,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     input.ready := input.noData ? upD.ready | toCtrl.ready
 
     val upDBuffered = upD.halfPipe()
-    val upHits = B(p.nodes.map(_.m.sourceHit(upDBuffered.source)))
+    val upHits = upSourceToNodeOh(upDBuffered.source)
     dispatchD += DispatchD(upDBuffered, upHits)
   }
 
@@ -686,7 +687,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       val upSource = slotsMem.source.readAsync(slotId)
       val slotOpcode = slotsMem.opcode.readAsync(slotId)
       val isShared = slots.map(s => s.probe.isShared).read(slotId)
-      val upHits = B(p.nodes.map(_.m.sourceHit(upSource)))
+      val upHits = upSourceToNodeOh(upSource)
       val upD = Stream(ChannelD(upBusParam))
       upD.arbitrationFrom(downD)
       upD.size := downD.size
@@ -719,7 +720,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       val upSourceFromSlot = slotsMem.source.readAsync(slotId)
       val upSourceFromSlotC = slotsC.map(_.source).read(downD.source.resized)
       val upSource = fromC ? upSourceFromSlotC | upSourceFromSlot
-      val upHits = B(p.nodes.map(_.m.sourceHit(upSource)))
+      val upHits = upSourceToNodeOh(upSource)
       val upD = Stream(ChannelD(upBusParam))
       upD << downD.takeWhen(toUp).translateWith(downD.withDontCareData())
       upD.source.removeAssignments() := upSource
@@ -752,7 +753,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     val oh = OHMasking.firstV2(hits)
     val source = slotSource(oh)
     val slotsId = OHToUInt(oh)
-    val upHits = B(p.nodes.map(_.m.sourceHit(source)))
+    val upHits = upSourceToNodeOh(source)
     val upD = Stream(TupleBundle(ChannelD(upBusParam), Bits(p.nodes.size bits)))
     upD.valid := hits.orR
     upD._1.opcode  := Opcode.D.GRANT
@@ -804,9 +805,9 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
 
 
 object CoherentHubGen extends App{
-  def basicConfig(slotCount : Int = 2) = {
+  def basicConfig(slotsCount : Int = 2, nodesCount : Int = 1) = {
     CoherentHubParameters(
-      nodes     = List.fill(1)(
+      nodes     = List.fill(nodesCount)(
         NodeParameters(
           m = MastersParameters(List.tabulate(4)(mId =>
             MasterParameters(
@@ -831,13 +832,13 @@ object CoherentHubGen extends App{
               emits = SlaveTransfers(
                 probe = SizeRange(64)
               ),
-              sinkId = SizeMapping(0, slotCount)
+              sinkId = SizeMapping(0, slotsCount)
             )
           )),
           dataBytes = 8
         )
       ),
-      slotCount = slotCount,
+      slotCount = slotsCount,
       cacheSize = 1024,
       wayCount  = 2,
       lineSize  = 64

@@ -191,11 +191,11 @@ case class Bus(p : BusParameter) extends Bundle with IMasterSlave{
   def withSourceOffset(offset : Int, width: Int): Bus ={
     val ret = Bus(p.copy(sourceWidth = width))
     ret << this
-    ret.a.source.removeAssignments() := (this.a.source | offset).resized
+    ret.a.source.removeAssignments() := (this.a.source.resize(width) | offset)
     this.d.source.removeAssignments() := ret.d.source.resized
     if(p.withBCE){
       this.b.source.removeAssignments() := ret.b.source.resized
-      ret.c.source.removeAssignments() := (this.c.source | offset).resized
+      ret.c.source.removeAssignments() := (this.c.source.resize(width) | offset)
     }
     ret
   }
