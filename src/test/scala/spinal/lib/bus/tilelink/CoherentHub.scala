@@ -87,9 +87,9 @@ object CoherentHubTesterUtils{
         ref = globalMem.readBytes(address, bytes)
       }
       block.ordering(globalMem.write(address, block.data))
-      println(f"* $address%x $source")
-      println(toHex(block.data))
-      println(toHex(ref))
+//      println(f"* $address%x $source")
+//      println(toHex(block.data))
+//      println(toHex(ref))
       assert((block.data, ref).zipped.forall(_ == _))
       block
     }
@@ -103,9 +103,9 @@ object CoherentHubTesterUtils{
       val data = agent.get(source, address, bytes){
         ref = globalMem.readBytes(address, bytes)
       }
-      println(f"* $address%x")
-      println(toHex(data))
-      println(toHex(ref))
+//      println(f"* $address%x")
+//      println(toHex(data))
+//      println(toHex(ref))
       assert((data, ref).zipped.forall(_ == _))
     }
     def putFullData(agent : MasterAgent,
@@ -128,19 +128,18 @@ object CoherentHubTesterUtils{
 
     def releaseData(agent : MasterAgent,
                     source : Int,
-                    param : Int,
+                    toCap : Int,
                     block : Block): Unit ={
-      block.dirty = false
-      agent.releaseData(source, param, block.address, block.data){
+      agent.releaseData(source, toCap, block){
         globalMem.write(block.address, block.data)
       }
     }
 
     def release(agent : MasterAgent,
-                    source : Int,
-                    param : Int,
-                    block : Block): Unit ={
-      agent.release(source, param, block.address, blockSize)
+                source : Int,
+                toCap : Int,
+                block : Block): Unit ={
+      agent.release(source, toCap, block)
     }
   }
 }
@@ -362,6 +361,11 @@ class CoherentHubTester extends AnyFunSuite {
   def randomized(utils : CoherentHubTesterUtils.Testbench) : Unit = {
     import utils._
 
+    fork {
+      disableSimWave()
+      sleep(3089530-1000000)
+//      enableSimWave()
+    }
 
     val threads = for(up <- ups; agent = up.agent; m <- agent.bus.p.node.m.masters) yield fork {
       class WeightedDistribution[T](){
@@ -396,13 +400,6 @@ class CoherentHubTester extends AnyFunSuite {
         l.unlock()
       }
 
-
-
-      fork {
-        disableSimWave()
-        sleep(111195110-1000000)
-        enableSimWave()
-      }
       for(source <- m.mapping.flatMap(e => e.id.lowerBound.toInt to e.id.highestBound.toInt)) {
         val distribution = new WeightedDistribution[Unit]()
 
@@ -410,12 +407,10 @@ class CoherentHubTester extends AnyFunSuite {
           lock(address)
           agent.block.get(source, address) match {
             case Some(block) => {
-              block.retain()
               block.dirty match {
-                case false => release(agent,source,Param.reportPruneToCap(block.cap, Param.Cap.toN), block)
-                case true  => releaseData(agent,source,Param.reportPruneToCap(block.cap, Param.Cap.toN), block)
+                case false => release(agent,source,Param.Cap.toN, block)
+                case true  => releaseData(agent,source,Param.Cap.toN, block)
               }
-              block.release()
             }
             case None =>
           }
@@ -492,20 +487,17 @@ class CoherentHubTester extends AnyFunSuite {
           lock(address)
           agent.block.get(source, address) match {
             case Some(block) => {
-              block.retain()
               val capTarget = block.cap match {
                 case Param.Cap.toB => Param.Cap.toN
                 case Param.Cap.toT => List(Param.Cap.toN, Param.Cap.toB).randomPick()
               }
-              println(f"Release $address%x ${simTime()}")
+//              println(f"Release $address%x ${simTime()}")
+              block.retain()
               block.dirty match {
-                case false => release(agent,source,Param.reportPruneToCap(block.cap, capTarget), block)
-                case true  => releaseData(agent,source,Param.reportPruneToCap(block.cap, capTarget), block)
+                case false => release(agent,source,capTarget, block)
+                case true  => releaseData(agent,source,capTarget, block)
               }
               assert(block.cap == capTarget && block.dirty == false)
-              if(simTime() > 111190097){
-                println("asd")
-              }
               block.release()
             }
             case None =>

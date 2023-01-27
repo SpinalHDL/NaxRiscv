@@ -8,7 +8,8 @@ import spinal.lib.sim.{StreamDriver, StreamDriverOoo, StreamMonitor, StreamReady
 import scala.collection.{breakOut, mutable}
 import scala.util.Random
 
-class Block(val address : Long,
+class Block(val source : Int,
+            val address : Long,
             var cap : Int,
             var dirty : Boolean = false,
             var data : Array[Byte] = null,
@@ -45,35 +46,24 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
       val address = b.address.toLong
       val size    = b.size.toInt
 
-      opcode match{
-        case Opcode.B.PROBE_BLOCK => {
-          def ok(param : Int) = probeAck(
-            param   = param,
-            source  = source,
-            address = address,
-            bytes   = 1 << size
-          )
-          block.blocks.get(block.sourceToMaster(source) -> address) match {
-            case Some(b) => {
-              b.cap < param match {
-                case false => ok(Param.Report.fromCap(b.cap))
-                case true  => {
-                  b.probe match {
-                    case Some(x) => ???
-                    case None => b.probe = Some(Probe(source, param, address, size, false))
-                  }
-                  b.retains match {
-                    case 0 => block.changeBlockCap(source, address, param)
-                    case _ =>  println(f"Retained $address%x ${simTime()}")
-                  }
-                }
-              }
-            }
-            case None => ok(Param.Report.NtoN)
+      val probe = Probe(source, param, address, size, opcode == Opcode.B.PROBE_PERM)
+      block.blocks.get(block.sourceToMaster(source) -> address) match {
+        case Some(b) => {
+          b.probe match {
+            case Some(x) => ???
+            case None =>
           }
-          probeBlock(source, param, address, 1 << size)
+          b.retains match {
+            case 0 => block.executeProbe(probe)
+            case _ =>  {
+              b.probe = Some(probe)
+              println(f"Retained $address%x ${simTime()}")
+            }
+          }
         }
+        case None => block.executeProbe(probe)
       }
+      probeBlock(source, param, address, 1 << size)
     }
     val dm = StreamMonitor(bus.d, cd){ p =>
       d(p.source.toInt)(p)
@@ -115,44 +105,72 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     def removeBlock(source : Int, address : Long) = {
       blocks.remove(sourceToMaster(source) -> address)
     }
-    def changeBlockCap(source : Int, address : Long, cap : Int) = {
+    def changeCap(source : Int, address : Long, cap : Int) = {
       val block = apply(source, address)
-      if(debug) println(f"src=$source addr=$address%x ${block.cap} -> $cap time=${simTime()}")
-      val oldCap = block.cap
-      cap match {
-        case Param.Cap.toN => block.cap = Param.Cap.toN; removeBlock(source, address)
-        case _ => block.cap = Param.Cap.toB
-      }
-//      if(block.retains == 0) {
-        block.probe match {
-          case Some(probe) => {
-            block.probe = None
-            assert(probe.perm == false)
-            block.dirty match {
-              case false => probeAck(
-                param = Param.reportPruneToCap(oldCap, cap),
-                source = probe.source,
-                address = probe.address,
-                bytes = probe.size
-              )
-              case true => {
-                probeAckData(
-                  param = Param.reportPruneToCap(oldCap, cap),
-                  source = probe.source,
-                  address = probe.address,
-                  data = block.data
-                )(block.orderingBody())
-                block.dirty = false
-              }
-            }
-          }
-          case None =>
-        }
-//      }
+      if(debug) if(cap != block.cap) println(f"src=$source addr=$address%x ${block.cap} -> $cap time=${simTime()}")
+      block.cap = cap
+      updateBlock(block)
     }
 
-    def retain(source : Int, address : Long) = blocks(sourceToMaster(source) -> address).retain()
-    def release(source : Int, address : Long) = blocks(sourceToMaster(source) -> address).release()
+    def executeProbe(probe : Probe): Unit ={
+      probe.perm match{
+        case false => {
+          blocks.get(sourceToMaster(probe.source) -> probe.address) match {
+            case Some(b) => {
+              b.probe = None
+              b.retains match {
+                case 0 =>  {
+                  b.cap < probe.param match {
+                    case false => probeAck(
+                      source = probe.source,
+                      toCap =  b.cap,
+                      block = b
+                    )
+                    case true  => {
+                      b.dirty match {
+                        case false => probeAck(
+                          source = probe.source,
+                          toCap = probe.param,
+                          block = b
+                        )
+                        case true => {
+                          b.dirty = false
+                          probeAckData(
+                            toCap = probe.param,
+                            source = probe.source,
+                            block = b
+                          )(b.orderingBody())
+                        }
+                      }
+                    }
+                  }
+                }
+                case _ => ???
+              }
+              updateBlock(b)
+            }
+            case None => probeAck(
+              param   = Param.Report.NtoN,
+              source  = probe.source,
+              address = probe.address,
+              bytes   = blockSize
+            )
+          }
+          probeBlock(probe.source, probe.param, probe.address, blockSize)
+        }
+      }
+    }
+
+    def updateBlock(block : Block): Unit ={
+      if(block.retains == 0) {
+        if(block.cap == Param.Cap.toN){
+          removeBlock(block.source, block.address)
+        }
+      }
+    }
+
+//    def retain(source : Int, address : Long) = blocks(sourceToMaster(source) -> address).retain()
+//    def release(source : Int, address : Long) = blocks(sourceToMaster(source) -> address).release()
   }
 
   def probeBlock(source : Int,
@@ -178,6 +196,22 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
       }
     }
   }
+
+  def probeAck(source : Int,
+               toCap : Int,
+               block  :Block): Unit ={
+    this.block.changeCap(source, block.address, toCap)
+    probeAck(source, Param.reportPruneToCap(block.cap, toCap), block.address, blockSize)
+  }
+
+  def probeAckData(source : Int,
+                   toCap : Int,
+                   block  : Block)
+                  (orderingBody : => Unit) : Unit = {
+    this.block.changeCap(source, block.address, toCap)
+    probeAckData(source, Param.reportPruneToCap(block.cap, toCap), block.address, block.data)(orderingBody)
+  }
+
 
   def probeAckData(source : Int,
                    param : Int,
@@ -257,16 +291,13 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
             mutex.unlock()
             val param = d.param.toInt
             onGrant(source, address, param)
-            b = new Block(address, param, false, data){
+            b = new Block(source, address, param, false, data){
               override def release() = {
                 super.release()
-                if(retains == 0) probe match {
-                  case Some(probe) => {
-                    println(f"Retained probe execute $address%x ${simTime()}")
-                    block.changeBlockCap(probe.source, probe.address, probe.param)
-                  }
-                  case None =>
+                if(retains == 0) {
+                  probe.foreach(block.executeProbe)
                 }
+                block.updateBlock(this)
               }
             }
             if(debug) println(f"src=$source addr=$address%x 2 -> $param time=${simTime()}")
@@ -326,20 +357,23 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     data
   }
 
-  def releaseData(source : Int, param : Int, address : Long, data : Seq[Byte])
+  def releaseData(source : Int, toCap : Int, block : Block)
                  (orderingBody : => Unit) : Boolean = {
+    assert(block.dirty)
+    block.dirty = false
+    block.retain()
     ordering(source)(orderingBody)
-    val size = log2Up(data.length)
+    val size = log2Up(blockSize)
     driver.c.burst { push =>
-      for (offset <- 0 until data.length by bus.p.dataBytes) {
+      for (offset <- 0 until blockSize by bus.p.dataBytes) {
         push { p =>
           val buf = new Array[Byte](bus.p.dataBytes)
-          (0 until bus.p.dataBytes).foreach(i => buf(i) = data(offset + i))
+          (0 until bus.p.dataBytes).foreach(i => buf(i) = block.data(offset + i))
           p.opcode #= Opcode.C.RELEASE_DATA
-          p.param #= param
+          p.param #= Param.reportPruneToCap(block.cap, toCap)
           p.size #= size
           p.source #= source
-          p.address #= address + offset
+          p.address #= block.address + offset
           p.data #= buf
           p.corrupt #= false
         }
@@ -356,21 +390,22 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     ordering.checkDone(source)
 
 //    val block = this.block(source, address)
-    val newCap = Param.reportPruneToCap(param)
-    this.block.changeBlockCap(source, address, newCap)
+    this.block.changeCap(source, block.address, toCap)
 
+    block.release()
     denied
   }
 
 
-  def release(source : Int, param : Int, address : Long, bytes : Int) : Boolean = {
+  def release(source : Int, toCap : Int, block : Block) : Boolean = {
+    block.retain()
     val mutex = SimMutex().lock()
     driver.c.single { p =>
       p.opcode #= Opcode.C.RELEASE
-      p.param #= param
-      p.size #= log2Up(bytes)
+      p.param #= Param.reportPruneToCap(block.cap, toCap)
+      p.size #= log2Up(blockSize)
       p.source #= source
-      p.address #= address
+      p.address #= block.address
       p.data.randomize()
       p.corrupt #= false
     }
@@ -383,9 +418,8 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     mutex.await()
     ordering.checkDone(source)
 
-    val newCap = Param.reportPruneToCap(param)
-    this.block.changeBlockCap(source, address, newCap)
-
+    this.block.changeCap(source, block.address, toCap)
+    block.release()
     denied
   }
 
