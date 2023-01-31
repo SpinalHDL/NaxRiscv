@@ -117,6 +117,15 @@ case class ChannelA(override val p : BusParameter) extends BusFragment(p, p.with
   val data    = p.withDataA generate p.data()
   val corrupt = p.withDataA generate Bool()
   override def withBeats = p.withDataA.mux(List(Opcode.A.PUT_FULL_DATA(), Opcode.A.PUT_PARTIAL_DATA()).sContains(opcode), False)
+  def asNoData() : ChannelA = p.withDataA match {
+    case false => CombInit(this)
+    case true => {
+      val a = ChannelA(p.copy(withDataA = false))
+      a.assignSomeByName(this)
+      a
+    }
+  }
+  override def clone = ChannelA(p)
 }
 case class ChannelB(override val p : BusParameter) extends BusFragment(p, p.withDataB) {
   val opcode  = Opcode.B()
@@ -127,7 +136,9 @@ case class ChannelB(override val p : BusParameter) extends BusFragment(p, p.with
   val mask    = p.withDataB generate p.mask()
   val data    = p.withDataB generate p.data()
   val corrupt = p.withDataB generate Bool()
+  assert(!p.withDataB)
   override def withBeats = p.withDataB.mux(False, False) //TODO
+  override def clone = ChannelB(p)
 }
 case class ChannelC(override val p : BusParameter) extends BusFragment(p, true) {
   val opcode  = Opcode.C()
@@ -141,6 +152,7 @@ case class ChannelC(override val p : BusParameter) extends BusFragment(p, true) 
   def isReleaseKind() = opcode === Opcode.C.RELEASE   || opcode === Opcode.C.RELEASE_DATA
   def isDataKind() = opcode === Opcode.C.PROBE_ACK_DATA   || opcode === Opcode.C.RELEASE_DATA
   override def withBeats = List(Opcode.C.PROBE_ACK_DATA(), Opcode.C.RELEASE_DATA()).sContains(opcode)
+  override def clone = ChannelC(p)
 }
 case class ChannelD(override val p : BusParameter) extends BusFragment(p, p.withDataD) {
   val opcode  = Opcode.D()

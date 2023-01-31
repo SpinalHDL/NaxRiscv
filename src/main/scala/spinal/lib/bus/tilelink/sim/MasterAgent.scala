@@ -31,15 +31,15 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
   val debug = true
   val driver = new Area{
     val a = StreamDriverOoo(bus.a, cd)
-    val b = StreamReadyRandomizer(bus.b, cd)
-    val c = StreamDriverOoo(bus.c, cd)
+    val b = bus.p.withBCE generate StreamReadyRandomizer(bus.b, cd)
+    val c = bus.p.withBCE generate StreamDriverOoo(bus.c, cd)
     val d = StreamReadyRandomizer(bus.d, cd)
-    val e = StreamDriverOoo(bus.e, cd)
+    val e = bus.p.withBCE generate StreamDriverOoo(bus.e, cd)
   }
 
   val monitor = new Area{
     val d = Array.fill[ChannelD => Unit](1 << bus.p.sourceWidth)(null)
-    val bm = StreamMonitor(bus.b, cd){ b =>
+    val bm = bus.p.withBCE generate StreamMonitor(bus.b, cd){ b =>
       val opcode  = b.opcode.toEnum
       val param   = b.param.toInt
       val source  = b.source.toInt
@@ -105,9 +105,8 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     def removeBlock(source : Int, address : Long) = {
       blocks.remove(sourceToMaster(source) -> address)
     }
-    def changeCap(source : Int, address : Long, cap : Int) = {
-      val block = apply(source, address)
-      if(debug) if(cap != block.cap) println(f"src=$source addr=$address%x ${block.cap} -> $cap time=${simTime()}")
+    def changeCap(block : Block, cap : Int) = {
+      if(debug) if(cap != block.cap) println(f"src=${block.source} addr=${block.address}%x ${block.cap} -> $cap time=${simTime()}")
       block.cap = cap
       updateBlock(block)
     }
@@ -200,7 +199,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
   def probeAck(source : Int,
                toCap : Int,
                block  :Block): Unit ={
-    this.block.changeCap(source, block.address, toCap)
+    this.block.changeCap(block, toCap)
     probeAck(source, Param.reportPruneToCap(block.cap, toCap), block.address, blockSize)
   }
 
@@ -208,7 +207,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
                    toCap : Int,
                    block  : Block)
                   (orderingBody : => Unit) : Unit = {
-    this.block.changeCap(source, block.address, toCap)
+    this.block.changeCap(block, toCap)
     probeAckData(source, Param.reportPruneToCap(block.cap, toCap), block.address, block.data)(orderingBody)
   }
 
@@ -390,7 +389,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     ordering.checkDone(source)
 
 //    val block = this.block(source, address)
-    this.block.changeCap(source, block.address, toCap)
+    this.block.changeCap(block, toCap)
 
     block.release()
     denied
@@ -418,7 +417,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
     mutex.await()
     ordering.checkDone(source)
 
-    this.block.changeCap(source, block.address, toCap)
+    this.block.changeCap(block, toCap)
     block.release()
     denied
   }

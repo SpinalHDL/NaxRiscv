@@ -103,7 +103,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
   val downPutBusParam = downPutParam.toBusParameter()
   val downGetBusParam = downGetParam.toBusParameter()
   val wordsPerBlock = blockSize / upBusParam.dataBytes
-  def upSourceToNodeOh(source : UInt) = UIntToOh(source.takeHigh(log2Up(p.nodes.size)).asUInt)
+  def upSourceToNodeOh(source : UInt) = UIntToOh(source.takeHigh(log2Up(p.nodes.size)).asUInt, nodes.size)
 
 //  val writebackParam = NodeParameters(
 //    m = MastersParameters(
@@ -280,7 +280,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
           buffer.source.onSel(bufferAllocated)(_ := halted.source)
           locked := False
         }
-        val toSlot = halted.takeWhen(halted.isLast())
+        val toSlot = halted.translateWith(halted.asNoData()).takeWhen(halted.isLast())
         for(i <- 0 until upBusParam.sizeMax) toSlot.address(i) clearWhen(toSlot.size > i)
       }
 
@@ -288,7 +288,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       val toSlot = StreamArbiterFactory().noLock.roundRobin.on(aList)
     }
     val c = new Area{
-      val perBus = for(bus <- buses) yield new Area {
+      val perBus = for(bus <- buses if bus.p.withBCE) yield new Area {
         val (probeFork, dataFork) = StreamFork2(bus.c)
         val toProbeRsp = probeFork.toFlow.takeWhen(bus.c.isProbeKind && bus.c.isFirst())
         val toData = dataFork.takeWhen(dataFork.isDataKind() || dataFork.isReleaseKind())
@@ -322,7 +322,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       }
     }
     val e = new Area{
-      val perBuses = for(bus <- buses) yield new Area{
+      val perBuses = for(bus <- buses if bus.p.withBCE) yield new Area{
         bus.e.ready := True
         when(bus.e.fire) {
           slots.onSel(bus.e.sink.resized) { s =>
@@ -795,7 +795,10 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       (arbiter.inputs, inputs).zipped.map(_ << _)
       val nodeOh = (dispatchD, arbiter.chosenOH.asBools).zipped.map(_.oh.andMask(_)).reduceBalancedTree(_ | _)
       val dispatch = StreamDemuxOh(arbiter.output, group.map(nodeOh.apply))
-      (group.map(upstream.buses.apply), dispatch).zipped.foreach(_.d << _)
+      (group.map(upstream.buses.apply), dispatch).zipped.foreach{(s,m) =>
+        s.d << m
+        s.d.sink.removeAssignments() := m.sink.resized
+      }
     }
   }
 }
@@ -805,9 +808,9 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
 
 
 object CoherentHubGen extends App{
-  def basicConfig(slotsCount : Int = 2, nodesCount : Int = 1) = {
+  def basicConfig(slotsCount : Int = 2, fullCount : Int = 1, coherentOnlyCount : Int = 0, dmaOnlyCount : Int = 0) = {
     CoherentHubParameters(
-      nodes     = List.fill(nodesCount)(
+      nodes     = List.fill(fullCount)(
         NodeParameters(
           m = MastersParameters(List.tabulate(4)(mId =>
             MasterParameters(
@@ -835,6 +838,52 @@ object CoherentHubGen extends App{
               sinkId = SizeMapping(0, slotsCount)
             )
           )),
+          dataBytes = 8
+        )
+      ) ++  List.fill(coherentOnlyCount)(
+        NodeParameters(
+          m = MastersParameters(List.tabulate(4)(mId =>
+            MasterParameters(
+              name = null,
+              mapping = List.fill(1)(MasterSource(
+                emits = MasterTransfers(
+                  acquireT = SizeRange(64),
+                  acquireB = SizeRange(64),
+                  probeAckData = SizeRange(64)
+                ),
+                id = SizeMapping(mId*4, 4),
+                addressRange = List(SizeMapping(0, 1 << 13))
+              ))
+            ))
+          ),
+          s = SlavesParameters(List(
+            SlaveParameters(
+              name = null,
+              emits = SlaveTransfers(
+                probe = SizeRange(64)
+              ),
+              sinkId = SizeMapping(0, slotsCount)
+            )
+          )),
+          dataBytes = 8
+        )
+      ) ++  List.fill(dmaOnlyCount)(
+        NodeParameters(
+          m = MastersParameters(List.tabulate(4)(mId =>
+            MasterParameters(
+              name = null,
+              mapping = List.fill(1)(MasterSource(
+                emits = MasterTransfers(
+                  get = SizeRange(64),
+                  putFull = SizeRange(64),
+                  putPartial = SizeRange(64)
+                ),
+                id = SizeMapping(mId*4, 4),
+                addressRange = List(SizeMapping(0, 1 << 13))
+              ))
+            ))
+          ),
+          s = SlavesParameters(Nil),
           dataBytes = 8
         )
       ),

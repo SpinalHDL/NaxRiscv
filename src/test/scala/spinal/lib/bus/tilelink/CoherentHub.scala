@@ -150,8 +150,10 @@ class CoherentHubTester extends AnyFunSuite {
   class Gen(val gen : () => CoherentHub)
   def Gen(gen : => CoherentHub) : Gen = new Gen(() => gen)
   val basicGen = Gen(new CoherentHub(CoherentHubGen.basicConfig(
-    slotsCount = 2,
-    nodesCount = 2
+    slotsCount = 8,
+    fullCount = 1,
+    coherentOnlyCount = 3,
+    dmaOnlyCount = 2
   )))
 
   val gens = mutable.HashMap[Gen, SimCompiled[CoherentHub]]()
@@ -166,7 +168,7 @@ class CoherentHubTester extends AnyFunSuite {
           if(up.a.valid.toBoolean && up.a.ready.toBoolean){
             timeout = 0
           }
-          if(timeout == 2000){
+          if(timeout == 3000){
             simFailure("No activity :(")
           }
 
@@ -182,11 +184,15 @@ class CoherentHubTester extends AnyFunSuite {
       import utils._
 
       for(agent <- ups.map(_.agent)) {
-        for (bytes <- (6 downto 0).map(1 << _)) {
-          get(agent, 0, 0x1000, bytes)
-        }
-        for (bytes <- (6 downto 0).map(1 << _)) {
-          get(agent, 0, 0x1000 + bytes, bytes)
+        for(m <- agent.bus.p.node.m.masters) {
+          for(mapping <- m.mapping if(mapping.emits.get.some)) {
+            for (bytes <- (6 downto 0).map(1 << _)) {
+              get(agent, mapping.bSourceId, 0x1000, bytes)
+            }
+            for (bytes <- (6 downto 0).map(1 << _)) {
+              get(agent, mapping.bSourceId, 0x1000 + bytes, bytes)
+            }
+          }
         }
       }
     }
@@ -195,15 +201,19 @@ class CoherentHubTester extends AnyFunSuite {
     doSim(basicGen) { utils =>
       import utils._
       for(agent <- ups.map(_.agent)) {
-        for (bytes <- (6 downto 0).map(1 << _)) {
-          val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
-          putFullData(agent, 0, 0x1000, data)
-          get(agent, 0, 0x1000, data.size)
-        }
-        for (bytes <- (6 downto 0).map(1 << _)) {
-          val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
-          putFullData(agent, 0, 0x1000 + bytes, data)
-          get(agent, 0, 0x1000 + bytes, data.size)
+        for (m <- agent.bus.p.node.m.masters) {
+          for (mapping <- m.mapping if (mapping.emits.putFull.some)) {
+            for (bytes <- (6 downto 0).map(1 << _)) {
+              val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
+              putFullData(agent, mapping.bSourceId, 0x1000, data)
+              get(agent, mapping.bSourceId, 0x1000, data.size)
+            }
+            for (bytes <- (6 downto 0).map(1 << _)) {
+              val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
+              putFullData(agent, mapping.bSourceId, 0x1000 + bytes, data)
+              get(agent, mapping.bSourceId, 0x1000 + bytes, data.size)
+            }
+          }
         }
       }
     }
@@ -212,17 +222,21 @@ class CoherentHubTester extends AnyFunSuite {
     doSim(basicGen) { utils =>
       import utils._
       for(agent <- ups.map(_.agent)) {
-        for (bytes <- (6 downto 0).map(1 << _)) {
-          val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
-          val mask = Array.fill[Boolean](bytes)(Random.nextInt(2).toBoolean)
-          putPartialData(agent, 0, 0x1000, data, mask)
-          get(agent, 0, 0x1000, data.size)
-        }
-        for (bytes <- (6 downto 0).map(1 << _)) {
-          val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
-          val mask = Array.fill[Boolean](bytes)(Random.nextInt(2).toBoolean)
-          putPartialData(agent, 0, 0x1000 + bytes, data, mask)
-          get(agent, 0, 0x1000 + bytes, data.size)
+        for (m <- agent.bus.p.node.m.masters) {
+          for (mapping <- m.mapping if (mapping.emits.putPartial.some)) {
+            for (bytes <- (6 downto 0).map(1 << _)) {
+              val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
+              val mask = Array.fill[Boolean](bytes)(Random.nextInt(2).toBoolean)
+              putPartialData(agent, mapping.bSourceId, 0x1000, data, mask)
+              get(agent, mapping.bSourceId, 0x1000, data.size)
+            }
+            for (bytes <- (6 downto 0).map(1 << _)) {
+              val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
+              val mask = Array.fill[Boolean](bytes)(Random.nextInt(2).toBoolean)
+              putPartialData(agent, mapping.bSourceId, 0x1000 + bytes, data, mask)
+              get(agent, mapping.bSourceId, 0x1000 + bytes, data.size)
+            }
+          }
         }
       }
     }
@@ -363,7 +377,7 @@ class CoherentHubTester extends AnyFunSuite {
 
     fork {
       disableSimWave()
-      sleep(3089530-1000000)
+//      sleep(3089530-1000000)
 //      enableSimWave()
     }
 
@@ -400,7 +414,7 @@ class CoherentHubTester extends AnyFunSuite {
         l.unlock()
       }
 
-      for(source <- m.mapping.flatMap(e => e.id.lowerBound.toInt to e.id.highestBound.toInt)) {
+      for(mapping <- m.mapping; source <- mapping.id.lowerBound.toInt to mapping.id.highestBound.toInt) {
         val distribution = new WeightedDistribution[Unit]()
 
         def releaseBlockIfExists(address : Long): Unit ={
@@ -417,14 +431,14 @@ class CoherentHubTester extends AnyFunSuite {
           unlock(address)
         }
 
-        distribution(100){
+        if(mapping.emits.get.some) distribution(100){
           val bytes = blockSizes.toList.randomPick()
           val address = rand.address(bytes)
           releaseBlockIfExists(address & ~(blockSize.toLong-1))
           get(agent, source, address, bytes)
         }
 
-        distribution(100){
+        if(mapping.emits.putPartial.some) distribution(100){
           val bytes = blockSizes.toList.randomPick()
           val address = rand.address(bytes)
           val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
@@ -433,7 +447,7 @@ class CoherentHubTester extends AnyFunSuite {
           putPartialData(agent, source, address , data,mask)
         }
 
-        distribution(100){
+        if(mapping.emits.putFull.some) distribution(100){
           val bytes = blockSizes.toList.randomPick()
           val address = rand.address(bytes)
           val data = Array.fill[Byte](bytes)(Random.nextInt().toByte)
@@ -442,7 +456,7 @@ class CoherentHubTester extends AnyFunSuite {
         }
 
         //Read block
-        distribution(100){
+        if(mapping.emits.acquireB.some) distribution(100){
           val address = rand.address(blockSize)
           val data = Array.fill[Byte](blockSize)(Random.nextInt().toByte)
           lock(address)
@@ -457,7 +471,7 @@ class CoherentHubTester extends AnyFunSuite {
         }
 
         //Write block
-        distribution(100){
+        if(mapping.emits.acquireT.some) distribution(100){
           val address = rand.address(blockSize)
           val data = Array.fill[Byte](blockSize)(Random.nextInt().toByte)
           lock(address)
@@ -482,7 +496,7 @@ class CoherentHubTester extends AnyFunSuite {
         }
 
         //release
-        distribution(50){
+        if(mapping.emits.acquireB.some) distribution(50){
           val address = randomAddress
           lock(address)
           agent.block.get(source, address) match {
@@ -512,18 +526,19 @@ class CoherentHubTester extends AnyFunSuite {
       }
     }
     fork{
+      val upsWithBCE = ups.filter(_.agent.bus.p.withBCE)
       while(true){
-        ups.randomPick().agent.driver.b.factor = 1.1f-Random.nextFloat()*Random.nextFloat()
+        upsWithBCE.randomPick().agent.driver.b.factor = 1.1f-Random.nextFloat()*Random.nextFloat()
         ups.randomPick().agent.driver.d.factor = 1.1f-Random.nextFloat()*Random.nextFloat()
         ups.randomPick().agent.driver.a.ctrl.transactionDelay  = () => {
           val x = Random.nextDouble()
           (x*x*Random.nextInt(10)).toInt
         }
-        ups.randomPick().agent.driver.c.ctrl.transactionDelay  = () => {
+        upsWithBCE.randomPick().agent.driver.c.ctrl.transactionDelay  = () => {
           val x = Random.nextDouble()
           (x*x*Random.nextInt(10)).toInt
         }
-        ups.randomPick().agent.driver.e.ctrl.transactionDelay  = () => {
+        upsWithBCE.randomPick().agent.driver.e.ctrl.transactionDelay  = () => {
           val x = Random.nextDouble()
           (x*x*Random.nextInt(10)).toInt
         }
