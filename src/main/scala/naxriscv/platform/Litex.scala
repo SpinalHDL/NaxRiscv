@@ -142,7 +142,7 @@ object LitexGen extends App{
       assert(!(r.onMemory && !r.isCachable), s"Region $r isn't supported by NaxRiscv, data cache will always cache memory")
       assert(!(r.onMemory &&  r.isIo ), s"Region $r isn't supported by NaxRiscv, IO have to be on peripheral bus")
     }
-  }.parse(args))
+  }.parse(args, Unit).nonEmpty)
 
   val spinalConfig = SpinalConfig(inlineRom = true, targetDirectory = netlistDirectory)
   spinalConfig.addTransformationPhase(new MemReadDuringWritePatcherPhase)
