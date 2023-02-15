@@ -100,6 +100,21 @@ object Param{
 
 
 
+object ChannelA{
+  def apply(node : NodeParameters) : ChannelA = ChannelA(node.toBusParameter())
+}
+object ChannelB{
+  def apply(node : NodeParameters) : ChannelB = ChannelB(node.toBusParameter())
+}
+object ChannelC{
+  def apply(node : NodeParameters) : ChannelC = ChannelC(node.toBusParameter())
+}
+object ChannelD{
+  def apply(node : NodeParameters) : ChannelD = ChannelD(node.toBusParameter())
+}
+object ChannelE{
+  def apply(node : NodeParameters) : ChannelE = ChannelE(node.toBusParameter())
+}
 
 
 abstract class BusFragment(val p : BusParameter, val withData : Boolean) extends Bundle {
@@ -178,6 +193,10 @@ case class ChannelE(p : BusParameter) extends Bundle {
   val sink    = p.sink()
 }
 
+object Bus{
+  def  apply(p : NodeParameters) : Bus = Bus(p.toBusParameter())
+}
+
 case class Bus(p : BusParameter) extends Bundle with IMasterSlave{
   val a = Stream(ChannelA(p))
   val b = p.withBCE generate Stream(ChannelB(p))
@@ -199,6 +218,18 @@ case class Bus(p : BusParameter) extends Bundle with IMasterSlave{
       e << m.e
     }
   }
+  def >>(s : Bus): Unit = s << this
+
+  def combStage() : Bus = {
+    val ret = Bus(p)
+    ret << this
+    ret
+  }
+  def fromCombStage() : Bus = {
+    val ret = Bus(p)
+    ret >> this
+    ret
+  }
 
   def withSourceOffset(offset : Int, width: Int): Bus ={
     val ret = Bus(p.copy(sourceWidth = width))
@@ -208,6 +239,15 @@ case class Bus(p : BusParameter) extends Bundle with IMasterSlave{
     if(p.withBCE){
       this.b.source.removeAssignments() := ret.b.source.resized
       ret.c.source.removeAssignments() := (this.c.source.resize(width) | offset)
+    }
+    ret
+  }
+  def fromSinkOffset(offset : Int, width: Int): Bus ={
+    val ret = Bus(p.copy(sinkWidth = width))
+    ret >> this
+    if(p.withBCE){
+      ret.d.sink.removeAssignments() := (this.d.sink.resize(width) | offset)
+      this.e.sink.removeAssignments() := ret.e.sink.resized
     }
     ret
   }

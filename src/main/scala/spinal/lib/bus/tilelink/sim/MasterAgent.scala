@@ -28,7 +28,7 @@ case class Probe(source : Int, param : Int, address : Long, size : Int, perm : B
 }
 
 class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
-  val debug = true
+  var debug = false
   val driver = new Area{
     val a = StreamDriverOoo(bus.a, cd)
     val b = bus.p.withBCE generate StreamReadyRandomizer(bus.b, cd)
@@ -57,7 +57,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
             case 0 => block.executeProbe(probe)
             case _ =>  {
               b.probe = Some(probe)
-              println(f"Retained $address%x ${simTime()}")
+              if(debug) println(f"Retained $address%x ${simTime()}")
             }
           }
         }

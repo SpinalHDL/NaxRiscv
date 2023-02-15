@@ -76,6 +76,16 @@ case class MasterTransfers(acquireT     : SizeRange = SizeRange.none,
     putPartial.max,
     probeAckData.max
   ).max
+
+  def contains(opcode : Opcode.A.C) : Bool = {
+    opcode.mux(
+      Opcode.A.GET              -> Bool(get.some),
+      Opcode.A.PUT_FULL_DATA    -> Bool(putFull.some),
+      Opcode.A.PUT_PARTIAL_DATA -> Bool(putPartial.some),
+      Opcode.A.ACQUIRE_BLOCK    -> Bool(acquireB.some || acquireT.some),
+      Opcode.A.ACQUIRE_PERM     -> Bool(acquireB.some || acquireT.some)
+    )
+  }
 }
 
 object MasterTransfers {
@@ -91,13 +101,15 @@ object MasterTransfers {
   def unknownSupports = MasterTransfers()
 
   def intersect(values : Seq[MasterTransfers]) : MasterTransfers = values.reduce(_ intersect _)
+  def mincover(values : Seq[MasterTransfers]) : MasterTransfers = values.reduce(_ mincover _)
 }
 
 
 
 case class MasterSource(id           : AddressMapping,
                         emits        : MasterTransfers,
-                        addressRange : Seq[AddressMapping]){
+                        addressRange : Seq[AddressMapping],
+                        isExecute : Boolean = false){
   def withSourceOffset(offset : Int) = copy(id = id.withOffset(offset))
   def bSourceId = id.lowerBound.toInt
 }
@@ -108,7 +120,7 @@ case class MasterParameters (name    : Nameable,
   def withSourceOffset(offset : Int): MasterParameters ={
     copy(mapping = mapping.map(_.withSourceOffset(offset)))
   }
-  val emits = MasterTransfers.intersect(mapping.map(_.emits))
+  val emits = MasterTransfers.mincover(mapping.map(_.emits))
   val sourceWidth = mapping.map(_.id.width).max
   def bSourceId = mapping.head.bSourceId
   def sourceHit(source : UInt) = mapping.map(_.id.hit(source)).orR
@@ -121,9 +133,13 @@ case class MastersParameters(masters   : Seq[MasterParameters]) extends Override
   val sizeBytes = masters.map(_.emits.sizeBytes).max
   val sourceWidth = masters.map(_.sourceWidth).max
   val withBCE = masters.map(_.emits.withBCE).reduce(_ || _)
+  val emits = MasterTransfers.mincover(masters.map(_.emits))
   def withDataA = masters.map(_.emits.withDataA).reduce(_ || _)
   def withDataD = masters.map(_.emits.withDataD).reduce(_ || _)
   def sourceHit(source : UInt) = masters.map(_.sourceHit(source)).orR
-  def getMasterFromSource(source : Int) = masters.find(_.mapping.exists(_.id.hit(source))).get
+  def getMasterFromSource(source : Int) = masters.find(_.mapping.exists(_.id.hit(source))) match {
+    case Some(x) => x
+    case None => null
+  }
 }
 
