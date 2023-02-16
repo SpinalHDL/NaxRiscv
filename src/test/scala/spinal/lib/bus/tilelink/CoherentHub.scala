@@ -19,6 +19,17 @@ object CoherentHubTesterUtils{
     val mainMem = SparseMemory()
     val globalMem = SparseMemory(mainMem.seed)
 
+    var timeout = 0
+    cd.onSamplings{
+      timeout += 1
+      if(timeout == 4000){
+        simFailure("No activity :(")
+      }
+    }
+    def clearTimeout(): Unit ={
+      timeout = 0
+    }
+
     val rand = new Area{
       def address() : Long = Random.nextLong() & (1l << upBuses(0).p.addressWidth)-1
       def address(bytes : Int) : Long = address() & ~(bytes.toLong-1)
@@ -146,7 +157,7 @@ object CoherentHubTesterUtils{
 
 //TODO randomized agent transaction order
 class CoherentHubTester extends AnyFunSuite {
-
+  Random.setSeed(10)
   class Gen(val gen : () => CoherentHub)
   def Gen(gen : => CoherentHub) : Gen = new Gen(() => gen)
   val basicGen = Gen(new CoherentHub(CoherentHubGen.basicConfig(
@@ -155,25 +166,15 @@ class CoherentHubTester extends AnyFunSuite {
     coherentOnlyCount = 3,
     dmaOnlyCount = 2
   )))
+  def randomGen = {
+    val cfg = CoherentHub.randomConfig()
+    Gen(new CoherentHub(cfg))
+  }
 
   val gens = mutable.HashMap[Gen, SimCompiled[CoherentHub]]()
   def doSim(gen : Gen)(body : CoherentHubTesterUtils.Testbench => Unit) = {
     gens.getOrElseUpdate(gen, SimConfig.withFstWave.addSimulatorFlag("--trace-max-width 256").compile(gen.gen())).doSim(seed = 42){dut =>
       dut.clockDomain.forkStimulus(10)
-//      SimTimeout(2000000*10)
-      var timeout = 0
-      dut.clockDomain.onSamplings{
-        for(up <- dut.io.ups){
-          timeout += 1
-          if(up.a.valid.toBoolean && up.a.ready.toBoolean){
-            timeout = 0
-          }
-          if(timeout == 3000){
-            simFailure("No activity :(")
-          }
-
-        }
-      }
       val setup = new CoherentHubTesterUtils.Testbench(dut.clockDomain, dut.io.ups, List(dut.io.downGet, dut.io.downPut), dut.io.ordering.all)
       body(setup)
     }
@@ -192,6 +193,7 @@ class CoherentHubTester extends AnyFunSuite {
             for (bytes <- (6 downto 0).map(1 << _)) {
               get(agent, mapping.bSourceId, 0x1000 + bytes, bytes)
             }
+            clearTimeout()
           }
         }
       }
@@ -214,6 +216,7 @@ class CoherentHubTester extends AnyFunSuite {
               get(agent, mapping.bSourceId, 0x1000 + bytes, data.size)
             }
           }
+          clearTimeout()
         }
       }
     }
@@ -236,6 +239,7 @@ class CoherentHubTester extends AnyFunSuite {
               putPartialData(agent, mapping.bSourceId, 0x1000 + bytes, data, mask)
               get(agent, mapping.bSourceId, 0x1000 + bytes, data.size)
             }
+            clearTimeout()
           }
         }
       }
@@ -256,6 +260,7 @@ class CoherentHubTester extends AnyFunSuite {
           block.release()
         }
         val block2 = acquireBlock(ups(0).agent, 4, Param.Grow.NtoT, 0x1000 + i * 0x40, 0x40)
+        clearTimeout()
       }
     }
   }
@@ -277,6 +282,7 @@ class CoherentHubTester extends AnyFunSuite {
         assert(block.cap == Param.Cap.toB)
         acquireBlock(ups(0).agent, 0, Param.Grow.BtoT, 0x1000, 0x40)
         assert(block.cap == Param.Cap.toT)
+        clearTimeout()
       }
     }
   }
@@ -296,6 +302,7 @@ class CoherentHubTester extends AnyFunSuite {
         assert(block.cap == Param.Cap.toB)
         acquireBlock(ups(0).agent, 0, Param.Grow.BtoT, 0x1000, 0x40)
         assert(block.cap == Param.Cap.toT)
+        clearTimeout()
       }
     }
   }
@@ -308,6 +315,7 @@ class CoherentHubTester extends AnyFunSuite {
         assert(block.cap == Param.Cap.toN)
         block = acquireBlock(ups(0).agent, 0, Param.Grow.BtoT, 0x1000, 0x40)
         assert(block.cap == Param.Cap.toT)
+        clearTimeout()
       }
     }
   }
@@ -368,19 +376,25 @@ class CoherentHubTester extends AnyFunSuite {
           putPartialData(ups(busId).agent, 0, 0x1000 + i * 0x40, data, mask)
           cd.waitSampling(10)
         }
+
+        clearTimeout()
       }
     }
   }
 
-  def randomized(utils : CoherentHubTesterUtils.Testbench) : Unit = {
+  def randomized(utils : CoherentHubTesterUtils.Testbench, transactionPerSource : Int) : Unit = {
     import utils._
 
     fork {
       disableSimWave()
-//      sleep(3089530-1000000)
+      sleep(22220620-1000000)
 //      enableSimWave()
     }
-
+    val inflight = mutable.LinkedHashMap[(Bus, Int), Long]()
+    onSimEnd {
+      println("Inflights : ")
+      println(inflight.mkString("\n"))
+    }
     val threads = for(up <- ups; agent = up.agent; m <- agent.bus.p.node.m.masters) yield fork {
       class WeightedDistribution[T](){
         val storage = ArrayBuffer[(Int, () => T)]()
@@ -457,6 +471,7 @@ class CoherentHubTester extends AnyFunSuite {
 
         //Read block
         if(mapping.emits.acquireB.some) distribution(100){
+//          println(s"read ${simTime()}")
           val address = rand.address(blockSize)
           val data = Array.fill[Byte](blockSize)(Random.nextInt().toByte)
           lock(address)
@@ -467,11 +482,14 @@ class CoherentHubTester extends AnyFunSuite {
               b = acquireBlock(agent, source, Param.Grow.NtoB, address, blockSize)
             }
           }
+          assert(b.cap < Param.Cap.toN)
+          if(b.dirty == false) assert((b.data, globalMem.readBytes(address, blockSize)).zipped.forall(_ == _))
           unlock(address)
         }
 
         //Write block
         if(mapping.emits.acquireT.some) distribution(100){
+//          println(s"write ${simTime()}")
           val address = rand.address(blockSize)
           val data = Array.fill[Byte](blockSize)(Random.nextInt().toByte)
           lock(address)
@@ -498,6 +516,7 @@ class CoherentHubTester extends AnyFunSuite {
         //release
         if(mapping.emits.acquireB.some) distribution(50){
           val address = randomAddress
+//          println(s"release ${simTime()}")
           lock(address)
           agent.block.get(source, address) match {
             case Some(block) => {
@@ -519,10 +538,15 @@ class CoherentHubTester extends AnyFunSuite {
           unlock(address)
         }
 
-        for (r <- 0 until 40000) {
+        inflight(agent.bus -> source) = simTime()
+        for (r <- 0 until transactionPerSource) {
+          var done = false
           distribution.randomExecute()
+//          println(s"${agent.bus -> source} ${simTime()}")
+          clearTimeout()
           cd.waitSampling(Random.nextInt(50))
         }
+        inflight.remove(agent.bus -> source)
       }
     }
     fork{
@@ -554,7 +578,7 @@ class CoherentHubTester extends AnyFunSuite {
           (x*x*Random.nextInt(10)).toInt
         }
 
-        cd.waitSampling(1000)
+        cd.waitSampling(100)
 
       }
     }
@@ -563,8 +587,17 @@ class CoherentHubTester extends AnyFunSuite {
   }
 
   test("randomized"){
-    doSim(basicGen)(randomized)
+    doSim(basicGen)(e => randomized(e, 10000))
   }
+  for(i <- 0 until 50) test(s"randomized_square_$i"){
+    Random.setSeed(i+100)
+    doSim(randomGen)(e => randomized(e, 500))
+  }
+
+//  test("debug"){ //5 34
+//    Random.setSeed(93+100)
+//    doSim(randomGen)(e => randomized(e, 1000))
+//  }
 }
 
 
