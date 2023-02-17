@@ -74,8 +74,8 @@ case class SizeRange(min : Int, max : Int){
 
 
 
-case class NodeParameters(m : MastersParameters,
-                          s : SlavesParameters,
+case class NodeParameters(m : M2sParameters,
+                          s : S2mParameters,
                           dataBytes : Int){
   val sizeBytes = s.sizeBytes max m.sizeBytes
   val withBCE = s.withBCE || m.withBCE
@@ -102,9 +102,9 @@ object NodeParameters{
     )
   }
 
-  def mergeMasters(node : Seq[MastersParameters]): MastersParameters ={
+  def mergeMasters(node : Seq[M2sParameters]): M2sParameters ={
     val sourcePreWidth = node.map(_.sourceWidth).max
-    MastersParameters(
+    M2sParameters(
       masters = node.zipWithIndex.flatMap{
         case (m, i) => m.masters.map(_.withSourceOffset(i << sourcePreWidth))
       }
@@ -112,16 +112,16 @@ object NodeParameters{
   }
 
 
-  def mergeSlaves(node : Seq[SlavesParameters]): SlavesParameters ={
+  def mergeSlaves(node : Seq[S2mParameters]): S2mParameters ={
     if(node.exists(_.withBCE)) {
       val sinkPreWidth = node.map(_.sinkWidth).max
-      SlavesParameters(
+      S2mParameters(
         slaves = node.zipWithIndex.flatMap {
           case (s, i) => s.slaves.map(_.withSinkOffset(i << sinkPreWidth))
         }
       )
     } else {
-      SlavesParameters(
+      S2mParameters(
         slaves = node.zipWithIndex.flatMap {
           case (s, i) => s.slaves
         }

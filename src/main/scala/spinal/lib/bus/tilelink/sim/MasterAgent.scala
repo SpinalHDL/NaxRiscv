@@ -93,7 +93,7 @@ class MasterAgent (val bus : Bus, cd : ClockDomain, blockSize : Int = 64) {
 
   val block = new Area{
     val sourceToMaster = (0 until  1 << bus.p.sourceWidth).map(source => bus.p.node.m.getMasterFromSource(source))
-    val blocks = mutable.LinkedHashMap[(MasterParameters, Long), Block]()
+    val blocks = mutable.LinkedHashMap[(M2sAgent, Long), Block]()
     def apply(source : Int, address : Long) = blocks(sourceToMaster(source) -> address)
     def get(source : Int, address : Long) = blocks.get(sourceToMaster(source) -> address)
     def contains(source : Int, address : Long) = blocks.contains(sourceToMaster(source) -> address)

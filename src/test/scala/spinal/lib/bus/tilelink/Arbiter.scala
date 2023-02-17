@@ -4,7 +4,7 @@ import spinal.core._
 import spinal.lib._
 
 object Arbiter{
-  def outputMastersFrom(inputs : Seq[MastersParameters]) : MastersParameters = {
+  def outputMastersFrom(inputs : Seq[M2sParameters]) : M2sParameters = {
     NodeParameters.mergeMasters(inputs)
   }
   def outputNodeFrom(inputs : Seq[NodeParameters]) : NodeParameters = {

@@ -10,10 +10,10 @@ object Decoder{
   def inputNodeFrom(outputs : Seq[NodeParameters]) : NodeParameters = {
     NodeParameters.mergeNodes(outputs)
   }
-  def inputSlavesFrom(outputs : Seq[SlavesParameters]) : SlavesParameters = {
+  def inputSlavesFrom(outputs : Seq[S2mParameters]) : S2mParameters = {
     NodeParameters.mergeSlaves(outputs)
   }
-  def outputMastersFrom(input : MastersParameters, output : SlaveSupport) : MastersParameters = {
+  def outputMastersFrom(input : M2sParameters, output : M2sSupport) : M2sParameters = {
     input.copy(
       masters = input.masters.map(e =>
         e.copy(
@@ -28,7 +28,7 @@ object Decoder{
   }
 }
 
-case class Decoder(inputNode : NodeParameters, outputsSupports : Seq[SlaveSupport], mapping : Seq[AddressMapping]) extends Component{
+case class Decoder(inputNode : NodeParameters, outputsSupports : Seq[M2sSupport], mapping : Seq[AddressMapping]) extends Component{
   val outputsNodes = outputsSupports.map(support => inputNode.copy(
     m = Decoder.outputMastersFrom(inputNode.m, support)
   ))

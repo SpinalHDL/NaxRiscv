@@ -5,18 +5,18 @@ import spinal.lib._
 import spinal.lib.bus.misc.AddressMapping
 
 
-case class SlaveTransfers(probe:      SizeRange = SizeRange.none,
-                          arithmetic: SizeRange = SizeRange.none,
-                          logical:    SizeRange = SizeRange.none,
-                          get:        SizeRange = SizeRange.none,
-                          putFull:    SizeRange = SizeRange.none,
-                          putPartial: SizeRange = SizeRange.none,
-                          hint:       SizeRange = SizeRange.none
+case class S2mTransfers(probe:      SizeRange = SizeRange.none,
+                        arithmetic: SizeRange = SizeRange.none,
+                        logical:    SizeRange = SizeRange.none,
+                        get:        SizeRange = SizeRange.none,
+                        putFull:    SizeRange = SizeRange.none,
+                        putPartial: SizeRange = SizeRange.none,
+                        hint:       SizeRange = SizeRange.none
                          )  {
   def withBCE = probe.some
   def withDataB = putFull.some || putPartial.some
 
-  def intersect(rhs: SlaveTransfers) = SlaveTransfers(
+  def intersect(rhs: S2mTransfers) = S2mTransfers(
     probe      = probe     .intersect(rhs.probe),
     arithmetic = arithmetic.intersect(rhs.arithmetic),
     logical    = logical   .intersect(rhs.logical),
@@ -25,7 +25,7 @@ case class SlaveTransfers(probe:      SizeRange = SizeRange.none,
     putPartial = putPartial.intersect(rhs.putPartial),
     hint       = hint      .intersect(rhs.hint)
   )
-  def mincover(rhs: SlaveTransfers) = SlaveTransfers(
+  def mincover(rhs: S2mTransfers) = S2mTransfers(
     probe      = probe     .mincover(rhs.probe),
     arithmetic = arithmetic.mincover(rhs.arithmetic),
     logical    = logical   .mincover(rhs.logical),
@@ -71,8 +71,8 @@ case class SlaveTransfers(probe:      SizeRange = SizeRange.none,
   ).max
 }
 
-object SlaveTransfers {
-  def unknownEmits = SlaveTransfers(
+object S2mTransfers {
+  def unknownEmits = S2mTransfers(
     arithmetic = SizeRange(1, 4096),
     logical    = SizeRange(1, 4096),
     get        = SizeRange(1, 4096),
@@ -80,23 +80,23 @@ object SlaveTransfers {
     putPartial = SizeRange(1, 4096),
     hint       = SizeRange(1, 4096),
     probe      = SizeRange(1, 4096))
-  def unknownSupports = SlaveTransfers()
-  def intersect(values : Seq[SlaveTransfers]) : SlaveTransfers = values.reduce(_ intersect _)
+  def unknownSupports = S2mTransfers()
+  def intersect(values : Seq[S2mTransfers]) : S2mTransfers = values.reduce(_ intersect _)
 }
 
 
 
-case class SlaveParameters (name    : Nameable,
-                            sinkId  : AddressMapping,
-                            emits : SlaveTransfers) extends OverridedEqualsHashCode {
+case class S2mAgent(name    : Nameable,
+                    sinkId  : AddressMapping,
+                    emits   : S2mTransfers) extends OverridedEqualsHashCode {
   val sinkWidth = sinkId.width
-  def withSinkOffset(offset : Int): SlaveParameters ={
+  def withSinkOffset(offset : Int): S2mAgent ={
     copy(sinkId = sinkId.withOffset(offset))
   }
 }
 
 
-case class SlavesParameters(slaves    : Seq[SlaveParameters]) extends OverridedEqualsHashCode {
+case class S2mParameters(slaves    : Seq[S2mAgent]) extends OverridedEqualsHashCode {
   def defaulted[T](default : T)(body : => T) : T = if(slaves.isEmpty) default else body
   val sizeBytes = defaulted(0)(slaves.map(_.emits.sizeBytes).max)
   val sinkWidth = defaulted(0)(slaves.map(_.sinkWidth).max)

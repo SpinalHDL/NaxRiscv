@@ -5,21 +5,21 @@ import spinal.lib._
 import spinal.lib.bus.misc.AddressMapping
 
 
-case class MasterTransfers(acquireT     : SizeRange = SizeRange.none,
-                           acquireB     : SizeRange = SizeRange.none,
-                           arithmetic   : SizeRange = SizeRange.none,
-                           logical      : SizeRange = SizeRange.none,
-                           get          : SizeRange = SizeRange.none,
-                           putFull      : SizeRange = SizeRange.none,
-                           putPartial   : SizeRange = SizeRange.none,
-                           hint         : SizeRange = SizeRange.none,
-                           probeAckData : SizeRange = SizeRange.none){
+case class M2sTransfers(acquireT     : SizeRange = SizeRange.none,
+                        acquireB     : SizeRange = SizeRange.none,
+                        arithmetic   : SizeRange = SizeRange.none,
+                        logical      : SizeRange = SizeRange.none,
+                        get          : SizeRange = SizeRange.none,
+                        putFull      : SizeRange = SizeRange.none,
+                        putPartial   : SizeRange = SizeRange.none,
+                        hint         : SizeRange = SizeRange.none,
+                        probeAckData : SizeRange = SizeRange.none){
 
   def withBCE = acquireT.some || acquireB.some
   def withDataA = putFull.some
   def withDataD = get.some || acquireT.some || acquireB.some || logical.some || arithmetic.some
 
-  def intersect(rhs: MasterTransfers) = MasterTransfers(
+  def intersect(rhs: M2sTransfers) = M2sTransfers(
     acquireT     = acquireT    .intersect(rhs.acquireT),
     acquireB     = acquireB    .intersect(rhs.acquireB),
     arithmetic   = arithmetic  .intersect(rhs.arithmetic),
@@ -29,7 +29,7 @@ case class MasterTransfers(acquireT     : SizeRange = SizeRange.none,
     putPartial   = putPartial  .intersect(rhs.putPartial),
     hint         = hint        .intersect(rhs.hint),
     probeAckData = probeAckData.intersect(rhs.probeAckData))
-  def mincover(rhs: MasterTransfers) = MasterTransfers(
+  def mincover(rhs: M2sTransfers) = M2sTransfers(
     acquireT     = acquireT    .mincover(rhs.acquireT),
     acquireB     = acquireB    .mincover(rhs.acquireB),
     arithmetic   = arithmetic  .mincover(rhs.arithmetic),
@@ -88,8 +88,8 @@ case class MasterTransfers(acquireT     : SizeRange = SizeRange.none,
   }
 }
 
-object MasterTransfers {
-  def unknownEmits = MasterTransfers(
+object M2sTransfers {
+  def unknownEmits = M2sTransfers(
     acquireT   = SizeRange(1, 4096),
     acquireB   = SizeRange(1, 4096),
     arithmetic = SizeRange(1, 4096),
@@ -98,42 +98,44 @@ object MasterTransfers {
     putFull    = SizeRange(1, 4096),
     putPartial = SizeRange(1, 4096),
     hint       = SizeRange(1, 4096))
-  def unknownSupports = MasterTransfers()
+  def unknownSupports = M2sTransfers()
 
-  def intersect(values : Seq[MasterTransfers]) : MasterTransfers = values.reduce(_ intersect _)
-  def mincover(values : Seq[MasterTransfers]) : MasterTransfers = values.reduce(_ mincover _)
+  def intersect(values : Seq[M2sTransfers]) : M2sTransfers = values.reduce(_ intersect _)
+  def mincover(values : Seq[M2sTransfers]) : M2sTransfers = values.reduce(_ mincover _)
 }
 
 
 
-case class MasterSource(id           : AddressMapping,
-                        emits        : MasterTransfers,
-                        addressRange : Seq[AddressMapping],
-                        isExecute : Boolean = false){
+case class M2sSource(id           : AddressMapping,
+                     emits        : M2sTransfers,
+                     addressRange : Seq[AddressMapping],
+                     isExecute : Boolean = false){
   def withSourceOffset(offset : Int) = copy(id = id.withOffset(offset))
   def bSourceId = id.lowerBound.toInt
 }
 
-case class MasterParameters (name    : Nameable,
-                             mapping : Seq[MasterSource]) extends OverridedEqualsHashCode {
+case class M2sAgent(name    : Nameable,
+                    mapping : Seq[M2sSource]) extends OverridedEqualsHashCode {
   val addressWidth = log2Up(mapping.flatMap(_.addressRange.map(_.highestBound)).max+1)
-  def withSourceOffset(offset : Int): MasterParameters ={
+  def withSourceOffset(offset : Int): M2sAgent ={
     copy(mapping = mapping.map(_.withSourceOffset(offset)))
   }
-  val emits = MasterTransfers.mincover(mapping.map(_.emits))
+  val emits = M2sTransfers.mincover(mapping.map(_.emits))
   val sourceWidth = mapping.map(_.id.width).max
   def bSourceId = mapping.head.bSourceId
   def sourceHit(source : UInt) = mapping.map(_.id.hit(source)).orR
+  def withExecute = mapping.exists(_.isExecute)
 }
 
 
 
-case class MastersParameters(masters   : Seq[MasterParameters]) extends OverridedEqualsHashCode {
+case class M2sParameters(masters   : Seq[M2sAgent]) extends OverridedEqualsHashCode {
   val addressWidth = masters.map(_.addressWidth).max
   val sizeBytes = masters.map(_.emits.sizeBytes).max
   val sourceWidth = masters.map(_.sourceWidth).max
   val withBCE = masters.map(_.emits.withBCE).reduce(_ || _)
-  val emits = MasterTransfers.mincover(masters.map(_.emits))
+  val emits = M2sTransfers.mincover(masters.map(_.emits))
+  def withExecute = masters.exists(_.withExecute)
   def withDataA = masters.map(_.emits.withDataA).reduce(_ || _)
   def withDataD = masters.map(_.emits.withDataD).reduce(_ || _)
   def sourceHit(source : UInt) = masters.map(_.sourceHit(source)).orR

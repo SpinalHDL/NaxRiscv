@@ -69,12 +69,12 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
   val upParamPerNodeSourceWidth = nodes.map(_.m.sourceWidth).max
   val upBusParam = upParam.toBusParameter()
   val downPutParam = NodeParameters(
-    m = MastersParameters(
-      List(MasterParameters(
+    m = M2sParameters(
+      List(M2sAgent(
         name = this,
-        mapping = List(MasterSource(
+        mapping = List(M2sSource(
           id = SizeMapping(0, downIdCount),
-          emits    = MasterTransfers(
+          emits    = M2sTransfers(
             putFull    = SizeRange(p.blockSize),
             putPartial = SizeRange(1, p.blockSize)
           ),
@@ -82,23 +82,23 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         ))
       ))
     ),
-    s = SlavesParameters(slaves = Nil),
+    s = S2mParameters(slaves = Nil),
     dataBytes = upParam.dataBytes
   )
   val downGetParam = NodeParameters(
-    m = MastersParameters(
-      List(MasterParameters(
+    m = M2sParameters(
+      List(M2sAgent(
         name = this,
-        mapping = List(MasterSource(
+        mapping = List(M2sSource(
           id = SizeMapping(0, slotCount),
-          emits    = MasterTransfers(
+          emits    = M2sTransfers(
             get        = SizeRange(1, p.blockSize)
           ),
           addressRange = upParam.m.masters.flatMap(_.mapping.flatMap(_.addressRange)).distinctLinked.toList
         ))
       ))
     ),
-    s = SlavesParameters(slaves = Nil),
+    s = S2mParameters(slaves = Nil),
     dataBytes = upParam.dataBytes
   )
   val downPutBusParam = downPutParam.toBusParameter()
@@ -786,16 +786,16 @@ object CoherentHub{
     do {
       r = CoherentHubParameters(
         nodes = List.fill(Random.nextInt(8) + 1) {
-          val m = MastersParameters {
+          val m = M2sParameters {
             var offset = 0
             List.tabulate(Random.nextInt(4) + 1) { mId =>
-              MasterParameters(
+              M2sAgent(
                 name = null,
                 mapping = List.fill(Random.nextInt(3) + 1) {
                   val idSize = Random.nextInt(3) + 1
-                  val s = MasterSource(
+                  val s = M2sSource(
                     emits = Random.nextInt(3) match {
-                      case 0 => MasterTransfers(
+                      case 0 => M2sTransfers(
                         get = SizeRange(64),
                         putFull = SizeRange(64),
                         putPartial = SizeRange(64),
@@ -803,12 +803,12 @@ object CoherentHub{
                         acquireB = SizeRange(64),
                         probeAckData = SizeRange(64)
                       )
-                      case 1 => MasterTransfers(
+                      case 1 => M2sTransfers(
                         acquireT = SizeRange(64),
                         acquireB = SizeRange(64),
                         probeAckData = SizeRange(64)
                       )
-                      case 2 => MasterTransfers(
+                      case 2 => M2sTransfers(
                         get = SizeRange(64),
                         putFull = SizeRange(64),
                         putPartial = SizeRange(64)
@@ -825,10 +825,10 @@ object CoherentHub{
           }
           NodeParameters(
             m = m,
-            s = SlavesParameters(List(
-              SlaveParameters(
+            s = S2mParameters(List(
+              S2mAgent(
                 name = null,
-                emits = SlaveTransfers(
+                emits = S2mTransfers(
                   probe = if(m.withBCE) SizeRange(64) else SizeRange.none
                 ),
                 sinkId = SizeMapping(0, slotsCount)
@@ -852,11 +852,11 @@ object CoherentHubGen extends App{
     CoherentHubParameters(
       nodes     = List.fill(fullCount)(
         NodeParameters(
-          m = MastersParameters(List.tabulate(4)(mId =>
-            MasterParameters(
+          m = M2sParameters(List.tabulate(4)(mId =>
+            M2sAgent(
               name = null,
-              mapping = List.fill(1)(MasterSource(
-                emits = MasterTransfers(
+              mapping = List.fill(1)(M2sSource(
+                emits = M2sTransfers(
                   get = SizeRange(64),
                   putFull = SizeRange(64),
                   putPartial = SizeRange(64),
@@ -869,10 +869,10 @@ object CoherentHubGen extends App{
               ))
             ))
           ),
-          s = SlavesParameters(List(
-            SlaveParameters(
+          s = S2mParameters(List(
+            S2mAgent(
               name = null,
-              emits = SlaveTransfers(
+              emits = S2mTransfers(
                 probe = SizeRange(64)
               ),
               sinkId = SizeMapping(0, slotsCount)
@@ -882,11 +882,11 @@ object CoherentHubGen extends App{
         )
       ) ++  List.fill(coherentOnlyCount)(
         NodeParameters(
-          m = MastersParameters(List.tabulate(4)(mId =>
-            MasterParameters(
+          m = M2sParameters(List.tabulate(4)(mId =>
+            M2sAgent(
               name = null,
-              mapping = List.fill(1)(MasterSource(
-                emits = MasterTransfers(
+              mapping = List.fill(1)(M2sSource(
+                emits = M2sTransfers(
                   acquireT = SizeRange(64),
                   acquireB = SizeRange(64),
                   probeAckData = SizeRange(64)
@@ -896,10 +896,10 @@ object CoherentHubGen extends App{
               ))
             ))
           ),
-          s = SlavesParameters(List(
-            SlaveParameters(
+          s = S2mParameters(List(
+            S2mAgent(
               name = null,
-              emits = SlaveTransfers(
+              emits = S2mTransfers(
                 probe = SizeRange(64)
               ),
               sinkId = SizeMapping(0, slotsCount)
@@ -909,11 +909,11 @@ object CoherentHubGen extends App{
         )
       ) ++  List.fill(dmaOnlyCount)(
         NodeParameters(
-          m = MastersParameters(List.tabulate(4)(mId =>
-            MasterParameters(
+          m = M2sParameters(List.tabulate(4)(mId =>
+            M2sAgent(
               name = null,
-              mapping = List.fill(1)(MasterSource(
-                emits = MasterTransfers(
+              mapping = List.fill(1)(M2sSource(
+                emits = M2sTransfers(
                   get = SizeRange(64),
                   putFull = SizeRange(64),
                   putPartial = SizeRange(64)
@@ -923,7 +923,7 @@ object CoherentHubGen extends App{
               ))
             ))
           ),
-          s = SlavesParameters(Nil),
+          s = S2mParameters(Nil),
           dataBytes = 8
         )
       ),
