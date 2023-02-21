@@ -2,7 +2,7 @@ package spinal.lib.bus.tilelink
 
 import spinal.core._
 import spinal.lib._
-import spinal.lib.bus.misc.AddressMapping
+import spinal.lib.bus.misc.{AddressMapping, SizeMapping}
 
 
 case class S2mTransfers(probe:      SizeRange = SizeRange.none,
@@ -85,7 +85,13 @@ object S2mTransfers {
 }
 
 
-
+object S2mAgent{
+  def simple(name    : Nameable) = S2mAgent(
+    name   = name,
+    sinkId = SizeMapping(0,0),
+    emits = S2mTransfers()
+  )
+}
 case class S2mAgent(name    : Nameable,
                     sinkId  : AddressMapping,
                     emits   : S2mTransfers) extends OverridedEqualsHashCode {
@@ -95,7 +101,11 @@ case class S2mAgent(name    : Nameable,
   }
 }
 
-
+object S2mParameters{
+  def simple(name : Nameable) : S2mParameters = S2mParameters(
+    List(S2mAgent.simple(name))
+  )
+}
 case class S2mParameters(slaves    : Seq[S2mAgent]) extends OverridedEqualsHashCode {
   def defaulted[T](default : T)(body : => T) : T = if(slaves.isEmpty) default else body
   val sizeBytes = defaulted(0)(slaves.map(_.emits.sizeBytes).max)

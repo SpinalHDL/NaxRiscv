@@ -140,6 +140,7 @@ case class ChannelA(override val p : BusParameter) extends BusFragment(p, p.with
       a
     }
   }
+
   override def clone = ChannelA(p)
 }
 case class ChannelB(override val p : BusParameter) extends BusFragment(p, p.withDataB) {

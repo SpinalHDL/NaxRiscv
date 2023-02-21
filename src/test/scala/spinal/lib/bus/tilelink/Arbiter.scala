@@ -24,7 +24,7 @@ case class Arbiter(inputsNodes : Seq[NodeParameters]) extends Component{
 
   val a = new Area{
     val arbiter = StreamArbiterFactory().roundRobin.lambdaLock[ChannelA](_.isLast()).build(ChannelA(obp.toBusParameter()), inputsNodes.size)
-    (arbiter.io.inputs, inputs).zipped.foreach(_ << _.a)
+    (arbiter.io.inputs, inputs).zipped.foreach(_ connectFromRelaxed _.a)
     arbiter.io.output >> io.output.a
   }
 
