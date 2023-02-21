@@ -87,7 +87,7 @@ case class Decoder(inputNode : NodeParameters, outputsSupports : Seq[M2sSupport]
 
   val d = new Area{
     val arbiter = StreamArbiterFactory().roundRobin.lambdaLock[ChannelD](_.isLast()).build(ChannelD(inputNode), outputsNodes.size + withError.toInt)
-    (arbiter.io.inputs, outputs).zipped.foreach(_ << _.d)
+    (arbiter.io.inputs, outputs).zipped.foreach(_ connectFromRelaxed _.d)
     if(withError) arbiter.io.inputs.last << error.ctrl.io.bus.d
     arbiter.io.output >> io.input.d
   }

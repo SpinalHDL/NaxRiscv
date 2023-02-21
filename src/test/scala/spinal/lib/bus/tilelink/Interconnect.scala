@@ -9,13 +9,13 @@ import scala.collection.mutable.ArrayBuffer
 case class M2sSupport(transfers : M2sTransfers,
                       dataWidth : Int,
                       allowExecute : Boolean){
-//  def mincover(that : M2sSupport): M2sSupport ={
-//    M2sSupport(
-//      transfers = transfers.mincover(that.transfers),
-//      dataWidth = that.dataWidth,
-//      allowExecute = this.allowExecute && that.allowExecute
-//    )
-//  }
+  def mincover(that : M2sSupport): M2sSupport ={
+    M2sSupport(
+      transfers = transfers.mincover(that.transfers),
+      dataWidth = that.dataWidth,
+      allowExecute = this.allowExecute && that.allowExecute
+    )
+  }
 }
 
 class InterconnectNodeMode extends Nameable
@@ -124,25 +124,35 @@ class Interconnect extends Area{
         }
       }
 
+      val negociation = hardFork{
+        if(n.ups.nonEmpty)   n.m2s.proposed load n.ups.map(_.m.m2s.proposed).reduce(_ mincover _)
+        if(n.downs.nonEmpty) n.m2s.supported load n.downs.map(_.s.m2s.supported.get).reduce(_ mincover _)
+      }
+
       val arbiter = hardFork{
         soon(n.m2s.parameters)
-        soon(n.m2s.proposed)
         soon(n.ups.map(_.arbiter.bus) :_*)
         n.ups.size match {
           case 0 =>
+            soon(n.m2s.proposed)
+            n.m2s.proposed load M2sSupport(
+              transfers    = n.m2s.parameters.emits,
+              dataWidth    = n.dataBytes.get,
+              allowExecute = n.m2s.parameters.get.withExecute
+            )
           case _ => {
+
             for(up <- n.ups){
               up.arbiter.s2m.parameters.loadAsync(n.s2m.parameters)
             }
-            n.m2s.proposed load M2sSupport(
-              transfers    = n.ups.map(_.m.m2s.parameters.emits).reduce(_ mincover _),
-              dataWidth    = n.ups.map(_.m.dataBytes.get).max,
-              allowExecute = n.ups.exists(_.m.m2s.parameters.get.withExecute)
-            )
             n.m2s.parameters load Arbiter.outputMastersFrom(
               n.ups.map(_.arbiter.m2s.parameters.get)
             )
-            val arbiter = Arbiter(n.ups.map(_.m.bus.p.node))
+            val arbiter = Arbiter(n.ups.map(up => NodeParameters(
+              m = up.arbiter.m2s.parameters,
+              s = up.arbiter.s2m.parameters,
+              dataBytes = n.dataBytes
+            )))
             arbiter.setCompositeName(n.bus, "arbiter")
             (n.ups, arbiter.io.inputs.map(_.fromCombStage())).zipped.foreach(_.arbiter.bus.load(_))
             n.bus << arbiter.io.output
@@ -240,7 +250,7 @@ class VideoOut(ic : Interconnect) extends Area{
 
 class Bridge(ic : Interconnect) extends Area{
   val node = ic.createNode()
-  node.m2s.supported.loadAsync(node.m2s.proposed)
+//  node.m2s.supported.loadAsync(node.m2s.proposed)
 }
 
 class UART(ic : Interconnect) extends Area{
@@ -308,27 +318,53 @@ object TopGen extends App{
     val interconnect = new Interconnect()
     val cpu0 = new CPU(interconnect)
     val cpu1 = new CPU(interconnect)
-    val videoIn0 = new VideoIn(interconnect)
-    val videoOut0 = new VideoOut(interconnect)
-    val uart0 = new UART(interconnect)
-    val uart1 = new UART(interconnect)
-//    val rom0 = new ROM(interconnect)
-//    val streamOut = new StreamOut(interconnect)
+
     val bridgeA = new Bridge(interconnect)
-    val bridgeB = new Bridge(interconnect)
+    bridgeA.node.mapping.load(DefaultMapping)
     interconnect.connect(cpu0.node, bridgeA.node)
     interconnect.connect(cpu1.node, bridgeA.node)
-    interconnect.connect(videoIn0.node, bridgeA.node)
-    interconnect.connect(videoOut0.node, bridgeA.node)
-    interconnect.connect(bridgeA.node, bridgeB.node)
-    interconnect.connect(bridgeB.node, uart0.node)
-    interconnect.connect(bridgeB.node, uart1.node)
-//    interconnect.connect(bridgeB.node, rom0.node)
-    bridgeA.node.mapping.load(DefaultMapping)
+
+    val bridgeB = new Bridge(interconnect)
     bridgeB.node.mapping.load(SizeMapping(0x100, 0x300))
+    interconnect.connect(bridgeA.node, bridgeB.node)
+
+    val videoIn0 = new VideoIn(interconnect)
+    interconnect.connect(videoIn0.node, bridgeA.node)
+
+    val videoOut0 = new VideoOut(interconnect)
+    interconnect.connect(videoOut0.node, bridgeA.node)
+
+    val uart0 = new UART(interconnect)
+    interconnect.connect(bridgeB.node, uart0.node)
     uart0.node.mapping.load(SizeMapping(0x100, 0x100))
+
+    val uart1 = new UART(interconnect)
+    interconnect.connect(bridgeB.node, uart1.node)
     uart1.node.mapping.load(SizeMapping(0x200, 0x100))
+
+    val bridgeC = new Bridge(interconnect)
+    bridgeC.node.mapping.load(DefaultMapping)
+    interconnect.connect(bridgeB.node, bridgeC.node)
+
+    val bridgeD = new Bridge(interconnect)
+    bridgeD.node.mapping.load(DefaultMapping)
+    interconnect.connect(bridgeC.node, bridgeD.node)
+
+    val rom0 = new ROM(interconnect)
+    rom0.node.mapping.load(SizeMapping(0x300, 0x100))
+    interconnect.connect(bridgeD.node, rom0.node)
+
+    val streamOut = new StreamOut(interconnect)
+    streamOut.node.mapping.load(SizeMapping(0x400, 0x100))
+    interconnect.connect(bridgeD.node, streamOut.node)
+
+//    val rom0 = new ROM(interconnect)
 //    rom0.node.mapping.load(SizeMapping(0x300, 0x100))
+//    interconnect.connect(cpu0.node, rom0.node)
+
+//    val streamOut = new StreamOut(interconnect)
+//    streamOut.node.mapping.load(SizeMapping(0x400, 0x100))
+//    interconnect.connect(cpu0.node, streamOut.node)
 
 //    interconnect.connect(cpu0.node, uart0.node)
 //    interconnect.connect(cpu1.node, uart0.node)
