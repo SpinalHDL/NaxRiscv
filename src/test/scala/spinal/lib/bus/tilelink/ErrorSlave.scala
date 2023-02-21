@@ -25,8 +25,8 @@ class ErrorSlave(bp : BusParameter) extends Component{
     io.bus.d.size := buffer.size
     io.bus.d.denied := True
     if(bp.withDataD) {
-      io.bus.d.data
-      io.bus.d.corrupt
+      io.bus.d.data.assignDontCare()
+      io.bus.d.corrupt.assignDontCare()
     }
   }
   assert(!bp.withBCE)

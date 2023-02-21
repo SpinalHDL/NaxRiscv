@@ -3,16 +3,17 @@ package spinal.lib.bus.tilelink
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib.bus.misc.{AddressMapping, DefaultMapping, SizeMapping}
+import spinal.lib.{master, slave}
 
 import scala.collection.mutable.ArrayBuffer
 
 case class M2sSupport(transfers : M2sTransfers,
-                      dataWidth : Int,
+                      dataBytes : Int,
                       allowExecute : Boolean){
   def mincover(that : M2sSupport): M2sSupport ={
     M2sSupport(
       transfers = transfers.mincover(that.transfers),
-      dataWidth = that.dataWidth,
+      dataBytes = dataBytes max that.dataBytes,
       allowExecute = this.allowExecute && that.allowExecute
     )
   }
@@ -72,6 +73,7 @@ class InterconnectConnection(val m : InterconnectNode, val s : InterconnectNode)
   })
 
   val logic = hardFork(new Area{
+    if(decoder.bus.p.dataBytes != arbiter.bus.p.dataBytes) PendingError("Tilelink interconnect does not support resized yet")
     decoder.bus >> arbiter.bus
   })
 }
@@ -114,19 +116,11 @@ class Interconnect extends Area{
     if(error) SpinalError("Failed")
 
     for(n <- nodes) new Composite(n, "igen") {
-      val dataBytes = hardFork{
-        n.ups.size match {
-          case 0 =>
-          case _ => {
-            soon(n.dataBytes)
-            n.setDataBytes(n.ups.map(_.m.dataBytes.get).max)
-          }
-        }
-      }
-
       val negociation = hardFork{
+        soon(n.dataBytes)
         if(n.ups.nonEmpty)   n.m2s.proposed load n.ups.map(_.m.m2s.proposed).reduce(_ mincover _)
         if(n.downs.nonEmpty) n.m2s.supported load n.downs.map(_.s.m2s.supported.get).reduce(_ mincover _)
+        if(n.ups.nonEmpty) n.setDataBytes(n.m2s.supported.dataBytes)
       }
 
       val arbiter = hardFork{
@@ -137,7 +131,7 @@ class Interconnect extends Area{
             soon(n.m2s.proposed)
             n.m2s.proposed load M2sSupport(
               transfers    = n.m2s.parameters.emits,
-              dataWidth    = n.dataBytes.get,
+              dataBytes    = n.dataBytes.get,
               allowExecute = n.m2s.parameters.get.withExecute
             )
           case _ => {
@@ -206,6 +200,7 @@ class CPU(ic : Interconnect) extends Area{
       ))
     )
   )
+  hardFork(slave(node.bus))
 }
 
 class VideoIn(ic : Interconnect) extends Area{
@@ -225,6 +220,7 @@ class VideoIn(ic : Interconnect) extends Area{
       ))
     )
   )
+  hardFork(slave(node.bus))
 }
 
 class VideoOut(ic : Interconnect) extends Area{
@@ -244,6 +240,7 @@ class VideoOut(ic : Interconnect) extends Area{
       ))
     )
   )
+  hardFork(slave(node.bus))
 }
 
 
@@ -266,10 +263,11 @@ class UART(ic : Interconnect) extends Area{
           putFull = SizeRange.upTo(0x1000)
         )
       ),
-      dataWidth = 4,
+      dataBytes = 4,
       allowExecute = false
     )
   )
+  hardFork(master(node.bus))
 }
 
 class ROM(ic : Interconnect) extends Area{
@@ -284,10 +282,11 @@ class ROM(ic : Interconnect) extends Area{
           get = SizeRange.upTo( 0x1000)
         )
       ),
-      dataWidth = 4,
+      dataBytes = 4,
       allowExecute = false
     )
   )
+  hardFork(master(node.bus))
 }
 
 class StreamOut(ic : Interconnect) extends Area{
@@ -302,10 +301,11 @@ class StreamOut(ic : Interconnect) extends Area{
           putFull = SizeRange.upTo( 0x1000)
         )
       ),
-      dataWidth = 4,
+      dataBytes = 4,
       allowExecute = false
     )
   )
+  hardFork(master(node.bus))
 }
 
 
