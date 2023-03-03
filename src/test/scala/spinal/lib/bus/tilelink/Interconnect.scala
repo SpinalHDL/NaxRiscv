@@ -9,11 +9,13 @@ import scala.collection.mutable.ArrayBuffer
 
 case class M2sSupport(transfers : M2sTransfers,
                       dataBytes : Int,
+                      addressWidth : Int,
                       allowExecute : Boolean){
   def mincover(that : M2sSupport): M2sSupport ={
     M2sSupport(
       transfers = transfers.mincover(that.transfers),
       dataBytes = dataBytes max that.dataBytes,
+      addressWidth = addressWidth max that.addressWidth,
       allowExecute = this.allowExecute && that.allowExecute
     )
   }
@@ -132,6 +134,7 @@ class Interconnect extends Area{
             n.m2s.proposed load M2sSupport(
               transfers    = n.m2s.parameters.emits,
               dataBytes    = n.dataBytes.get,
+              addressWidth = n.m2s.parameters.addressWidth,
               allowExecute = n.m2s.parameters.get.withExecute
             )
           case _ => {
@@ -187,15 +190,15 @@ class CPU(ic : Interconnect) extends Area{
   node.setDataBytes(4)
   node.m2s.parameters.load(
     M2sParameters(
-      List(M2sAgent(
+      addressWidth = 32,
+      masters = List(M2sAgent(
         name = this,
         mapping = List(M2sSource(
           id = SizeMapping(0, 4),
           emits = M2sTransfers(
             get = SizeRange.upTo(0x40),
             putFull = SizeRange.upTo(0x40)
-          ),
-          addressRange = List(SizeMapping(0, 0x1000))
+          )
         ))
       ))
     )
@@ -208,14 +211,14 @@ class VideoIn(ic : Interconnect) extends Area{
   node.setDataBytes(4)
   node.m2s.parameters.load(
     M2sParameters(
-      List(M2sAgent(
+      addressWidth = 32,
+      masters = List(M2sAgent(
         name = this,
         mapping = List(M2sSource(
           id = SizeMapping(0, 4),
           emits = M2sTransfers(
             putFull = SizeRange.upTo(0x40)
-          ),
-          addressRange = List(SizeMapping(0, 0x1000))
+          )
         ))
       ))
     )
@@ -228,14 +231,14 @@ class VideoOut(ic : Interconnect) extends Area{
   node.setDataBytes(4)
   node.m2s.parameters.load(
     M2sParameters(
-      List(M2sAgent(
+      addressWidth = 32,
+      masters = List(M2sAgent(
         name = this,
         mapping = List(M2sSource(
           id = SizeMapping(0, 4),
           emits = M2sTransfers(
             get = SizeRange.upTo(0x40)
-          ),
-          addressRange = List(SizeMapping(0, 0x1000))
+          )
         ))
       ))
     )
@@ -264,6 +267,7 @@ class UART(ic : Interconnect) extends Area{
         )
       ),
       dataBytes = 4,
+      addressWidth = 8,
       allowExecute = false
     )
   )
@@ -283,6 +287,7 @@ class ROM(ic : Interconnect) extends Area{
         )
       ),
       dataBytes = 4,
+      addressWidth = 7,
       allowExecute = false
     )
   )
@@ -302,10 +307,119 @@ class StreamOut(ic : Interconnect) extends Area{
         )
       ),
       dataBytes = 4,
+      addressWidth = 6,
       allowExecute = false
     )
   )
   hardFork(master(node.bus))
+}
+
+class CoherentCpu(ic : Interconnect) extends Area{
+  val node = ic.createMaster()
+  node.setDataBytes(4)
+  node.m2s.parameters.load(
+    M2sParameters(
+      addressWidth = 32,
+      masters = List(M2sAgent(
+        name = this,
+        mapping = List(M2sSource(
+          id = SizeMapping(0, 4),
+          emits = M2sTransfers(
+            acquireT = SizeRange(0x40),
+            acquireB = SizeRange(0x40),
+            probeAckData = SizeRange(0x40)
+          )
+        ))
+      ))
+    )
+  )
+  hardFork(slave(node.bus))
+}
+
+class CoherencyHubIntegrator(ic : Interconnect) extends Area{
+  val memPut = ic.createMaster()
+  val memGet = ic.createMaster()
+  val coherents = ArrayBuffer[InterconnectNode]()
+
+  def createCoherent() ={
+    val ret = ic.createSlave()
+    coherents += ret
+    ret
+  }
+
+  val logic = hardFork(new Area{
+    val blockSize = 64
+    val slotsCount = 4
+    val cSourceCount = 4
+    val dataBytes = coherents.map(_.m2s.proposed.dataBytes).max
+    for(node <- coherents){
+      node.m2s.supported.loadAsync(
+        M2sSupport(
+          transfers = node.m2s.proposed.transfers.intersect(
+            M2sTransfers(
+              acquireT = SizeRange(blockSize),
+              acquireB = SizeRange(blockSize),
+              get = SizeRange.upTo(blockSize),
+              putFull = SizeRange.upTo(blockSize),
+              putPartial = SizeRange.upTo(blockSize),
+              probeAckData = SizeRange(blockSize)
+            )
+          ),
+          dataBytes = dataBytes,
+          addressWidth = node.m2s.proposed.addressWidth,
+          allowExecute = true
+        )
+      )
+
+      node.s2m.parameters.load(
+        node.m2s.proposed.transfers.withBCE match {
+          case false =>  S2mParameters.simple(this)
+          case true => S2mParameters(List(S2mAgent(
+            name = this,
+            emits = S2mTransfers(
+              probe = SizeRange(blockSize)
+            ),
+            sinkId = SizeMapping(0, slotsCount)
+          )))
+        }
+      )
+    }
+
+    val addressWidth = ???
+    memPut.setDataBytes(4)
+    memPut.m2s.parameters.load(
+      CoherentHub.downPutM2s(
+        name           = this,
+        addressWidth   = addressWidth,
+        blockSize      = blockSize,
+        slotCount      = slotsCount,
+        cSourceCount   = cSourceCount
+      )
+    )
+    memGet.setDataBytes(4)
+    memGet.m2s.parameters.load(
+      CoherentHub.downGetM2s(
+        name           = this,
+        addressWidth   = addressWidth,
+        blockSize      = blockSize,
+        slotCount      = slotsCount
+      )
+    )
+
+    val hub = new CoherentHub(
+      CoherentHubParameters(
+        nodes     = coherents.map(_.bus.p.node),
+        slotCount = slotsCount,
+        cacheSize = 1024,
+        wayCount  = 2,
+        lineSize  = blockSize,
+        cSourceCount = cSourceCount
+      )
+    )
+    for((s, m) <- hub.io.ups zip coherents) s << m.bus
+    hub.io.downGet >> memGet.bus
+    hub.io.downPut >> memPut.bus
+  })
 }
 
 
@@ -357,6 +471,18 @@ object TopGen extends App{
     val streamOut = new StreamOut(interconnect)
     streamOut.node.mapping.load(SizeMapping(0x400, 0x100))
     interconnect.connect(bridgeD.node, streamOut.node)
+
+//    val hub = new CoherencyHubIntegrator(interconnect)
+//    interconnect.connect(hub.memGet, bridgeA.node)
+//    interconnect.connect(hub.memPut, bridgeA.node)
+//
+//    val ccpu0 = new CoherentCpu(interconnect)
+//    val c0 = hub.createCoherent()
+//    interconnect.connect(ccpu0.node, c0)
+//
+//    val ccpu1 = new CoherentCpu(interconnect)
+//    val c1 = hub.createCoherent()
+//    interconnect.connect(ccpu1.node, c1)
 
 //    val rom0 = new ROM(interconnect)
 //    rom0.node.mapping.load(SizeMapping(0x300, 0x100))

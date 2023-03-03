@@ -15,6 +15,7 @@ object Decoder{
   }
   def outputMastersFrom(input : M2sParameters, output : M2sSupport) : M2sParameters = {
     input.copy(
+      addressWidth = output.addressWidth,
       masters = input.masters.map(e =>
         e.copy(
           mapping = e.mapping.map( m =>

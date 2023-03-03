@@ -108,7 +108,6 @@ object M2sTransfers {
 
 case class M2sSource(id           : AddressMapping,
                      emits        : M2sTransfers,
-                     addressRange : Seq[AddressMapping],
                      isExecute : Boolean = false){
   def withSourceOffset(offset : Int) = copy(id = id.withOffset(offset))
   def bSourceId = id.lowerBound.toInt
@@ -116,7 +115,6 @@ case class M2sSource(id           : AddressMapping,
 
 case class M2sAgent(name    : Nameable,
                     mapping : Seq[M2sSource]) extends OverridedEqualsHashCode {
-  val addressWidth = log2Up(mapping.flatMap(_.addressRange.map(_.highestBound)).max+1)
   def withSourceOffset(offset : Int): M2sAgent ={
     copy(mapping = mapping.map(_.withSourceOffset(offset)))
   }
@@ -129,8 +127,8 @@ case class M2sAgent(name    : Nameable,
 
 
 
-case class M2sParameters(masters   : Seq[M2sAgent]) extends OverridedEqualsHashCode {
-  val addressWidth = masters.map(_.addressWidth).max
+case class M2sParameters(addressWidth : Int,
+                         masters   : Seq[M2sAgent]) extends OverridedEqualsHashCode {
   val sizeBytes = masters.map(_.emits.sizeBytes).max
   val sourceWidth = masters.map(_.sourceWidth).max
   val withBCE = masters.map(_.emits.withBCE).reduce(_ || _)

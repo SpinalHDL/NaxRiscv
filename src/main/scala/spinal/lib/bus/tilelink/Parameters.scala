@@ -105,6 +105,7 @@ object NodeParameters{
   def mergeMasters(node : Seq[M2sParameters]): M2sParameters ={
     val sourcePreWidth = node.map(_.sourceWidth).max
     M2sParameters(
+      addressWidth = node.map(_.addressWidth) max,
       masters = node.zipWithIndex.flatMap{
         case (m, i) => m.masters.map(_.withSourceOffset(i << sourcePreWidth))
       }
