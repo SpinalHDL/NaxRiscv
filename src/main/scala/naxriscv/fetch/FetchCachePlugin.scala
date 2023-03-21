@@ -80,7 +80,7 @@ case class FetchL1Bus(physicalWidth : Int,
     rsp.valid := rspOutputStream.valid
     rsp.data  := rspOutputStream.payload
     rsp.error := ret.rsp.error
-    rspOutputStream.ready :=  (if(withBackPresure) rspOutputStream.ready else True)
+    rspOutputStream.ready :=  (if(withBackPresure) rsp.ready else True)
   }.ret
 
   def toAxi4(): Axi4ReadOnly = new Composite(this, "toAxi4"){
