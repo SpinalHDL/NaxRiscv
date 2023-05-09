@@ -25,12 +25,11 @@ class InterconnectNodeMode extends Nameable
 object InterconnectNodeMode extends AreaRoot {
   val BOTH, MASTER, SLAVE = new InterconnectNodeMode
 }
-class InterconnectNode() extends Area {
+class InterconnectNode(i : Interconnect) extends Area {
   val bus = Handle[Bus]()
   val ups = ArrayBuffer[InterconnectConnection]()
   val downs = ArrayBuffer[InterconnectConnection]()
   val lock = Lock()
-  val mapping = Handle[AddressMapping]()
 
   val dataBytes = Handle[Int]()
   def setDataBytes(bytes : Int) = this.dataBytes.load(bytes)
@@ -47,12 +46,30 @@ class InterconnectNode() extends Area {
   var mode = InterconnectNodeMode.BOTH
   def setSlaveOnly() = {mode = InterconnectNodeMode.SLAVE; this}
   def setMasterOnly() = {mode = InterconnectNodeMode.MASTER; this}
+
+  def <<(m : InterconnectNode): InterconnectConnection = {
+    i.connect(m, this)
+  }
 }
 
 class InterconnectConnection(val m : InterconnectNode, val s : InterconnectNode) extends Area {
   m.downs += this
   s.ups += this
-  def mapping = s.mapping
+
+  var explicitAddress = Option.empty[BigInt]
+  var explicitMapping = Option.empty[AddressMapping]
+  def at(address : BigInt) = explicitAddress = Some(address)
+  def at(address : BigInt, size : BigInt) = explicitMapping = Some(SizeMapping(address, size))
+  def at(address : AddressMapping) = explicitMapping = Some(address)
+  def getMapping() : AddressMapping = {
+    explicitAddress match {
+      case Some(v) => return SizeMapping(v, BigInt(1) << decoder.m2s.parameters.get.addressWidth)
+      case None =>
+    }
+    explicitMapping match {
+      case Some(x) => x
+    }
+  }
 
   val decoder, arbiter = new Area{
     val bus = Handle[Bus]()
@@ -85,7 +102,7 @@ class Interconnect extends Area{
   val nodes = ArrayBuffer[InterconnectNode]()
   val connections = ArrayBuffer[InterconnectConnection]()
   def createNode(): InterconnectNode ={
-    val node = new InterconnectNode()
+    val node = new InterconnectNode(this)
     nodes += node
     node
   }
@@ -93,13 +110,14 @@ class Interconnect extends Area{
   def createSlave() = createNode().setSlaveOnly()
   def createMaster() = createNode().setMasterOnly()
 
-  def connect(m : InterconnectNode, s : InterconnectNode): Unit ={
+  def connect(m : InterconnectNode, s : InterconnectNode): InterconnectConnection ={
     val c = new InterconnectConnection(m,s)
     c.setLambdaName(m.isNamed && s.isNamed)(s"${m.getName()}_to_${s.getName()}")
     connections += c
+    c
   }
 
-  val gen = hardFork{
+  val gen = Elab build new Area{
     lock.await()
     var error = false
     for(n <- nodes){
@@ -168,7 +186,7 @@ class Interconnect extends Area{
             }
 
             n.s2m.parameters.load(Decoder.inputSlavesFrom(n.downs.map(_.decoder.s2m.parameters.get)))
-            val decoder = Decoder(n.bus.p.node, n.downs.map(_.s.m2s.supported), n.downs.map(_.mapping))
+            val decoder = Decoder(n.bus.p.node, n.downs.map(_.s.m2s.supported), n.downs.map(_.getMapping()))
             decoder.setCompositeName(n.bus, "decoder")
             (n.downs, decoder.io.outputs.map(_.combStage())).zipped.foreach(_.decoder.bus.load(_))
             decoder.io.input << n.bus
@@ -430,47 +448,63 @@ class CoherencyHubIntegrator(ic : Interconnect) extends Area{
 object TopGen extends App{
   SpinalVerilog(new Component{
     val interconnect = new Interconnect()
+
     val cpu0 = new CPU(interconnect)
-    val cpu1 = new CPU(interconnect)
 
-    val bridgeA = new Bridge(interconnect)
-    bridgeA.node.mapping.load(DefaultMapping)
-    interconnect.connect(cpu0.node, bridgeA.node)
-    interconnect.connect(cpu1.node, bridgeA.node)
-
-    val bridgeB = new Bridge(interconnect)
-    bridgeB.node.mapping.load(SizeMapping(0x100, 0x300))
-    interconnect.connect(bridgeA.node, bridgeB.node)
-
-    val videoIn0 = new VideoIn(interconnect)
-    interconnect.connect(videoIn0.node, bridgeA.node)
-
-    val videoOut0 = new VideoOut(interconnect)
-    interconnect.connect(videoOut0.node, bridgeA.node)
+//    val bridgeA = new Bridge(interconnect)
+//    bridgeA.node.mapping.load(DefaultMapping)
+//    interconnect.connect(cpu0.node, bridgeA.node)
 
     val uart0 = new UART(interconnect)
-    interconnect.connect(bridgeB.node, uart0.node)
-    uart0.node.mapping.load(SizeMapping(0x100, 0x100))
+    uart0.node << cpu0.node at 0x100
+//    uart0.node.mapping.load(SizeMapping(0x100, 0x100))
 
-    val uart1 = new UART(interconnect)
-    interconnect.connect(bridgeB.node, uart1.node)
-    uart1.node.mapping.load(SizeMapping(0x200, 0x100))
+//    val uart1 = new UART(interconnect)
+//    interconnect.connect(bridgeA.node, uart1.node)
+//    uart1.node.mapping.load(SizeMapping(0x200, 0x100))
 
-    val bridgeC = new Bridge(interconnect)
-    bridgeC.node.mapping.load(DefaultMapping)
-    interconnect.connect(bridgeB.node, bridgeC.node)
 
-    val bridgeD = new Bridge(interconnect)
-    bridgeD.node.mapping.load(DefaultMapping)
-    interconnect.connect(bridgeC.node, bridgeD.node)
+//    val cpu0 = new CPU(interconnect)
+//    val cpu1 = new CPU(interconnect)
+//
+//    val bridgeA = new Bridge(interconnect)
+//    bridgeA.node.mapping.load(DefaultMapping)
+//    interconnect.connect(cpu0.node, bridgeA.node)
+//    interconnect.connect(cpu1.node, bridgeA.node)
+//
+//    val bridgeB = new Bridge(interconnect)
+//    bridgeB.node.mapping.load(SizeMapping(0x100, 0x300))
+//    interconnect.connect(bridgeA.node, bridgeB.node)
 
-    val rom0 = new ROM(interconnect)
-    rom0.node.mapping.load(SizeMapping(0x300, 0x100))
-    interconnect.connect(bridgeD.node, rom0.node)
+//    val videoIn0 = new VideoIn(interconnect)
+//    interconnect.connect(videoIn0.node, bridgeA.node)
+//
+//    val videoOut0 = new VideoOut(interconnect)
+//    interconnect.connect(videoOut0.node, bridgeA.node)
 
-    val streamOut = new StreamOut(interconnect)
-    streamOut.node.mapping.load(SizeMapping(0x400, 0x100))
-    interconnect.connect(bridgeD.node, streamOut.node)
+//    val uart0 = new UART(interconnect)
+//    interconnect.connect(bridgeB.node, uart0.node)
+//    uart0.node.mapping.load(SizeMapping(0x100, 0x100))
+//
+//    val uart1 = new UART(interconnect)
+//    interconnect.connect(bridgeB.node, uart1.node)
+//    uart1.node.mapping.load(SizeMapping(0x200, 0x100))
+
+//    val bridgeC = new Bridge(interconnect)
+//    bridgeC.node.mapping.load(DefaultMapping)
+//    interconnect.connect(bridgeB.node, bridgeC.node)
+
+//    val bridgeD = new Bridge(interconnect)
+//    bridgeD.node.mapping.load(DefaultMapping)
+//    interconnect.connect(bridgeC.node, bridgeD.node)
+//
+//    val rom0 = new ROM(interconnect)
+//    rom0.node.mapping.load(SizeMapping(0x300, 0x100))
+//    interconnect.connect(bridgeD.node, rom0.node)
+//
+//    val streamOut = new StreamOut(interconnect)
+//    streamOut.node.mapping.load(SizeMapping(0x400, 0x100))
+//    interconnect.connect(bridgeD.node, streamOut.node)
 
 //    val hub = new CoherencyHubIntegrator(interconnect)
 //    interconnect.connect(hub.memGet, bridgeA.node)

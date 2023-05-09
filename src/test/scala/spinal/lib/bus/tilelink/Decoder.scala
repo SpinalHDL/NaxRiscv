@@ -58,6 +58,7 @@ case class Decoder(inputNode : NodeParameters, outputsSupports : Seq[M2sSupport]
       }
       s.a.valid := io.input.a.valid && hit
       s.a.payload := io.input.a.payload
+      s.a.address.removeAssignments() := io.input.a.address.resized
       readys += s.a.ready && hit
     }
 
