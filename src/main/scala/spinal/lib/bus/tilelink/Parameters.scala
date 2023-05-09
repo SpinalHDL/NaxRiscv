@@ -75,13 +75,12 @@ case class SizeRange(min : Int, max : Int){
 
 
 case class NodeParameters(m : M2sParameters,
-                          s : S2mParameters,
-                          dataBytes : Int){
+                          s : S2mParameters){
   val sizeBytes = s.sizeBytes max m.sizeBytes
   val withBCE = s.withBCE || m.withBCE
   def toBusParameter() = BusParameter(
     addressWidth  = m.addressWidth,
-    dataBytes     = dataBytes,
+    dataBytes     = m.dataWidth,
     sizeBytes     = sizeBytes,
     sourceWidth   = m.sourceWidth,
     sinkWidth     = s.sinkWidth,
@@ -97,8 +96,7 @@ object NodeParameters{
   def mergeMasters(nodes : Seq[NodeParameters]): NodeParameters ={
     NodeParameters(
       m = mergeMasters(nodes.map(_.m)),
-      s = nodes.head.s,
-      dataBytes = nodes.map(_.dataBytes).max
+      s = nodes.head.s
     )
   }
 
@@ -106,6 +104,7 @@ object NodeParameters{
     val sourcePreWidth = node.map(_.sourceWidth).max
     M2sParameters(
       addressWidth = node.map(_.addressWidth) max,
+      dataWidth = node.map(_.dataWidth) max,
       masters = node.zipWithIndex.flatMap{
         case (m, i) => m.masters.map(_.withSourceOffset(i << sourcePreWidth))
       }
@@ -133,8 +132,7 @@ object NodeParameters{
   def mergeNodes(nodes : Seq[NodeParameters]): NodeParameters ={
     NodeParameters(
       m = mergeMasters(nodes.map(_.m)),
-      s = mergeSlaves(nodes.map(_.s)),
-      dataBytes = nodes.map(_.dataBytes).max
+      s = mergeSlaves(nodes.map(_.s))
     )
   }
 }

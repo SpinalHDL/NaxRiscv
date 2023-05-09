@@ -139,11 +139,13 @@ case class M2sAgent(name    : Nameable,
 
 
 case class M2sParameters(addressWidth : Int,
+                         dataWidth : Int,
                          masters   : Seq[M2sAgent]) extends OverridedEqualsHashCode {
   val sizeBytes = masters.map(_.emits.sizeBytes).max
   val sourceWidth = masters.map(_.sourceWidth).max
   val withBCE = masters.map(_.emits.withBCE).reduce(_ || _)
   val emits = M2sTransfers.mincover(masters.map(_.emits))
+  def dataBytes = dataWidth / 8
   def withExecute = masters.exists(_.withExecute)
   def withDataA = masters.map(_.emits.withDataA).reduce(_ || _)
   def withDataD = masters.map(_.emits.withDataD).reduce(_ || _)

@@ -8,13 +8,13 @@ import spinal.lib.{master, slave}
 import scala.collection.mutable.ArrayBuffer
 
 case class M2sSupport(transfers : M2sTransfers,
-                      dataBytes : Int,
                       addressWidth : Int,
-                      allowExecute : Boolean){
+                      dataWidth : Int,
+                      allowExecute : Boolean = false){
   def mincover(that : M2sSupport): M2sSupport ={
     M2sSupport(
       transfers = transfers.mincover(that.transfers),
-      dataBytes = dataBytes max that.dataBytes,
+      dataWidth = dataWidth max that.dataWidth,
       addressWidth = addressWidth max that.addressWidth,
       allowExecute = this.allowExecute && that.allowExecute
     )
@@ -31,15 +31,12 @@ class InterconnectNode(i : Interconnect) extends Area {
   val downs = ArrayBuffer[InterconnectConnection]()
   val lock = Lock()
 
-  val dataBytes = Handle[Int]()
-  def setDataBytes(bytes : Int) = this.dataBytes.load(bytes)
-
   val m2s = new Area{
     val proposed = Handle[M2sSupport]()
     val supported = Handle[M2sSupport]()
     val parameters = Handle[M2sParameters]()
 
-    val proposedModifiers = ArrayBuffer[M2sSupport => M2sSupport]()
+    val proposedModifiers, supportedModifiers = ArrayBuffer[M2sSupport => M2sSupport]()
   }
   val s2m = new Area{
     val parameters = Handle[S2mParameters]()
@@ -64,9 +61,12 @@ class InterconnectNode(i : Interconnect) extends Area {
   def at(address : BigInt, size : BigInt) = new At(_.explicitMapping = Some(SizeMapping(address, size)))
   def at(address : AddressMapping) = new At(_.explicitMapping = Some(address))
 
-//  def forceSingleBeat(): Unit ={
+//  def forceDataWidth(dataWidth : Int): Unit ={
 //    m2s.proposedModifiers += { s =>
-//      s.copy(transfers = s.transfers.)
+//      s.copy(dataWidth = dataWidth)
+//    }
+//    m2s.supportedModifiers += { s =>
+//      s.copy(dataWidth = dataWidth)
 //    }
 //  }
 }
@@ -156,7 +156,6 @@ class Interconnect extends Area{
       soon(n.ups.map(_.arbiter.s2m.parameters) :_*)
       soon(n.ups.map(_.arbiter.bus) :_*)
       soon(
-        n.dataBytes,
         n.bus
       )
       if(n.mode != InterconnectNodeMode.MASTER) soon(
@@ -170,15 +169,17 @@ class Interconnect extends Area{
 
       // n.m2s.proposed <- ups.m2s.proposed
       if(n.mode != InterconnectNodeMode.MASTER) {
-        n.m2s.proposed load n.ups.map(_.m.m2s.proposed).reduce(_ mincover _)
+        val fromUps = n.ups.map(_.m.m2s.proposed).reduce(_ mincover _)
+        val modified = n.m2s.proposedModifiers.foldLeft(fromUps)((e, f) => f(e))
+        n.m2s.proposed load modified
       }
 
       // n.m2s.supported <- downs.m2s.supported
       if(n.mode != InterconnectNodeMode.SLAVE) {
-        n.m2s.supported load n.downs.map(_.s.m2s.supported.get).reduce(_ mincover _)
+        val fromDowns = n.downs.map(_.s.m2s.supported.get).reduce(_ mincover _)
+        val modified = n.m2s.supportedModifiers.foldLeft(fromDowns)((e, f) => f(e))
+        n.m2s.supported load modified
       }
-
-      if(n.ups.nonEmpty) n.setDataBytes(n.m2s.supported.dataBytes)
 
       // n.m2s.parameters <- ups.arbiter.m2s.parameters
       if(n.mode != InterconnectNodeMode.MASTER) {
@@ -204,14 +205,13 @@ class Interconnect extends Area{
 
       // Start hardware generation from that point
       // Generate the node bus
-      val p = NodeParameters(n.m2s.parameters, n.s2m.parameters, n.dataBytes).toBusParameter()
+      val p = NodeParameters(n.m2s.parameters, n.s2m.parameters).toBusParameter()
       n.bus.load(Bus(p))
 
       val arbiter = (n.mode != InterconnectNodeMode.MASTER) generate new Area{
         val core = Arbiter(n.ups.map(up => NodeParameters(
           m = up.arbiter.m2s.parameters,
-          s = up.arbiter.s2m.parameters,
-          dataBytes = n.dataBytes
+          s = up.arbiter.s2m.parameters
         )))
         core.setCompositeName(n.bus, "arbiter")
         (n.ups, core.io.inputs.map(_.fromCombStage())).zipped.foreach(_.arbiter.bus.load(_))
@@ -230,19 +230,19 @@ class Interconnect extends Area{
 
 class CPU()(implicit ic : Interconnect) extends Area{
   val node = ic.createMaster()
-  node.setDataBytes(4)
   node.m2s.proposed load M2sSupport(  //TODO
     transfers = M2sTransfers(
       get = SizeRange.upTo(0x40),
       putFull = SizeRange.upTo(0x40)
     ),
-    dataBytes    = 4,
     addressWidth = 32,
+    dataWidth    = 32,
     allowExecute = false
   )
   node.m2s.parameters.load(
     M2sParameters(
       addressWidth = 32,
+      dataWidth    = 32,
       masters = List(M2sAgent(
         name = this,
         mapping = List(M2sSource(
@@ -271,7 +271,6 @@ class Adapter(canCrossClock : Boolean = false,
     input.m2s.supported.load(output.m2s.supported)
     output.m2s.parameters.load(input.m2s.parameters)
     input.s2m.parameters.load(output.s2m.parameters)
-    output.dataBytes.load(input.dataBytes)
     output.bus << input.bus
   }
 }
@@ -279,10 +278,10 @@ class Adapter(canCrossClock : Boolean = false,
 
 class VideoIn()(implicit ic : Interconnect) extends Area{
   val node = ic.createMaster()
-  node.setDataBytes(4)
   node.m2s.parameters.load(
     M2sParameters(
       addressWidth = 32,
+      dataWidth    = 32,
       masters = List(M2sAgent(
         name = this,
         mapping = List(M2sSource(
@@ -299,10 +298,10 @@ class VideoIn()(implicit ic : Interconnect) extends Area{
 
 class VideoOut()(implicit ic : Interconnect) extends Area{
   val node = ic.createMaster()
-  node.setDataBytes(4)
   node.m2s.parameters.load(
     M2sParameters(
       addressWidth = 32,
+      dataWidth    = 32,
       masters = List(M2sAgent(
         name = this,
         mapping = List(M2sSource(
@@ -336,7 +335,7 @@ class UART()(implicit ic : Interconnect) extends Area{
           putFull = SizeRange.upTo(0x1000)
         )
       ),
-      dataBytes = 4,
+      dataWidth    = 32,
       addressWidth = 32, //TODO 8
       allowExecute = false
     )
@@ -356,7 +355,7 @@ class ROM()(implicit ic : Interconnect) extends Area{
           get = SizeRange.upTo( 0x1000)
         )
       ),
-      dataBytes = 4,
+      dataWidth    = 32,
       addressWidth = 7,
       allowExecute = false
     )
@@ -376,7 +375,7 @@ class StreamOut()(implicit ic : Interconnect) extends Area{
           putFull = SizeRange.upTo( 0x1000)
         )
       ),
-      dataBytes = 4,
+      dataWidth    = 32,
       addressWidth = 6,
       allowExecute = false
     )
@@ -386,10 +385,10 @@ class StreamOut()(implicit ic : Interconnect) extends Area{
 
 class CoherentCpu()(implicit ic : Interconnect) extends Area{
   val node = ic.createMaster()
-  node.setDataBytes(4)
   node.m2s.parameters.load(
     M2sParameters(
       addressWidth = 32,
+      dataWidth    = 32,
       masters = List(M2sAgent(
         name = this,
         mapping = List(M2sSource(
@@ -421,7 +420,7 @@ class CoherencyHubIntegrator()(implicit ic : Interconnect) extends Area{
     val blockSize = 64
     val slotsCount = 4
     val cSourceCount = 4
-    val dataBytes = coherents.map(_.m2s.proposed.dataBytes).max
+    val dataWidth = coherents.map(_.m2s.proposed.dataWidth).max
     for(node <- coherents){
       node.m2s.supported.loadAsync(
         M2sSupport(
@@ -435,7 +434,7 @@ class CoherencyHubIntegrator()(implicit ic : Interconnect) extends Area{
               probeAckData = SizeRange(blockSize)
             )
           ),
-          dataBytes = dataBytes,
+          dataWidth = dataWidth,
           addressWidth = node.m2s.proposed.addressWidth,
           allowExecute = true
         )
@@ -456,21 +455,21 @@ class CoherencyHubIntegrator()(implicit ic : Interconnect) extends Area{
     }
 
     val addressWidth = ???
-    memPut.setDataBytes(4)
     memPut.m2s.parameters.load(
       CoherentHub.downPutM2s(
         name           = this,
         addressWidth   = addressWidth,
+        dataWidth      = dataWidth,
         blockSize      = blockSize,
         slotCount      = slotsCount,
         cSourceCount   = cSourceCount
       )
     )
-    memGet.setDataBytes(4)
     memGet.m2s.parameters.load(
       CoherentHub.downGetM2s(
         name           = this,
         addressWidth   = addressWidth,
+        dataWidth      = dataWidth,
         blockSize      = blockSize,
         slotCount      = slotsCount
       )
@@ -504,7 +503,7 @@ object TopGen extends App{
     val cpu0 = new CPU()
 
     val busA = interconnect.createNode()
-//    busA.forceSingleBeat()
+//    busA.forceDataWidth(16)
     busA << cpu0.node
 
     val adapter = new Adapter(canDownSize = true)

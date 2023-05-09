@@ -18,14 +18,18 @@ case class CoherentHubParameters(nodes : Seq[NodeParameters],
                                  cBufferCount: Int = 2,
                                  cSourceCount: Int = 4) {
   val addressWidth = nodes.map(_.m.addressWidth).max
+  val dataWidth = nodes.head.m.dataWidth
+  val dataBytes = dataWidth/8
   val waySize = cacheSize/wayCount
   val linePerWay = waySize/lineSize
   val tagRange = addressWidth-1 downto log2Up(linePerWay*lineSize)
   val lineRange = tagRange.low-1 downto log2Up(lineSize)
-  val wordRange = log2Up(lineSize)-1 downto log2Up(nodes.head.dataBytes)
+  val wordRange = log2Up(lineSize)-1 downto log2Up(dataBytes)
   val refillRange = tagRange.high downto lineRange.low
   val blockRange = addressWidth-1 downto log2Up(lineSize)
   val blockSize = lineSize
+
+  assert(nodes.forall(_.m.dataWidth == dataWidth))
 }
 
 /*
@@ -73,22 +77,22 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
     m = CoherentHub.downPutM2s(
       name           = this,
       addressWidth   = addressWidth,
+      dataWidth      = dataWidth,
       blockSize      = blockSize,
       slotCount      = slotCount,
       cSourceCount   = cSourceCount
     ),
-    s = S2mParameters(slaves = Nil),
-    dataBytes = upParam.dataBytes
+    s = S2mParameters(slaves = Nil)
   )
   val downGetParam = NodeParameters(
     m = CoherentHub.downGetM2s(
       name           = this,
       addressWidth   = addressWidth,
+      dataWidth      = dataWidth,
       blockSize      = blockSize,
       slotCount      = slotCount
     ),
-    s = S2mParameters(slaves = Nil),
-    dataBytes = upParam.dataBytes
+    s = S2mParameters(slaves = Nil)
   )
   val downPutBusParam = downPutParam.toBusParameter()
   val downGetBusParam = downGetParam.toBusParameter()
@@ -209,7 +213,7 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
       val withoutData = buses.filter(!_.p.withDataA).map(_.a).toList
       val withData = withDataA generate new Area{
         val buffer =  new Area{
-          val ram = Mem.fill(aBufferCount*p.blockSize/upParam.dataBytes)(Payload())
+          val ram = Mem.fill(aBufferCount*p.blockSize/upParam.m.dataBytes)(Payload())
           val allocated = Reg(Bits(aBufferCount bits)) init(0)
           val set, clear = B(0, aBufferCount bits)
           val firstFree = OHToUInt(OHMasking.firstV2(~allocated))
@@ -573,14 +577,14 @@ class CoherentHub(p : CoherentHubParameters) extends Component{
         val counter = Reg(downPutBusParam.beat) init(0)
         val beatsMinusOne = sizeToBeatMinusOne(downGetBusParam, SIZE)
         val isLast = counter === beatsMinusOne
-        val BEAT_ADDRESS = insert(ADDRESS | (counter << log2Up(downPutParam.dataBytes)).resized)
+        val BEAT_ADDRESS = insert(ADDRESS | (counter << log2Up(downPutParam.m.dataBytes)).resized)
 
         val upBuffer = withDataA generate new Area{
           val read = upstream.a.withData.buffer.ram.readSyncPort()
           val hits = upstream.a.withData.buffer.source.map(_ === SOURCE).asBits & upstream.a.withData.buffer.allocated
           val id = OHToUInt(hits)
           read.cmd.valid := False
-          read.cmd.payload := id @@ (BEAT_ADDRESS.resize(log2Up(p.blockSize)) >> log2Up(downPutParam.dataBytes))
+          read.cmd.payload := id @@ (BEAT_ADDRESS.resize(log2Up(p.blockSize)) >> log2Up(downPutParam.m.dataBytes))
         }
 
         forkIt(!isLast)
@@ -772,9 +776,11 @@ object CoherentHub{
 
   def downGetM2s(name : Nameable,
                  addressWidth : Int,
+                 dataWidth : Int,
                  blockSize : Int,
                  slotCount : Int) = M2sParameters(
     addressWidth = addressWidth,
+    dataWidth = dataWidth,
       masters = List(M2sAgent(
         name = name,
         mapping = List(M2sSource(
@@ -789,10 +795,12 @@ object CoherentHub{
 
   def downPutM2s(name : Nameable,
                  addressWidth : Int,
+                 dataWidth : Int,
                  blockSize : Int,
                  slotCount : Int,
                  cSourceCount : Int) = M2sParameters(
     addressWidth = addressWidth,
+    dataWidth = dataWidth,
     masters = List(M2sAgent(
       name = name,
       mapping = List(M2sSource(
@@ -815,6 +823,7 @@ object CoherentHub{
         nodes = List.fill(Random.nextInt(8) + 1) {
           val m = M2sParameters(
             addressWidth = 13,
+            dataWidth = 64,
             masters = {
               var offset = 0
               List.tabulate(Random.nextInt(4) + 1) { mId =>
@@ -863,8 +872,7 @@ object CoherentHub{
                 ),
                 sinkId = SizeMapping(0, slotsCount)
               )
-            )),
-            dataBytes = 8
+            ))
           )
         },
         slotCount = slotsCount,
@@ -884,6 +892,7 @@ object CoherentHubGen extends App{
         NodeParameters(
           m = M2sParameters(
             addressWidth = 13,
+            dataWidth = 64,
             masters = List.tabulate(4)(mId =>
             M2sAgent(
               name = null,
@@ -908,13 +917,13 @@ object CoherentHubGen extends App{
               ),
               sinkId = SizeMapping(0, slotsCount)
             )
-          )),
-          dataBytes = 8
+          ))
         )
       ) ++  List.fill(coherentOnlyCount)(
         NodeParameters(
           m = M2sParameters(
             addressWidth = 13,
+            dataWidth = 64,
             masters = List.tabulate(4)(mId =>
             M2sAgent(
               name = null,
@@ -936,13 +945,13 @@ object CoherentHubGen extends App{
               ),
               sinkId = SizeMapping(0, slotsCount)
             )
-          )),
-          dataBytes = 8
+          ))
         )
       ) ++  List.fill(dmaOnlyCount)(
         NodeParameters(
           m = M2sParameters(
             addressWidth = 13,
+            dataWidth = 64,
             masters = List.tabulate(4)(mId =>
             M2sAgent(
               name = null,
@@ -956,8 +965,7 @@ object CoherentHubGen extends App{
               ))
             ))
           ),
-          s = S2mParameters(Nil),
-          dataBytes = 8
+          s = S2mParameters(Nil)
         )
       ),
       slotCount = slotsCount,
