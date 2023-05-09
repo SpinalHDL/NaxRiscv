@@ -100,6 +100,17 @@ object M2sTransfers {
     hint       = SizeRange(1, 4096))
   def unknownSupports = M2sTransfers()
 
+  def singleSize(size : Int) = M2sTransfers(
+    acquireT   = SizeRange(size),
+    acquireB   = SizeRange(size),
+    arithmetic = SizeRange(size),
+    logical    = SizeRange(size),
+    get        = SizeRange(size),
+    putFull    = SizeRange(size),
+    putPartial = SizeRange(size),
+    hint       = SizeRange(size)
+  )
+
   def intersect(values : Seq[M2sTransfers]) : M2sTransfers = values.reduce(_ intersect _)
   def mincover(values : Seq[M2sTransfers]) : M2sTransfers = values.reduce(_ mincover _)
 }
