@@ -19,6 +19,14 @@ case class M2sSupport(transfers : M2sTransfers,
       allowExecute = this.allowExecute && that.allowExecute
     )
   }
+
+  def join(p: M2sParameters): M2sParameters ={
+    M2sParameters(
+      addressWidth = addressWidth,
+      dataWidth    = dataWidth,
+      masters = p.masters.map(e => e) //TODO
+    )
+  }
 }
 
 class InterconnectNodeMode extends Nameable
@@ -61,14 +69,14 @@ class InterconnectNode(i : Interconnect) extends Area {
   def at(address : BigInt, size : BigInt) = new At(_.explicitMapping = Some(SizeMapping(address, size)))
   def at(address : AddressMapping) = new At(_.explicitMapping = Some(address))
 
-//  def forceDataWidth(dataWidth : Int): Unit ={
-//    m2s.proposedModifiers += { s =>
-//      s.copy(dataWidth = dataWidth)
-//    }
-//    m2s.supportedModifiers += { s =>
-//      s.copy(dataWidth = dataWidth)
-//    }
-//  }
+  def forceDataWidth(dataWidth : Int): Unit ={
+    m2s.proposedModifiers += { s =>
+      s.copy(dataWidth = dataWidth)
+    }
+    m2s.supportedModifiers += { s =>
+      s.copy(dataWidth = dataWidth)
+    }
+  }
 }
 
 class InterconnectConnection(val m : InterconnectNode, val s : InterconnectNode) extends Area {
@@ -102,7 +110,7 @@ class InterconnectConnection(val m : InterconnectNode, val s : InterconnectNode)
     soon(arbiter.m2s.parameters)
     soon(decoder.s2m.parameters)
 
-    arbiter.m2s.parameters.load(decoder.m2s.parameters)
+    arbiter.m2s.parameters.load(s.m2s.supported join decoder.m2s.parameters)
     decoder.s2m.parameters.load(arbiter.s2m.parameters)
 
     if(decoder.bus.p.dataBytes != arbiter.bus.p.dataBytes) PendingError("Tilelink interconnect does not support resized yet")
@@ -503,10 +511,9 @@ object TopGen extends App{
     val cpu0 = new CPU()
 
     val busA = interconnect.createNode()
-//    busA.forceDataWidth(16)
     busA << cpu0.node
 
-    val adapter = new Adapter(canDownSize = true)
+    val adapter = new Adapter()
     adapter.input << busA
 
     val uart0 = new UART()
