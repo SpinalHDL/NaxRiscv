@@ -63,7 +63,7 @@ case class Decoder(inputNode : NodeParameters, outputsSupports : Seq[M2sSupport]
     }
 
     val miss = !logic.filter(_ != null).map(_.hit).orR
-    error.ctrl.io.bus.a.valid := miss
+    error.ctrl.io.bus.a.valid := io.input.a.valid && miss
     error.ctrl.io.bus.a.payload := io.input.a.payload
     readys += error.ctrl.io.bus.a.ready && miss
 
