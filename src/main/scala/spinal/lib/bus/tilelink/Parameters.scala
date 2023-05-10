@@ -7,7 +7,7 @@ import spinal.lib.bus.misc.AddressMapping
 
 
 case class BusParameter(addressWidth : Int,
-                        dataBytes    : Int,
+                        dataWidth    : Int,
                         sizeBytes    : Int,
                         sourceWidth  : Int,
                         sinkWidth    : Int,
@@ -16,7 +16,7 @@ case class BusParameter(addressWidth : Int,
                         withDataB    : Boolean,
                         withDataD    : Boolean,
                         node         : NodeParameters){
-  val dataWidth   = dataBytes*8
+  val dataBytes   = dataWidth/8
   val sizeMax     = log2Up(sizeBytes)
   val sizeMin     = 0
   def sizeValues  = sizeMin to sizeMax
@@ -80,7 +80,7 @@ case class NodeParameters(m : M2sParameters,
   val withBCE = s.withBCE || m.withBCE
   def toBusParameter() = BusParameter(
     addressWidth  = m.addressWidth,
-    dataBytes     = m.dataWidth,
+    dataWidth     = m.dataWidth,
     sizeBytes     = sizeBytes,
     sourceWidth   = m.sourceWidth,
     sinkWidth     = s.sinkWidth,

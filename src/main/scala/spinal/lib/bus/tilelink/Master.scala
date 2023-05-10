@@ -134,6 +134,9 @@ case class M2sAgent(name    : Nameable,
   def bSourceId = mapping.head.bSourceId
   def sourceHit(source : UInt) = mapping.map(_.id.hit(source)).orR
   def withExecute = mapping.exists(_.isExecute)
+  def remapSources(f : M2sSource => M2sSource) = {
+    copy(mapping = mapping.map(f))
+  }
 }
 
 
@@ -153,6 +156,9 @@ case class M2sParameters(addressWidth : Int,
   def getMasterFromSource(source : Int) = masters.find(_.mapping.exists(_.id.hit(source))) match {
     case Some(x) => x
     case None => null
+  }
+  def remapSources(f : M2sSource => M2sSource) = {
+    copy(masters = masters.map(_.remapSources(f)))
   }
 }
 

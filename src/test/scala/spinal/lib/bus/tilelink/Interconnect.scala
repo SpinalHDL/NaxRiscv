@@ -7,6 +7,15 @@ import spinal.lib.{master, slave}
 
 import scala.collection.mutable.ArrayBuffer
 
+object M2sSupport{
+  def apply(p : M2sParameters) : M2sSupport = M2sSupport(
+    transfers    = p.emits,
+    addressWidth = p.addressWidth,
+    dataWidth    = p.dataWidth,
+    allowExecute = p.withExecute
+  )
+}
+
 case class M2sSupport(transfers : M2sTransfers,
                       addressWidth : Int,
                       dataWidth : Int,
@@ -45,6 +54,11 @@ class InterconnectNode(i : Interconnect) extends Area {
     val parameters = Handle[M2sParameters]()
 
     val proposedModifiers, supportedModifiers = ArrayBuffer[M2sSupport => M2sSupport]()
+    val parametersModifiers = ArrayBuffer[M2sParameters => M2sParameters]()
+
+    def setProposedFromParameters(): Unit ={
+      proposed load M2sSupport(parameters)
+    }
   }
   val s2m = new Area{
     val parameters = Handle[S2mParameters]()
@@ -79,12 +93,43 @@ class InterconnectNode(i : Interconnect) extends Area {
   }
 }
 
+trait InterconnectAdapter {
+  def isRequired(c : InterconnectConnection) : Boolean
+  def build(c : InterconnectConnection)(m : Bus) : Bus
+}
+
+class InterconnectAdapterCc extends InterconnectAdapter{
+  var aDepth = 8
+  var bDepth = 8
+  var cDepth = 8
+  var dDepth = 8
+  var eDepth = 8
+  override def isRequired(c : InterconnectConnection) = c.m.rework(ClockDomain.current).clock != c.s.rework(ClockDomain.current).clock
+  override def build(c : InterconnectConnection)(m: Bus) : Bus = {
+    val cc = FifoCc(
+      busParameter = m.p,
+      inputCd      = c.m.rework(ClockDomain.current),
+      outputCd     = c.s.rework(ClockDomain.current),
+      aDepth       = aDepth,
+      bDepth       = bDepth,
+      cDepth       = cDepth,
+      dDepth       = dDepth,
+      eDepth       = eDepth
+    )
+    cc.io.input << m
+    cc.io.output
+  }
+}
+
 class InterconnectConnection(val m : InterconnectNode, val s : InterconnectNode) extends Area {
   m.downs += this
   s.ups += this
 
   var explicitAddress = Option.empty[BigInt]
   var explicitMapping = Option.empty[AddressMapping]
+
+  val adapters = ArrayBuffer[InterconnectAdapter]()
+  adapters += new InterconnectAdapterCc()
 
   def getMapping() : AddressMapping = {
     explicitAddress match {
@@ -93,6 +138,19 @@ class InterconnectConnection(val m : InterconnectNode, val s : InterconnectNode)
     }
     explicitMapping match {
       case Some(x) => x
+    }
+  }
+
+  def proposedAddressWidth() : Int = {
+    def full = m.m2s.proposed.addressWidth
+    explicitAddress match {
+      case Some(v) => return full
+      case None =>
+    }
+
+    explicitMapping.get match {
+      case DefaultMapping => full
+      case m : SizeMapping => log2Up(m.size)
     }
   }
 
@@ -111,10 +169,16 @@ class InterconnectConnection(val m : InterconnectNode, val s : InterconnectNode)
     soon(decoder.s2m.parameters)
 
     arbiter.m2s.parameters.load(s.m2s.supported join decoder.m2s.parameters)
-    decoder.s2m.parameters.load(arbiter.s2m.parameters)
+    decoder.s2m.parameters.load(arbiter.s2m.parameters) //TODO
 
     if(decoder.bus.p.dataBytes != arbiter.bus.p.dataBytes) PendingError("Tilelink interconnect does not support resized yet")
-    decoder.bus >> arbiter.bus
+    var ptr = decoder.bus.get
+    for(adapter <- adapters){
+      if(adapter.isRequired(InterconnectConnection.this)){
+        ptr = adapter.build(InterconnectConnection.this)(ptr)
+      }
+    }
+    ptr >> arbiter.bus
   }
 }
 
@@ -178,14 +242,20 @@ class Interconnect extends Area{
       // n.m2s.proposed <- ups.m2s.proposed
       if(n.mode != InterconnectNodeMode.MASTER) {
         val fromUps = n.ups.map(_.m.m2s.proposed).reduce(_ mincover _)
-        val modified = n.m2s.proposedModifiers.foldLeft(fromUps)((e, f) => f(e))
+        val addressConstrained = fromUps.copy(
+          addressWidth = n.ups.map(up => up.proposedAddressWidth()).max
+        )
+        val modified = n.m2s.proposedModifiers.foldLeft(addressConstrained)((e, f) => f(e))
         n.m2s.proposed load modified
       }
 
       // n.m2s.supported <- downs.m2s.supported
       if(n.mode != InterconnectNodeMode.SLAVE) {
         val fromDowns = n.downs.map(_.s.m2s.supported.get).reduce(_ mincover _)
-        val modified = n.m2s.supportedModifiers.foldLeft(fromDowns)((e, f) => f(e))
+        val addressConstrained = fromDowns.copy(
+          addressWidth = n.m2s.proposed.addressWidth
+        )
+        val modified = n.m2s.supportedModifiers.foldLeft(addressConstrained)((e, f) => f(e))
         n.m2s.supported load modified
       }
 
@@ -212,58 +282,62 @@ class Interconnect extends Area{
       }
 
       // Start hardware generation from that point
-      // Generate the node bus
-      val p = NodeParameters(n.m2s.parameters, n.s2m.parameters).toBusParameter()
-      n.bus.load(Bus(p))
+      val gen = n rework new Area {
+        // Generate the node bus
+        val p = NodeParameters(n.m2s.parameters, n.s2m.parameters).toBusParameter()
+        n.bus.load(Bus(p))
 
-      val arbiter = (n.mode != InterconnectNodeMode.MASTER) generate new Area{
-        val core = Arbiter(n.ups.map(up => NodeParameters(
-          m = up.arbiter.m2s.parameters,
-          s = up.arbiter.s2m.parameters
-        )))
-        core.setCompositeName(n.bus, "arbiter")
-        (n.ups, core.io.inputs.map(_.fromCombStage())).zipped.foreach(_.arbiter.bus.load(_))
-        n.bus << core.io.output
-      }
+        val arbiter = (n.mode != InterconnectNodeMode.MASTER) generate new Area {
+          val core = Arbiter(n.ups.map(up => NodeParameters(
+            m = up.arbiter.m2s.parameters,
+            s = up.arbiter.s2m.parameters
+          )))
+          core.setCompositeName(n.bus, "arbiter")
+          (n.ups, core.io.inputs.map(_.fromCombStage())).zipped.foreach(_.arbiter.bus.load(_))
+          n.bus << core.io.output
+        }
 
-      val decoder = (n.mode != InterconnectNodeMode.SLAVE) generate new Area {
-        val core = Decoder(n.bus.p.node, n.downs.map(_.s.m2s.supported), n.downs.map(_.getMapping()))
-        core.setCompositeName(n.bus, "decoder")
-        (n.downs, core.io.outputs.map(_.combStage())).zipped.foreach(_.decoder.bus.load(_))
-        core.io.input << n.bus
+        val decoder = (n.mode != InterconnectNodeMode.SLAVE) generate new Area {
+          val core = Decoder(n.bus.p.node, n.downs.map(_.s.m2s.supported), n.downs.map(_.getMapping()))
+          core.setCompositeName(n.bus, "decoder")
+          (n.downs, core.io.outputs.map(_.combStage())).zipped.foreach(_.decoder.bus.load(_))
+          core.io.input << n.bus
+        }
       }
+    }
+
+    for(n <- nodes){
+      println(s"${n.getName()} :")
+      println(s"- proposed   : " + n.m2s.proposed.get)
+      println(s"- supported  : " + n.m2s.supported.get)
+      println(s"- parameters : " + n.m2s.parameters.get)
     }
   }
 }
 
 class CPU()(implicit ic : Interconnect) extends Area{
   val node = ic.createMaster()
-  node.m2s.proposed load M2sSupport(  //TODO
-    transfers = M2sTransfers(
-      get = SizeRange.upTo(0x40),
-      putFull = SizeRange.upTo(0x40)
-    ),
-    addressWidth = 32,
-    dataWidth    = 32,
-    allowExecute = false
-  )
-  node.m2s.parameters.load(
-    M2sParameters(
-      addressWidth = 32,
-      dataWidth    = 32,
-      masters = List(M2sAgent(
-        name = this,
-        mapping = List(M2sSource(
-          id = SizeMapping(0, 4),
-          emits = M2sTransfers(
-            get = SizeRange.upTo(0x40),
-            putFull = SizeRange.upTo(0x40)
-          )
+
+  val logic = Elab build new Area{
+    node.m2s.parameters.load(
+      M2sParameters(
+        addressWidth = 32,
+        dataWidth    = 32,
+        masters = List(M2sAgent(
+          name = this,
+          mapping = List(M2sSource(
+            id = SizeMapping(0, 4),
+            emits = M2sTransfers(
+              get = SizeRange.upTo(0x40),
+              putFull = SizeRange.upTo(0x40)
+            )
+          ))
         ))
-      ))
+      )
     )
-  )
-  hardFork(slave(node.bus))
+    node.m2s.setProposedFromParameters()
+    slave(node.bus)
+  }
 }
 
 
@@ -339,12 +413,12 @@ class UART()(implicit ic : Interconnect) extends Area{
     M2sSupport(
       transfers = node.m2s.proposed.transfers.intersect(
         M2sTransfers(
-          get = SizeRange.upTo( 0x1000),
+          get = SizeRange.upTo(0x1000),
           putFull = SizeRange.upTo(0x1000)
         )
       ),
       dataWidth    = 32,
-      addressWidth = 32, //TODO 8
+      addressWidth = 8,
       allowExecute = false
     )
   )
@@ -506,21 +580,33 @@ class CoherencyHubIntegrator()(implicit ic : Interconnect) extends Area{
 
 object TopGen extends App{
   SpinalVerilog(new Component{
+    val slowCd = ClockDomain.external("slow")
+    val fastCd = ClockDomain.external("fast")
     implicit val interconnect = new Interconnect()
 
-    val cpu0 = new CPU()
+    val system = fastCd on new Area {
+      val cpu0 = new CPU()
+      //    val cpu1 = new CPU()
 
-    val busA = interconnect.createNode()
-    busA << cpu0.node
+      val busA = interconnect.createNode()
+      busA << cpu0.node
+      //    busA << cpu1.node
 
-    val adapter = new Adapter()
-    adapter.input << busA
+    }
+    val peripheral = slowCd on new Area {
+      val peripheralBus = interconnect.createNode()
+//      peripheralBus.forceDataWidth(16)
+      peripheralBus at(0x10000000, 16 MiB) of system.busA
 
-    val uart0 = new UART()
-    uart0.node at 0x100 of adapter.output
+      val adapter = new Adapter()
+      adapter.input << peripheralBus
 
-    val uart1 = new UART()
-    uart1.node at 0x200 of adapter.output
+      val uart0 = new UART()
+      uart0.node at 0x100 of adapter.output
+
+      val uart1 = new UART()
+      uart1.node at 0x200 of adapter.output
+    }
 
 //    uart0.node.mapping.load(SizeMapping(0x100, 0x100))
 
