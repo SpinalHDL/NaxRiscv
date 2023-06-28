@@ -220,6 +220,7 @@ class Lsu2Plugin(var lqSize: Int,
     dispatch.fenceOlder  (Rvi.SC)
 
 
+    val fpuWriteSize = UInt(2 bits)
     class RegfilePorts(regfile : RegfileService) extends Area{
       val sharing = getRfWriteSharing(regfile.rfSpec)
       assert(sharing.withReady == false)
@@ -1139,11 +1140,8 @@ class Lsu2Plugin(var lqSize: Int,
           regfile.write.address := decoder.PHYS_RD
           regfile.write.data    := rspFormated.resized
           regfile.write.robId   := ROB.ID
-
-          if(RVD && spec == FloatRegFile) when(stage(SIZE) === 2){
-            regfile.write.data(63 downto 32).setAll()
-          }
         }
+        fpuWriteSize := SIZE
 
         LOAD_WRITE_FAILURE := IS_LOAD && specialOverride && !IS_IO
 
@@ -1595,6 +1593,7 @@ class Lsu2Plugin(var lqSize: Int,
           regfile.write.address := loadPhysRd
           regfile.write.robId   := robId
         }
+        setup.fpuWriteSize := loadSize
 
         sharedPip.cacheRsp.rspAddress  := loadAddress.resized
         sharedPip.cacheRsp.rspSize     := loadSize
@@ -1753,6 +1752,12 @@ class Lsu2Plugin(var lqSize: Int,
       sharedPip.build()
       lqSqArbitration.build()
       special.atomic.build()
+
+      for((spec, regfile) <- setup.regfilePorts) {
+        if(RVD && spec == FloatRegFile) when(fpuWriteSize === 2){
+          regfile.write.data(63 downto 32).setAll()
+        }
+      }
     }
 
 

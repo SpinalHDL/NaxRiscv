@@ -6,7 +6,7 @@ import naxriscv.utilities._
 import spinal.core._
 import spinal.core.fiber.Handle
 import spinal.lib.com.jtag.{Jtag, JtagTapFactory, JtagTapInstructionCtrl}
-import spinal.lib.cpu.riscv.debug.{DebugModule, DebugModuleParameter, DebugTransportModuleJtagTap, DebugTransportModuleJtagTapWithTunnel, DebugTransportModuleParameter, DebugTransportModuleTunneled}
+import spinal.lib.cpu.riscv.debug.{DebugModule, DebugModuleCpuConfig, DebugModuleParameter, DebugTransportModuleJtagTap, DebugTransportModuleJtagTapWithTunnel, DebugTransportModuleParameter, DebugTransportModuleTunneled}
 import spinal.lib.slave
 
 class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
@@ -31,7 +31,11 @@ class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
         harts = 1,
         progBufSize = 2,
         datacount   = Global.XLEN/32,
-        xlens = List(Global.XLEN.get)
+        hartsConfig = List(DebugModuleCpuConfig(
+          xlen = Global.XLEN.get,
+          flen = Global.FLEN,
+          withFpuRegAccess = false
+        ))
       )
     )
     val ndmreset = dm.io.ndmreset.toIo()
