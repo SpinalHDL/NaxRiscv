@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023 NaxRiscv
+#
+# SPDX-License-Identifier: MIT
+
 package naxriscv.utilities
 
 import java.io.{File, PrintWriter}

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023 NaxRiscv
+#
+# SPDX-License-Identifier: MIT
+
 package naxriscv.utilities
 import naxriscv.Frontend.DISPATCH_MASK
 import naxriscv.{Frontend, ROB}
