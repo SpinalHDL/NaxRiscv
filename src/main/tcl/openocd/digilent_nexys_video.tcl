@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023 "Everybody"
+#
+# SPDX-License-Identifier: MIT
+
 adapter driver ftdi
 ftdi_device_desc "Digilent USB Device"
 ftdi_vid_pid 0x0403 0x6010

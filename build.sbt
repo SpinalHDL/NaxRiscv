@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 val spinalVersion = "dev"
 
 lazy val root = (project in file(".")).

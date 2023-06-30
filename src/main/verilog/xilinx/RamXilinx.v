@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
 
 module Ram_1w_1rs #(
         parameter integer wordCount = 0,

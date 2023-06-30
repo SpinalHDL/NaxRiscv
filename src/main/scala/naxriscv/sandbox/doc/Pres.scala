@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.sandbox.doc
 import naxriscv.Global
 import naxriscv.execute.{ExecutionUnitBase, ExecutionUnitElementSimple, SimdAddPlugin}

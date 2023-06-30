@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023 "Everybody"
+#
+# SPDX-License-Identifier: MIT
+
 set _CHIPNAME riscv
 set _TARGETNAME $_CHIPNAME.cpu
 
