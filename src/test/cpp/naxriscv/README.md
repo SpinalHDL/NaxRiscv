@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2023 Everybody
+
+SPDX-License-Identifier: CC0-1.0
+-->
+
 # How to setup things
 
 ```shell

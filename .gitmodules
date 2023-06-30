@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023 Everybody
+#
+# SPDX-License-Identifier: CC0-1.0
+
 [submodule "ext/NaxSoftware"]
 	path = ext/NaxSoftware
 	url = https://github.com/SpinalHDL/NaxSoftware.git

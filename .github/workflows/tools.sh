@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# SPDX-FileCopyrightText: 2023 "Everybody"
+#
+# SPDX-License-Identifier: MIT
+
 install_verilator(){
   sudo apt-get update
   sudo apt install -y git make autoconf g++ flex libfl-dev bison  # First time prerequisites

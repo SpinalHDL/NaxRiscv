@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 import spinal.core.BaseType
 import spinal.lib.pipeline.Stageable
 

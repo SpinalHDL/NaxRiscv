@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023 "Everybody"
+#
+# SPDX-License-Identifier: MIT
+
 NAXRISCV_REPO?=$(realpath ../../../..)
 NAXRISCV_GEN_FOLDER?=${NAXRISCV_REPO}
 NAXRISCV_VERILOG?=${NAXRISCV_GEN_FOLDER}/NaxRiscv.v

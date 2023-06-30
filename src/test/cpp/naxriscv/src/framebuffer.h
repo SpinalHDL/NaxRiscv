@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 #include <SDL2/SDL.h>
 #include <assert.h>
 #include <stdint.h>
