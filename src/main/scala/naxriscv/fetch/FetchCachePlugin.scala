@@ -15,8 +15,10 @@ import naxriscv.Frontend._
 import naxriscv.Fetch._
 import naxriscv.prediction.HistoryPlugin
 import spinal.lib.bus.amba4.axi.{Axi4Config, Axi4ReadOnly}
+import spinal.lib.bus.tilelink
 import spinal.lib.bus.amba4.axilite.{AxiLite4Config, AxiLite4ReadOnly}
 import spinal.lib.bus.bmb.{Bmb, BmbAccessParameter, BmbParameter, BmbSourceParameter}
+import spinal.lib.bus.tilelink.{M2sSupport, SizeRange}
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -30,10 +32,24 @@ case class FetchL1Rsp(dataWidth : Int) extends Bundle{
   val error = Bool()
 }
 
-case class FetchL1Bus(physicalWidth : Int,
-                      dataWidth : Int,
-                      lineSize : Int,
-                      withBackPresure : Boolean) extends Bundle with IMasterSlave {
+
+case class FetchL1BusParameters(physicalWidth : Int,
+                                dataWidth : Int,
+                                lineSize : Int,
+                                withBackPresure : Boolean){
+  def toTileLinkM2sParameters() = tilelink.M2sParameters(
+    sourceCount = 1,
+    support = M2sSupport(
+      addressWidth = physicalWidth,
+      dataWidth = dataWidth,
+      transfers = tilelink.M2sTransfers(get = SizeRange(lineSize))
+    )
+  )
+}
+
+case class FetchL1Bus(p : FetchL1BusParameters) extends Bundle with IMasterSlave {
+  import p._
+
   val cmd = Stream(FetchL1Cmd(physicalWidth))
   val rsp = Stream(FetchL1Rsp(dataWidth))
 
@@ -70,10 +86,9 @@ case class FetchL1Bus(physicalWidth : Int,
 
   def resizer(newDataWidth : Int) : FetchL1Bus = new Composite(this, "resizer"){
     val ret = FetchL1Bus(
-      physicalWidth   = physicalWidth,
-      dataWidth       = newDataWidth,
-      lineSize        = lineSize,
-      withBackPresure = withBackPresure || newDataWidth > dataWidth
+      p.copy(
+        withBackPresure = withBackPresure || newDataWidth > dataWidth
+      )
     )
 
     ret.cmd << self.cmd
@@ -148,6 +163,22 @@ case class FetchL1Bus(physicalWidth : Int,
     rsp.error := bmb.rsp.isError
   }.bmb
 
+  def toTilelink(): tilelink.Bus = new Composite(this, "toTilelink"){
+    val bus = tilelink.Bus(p.toTileLinkM2sParameters())
+    bus.a.valid := cmd.valid
+    bus.a.opcode  := tilelink.Opcode.A.GET
+    bus.a.param   := 0
+    bus.a.source  := 0
+    bus.a.address := cmd.address
+    bus.a.size    := log2Up(lineSize)
+    cmd.ready := bus.a.ready
+
+    rsp.valid := bus.d.valid
+    rsp.data  := bus.d.data
+    rsp.error := !bus.d.denied || !bus.d.corrupt
+    bus.d.ready := (if(withBackPresure) rsp.ready else True)
+  }.bus
+
   def toAxiLite4(): AxiLite4ReadOnly = new Composite(this, "toAxi4"){
     val axiConfig = AxiLite4Config(
       addressWidth = physicalWidth,
@@ -204,12 +235,15 @@ class FetchCachePlugin(var cacheSize : Int,
   }
 
   override def stagesCountMin = injectionAt + 1
-
-  val mem = create early master(FetchL1Bus(
+  def getBusParameter() = FetchL1BusParameters(
     physicalWidth = PHYSICAL_WIDTH,
     dataWidth     = memDataWidth,
     lineSize      = lineSize,
     withBackPresure = false
+  )
+
+  val mem = create early master(FetchL1Bus(
+    getBusParameter()
   ))
   def invalidatePort = setup.invalidatePort
 

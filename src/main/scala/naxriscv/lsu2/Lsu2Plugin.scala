@@ -12,7 +12,7 @@ import naxriscv.frontend.{DispatchPlugin, FrontendPlugin}
 import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
 import naxriscv.{Fetch, Frontend, Global, ROB}
 import naxriscv.interfaces._
-import naxriscv.lsu.{DataCachePlugin, LsuFlushPayload, LsuFlusher, LsuPeripheralBus, LsuUtils, PrefetchPredictor}
+import naxriscv.lsu.{DataCachePlugin, LsuFlushPayload, LsuFlusher, LsuPeripheralBus, LsuPeripheralBusParameter, LsuUtils, PrefetchPredictor}
 import naxriscv.lsu2.Lsu2Plugin.CTRL_ENUM
 import naxriscv.misc.RobPlugin
 import naxriscv.riscv.{AtomicAlu, CSR, FloatRegFile, IntRegFile, Rvi}
@@ -247,7 +247,9 @@ class Lsu2Plugin(var lqSize: Int,
     doc.property("RVA", true)
   }
 
-  val peripheralBus = create late master(LsuPeripheralBus(PHYSICAL_WIDTH, wordWidth)).setName("LsuPlugin_peripheralBus")
+  def getPeripheralBusParameters() = LsuPeripheralBusParameter(PHYSICAL_WIDTH, wordWidth)
+  val peripheralBus = create late master(LsuPeripheralBus(getPeripheralBusParameters())).setName("LsuPlugin_peripheralBus")
+
 
   val logic = create late new Area{
     val imp = setup.get

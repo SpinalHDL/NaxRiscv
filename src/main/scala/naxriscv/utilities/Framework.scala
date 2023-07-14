@@ -113,6 +113,15 @@ class Framework(val plugins : Seq[Plugin]) extends Area{
     }
   }
 
+  def getServiceOption[T <: Service : ClassTag] : Option[T] = {
+    val filtered = getServicesOf[T]
+    filtered.length match {
+      case 0 => None
+      case 1 => Some(filtered.head)
+      case _ => throw new Exception(s"Found multiple instances of ${classTag[T].runtimeClass.getName}")
+    }
+  }
+
   def getServiceWhere[T: ClassTag](filter : T => Boolean) : T = {
     val clazz = (classTag[T].runtimeClass)
     val filtered = services.filter(o => clazz.isAssignableFrom(o.getClass) && filter(o.asInstanceOf[T]))

@@ -9,6 +9,9 @@ import spinal.core._
 import spinal.lib._
 import spinal.lib.bus.amba4.axi.{Axi4, Axi4Config}
 import spinal.lib.bus.bmb.{Bmb, BmbAccessParameter, BmbParameter, BmbSourceParameter}
+import spinal.lib.bus.misc.SizeMapping
+import spinal.lib.bus.tilelink
+import spinal.lib.bus.tilelink._
 import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline.{Pipeline, Stage, Stageable, StageableOffsetNone}
 
@@ -107,6 +110,31 @@ case class DataMemBusParameter( addressWidth: Int,
 
   val readIdWidth = log2Up(readIdCount)
   val writeIdWidth = log2Up(writeIdCount)
+
+  def toTileLinkM2sParameters() = tilelink.M2sParameters(
+    addressWidth = addressWidth,
+    dataWidth = dataWidth,
+    masters = List(
+      M2sAgent(
+        name = null,
+        M2sSource(
+          id    = SizeMapping(0, writeIdCount),
+          emits = tilelink.M2sTransfers(
+            putFull = SizeRange(lineSize)
+          )
+        )
+      ),
+      M2sAgent(
+        name = null,
+        M2sSource(
+          id    = SizeMapping(log2Up(readIdCount max writeIdCount), readIdCount),
+          emits = tilelink.M2sTransfers(
+            get = SizeRange(lineSize)
+          )
+        )
+      )
+    )
+  )
 }
 
 case class DataMemReadCmd(p : DataMemBusParameter) extends Bundle {
@@ -395,42 +423,91 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
     write.rsp.error := !axi.b.isOKAY()
     axi.b.ready     :=  True
   }.axi
+
+
+
+  def toTilelink(): tilelink.Bus = new Composite(this, "toTilelink"){
+    val bus = tilelink.Bus(p.toTileLinkM2sParameters())
+
+    val onA = new Area {
+      val lock = RegInit(False) setWhen (bus.a.valid) clearWhen (bus.a.fire && bus.a.isLast())
+      val selReg = Reg(Bool())
+      val sel = lock.mux(selReg, read.cmd.valid)
+      selReg := sel
+
+      bus.a.param := 0
+      bus.a.size := log2Up(p.lineSize)
+      bus.a.mask.setAll()
+      bus.a.data := write.cmd.data
+      bus.a.corrupt := False
+
+      when(sel) {
+        bus.a.valid := read.cmd.valid
+        bus.a.opcode := tilelink.Opcode.A.GET()
+        bus.a.source := read.cmd.id.resized
+        bus.a.address := read.cmd.address
+      } otherwise {
+        bus.a.valid := write.cmd.valid
+        bus.a.opcode := tilelink.Opcode.A.PUT_FULL_DATA()
+        bus.a.source := write.cmd.id.resized
+        bus.a.address := write.cmd.address
+      }
+
+      bus.a.source.msb := sel
+
+      write.cmd.ready := !sel && bus.a.ready
+      read.cmd.ready := sel && bus.a.ready
+    }
+
+    val onD = new Area{
+      val sel = bus.d.opcode === tilelink.Opcode.D.ACCESS_ACK_DATA
+
+      read.rsp.valid := bus.d.valid && !sel
+      read.rsp.data  := bus.d.data
+      read.rsp.error := bus.d.denied || bus.d.corrupt
+      read.rsp.id    := bus.d.source.resized
+
+      write.rsp.valid := bus.d.valid && !sel
+      write.rsp.error := bus.d.denied || bus.d.corrupt
+      write.rsp.id    := bus.d.source.resized
+
+      bus.d.ready := sel.mux(read.rsp.ready, True)
+    }
+  }.bus
+
 }
 
-//TODO L1 status tracking into L2 need to be exact, so need to notify when going from shared to invalid/another line.
-class DataCache(val cacheSize: Int,
-                val wayCount: Int,
-                val refillCount : Int,
-                val writebackCount : Int,
-                val memDataWidth: Int,
-                val cpuDataWidth: Int,
-                val preTranslationWidth: Int,
-                val postTranslationWidth: Int,
-                val withCoherency : Boolean = false,
-                val probeIdWidth : Int = -1,
-                val ackIdWidth   : Int = -1,
-                val loadRefillCheckEarly : Boolean = true,
-                val storeRefillCheckEarly : Boolean = true,
-                val lineSize: Int = 64,
-                val loadReadBanksAt: Int = 0,
-                val loadReadTagsAt: Int = 1,
-                val loadTranslatedAt : Int = 1,
-                val loadHitsAt: Int = 1,
-                val loadHitAt: Int = 1,
-                val loadBankMuxesAt: Int = 1,
-                val loadBankMuxAt: Int = 2,
-                val loadControlAt: Int = 2,
-                val loadRspAt: Int = 2,
-                val storeReadBanksAt: Int = 0,
-                val storeReadTagsAt: Int = 1,
-                val storeHitsAt: Int = 1,
-                val storeHitAt: Int = 1,
-                val storeControlAt: Int = 2,
-                val storeRspAt: Int = 2,
-                val tagsReadAsync : Boolean = true,
-                val reducedBankWidth : Boolean = false
-               ) extends Component {
-
+case class DataCacheParameters(cacheSize: Int,
+                               wayCount: Int,
+                               refillCount : Int,
+                               writebackCount : Int,
+                               memDataWidth: Int,
+                               cpuDataWidth: Int,
+                               preTranslationWidth: Int,
+                               postTranslationWidth: Int,
+                               withCoherency : Boolean = false,
+                               probeIdWidth : Int = -1,
+                               ackIdWidth   : Int = -1,
+                               loadRefillCheckEarly : Boolean = true,
+                               storeRefillCheckEarly : Boolean = true,
+                               lineSize: Int = 64,
+                               loadReadBanksAt: Int = 0,
+                               loadReadTagsAt: Int = 1,
+                               loadTranslatedAt : Int = 1,
+                               loadHitsAt: Int = 1,
+                               loadHitAt: Int = 1,
+                               loadBankMuxesAt: Int = 1,
+                               loadBankMuxAt: Int = 2,
+                               loadControlAt: Int = 2,
+                               loadRspAt: Int = 2,
+                               storeReadBanksAt: Int = 0,
+                               storeReadTagsAt: Int = 1,
+                               storeHitsAt: Int = 1,
+                               storeHitAt: Int = 1,
+                               storeControlAt: Int = 2,
+                               storeRspAt: Int = 2,
+                               tagsReadAsync : Boolean = true,
+                               reducedBankWidth : Boolean = false){
   val memParameter = DataMemBusParameter(
     addressWidth  = postTranslationWidth,
     dataWidth     = memDataWidth,
@@ -442,6 +519,11 @@ class DataCache(val cacheSize: Int,
     withReducedBandwidth = false,
     withCoherency = withCoherency
   )
+}
+
+//TODO L1 status tracking into L2 need to be exact, so need to notify when going from shared to invalid/another line.
+class DataCache(val p : DataCacheParameters) extends Component {
+  import p._
 
   val io = new Bundle {
     val lock = slave(LockPort())

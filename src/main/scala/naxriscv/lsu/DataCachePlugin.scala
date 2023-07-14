@@ -105,13 +105,8 @@ class DataCachePlugin(var memDataWidth : Int,
     val refillCompletions = Bits(refillCount bits)
 
     val lockPort = LockPort()
-  }
 
-  val logic = create late new Area{
-    lock.await()
-
-
-    val cache = new DataCache(
+    val dataCacheParameters = DataCacheParameters(
       cacheSize       = cacheSize,
       wayCount        = wayCount,
       memDataWidth    = memDataWidth,
@@ -120,9 +115,9 @@ class DataCachePlugin(var memDataWidth : Int,
       writebackCount  = writebackCount,
       preTranslationWidth    = VIRTUAL_EXT_WIDTH,
       postTranslationWidth   = PHYSICAL_WIDTH,
-      lineSize         = lineSize,
-      loadRefillCheckEarly  = loadRefillCheckEarly,
-      storeRefillCheckEarly = storeRefillCheckEarly,
+      lineSize               = lineSize,
+      loadRefillCheckEarly   = loadRefillCheckEarly,
+      storeRefillCheckEarly  = storeRefillCheckEarly,
       loadReadBanksAt  = loadReadBanksAt,
       loadReadTagsAt   = loadReadTagsAt,
       loadTranslatedAt = loadTranslatedAt,
@@ -143,6 +138,15 @@ class DataCachePlugin(var memDataWidth : Int,
       withCoherency    = withCoherency,
       probeIdWidth     = probeIdWidth,
       ackIdWidth       = ackIdWidth
+    )
+  }
+
+  val logic = create late new Area{
+    lock.await()
+
+
+    val cache = new DataCache(
+      setup.dataCacheParameters
     )
 
     setup.writebackBusy <> cache.io.writebackBusy
