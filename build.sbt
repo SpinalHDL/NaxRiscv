@@ -15,7 +15,8 @@ lazy val root = (project in file(".")).
     scalacOptions += s"-Xplugin-require:idsl-plugin",
     libraryDependencies ++= Seq(
       "org.scalatest" %% "scalatest" % "3.2.5",
-      "org.yaml" % "snakeyaml" % "1.8"
+      "org.yaml" % "snakeyaml" % "1.8",
+      "net.fornwall" % "jelf" % "0.7.0"
     ),
     name := "NaxRiscv"
   ).dependsOn(spinalHdlIdslPlugin, spinalHdlSim,spinalHdlCore,spinalHdlLib)
