@@ -263,7 +263,7 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
   def toTilelink(): tilelink.Bus = new Composite(this, "toTilelink"){
     val bus = tilelink.Bus(p.toTileLinkM2sParameters())
     bus.a.valid := cmd.valid
-    bus.a.opcode  := cmd.write.mux(tilelink.Opcode.A.GET(), tilelink.Opcode.A.PUT_FULL_DATA())
+    bus.a.opcode  := cmd.write.mux(tilelink.Opcode.A.PUT_FULL_DATA(), tilelink.Opcode.A.GET())
     bus.a.param   := 0
     bus.a.source  := 0
     bus.a.address := cmd.address
@@ -275,7 +275,7 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
 
     rsp.valid := bus.d.valid
     rsp.data  := bus.d.data
-    rsp.error := !bus.d.denied || !bus.d.corrupt
+    rsp.error := bus.d.denied || bus.d.corrupt
     bus.d.ready := True
   }.bus
 

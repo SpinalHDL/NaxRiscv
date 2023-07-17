@@ -453,6 +453,9 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
         bus.a.address := write.cmd.address
       }
 
+      val beat = bus.a.beatCounter()
+      bus.a.address(log2Up(p.dataWidth/8), widthOf(beat) bits) := beat
+
       bus.a.source.msb := sel
 
       write.cmd.ready := !sel && bus.a.ready
@@ -462,7 +465,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
     val onD = new Area{
       val sel = bus.d.opcode === tilelink.Opcode.D.ACCESS_ACK_DATA
 
-      read.rsp.valid := bus.d.valid && !sel
+      read.rsp.valid := bus.d.valid && sel
       read.rsp.data  := bus.d.data
       read.rsp.error := bus.d.denied || bus.d.corrupt
       read.rsp.id    := bus.d.source.resized

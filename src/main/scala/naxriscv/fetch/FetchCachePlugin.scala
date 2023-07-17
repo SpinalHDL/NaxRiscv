@@ -175,7 +175,7 @@ case class FetchL1Bus(p : FetchL1BusParameters) extends Bundle with IMasterSlave
 
     rsp.valid := bus.d.valid
     rsp.data  := bus.d.data
-    rsp.error := !bus.d.denied || !bus.d.corrupt
+    rsp.error := bus.d.denied || bus.d.corrupt
     bus.d.ready := (if(withBackPresure) rsp.ready else True)
   }.bus
 
