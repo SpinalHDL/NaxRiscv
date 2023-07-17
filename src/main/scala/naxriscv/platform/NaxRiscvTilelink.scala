@@ -87,8 +87,9 @@ class NaxRiscvTilelinkSoCDemo extends Component {
     val bus = Node()
     bus at 0x10000000l of filter.down
 
-    val clint = new TilelinkFabricClint(1)
+    val clint = new TilelinkFabricClint()
     clint.node at 0x10000 of bus
+    clint.bindHart(nax)
 
     val emulated = new tilelink.fabric.SlaveBus(
       M2sSupport(
