@@ -75,17 +75,21 @@ class NaxRiscvTilelink extends Area {
 
 
 class NaxRiscvTilelinkSoCDemo extends Component {
-  val filter = new fabric.TransferFilter()
 
   val nax = new NaxRiscvTilelink()
+
+  val filter = new fabric.TransferFilter()
   filter.up << nax.buses
 
+  val nonCoherent = Node()
+  nonCoherent << filter.down
+
   val mem = new tilelink.fabric.SlaveBusAny()
-  mem.node << filter.down
+  mem.node << nonCoherent
 
   val peripheral = new Area {
     val bus = Node()
-    bus at 0x10000000l of filter.down
+    bus at 0x10000000l of nonCoherent
 
     val clint = new TilelinkFabricClint()
     clint.node at 0x10000 of bus
@@ -125,13 +129,14 @@ object NaxRiscvTilelinkSim extends App{
     val memAgent = new MemoryAgent(dut.mem.node.bus, cd)(null)
     val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, cd)
 
-//    val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
-//    elf.load(memAgent.mem, -0xffffffff00000000l)
+    val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+//    val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
+    elf.load(memAgent.mem, -0xffffffff00000000l)
 
-    memAgent.mem.loadBin(0x80000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-    memAgent.mem.loadBin(0x80F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
-    memAgent.mem.loadBin(0x80400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
-    memAgent.mem.loadBin(0x81000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
+//    memAgent.mem.loadBin(0x80000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
+//    memAgent.mem.loadBin(0x80F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
+//    memAgent.mem.loadBin(0x80400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
+//    memAgent.mem.loadBin(0x81000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
 
     cd.waitSampling(10000000)
     simSuccess()
