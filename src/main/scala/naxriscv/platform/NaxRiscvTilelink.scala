@@ -12,6 +12,7 @@ import spinal.core._
 import spinal.core.fiber._
 import spinal.lib.bus.tilelink.fabric._
 import spinal.lib.bus.tilelink
+import spinal.lib.bus.tilelink.coherent.{Hub, HubFabric}
 import spinal.lib.bus.tilelink.sim.{MemoryAgent, Monitor, MonitorSubscriber, SlaveDriver, TransactionA, TransactionD}
 import spinal.lib.bus.tilelink.{M2sSupport, M2sTransfers, Opcode, S2mSupport, SizeRange, fabric}
 import spinal.lib.misc.{Elf, TilelinkFabricClint}
@@ -29,7 +30,7 @@ class NaxRiscvTilelink extends Area {
 
   val thread = Fiber build new Area{
     val l = Config.plugins(
-//      withCoherency = true,
+      withCoherency = true,
       withRdTime = false,
       aluCount    = 1,
       decodeCount = 1,
@@ -48,8 +49,18 @@ class NaxRiscvTilelink extends Area {
 
         framework.plugins.foreach{
           case p : FetchCachePlugin => ibus.s2m.supported.load(S2mSupport.none())
-          case p : DataCachePlugin => dbus.s2m.supported.load(S2mSupport.none())
           case p : Lsu2Plugin => pbus.s2m.supported.load(S2mSupport.none())
+          case p: DataCachePlugin => p.withCoherency match {
+            case false => dbus.s2m.supported.load(S2mSupport.none())
+            case true => dbus.s2m.supported.load(p.setup.dataCacheParameters.toTilelinkS2mSupported(dbus.s2m.proposed))
+          }
+          case _ =>
+        }
+
+        framework.plugins.foreach{
+          case p: DataCachePlugin => if(p.withCoherency){
+            p.setCoherencyInfo(dbus.m2s.parameters.sourceWidth, dbus.s2m.parameters.sinkWidth)
+          }
           case _ =>
         }
       }
@@ -81,7 +92,14 @@ class NaxRiscvTilelinkSoCDemo extends Component {
   val filter = new fabric.TransferFilter()
   filter.up << nax.buses
 
+
+
   val nonCoherent = Node()
+
+//  val hub = new HubFabric()
+//  hub.up << filter.down
+//  nonCoherent << hub.down
+
   nonCoherent << filter.down
 
   val mem = new tilelink.fabric.SlaveBusAny()

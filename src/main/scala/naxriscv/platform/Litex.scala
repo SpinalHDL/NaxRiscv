@@ -444,7 +444,7 @@ Vexriscv_smp =>
 
 obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/framebuffer/build/rv32ima/framebuffer.elf --framebuffer 0x80200000,800,600
 
-dtc -O dtb -o linux.dtb linux.dts
+
 export LINUX_IMAGES=$NAXRISCV/../imageDoom
 ./obj_dir/VNaxRiscv \
     --framebuffer 0x80200000,800,600  \

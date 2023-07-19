@@ -59,6 +59,13 @@ class DataCachePlugin(var memDataWidth : Int,
 
   def writebackBusy = setup.writebackBusy
 
+  def setCoherencyInfo(probeIdWidth : Int, ackIdWidth : Int) = {
+    this.probeIdWidth = probeIdWidth
+    this.ackIdWidth = ackIdWidth
+    setup.dataCacheParameters.probeIdWidth = probeIdWidth
+    setup.dataCacheParameters.ackIdWidth = ackIdWidth
+  }
+
   case class LoadPortSpec(port : DataLoadPort, priority : Int)
   val loadPorts = ArrayBuffer[LoadPortSpec]()
   def newLoadPort(priority : Int): DataLoadPort = {
