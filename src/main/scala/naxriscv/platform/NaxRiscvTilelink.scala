@@ -135,28 +135,45 @@ object NaxRiscvTilelinkSim extends App{
   import spinal.core.sim._
   val sc = SimConfig
   sc.allOptimisation
-//  sc.withFstWave
+  sc.withFstWave
+  sc.withConfig(SpinalConfig().includeSimulation)
 
   val compiled = sc.compile(new NaxRiscvTilelinkSoCDemo())
 
-  compiled.doSimUntilVoid{dut =>
-    val cd = dut.clockDomain
-    cd.forkStimulus(10)
-    cd.forkSimSpeedPrinter(4.0)
+  def doIt() {
+    compiled.doSimUntilVoid(seed = 42) { dut =>
+      fork {
+        disableSimWave()
+        //      sleep(1939590-100000)
+        //      enableSimWave()
+      }
 
-    val memAgent = new MemoryAgent(dut.mem.node.bus, cd)(null)
-    val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, cd)
+      val cd = dut.clockDomain
+      cd.forkStimulus(10)
+      cd.forkSimSpeedPrinter(4.0)
 
-    val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
-//    val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
-    elf.load(memAgent.mem, -0xffffffff00000000l)
+      val memAgent = new MemoryAgent(dut.mem.node.bus, cd)(null)
+      val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, cd)
 
-//    memAgent.mem.loadBin(0x80000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-//    memAgent.mem.loadBin(0x80F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
-//    memAgent.mem.loadBin(0x80400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
-//    memAgent.mem.loadBin(0x81000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
+//      elf.load(memAgent.mem, -0xffffffff00000000l)
 
-    cd.waitSampling(10000000)
-    simSuccess()
+          memAgent.mem.loadBin(0x80000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
+          memAgent.mem.loadBin(0x80F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
+          memAgent.mem.loadBin(0x80400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
+          memAgent.mem.loadBin(0x81000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
+
+      cd.waitSampling(10000000)
+      simSuccess()
+    }
+  }
+
+  for(i <- 0 until 1) {
+    new Thread {
+      override def run {
+        doIt()
+      }
+    }.start()
   }
 }

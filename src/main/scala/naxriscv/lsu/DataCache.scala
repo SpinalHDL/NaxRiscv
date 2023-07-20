@@ -519,7 +519,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
       }
 
       val onD = new Area{
-        val sel = bus.d.opcode === tilelink.Opcode.D.ACCESS_ACK_DATA
+        val sel = tilelink.Opcode.D.fromA(bus.d.opcode)
 
         read.rsp.valid := bus.d.valid && sel
         read.rsp.data  := bus.d.data
@@ -582,7 +582,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
         val i0 = arbiter.io.inputs(0)
         i0.arbitrationFrom(write.cmd)
         i0.opcode := write.cmd.coherent.release mux(
-          write.cmd.coherent.fromUnique mux(
+          write.cmd.coherent.dirty mux(
             tilelink.Opcode.C.RELEASE_DATA(),
             tilelink.Opcode.C.RELEASE()
           ),
@@ -911,7 +911,9 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val victim = Reg(Bits(writebackCount bits))
       val writebackHazards = Reg(Bits(writebackCount bits)) //TODO Check it
     }
-    def isLineBusy(address : UInt, way : UInt) = slots.map(s => s.valid && s.way === way && s.address(lineRange) === address(lineRange)).orR
+
+    //Ignore the way, allowing coherent BtoT to detect ongoing NtoB
+    def isLineBusy(address : UInt, way : UInt) = slots.map(s => s.valid && s.address(lineRange) === address(lineRange)).orR
 
     val free = B(OHMasking.first(slots.map(_.free)))
     val full = slots.map(!_.free).andR
@@ -1056,7 +1058,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
         val fromUnique = Reg(Bool())
         val toShared = Reg(Bool())
         val probe = new Area{
-          val probeAckValid = Reg(Bool())
+          val probeAckValid = Reg(Bool()) init(False)
           val id = Reg(UInt(probeIdWidth bits))
         }
       }
@@ -1203,11 +1205,11 @@ class DataCache(val p : DataCacheParameters) extends Component {
       bufferRead.last := last
       bufferRead.address := slots.map(_.address).read(arbiter.sel)
       if(withCoherency) {
+        last setWhen(!bufferRead.coherency.dirty)
         bufferRead.coherency.release := slots.map(_.coherency.release).read(arbiter.sel)
         bufferRead.coherency.dirty := slots.map(!_.coherency.dirty).read(arbiter.sel)
         bufferRead.coherency.fromUnique := slots.map(_.coherency.fromUnique).read(arbiter.sel)
         bufferRead.coherency.toShared := slots.map(_.coherency.toShared).read(arbiter.sel)
-        bufferRead.last clearWhen (!bufferRead.coherency.dirty)
       }
       wordIndex := wordIndex + U(bufferRead.fire && withCoherency.mux(bufferRead.coherency.dirty, True))
       when(bufferRead.fire && last){
@@ -1702,7 +1704,13 @@ class DataCache(val p : DataCacheParameters) extends Component {
         val askWriteback = !wasClean && !PROBE_UNIQUE
         val askTagUpdate = (!PROBE_SHARED || !PROBE_UNIQUE && hitUnique)
         val askRefillKill = !PROBE_SHARED && !PROBE_UNIQUE
-        val success = !waysHitHazard && !(askTagUpdate && reservation.win) && !(askWriteback && (reservation.win || writeback.full))
+        val success = !waysHitHazard && !(askSomething && askTagUpdate && reservation.win) && !(askSomething && askWriteback && (reservation.win || writeback.full))
+
+        //Disable side-effects of the regular store pipeline
+        when(PROBE){
+          askRefill := False
+          askUpgrade := False
+        }
 
         when(isValid && askSomething) {
           when(askWriteback || askTagUpdate) {
