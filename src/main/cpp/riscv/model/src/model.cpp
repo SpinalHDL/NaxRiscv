@@ -1,0 +1,217 @@
+#include <stdint.h>
+#include <string>
+#include <memory>
+#include <jni.h>
+#include <iostream>
+
+#include "processor.h"
+#include "mmu.h"
+#include "simif.h"
+#include "type.h"
+#include "memory.h"
+#include "elf.h"
+
+using namespace std;
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include <stdio.h>
+#include <stdint.h>
+
+
+
+#define API __attribute__((visibility("default")))
+
+#define failure() exit(1)
+
+class SpikeIf : public simif_t{
+public:
+    Memory *memory;
+    SpikeIf(Memory *memory){
+        this->memory = memory;
+    }
+
+//    queue<IoAccess> mmioDut;
+
+    // should return NULL for MMIO addresses
+    virtual char* addr_to_mem(reg_t addr)  {
+        if((addr & 0xE0000000) == 0x00000000) return NULL;
+        return (char*) memory->get(addr);
+    }
+    // used for MMIO addresses
+    virtual bool mmio_load(reg_t addr, size_t len, uint8_t* bytes)  {
+//        printf("mmio_load %lx %ld\n", addr, len);
+//        if(addr < 0x10000000 || addr > 0x20000000) return false;
+//        assertTrue("missing mmio\n", !mmioDut.empty());
+//        auto dut = mmioDut.front();
+//        assertEq("mmio write\n", dut.write, false);
+//        assertEq("mmio address\n", dut.addr, addr);
+//        assertEq("mmio len\n", dut.len, len);
+//        memcpy(bytes, dut.data, len);
+//        mmioDut.pop();
+//        return !dut.error;
+        return false;
+    }
+    virtual bool mmio_store(reg_t addr, size_t len, const uint8_t* bytes)  {
+        printf("mmio_store %lx %ld\n", addr, len);
+//        if(addr < 0x10000000 || addr > 0x20000000) return false;
+//        assertTrue("missing mmio\n", !mmioDut.empty());
+//        auto dut = mmioDut.front();
+//        assertEq("mmio write\n", dut.write, true);
+//        assertEq("mmio address\n", dut.addr, addr);
+//        assertEq("mmio len\n", dut.len, len);
+//        assertTrue("mmio data\n", !memcmp(dut.data, bytes, len));
+//        mmioDut.pop();
+//        return !dut.error;
+        return false;
+    }
+    // Callback for processors to let the simulation know they were reset.
+    virtual void proc_reset(unsigned id)  {
+//        printf("proc_reset %d\n", id);
+    }
+
+    virtual const char* get_symbol(uint64_t addr)  {
+//        printf("get_symbol %lx\n", addr);
+        return NULL;
+    }
+};
+
+
+
+class Hart{
+public:
+    SpikeIf *sif;
+    processor_t *proc;
+    state_t *state;
+
+    Hart(u32 hartId, string isa, string priv, Memory *memory){
+        sif = new SpikeIf(memory);
+        FILE *fptr = NULL;
+        std::ofstream outfile ("/dev/null",std::ofstream::binary);
+        proc = new processor_t(isa.c_str(), priv.c_str(), "", sif, hartId, false, fptr, outfile);
+        state = proc->get_state();
+    }
+
+    void setPc(u64 pc){
+        state->pc = pc;
+    }
+
+    void commit(u64 pc){
+        if(pc != state->pc){
+            printf("PC MISSMATCH dut=%lx ref=%lx", pc, state->pc);
+            failure();
+
+        }
+        proc->step(1);
+        printf("%016lx\n", pc);
+    }
+};
+
+class Model{
+public:
+    Memory memory;
+    vector<Hart*> harts;
+
+    void loadElf(string path, u64 offset){
+        auto elf = new Elf(path.c_str());
+        elf->visitBytes([&](u8 data, u64 address) {
+            memory.write(address+offset, 1, &data);
+        });
+    }
+
+    void rvNew(u32 hartId, string isa, string priv){
+        harts.resize(max((size_t)(hartId+1), harts.size()));
+        harts[hartId] = new Hart(hartId, isa, priv, &memory);
+    }
+
+    void setPc(u32 hartId, u64 pc){
+        harts[hartId]->setPc(pc);
+    }
+
+    void rvCommit(u32 hartId, u64 pc){
+        harts[hartId]->commit(pc);
+    }
+
+};
+
+
+
+jclass userDataClass;
+jmethodID methodId;
+
+JNIEXPORT jlong JNICALL Java_riscv_model_Model_newModel
+  (JNIEnv * env, jobject obj){
+
+    auto * model = new Model();
+    return (jlong)model;
+}
+
+JNIEXPORT void JNICALL Java_riscv_model_Model_deleteModel
+  (JNIEnv * env, jobject obj, jlong model){
+
+    delete (Model*)model;
+}
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+void checkFile(std::ifstream &f){
+    Model model;
+    while(!f.eof()){
+        string str;
+        f >> str;
+        if(str == "rv"){
+            f >> str;
+            if(str == "commit"){
+                u32 hartId;
+                u64 pc;
+                f >> hartId >> hex >> pc >> dec;
+                model.rvCommit(hartId, pc);
+            } else if(str == "set"){
+                f >> str;
+                if(str == "pc"){
+                    u32 hartId;
+                    u64 pc;
+                    f >> hartId >> hex >> pc >> dec;
+                    model.setPc(hartId, pc);
+                } else {
+                    throw runtime_error("Bad rv set command");
+                }
+            } else if(str == "new"){
+                u32 hartId;
+                string isa, priv;
+                f >> hartId >> isa >> priv;
+                model.rvNew(hartId, isa, priv);
+            } else {
+                throw runtime_error("Bad rv command");
+            }
+        } else if(str == "elf"){
+            f >> str;
+            if(str == "load"){
+                string path;
+                u64 offset;
+                f >> path >> hex >> offset >> dec;
+                model.loadElf(path, offset);
+            } else {
+                throw runtime_error("Bad elf command");
+            }
+        } else {
+            throw runtime_error("Bad command");
+        }
+    }
+
+    cout << "Model check Success <3" << endl;
+}
+
+
+int main(){
+    cout << "miaou3" << endl;
+    std::ifstream f("/media/data/open/riscv/VexRiscvOoo/trace.txt");
+    checkFile(f);
+}
+

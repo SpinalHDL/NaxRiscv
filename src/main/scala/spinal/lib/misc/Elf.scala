@@ -6,7 +6,7 @@ import spinal.lib.sim.SparseMemory
 import java.io.File
 import java.nio.file.Files
 
-class Elf(f : File){
+class Elf(val f : File){
   val fBytes = Files.readAllBytes(f.toPath)
   val elf = ElfFile.from(fBytes)
 

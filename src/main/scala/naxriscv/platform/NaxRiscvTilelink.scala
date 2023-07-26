@@ -1,10 +1,12 @@
 package naxriscv.platform
 
+import naxriscv.Global.XLEN
 import naxriscv.utilities.Plugin
 import naxriscv.lsu2._
 import naxriscv.fetch._
 import naxriscv.misc._
 import naxriscv._
+import naxriscv.frontend.DecoderPlugin
 import naxriscv.lsu.DataCachePlugin
 import net.fornwall.jelf.{ElfFile, ElfSection, ElfSectionHeader}
 import spinal.core
@@ -17,9 +19,11 @@ import spinal.lib.bus.tilelink.sim.{MemoryAgent, Monitor, MonitorSubscriber, Sla
 import spinal.lib.bus.tilelink.{M2sSupport, M2sTransfers, Opcode, S2mSupport, SizeRange, fabric}
 import spinal.lib.misc.{Elf, TilelinkFabricClint}
 import spinal.lib.sim.SparseMemory
+import spinal.sim.{Signal, SimManagerContext}
 
-import java.io.File
+import java.io.{BufferedWriter, File, FileWriter}
 import java.nio.file.Files
+import scala.collection.mutable.ArrayBuffer
 
 class NaxRiscvTilelink extends Area {
   val ibus = Node.master()
@@ -131,8 +135,130 @@ object NaxRiscvTilelinkGen extends App{
   SpinalVerilog(new NaxRiscvTilelinkSoCDemo())
 }
 
+
+/*
+NaxRiscv lockstep :
+- Global memory
+  - Coherent masters update the global memory ordering (SQ, post commit)
+  - A history of global memory updates is kept
+    That way, the global memory from a little while ago can be reconstructed
+
+- d$
+  - Keep a list of committed stores not yet in the global memory ordering (still in the SQ)
+  - Update global memory content when a store exit SQ
+  - ref load value
+    - Each CPU load instruction has to remember the global memory generation it was in, so
+
+
+- i$
+  - The simulation keep track of i$ lines content and the history of line refills
+  - Each chunk of the instruction know the i$ line refill generation it came from
+  - That ID can then be used to retrieve the expected cache content at the moment of the fetch
+  - The simulation model of the i$ content is checked against the global ordering using debugId
+
+
+
+Memory ordering tool
+- Has its own memory storage
+- A history of the content before writes is kept
+- Can create multiple "View" allowing to model a CPU perspective
+  - Has a list of inflight writes which only apply to the view.
+  - Those inflight write will be written in the memory when removed
+
+On CPU store
+- On software SQ commit -> Add write to the inflight view
+- On hardware SQ exit -> remove write from the inflight view, update memory storage with it
+
+On CPU load
+- On hardware D$ access -> Capture memory ordering history ID + inflight stores
+- On software access -> provide history ID and overlay inflight stores that completed
+
+
+CPU probes :
+- Commit event
+  - PC, RF writes, CSR write
+- SQ entry completion
+- IO bus read/writes
+
+
+*/
+
+import spinal.core.sim._
+class NaxSimProbe(nax : NaxRiscv, hartId : Int){
+  val decodePlugin = nax.framework.getService[DecoderPlugin]
+  val commitPlugin = nax.framework.getService[CommitPlugin]
+  val commitWb = commitPlugin.logic.whitebox
+  val commitMask = commitWb.commit.mask.simProxy()
+  val commitRobId = commitWb.commit.robId.simProxy()
+  val commitPc = commitWb.commit_pc.map(_.simProxy()).toArray
+  val backends = ArrayBuffer[TraceBackend]()
+  nax.scopeProperties.restore()
+  val xlen = decodePlugin.xlen
+
+  def add(tracer : FileBackend) = {
+    backends += tracer
+    tracer.newCpu(hartId, "RV32IMA", "MSU")
+  }
+
+  def checkCommits(): Unit ={
+    var mask = commitMask.toInt
+    for(i <- 0 until commitPlugin.commitCount){
+      if((mask & 1) != 0){
+        val robId = commitRobId.toInt + i
+        var pc = commitPc(i).toLong
+        if(xlen == 32){
+          pc = (pc << 32) >> 32;
+        }
+        backends.foreach(_.commit(hartId, pc))
+      }
+      mask >>= 1
+    }
+  }
+
+  nax.clockDomain.onSamplings{
+    checkCommits()
+  }
+}
+
+
+trait TraceBackend{
+  def newCpu(hartId : Int, isa : String, priv : String) : Unit
+  def loadElf(path : File, offset : Long) : Unit
+  def setPc(hartId : Int, pc : Long): Unit
+  def commit(hartId : Int, pc : Long): Unit
+
+  def flush() : Unit
+  def close() : Unit
+}
+
+class FileBackend(f : File) extends TraceBackend{
+  val bf = new BufferedWriter(new FileWriter(f))
+  override def commit(hartId: Int, pc: Long) = {
+    bf.write(f"rv commit $hartId $pc%016x\n")
+  }
+
+  override def loadElf(path: File, offset: Long) = {
+    bf.write(f"elf load ${path.getAbsolutePath} $offset%016x\n")
+  }
+
+  override def setPc(hartId: Int, pc: Long) = {
+    bf.write(f"rv set pc $hartId $pc%016x\n")
+  }
+
+  override def newCpu(hartId: Int, isa : String, priv : String) = {
+    bf.write(f"rv new $hartId $isa $priv\n")
+  }
+
+  override def flush() = bf.flush()
+  override def close() = bf.close()
+
+  def spinalSimFlusher(period : Long): Unit ={
+    periodicaly(period)(flush())
+    onSimEnd(close())
+  }
+}
+
 object NaxRiscvTilelinkSim extends App{
-  import spinal.core.sim._
   val sc = SimConfig
   sc.allOptimisation
   sc.withFstWave
@@ -145,24 +271,35 @@ object NaxRiscvTilelinkSim extends App{
       fork {
         disableSimWave()
         //      sleep(1939590-100000)
-        //      enableSimWave()
+//        enableSimWave()
       }
 
       val cd = dut.clockDomain
       cd.forkStimulus(10)
-      cd.forkSimSpeedPrinter(4.0)
+//      cd.forkSimSpeedPrinter(4.0)
+
+      val tracer = new FileBackend(new File("trace.txt"))
+      tracer.spinalSimFlusher(10*10000)
+
+      val naxProbe = new NaxSimProbe(dut.nax.thread.core, 0)
+      naxProbe.add(tracer)
+
+
 
       val memAgent = new MemoryAgent(dut.mem.node.bus, cd)(null)
       val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, cd)
 
-//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
-//      elf.load(memAgent.mem, -0xffffffff00000000l)
+      elf.load(memAgent.mem, -0xffffffff00000000l)
+      tracer.loadElf(elf.f, 0)
+      tracer.setPc(0, 0x80000000)
 
-          memAgent.mem.loadBin(0x80000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-          memAgent.mem.loadBin(0x80F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
-          memAgent.mem.loadBin(0x80400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
-          memAgent.mem.loadBin(0x81000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
+//          memAgent.mem.loadBin(0x80000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
+//          memAgent.mem.loadBin(0x80F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
+//          memAgent.mem.loadBin(0x80400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
+//          memAgent.mem.loadBin(0x81000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
+
 
       cd.waitSampling(10000000)
       simSuccess()

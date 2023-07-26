@@ -511,7 +511,6 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
 
         val beat = bus.a.beatCounter()
         bus.a.address(log2Up(p.dataWidth/8), widthOf(beat) bits) := beat
-
         bus.a.source.msb := sel
 
         write.cmd.ready := !sel && bus.a.ready
@@ -608,7 +607,9 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
         i2.arbitrationFrom(probe.rspWb)
         rspFifo.io.pop.assignTilelinkC(i2)
 
+        val beat = bus.c.beatCounter()
         bus.c << arbiter.io.output
+        bus.c.address(log2Up(p.dataWidth/8), widthOf(beat) bits) := beat
       }
 
 

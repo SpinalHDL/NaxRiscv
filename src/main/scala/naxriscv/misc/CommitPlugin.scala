@@ -258,8 +258,8 @@ class CommitPlugin(var commitCount : Int,
       val reschedule = patch(cmt.reschedulePort)
       val rescheduleReason = patch(rsd.reason)
 
-      if(GenerationFlags.simulation){
-        rob.readAsync(PC, DISPATCH_COUNT, cmt.event.robId).setCompositeName(commit, "pc")
+      val commit_pc = (GenerationFlags.simulation.isEnabled) generate {
+        patch(rob.readAsync(PC, DISPATCH_COUNT, cmt.event.robId))
       }
 
       Verilator.public(ptr.stage.isFireing)
