@@ -3,6 +3,7 @@
 #include <memory>
 #include <jni.h>
 #include <iostream>
+#include <queue>
 
 #include "processor.h"
 #include "mmu.h"
@@ -25,15 +26,46 @@ extern "C" {
 #define API __attribute__((visibility("default")))
 
 #define failure() exit(1)
+void breakMe(){
+    int a = 0;
+}
+
+#define assertEq(message, x,ref) if((x) != (ref)) {\
+    cout << hex << "\n*** " << message << " DUT=" << x << " REF=" << ref << " ***\n\n" << dec;\
+    breakMe();\
+    failure();\
+}
+
+#define assertTrue(message, x) if(!(x)) {\
+    printf("\n*** %s ***\n\n",message);\
+    breakMe();\
+    failure();\
+}
+
+
+class TraceIo{
+public:
+    bool write;
+    u64 address;
+    u64 data;
+    u32 mask;
+    u32 size;
+    bool error;
+
+    TraceIo(std::ifstream &f){
+        f >> write >> hex >> address >> data >> mask >> dec >> size >> error;
+    }
+};
+
 
 class SpikeIf : public simif_t{
 public:
     Memory *memory;
+    queue <TraceIo> ioQueue;
+
     SpikeIf(Memory *memory){
         this->memory = memory;
     }
-
-//    queue<IoAccess> mmioDut;
 
     // should return NULL for MMIO addresses
     virtual char* addr_to_mem(reg_t addr)  {
@@ -41,31 +73,29 @@ public:
         return (char*) memory->get(addr);
     }
     // used for MMIO addresses
-    virtual bool mmio_load(reg_t addr, size_t len, uint8_t* bytes)  {
-//        printf("mmio_load %lx %ld\n", addr, len);
-//        if(addr < 0x10000000 || addr > 0x20000000) return false;
-//        assertTrue("missing mmio\n", !mmioDut.empty());
-//        auto dut = mmioDut.front();
-//        assertEq("mmio write\n", dut.write, false);
-//        assertEq("mmio address\n", dut.addr, addr);
-//        assertEq("mmio len\n", dut.len, len);
-//        memcpy(bytes, dut.data, len);
-//        mmioDut.pop();
-//        return !dut.error;
-        return false;
+    virtual bool mmio_load(reg_t addr, size_t len, u8* bytes)  {
+        printf("mmio_load %lx %ld\n", addr, len);
+        if(addr < 0x10000000 || addr > 0x20000000) return false;
+        assertTrue("missing mmio\n", !ioQueue.empty());
+        auto dut = ioQueue.front();
+        assertEq("mmio write\n", dut.write, false);
+        assertEq("mmio address\n", dut.address, addr);
+        assertEq("mmio len\n", dut.size, len);
+        memcpy(bytes, (u8*)&dut.data, len);
+        ioQueue.pop();
+        return !dut.error;
     }
-    virtual bool mmio_store(reg_t addr, size_t len, const uint8_t* bytes)  {
+    virtual bool mmio_store(reg_t addr, size_t len, const u8* bytes)  {
         printf("mmio_store %lx %ld\n", addr, len);
-//        if(addr < 0x10000000 || addr > 0x20000000) return false;
-//        assertTrue("missing mmio\n", !mmioDut.empty());
-//        auto dut = mmioDut.front();
-//        assertEq("mmio write\n", dut.write, true);
-//        assertEq("mmio address\n", dut.addr, addr);
-//        assertEq("mmio len\n", dut.len, len);
-//        assertTrue("mmio data\n", !memcmp(dut.data, bytes, len));
-//        mmioDut.pop();
-//        return !dut.error;
-        return false;
+        if(addr < 0x10000000 || addr > 0x20000000) return false;
+        assertTrue("missing mmio\n", !ioQueue.empty());
+        auto dut = ioQueue.front();
+        assertEq("mmio write\n", dut.write, true);
+        assertEq("mmio address\n", dut.address, addr);
+        assertEq("mmio len\n", dut.size, len);
+        assertTrue("mmio data\n", !memcmp((u8*)&dut.data, bytes, len));
+        ioQueue.pop();
+        return !dut.error;
     }
     // Callback for processors to let the simulation know they were reset.
     virtual void proc_reset(unsigned id)  {
@@ -77,8 +107,6 @@ public:
         return NULL;
     }
 };
-
-
 
 class Hart{
 public:
@@ -107,6 +135,11 @@ public:
         proc->step(1);
         printf("%016lx\n", pc);
     }
+
+    void ioAccess(TraceIo io){
+        sif->ioQueue.push(io);
+    }
+
 };
 
 class Model{
@@ -132,6 +165,10 @@ public:
 
     void rvCommit(u32 hartId, u64 pc){
         harts[hartId]->commit(pc);
+    }
+
+    void rvIo(u32 hartId, TraceIo io){
+        harts[hartId]->ioAccess(io);
     }
 
 };
@@ -160,6 +197,8 @@ JNIEXPORT void JNICALL Java_riscv_model_Model_deleteModel
 #endif
 
 
+
+
 void checkFile(std::ifstream &f){
     Model model;
     while(!f.eof()){
@@ -167,12 +206,17 @@ void checkFile(std::ifstream &f){
         f >> str;
         if(str == "rv"){
             f >> str;
-            if(str == "commit"){
+            if (str == "commit") {
                 u32 hartId;
                 u64 pc;
                 f >> hartId >> hex >> pc >> dec;
                 model.rvCommit(hartId, pc);
-            } else if(str == "set"){
+            } else if (str == "io") {
+                u32 hartId;
+                f >> hartId;
+                auto io = TraceIo(f);
+                model.rvIo(hartId, io);
+            } else if (str == "set") {
                 f >> str;
                 if(str == "pc"){
                     u32 hartId;

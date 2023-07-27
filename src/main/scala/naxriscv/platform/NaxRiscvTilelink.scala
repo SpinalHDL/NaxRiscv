@@ -187,10 +187,18 @@ import spinal.core.sim._
 class NaxSimProbe(nax : NaxRiscv, hartId : Int){
   val decodePlugin = nax.framework.getService[DecoderPlugin]
   val commitPlugin = nax.framework.getService[CommitPlugin]
+  val lsuPlugin = nax.framework.getService[Lsu2Plugin]
+
   val commitWb = commitPlugin.logic.whitebox
   val commitMask = commitWb.commit.mask.simProxy()
   val commitRobId = commitWb.commit.robId.simProxy()
   val commitPc = commitWb.commit_pc.map(_.simProxy()).toArray
+
+  val ioBus = lsuPlugin.peripheralBus
+  val ioBusCmdValid = ioBus.cmd.valid.simProxy()
+  val ioBusCmdReady = ioBus.cmd.ready.simProxy()
+  val ioBusRspValid = ioBus.rsp.valid.simProxy()
+
   val backends = ArrayBuffer[TraceBackend]()
   nax.scopeProperties.restore()
   val xlen = decodePlugin.xlen
@@ -215,17 +223,55 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
     }
   }
 
+
+
+  var ioAccess : TraceIo = null
+
+  def checkIoBus(): Unit ={
+    if(ioBusCmdValid.toBoolean && ioBusCmdReady.toBoolean){
+      assert(ioAccess == null)
+      ioAccess = new TraceIo(
+        write   = ioBus.cmd.write.toBoolean,
+        address = ioBus.cmd.address.toLong,
+        data    = ioBus.cmd.data.toLong,
+        mask    = ioBus.cmd.mask.toInt,
+        size    = 1 << ioBus.cmd.size.toInt,
+        error   = false
+      )
+    }
+    if(ioBusRspValid.toBoolean){
+      assert(ioAccess != null)
+      ioAccess.error = ioBus.rsp.error.toBoolean
+      if(!ioAccess.write) {
+        val offset = (ioAccess.address) & (ioBus.p.dataWidth/8-1)
+        val mask = (1l << ioAccess.size*8)-1
+        ioAccess.data = (ioBus.rsp.data.toLong >> offset*8) & mask
+      }
+      backends.foreach(_.ioAccess(hartId, ioAccess))
+      ioAccess = null
+    }
+  }
+
   nax.clockDomain.onSamplings{
     checkCommits()
+    checkIoBus()
   }
 }
 
-
+class TraceIo (var write: Boolean,
+               var address: Long,
+               var data: Long,
+               var mask: Int,
+               var size: Int,
+               var error: Boolean){
+  def serialized() = f"${write.toInt} $address%016x $data%016x $mask%02x $size ${error.toInt}"
+}
 trait TraceBackend{
   def newCpu(hartId : Int, isa : String, priv : String) : Unit
   def loadElf(path : File, offset : Long) : Unit
   def setPc(hartId : Int, pc : Long): Unit
   def commit(hartId : Int, pc : Long): Unit
+  def ioAccess(hartId: Int, access : TraceIo) : Unit
 
   def flush() : Unit
   def close() : Unit
@@ -235,6 +281,10 @@ class FileBackend(f : File) extends TraceBackend{
   val bf = new BufferedWriter(new FileWriter(f))
   override def commit(hartId: Int, pc: Long) = {
     bf.write(f"rv commit $hartId $pc%016x\n")
+  }
+
+  def ioAccess(hartId: Int, access : TraceIo) : Unit = {
+    bf.write(f"rv io $hartId ${access.serialized()}\n")
   }
 
   override def loadElf(path: File, offset: Long) = {
@@ -273,6 +323,8 @@ object NaxRiscvTilelinkSim extends App{
         //      sleep(1939590-100000)
 //        enableSimWave()
       }
+
+
 
       val cd = dut.clockDomain
       cd.forkStimulus(10)

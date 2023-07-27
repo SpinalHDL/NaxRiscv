@@ -248,7 +248,7 @@ class Lsu2Plugin(var lqSize: Int,
   }
 
   def getPeripheralBusParameters() = LsuPeripheralBusParameter(PHYSICAL_WIDTH, wordWidth)
-  val peripheralBus = create late master(LsuPeripheralBus(getPeripheralBusParameters())).setName("LsuPlugin_peripheralBus")
+  val peripheralBus = create late Verilator.public(master(LsuPeripheralBus(getPeripheralBusParameters())).setName("LsuPlugin_peripheralBus"))
 
 
   val logic = create late new Area{
