@@ -4,6 +4,7 @@
 #include <jni.h>
 #include <iostream>
 #include <queue>
+#include <sstream>
 
 #include "processor.h"
 #include "mmu.h"
@@ -52,7 +53,7 @@ public:
     u32 size;
     bool error;
 
-    TraceIo(std::ifstream &f){
+    TraceIo(std::istringstream &f){
         f >> write >> hex >> address >> data >> mask >> dec >> size >> error;
     }
 };
@@ -199,9 +200,11 @@ JNIEXPORT void JNICALL Java_riscv_model_Model_deleteModel
 
 
 
-void checkFile(std::ifstream &f){
+void checkFile(std::ifstream &lines){
     Model model;
-    while(!f.eof()){
+    std::string line;
+    while (getline(lines, line)){
+        istringstream f(line);
         string str;
         f >> str;
         if(str == "rv"){
@@ -224,7 +227,7 @@ void checkFile(std::ifstream &f){
                     f >> hartId >> hex >> pc >> dec;
                     model.setPc(hartId, pc);
                 } else {
-                    throw runtime_error("Bad rv set command");
+                    throw runtime_error(line);
                 }
             } else if(str == "new"){
                 u32 hartId;
@@ -232,7 +235,7 @@ void checkFile(std::ifstream &f){
                 f >> hartId >> isa >> priv;
                 model.rvNew(hartId, isa, priv);
             } else {
-                throw runtime_error("Bad rv command");
+                throw runtime_error(line);
             }
         } else if(str == "elf"){
             f >> str;
@@ -242,10 +245,10 @@ void checkFile(std::ifstream &f){
                 f >> path >> hex >> offset >> dec;
                 model.loadElf(path, offset);
             } else {
-                throw runtime_error("Bad elf command");
+                throw runtime_error(line);
             }
         } else {
-            throw runtime_error("Bad command");
+            throw runtime_error(line);
         }
     }
 
