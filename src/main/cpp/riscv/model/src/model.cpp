@@ -68,12 +68,17 @@ public:
 
     // should return NULL for MMIO addresses
     virtual char* addr_to_mem(reg_t addr)  {
-        if((addr & 0xE0000000) == 0x00000000) return NULL;
-        printf("addr_to_mem %lx ", addr);
-        return (char*) memory->get(addr);
+//        if((addr & 0xE0000000) == 0x00000000) return NULL;
+//        printf("addr_to_mem %lx ", addr);
+//        return (char*) memory->get(addr);
+        return NULL;
     }
     // used for MMIO addresses
     virtual bool mmio_load(reg_t addr, size_t len, u8* bytes)  {
+        if((addr & 0xE0000000) != 0x00000000) {
+            memory->read(addr, len, bytes);
+            return true;
+        }
         printf("mmio_load %lx %ld\n", addr, len);
         if(addr < 0x10000000 || addr > 0x20000000) return false;
         assertTrue("missing mmio\n", !ioQueue.empty());
@@ -86,6 +91,10 @@ public:
         return !dut.error;
     }
     virtual bool mmio_store(reg_t addr, size_t len, const u8* bytes)  {
+        if((addr & 0xE0000000) != 0x00000000) {
+            memory->write(addr, len, (u8*) bytes);
+            return true;
+        }
         printf("mmio_store %lx %ld\n", addr, len);
         if(addr < 0x10000000 || addr > 0x20000000) return false;
         assertTrue("missing mmio\n", !ioQueue.empty());
@@ -133,7 +142,7 @@ public:
 
         }
         proc->step(1);
-        printf("%016lx\n", pc);
+//        printf("%016lx\n", pc);
     }
 
     void ioAccess(TraceIo io){
