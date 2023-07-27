@@ -16,9 +16,7 @@
 using namespace std;
 
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+
 #include <stdio.h>
 #include <stdint.h>
 
@@ -71,6 +69,7 @@ public:
     // should return NULL for MMIO addresses
     virtual char* addr_to_mem(reg_t addr)  {
         if((addr & 0xE0000000) == 0x00000000) return NULL;
+        printf("addr_to_mem %lx ", addr);
         return (char*) memory->get(addr);
     }
     // used for MMIO addresses
@@ -143,7 +142,7 @@ public:
 
 };
 
-class Model{
+class Context{
 public:
     Memory memory;
     vector<Hart*> harts;
@@ -159,38 +158,27 @@ public:
         harts.resize(max((size_t)(hartId+1), harts.size()));
         harts[hartId] = new Hart(hartId, isa, priv, &memory);
     }
-
-    void setPc(u32 hartId, u64 pc){
-        harts[hartId]->setPc(pc);
-    }
-
-    void rvCommit(u32 hartId, u64 pc){
-        harts[hartId]->commit(pc);
-    }
-
-    void rvIo(u32 hartId, TraceIo io){
-        harts[hartId]->ioAccess(io);
-    }
-
 };
 
 
-
-jclass userDataClass;
-jmethodID methodId;
-
-JNIEXPORT jlong JNICALL Java_riscv_model_Model_newModel
-  (JNIEnv * env, jobject obj){
-
-    auto * model = new Model();
-    return (jlong)model;
-}
-
-JNIEXPORT void JNICALL Java_riscv_model_Model_deleteModel
-  (JNIEnv * env, jobject obj, jlong model){
-
-    delete (Model*)model;
-}
+#ifdef __cplusplus
+extern "C" {
+#endif
+//jclass userDataClass;
+//jmethodID methodId;
+//
+//JNIEXPORT jlong JNICALL Java_riscv_model_Model_newModel
+//  (JNIEnv * env, jobject obj){
+//
+//    auto * model = new Model();
+//    return (jlong)model;
+//}
+//
+//JNIEXPORT void JNICALL Java_riscv_model_Model_deleteModel
+//  (JNIEnv * env, jobject obj, jlong model){
+//
+//    delete (Model*)model;
+//}
 
 
 #ifdef __cplusplus
@@ -201,7 +189,8 @@ JNIEXPORT void JNICALL Java_riscv_model_Model_deleteModel
 
 
 void checkFile(std::ifstream &lines){
-    Model model;
+    Context context;
+#define rv context.harts[hartId]
     std::string line;
     while (getline(lines, line)){
         istringstream f(line);
@@ -213,19 +202,19 @@ void checkFile(std::ifstream &lines){
                 u32 hartId;
                 u64 pc;
                 f >> hartId >> hex >> pc >> dec;
-                model.rvCommit(hartId, pc);
+                rv->commit(pc);
             } else if (str == "io") {
                 u32 hartId;
                 f >> hartId;
                 auto io = TraceIo(f);
-                model.rvIo(hartId, io);
+                rv->ioAccess(io);
             } else if (str == "set") {
                 f >> str;
                 if(str == "pc"){
                     u32 hartId;
                     u64 pc;
                     f >> hartId >> hex >> pc >> dec;
-                    model.setPc(hartId, pc);
+                    rv->setPc(pc);
                 } else {
                     throw runtime_error(line);
                 }
@@ -233,7 +222,7 @@ void checkFile(std::ifstream &lines){
                 u32 hartId;
                 string isa, priv;
                 f >> hartId >> isa >> priv;
-                model.rvNew(hartId, isa, priv);
+                context.rvNew(hartId, isa, priv);
             } else {
                 throw runtime_error(line);
             }
@@ -243,7 +232,7 @@ void checkFile(std::ifstream &lines){
                 string path;
                 u64 offset;
                 f >> path >> hex >> offset >> dec;
-                model.loadElf(path, offset);
+                context.loadElf(path, offset);
             } else {
                 throw runtime_error(line);
             }
