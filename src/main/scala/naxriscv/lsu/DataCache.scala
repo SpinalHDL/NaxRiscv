@@ -518,7 +518,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
       }
 
       val onD = new Area{
-        val sel = tilelink.Opcode.D.fromA(bus.d.opcode)
+        val sel = bus.d.source.msb
 
         read.rsp.valid := bus.d.valid && sel
         read.rsp.data  := bus.d.data
@@ -1003,7 +1003,9 @@ class DataCache(val p : DataCacheParameters) extends Component {
       io.refillCompletions := 0
       io.mem.read.rsp.ready := True
       when(io.mem.read.rsp.valid) {
-        wordIndex := wordIndex + 1
+        when(rspWithData) {
+          wordIndex := wordIndex + 1
+        }
         when(wordIndex === wordIndex.maxValue || !rspWithData) {
           hadError := False
           fire := True

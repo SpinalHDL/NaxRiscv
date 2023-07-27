@@ -284,8 +284,8 @@ object Config{
       //      loadRspAt      = 3,
       loadRefillCheckEarly = false,
       withCoherency = withCoherency,
-      probeIdWidth = 4,
-      ackIdWidth = 4
+      probeIdWidth = if(withCoherency) 4 else 0,
+      ackIdWidth = if(withCoherency) 4 else 0
     )
 
     //MISC

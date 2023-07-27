@@ -123,11 +123,22 @@ public:
     processor_t *proc;
     state_t *state;
 
+    bool integerWriteValid;
+    u64 integerWriteData;
+
+    u32 csrAddress;
+    bool csrWrite;
+    bool csrRead;
+    u64 csrWriteData;
+    u64 csrReadData;
+
+
     Hart(u32 hartId, string isa, string priv, Memory *memory){
         sif = new SpikeIf(memory);
-        FILE *fptr = NULL;
+        FILE *fptr = 1 ? fopen(string("spike.log").c_str(),"w") : NULL;
         std::ofstream outfile ("/dev/null",std::ofstream::binary);
         proc = new processor_t(isa.c_str(), priv.c_str(), "", sif, hartId, false, fptr, outfile);
+        proc->enable_log_commits();
         state = proc->get_state();
     }
 
@@ -135,14 +146,93 @@ public:
         state->pc = pc;
     }
 
+    void writeRf(u32 rfKind, u32 address, u64 data){
+        switch(rfKind){
+        case 0:
+            integerWriteValid = true;
+            integerWriteData = data;
+            break;
+        case 4:
+            if((csrWrite || csrRead) && csrAddress != address){
+                printf("duplicated CSR access \n");
+                failure();
+            }
+            csrAddress = address;
+            csrWrite = true;
+            csrWriteData = data;
+            break;
+        default:
+            printf("??? unknown RF trace \n");
+            failure();
+            break;
+        }
+
+    }
+
+
+    void readRf(u32 rfKind, u32 address, u64 data){
+        switch(rfKind){
+        case 4:
+            if((csrWrite || csrRead) && csrAddress != address){
+                printf("duplicated CSR access \n");
+                failure();
+            }
+            csrAddress = address;
+            csrRead = true;
+            csrReadData = data;
+            break;
+        default:
+            printf("??? unknown RF trace \n");
+            failure();
+            break;
+        }
+
+    }
+
+
     void commit(u64 pc){
         if(pc != state->pc){
             printf("PC MISSMATCH dut=%lx ref=%lx", pc, state->pc);
             failure();
-
         }
         proc->step(1);
-//        printf("%016lx\n", pc);
+        for (auto item : state->log_reg_write) {
+            if (item.first == 0)
+              continue;
+
+            u32 rd = item.first >> 4;
+            switch (item.first & 0xf) {
+            case 0: { //integer
+                assertTrue("INTEGER WRITE MISSING", integerWriteValid);
+                assertEq("INTEGER WRITE MISSMATCH", integerWriteData, item.second.v[0]);
+                integerWriteValid = false;
+            } break;
+            case 4:{ //CSR
+                u64 inst = state->last_inst.bits();
+                switch(inst){
+                case 0x30200073: //MRET
+                case 0x10200073: //SRET
+                case 0x00200073: //URET
+                    break;
+                default:
+                    if((inst & 0x7F) == 0x73 && (inst & 0x3000) != 0){
+                        assertTrue("CSR WRITE MISSING", csrWrite);
+                        assertEq("CSR WRITE ADDRESS", (u32)(csrAddress & 0xCFF), (u32)(rd & 0xCFF));
+//                                                assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
+                    }
+                    break;
+                }
+                csrWrite = false;
+                csrRead = false;
+            } break;
+            default: {
+                printf("??? unknown spike trace %lx\n", item.first & 0xf);
+                failure();
+            } break;
+            }
+        }
+        assertTrue("INTEGER WRITE SPAWNED", !integerWriteValid);
+        printf("%016lx\n", pc);
     }
 
     void ioAccess(TraceIo io){
@@ -212,6 +302,22 @@ void checkFile(std::ifstream &lines){
                 u64 pc;
                 f >> hartId >> hex >> pc >> dec;
                 rv->commit(pc);
+            } else if (str == "rf") {
+                f >> str;
+                if(str == "w") {
+                    u32 hartId, rfKind, address;
+                    u64 data;
+                    f >> hartId >> rfKind >> address >> hex >> data >> dec;
+                    rv->writeRf(rfKind, address, data);
+                } else if(str == "r") {
+                    u32 hartId, rfKind, address;
+                    u64 data;
+                    f >> hartId >> rfKind >> address >> hex >> data >> dec;
+                    rv->readRf(rfKind, address, data);
+                } else {
+                    throw runtime_error(line);
+                }
+
             } else if (str == "io") {
                 u32 hartId;
                 f >> hartId;

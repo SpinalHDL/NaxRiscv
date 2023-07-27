@@ -36,8 +36,8 @@ public:
                 auto size = psec->get_size();
                 auto data = reader.sections[i]->get_data();
                 u64 address = psec->get_address();
-                if(data) for(u32 i = 0;i < size; i++){
-                    func(*data++, address++);
+                for(u32 i = 0;i < size; i++){
+                    func(data ? *data++ : 0, address++);
                 }
             }
         }

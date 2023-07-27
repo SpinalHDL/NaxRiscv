@@ -6,6 +6,7 @@ import naxriscv.lsu2._
 import naxriscv.fetch._
 import naxriscv.misc._
 import naxriscv._
+import naxriscv.execute.CsrAccessPlugin
 import naxriscv.frontend.DecoderPlugin
 import naxriscv.lsu.DataCachePlugin
 import net.fornwall.jelf.{ElfFile, ElfSection, ElfSectionHeader}
@@ -34,7 +35,7 @@ class NaxRiscvTilelink extends Area {
 
   val thread = Fiber build new Area{
     val l = Config.plugins(
-      withCoherency = true,
+      withCoherency = false,
       withRdTime = false,
       aluCount    = 1,
       decodeCount = 1,
@@ -62,9 +63,8 @@ class NaxRiscvTilelink extends Area {
         }
 
         framework.plugins.foreach{
-          case p: DataCachePlugin => if(p.withCoherency){
-            p.setCoherencyInfo(dbus.m2s.parameters.sourceWidth, dbus.s2m.parameters.sinkWidth)
-          }
+          case p: DataCachePlugin =>
+            if(p.withCoherency)p.setCoherencyInfo(dbus.m2s.parameters.sourceWidth, dbus.s2m.parameters.sinkWidth)
           case _ =>
         }
       }
@@ -183,29 +183,107 @@ CPU probes :
 
 */
 
+class RobCtx{
+  var pc = -1l;
+  var integerWriteValid = false
+  var integerWriteData = -1l
+  var floatWriteValid = false
+  var floatWriteData = -1l
+  var floatFlags = -1
+
+  var csrValid = false
+  var csrWriteDone = false
+  var csrReadDone = false
+  var  csrAddress = -1
+  var csrWriteData = -1l
+  var csrReadData = -1l
+
+  def clear(){
+    integerWriteValid = false;
+    floatWriteValid = false;
+    csrValid = false;
+    csrWriteDone = false;
+    csrReadDone = false;
+    floatFlags = 0;
+  }
+  clear()
+};
+
 import spinal.core.sim._
 class NaxSimProbe(nax : NaxRiscv, hartId : Int){
+  val alignerPlugin = nax.framework.getService[AlignerPlugin]
+  val csrAccessPlugin = nax.framework.getService[CsrAccessPlugin]
   val decodePlugin = nax.framework.getService[DecoderPlugin]
   val commitPlugin = nax.framework.getService[CommitPlugin]
+  val robPlugin = nax.framework.getService[RobPlugin]
   val lsuPlugin = nax.framework.getService[Lsu2Plugin]
+  val intRf = nax.framework.getServiceWhere[RegFilePlugin](_.spec == riscv.IntRegFile)
 
   val commitWb = commitPlugin.logic.whitebox
   val commitMask = commitWb.commit.mask.simProxy()
   val commitRobId = commitWb.commit.robId.simProxy()
   val commitPc = commitWb.commit_pc.map(_.simProxy()).toArray
+  val commitRobToPcValid = commitWb.robToPc.valid.simProxy()
+  val commitRobToPcRobId = commitWb.robToPc.robId.simProxy()
+  val commitRobToPcValue = commitWb.robToPc.pc.map(_.simProxy()).toArray
+
+  val intRfEvents = intRf.logic.writeEvents.toArray
+  val intRfEventsValid = intRfEvents.map(_.valid.simProxy())
 
   val ioBus = lsuPlugin.peripheralBus
   val ioBusCmdValid = ioBus.cmd.valid.simProxy()
   val ioBusCmdReady = ioBus.cmd.ready.simProxy()
   val ioBusRspValid = ioBus.rsp.valid.simProxy()
 
+  val csrAccess = csrAccessPlugin.logic.whitebox.csrAccess
+  val csrAccessValid = csrAccess.valid.simProxy()
+
   val backends = ArrayBuffer[TraceBackend]()
   nax.scopeProperties.restore()
   val xlen = decodePlugin.xlen
 
+  val robArray = Array.fill(robPlugin.robSize)(new RobCtx)
+
+
   def add(tracer : FileBackend) = {
     backends += tracer
     tracer.newCpu(hartId, "RV32IMA", "MSU")
+  }
+
+  def checkRob() : Unit = {
+    if(commitRobToPcValid.toBoolean){
+      val robId = commitRobToPcRobId.toInt
+      for(i <- 0 until commitRobToPcValue.size){
+        var pc = commitRobToPcValue(i).toLong;
+        if(xlen == 32) pc = (pc << 32) >> 32
+        val ctx = robArray(robId + i)
+        ctx.clear()
+        ctx.pc = pc
+      }
+    }
+
+    for(i <- 0 until intRfEvents.size){
+      if(intRfEventsValid(i).toBoolean){
+        val port = intRfEvents(i)
+        val robId = port.robId.toInt
+        val ctx = robArray(robId)
+        ctx.integerWriteValid = true
+        var data = port.data.toLong
+        if(xlen == 32) data = (data << 32) >> 32
+        ctx.integerWriteData = data
+      }
+    }
+
+    if(csrAccessValid.toBoolean){
+      val robId = csrAccess.robId.toInt
+      val ctx = robArray(robId)
+      ctx.csrValid = true
+      ctx.csrAddress = csrAccess.address.toInt
+      ctx.csrWriteDone = csrAccess.writeDone.toBoolean
+      ctx.csrReadDone = csrAccess.readDone.toBoolean
+      ctx.csrWriteData = csrAccess.write.toLong
+      ctx.csrReadData = csrAccess.read.toLong
+    }
   }
 
   def checkCommits(): Unit ={
@@ -213,11 +291,15 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
     for(i <- 0 until commitPlugin.commitCount){
       if((mask & 1) != 0){
         val robId = commitRobId.toInt + i
-        var pc = commitPc(i).toLong
-        if(xlen == 32){
-          pc = (pc << 32) >> 32;
+        val robCtx = robArray(robId)
+        if(robCtx.integerWriteValid){
+          backends.foreach(_.writeRf(hartId, 0, 32, robCtx.integerWriteData))
         }
-        backends.foreach(_.commit(hartId, pc))
+        if(robCtx.csrValid){
+          if(robCtx.csrReadDone) backends.foreach(_.readRf(hartId, 4, robCtx.csrAddress, robCtx.csrReadData))
+          if(robCtx.csrWriteDone) backends.foreach(_.writeRf(hartId, 4, robCtx.csrAddress, robCtx.csrWriteData))
+        }
+        backends.foreach(_.commit(hartId, robCtx.pc))
       }
       mask >>= 1
     }
@@ -255,6 +337,7 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
   nax.clockDomain.onSamplings{
     checkCommits()
     checkIoBus()
+    checkRob()
   }
 }
 
@@ -270,6 +353,8 @@ trait TraceBackend{
   def newCpu(hartId : Int, isa : String, priv : String) : Unit
   def loadElf(path : File, offset : Long) : Unit
   def setPc(hartId : Int, pc : Long): Unit
+  def writeRf(hardId : Int, rfKind : Int, address : Int, data : Long) //address out of range mean unknown
+  def readRf(hardId : Int, rfKind : Int, address : Int, data : Long) //address out of range mean unknown
   def commit(hartId : Int, pc : Long): Unit
   def ioAccess(hartId: Int, access : TraceIo) : Unit
 
@@ -281,6 +366,15 @@ class FileBackend(f : File) extends TraceBackend{
   val bf = new BufferedWriter(new FileWriter(f))
   override def commit(hartId: Int, pc: Long) = {
     bf.write(f"rv commit $hartId $pc%016x\n")
+  }
+
+
+  override def writeRf(hartId: Int, rfKind: Int, address: Int, data: Long) = {
+    bf.write(f"rv rf w $hartId $rfKind $address $data%016x\n")
+  }
+
+  override def readRf(hartId: Int, rfKind: Int, address: Int, data: Long) = {
+    bf.write(f"rv rf r $hartId $rfKind $address $data%016x\n")
   }
 
   def ioAccess(hartId: Int, access : TraceIo) : Unit = {
