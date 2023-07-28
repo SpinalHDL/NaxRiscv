@@ -24,7 +24,9 @@ using namespace std;
 
 #define API __attribute__((visibility("default")))
 
-#define failure() exit(1)
+class successException : public std::exception { };
+#define failure() throw std::exception();
+#define success() throw successException();
 void breakMe(){
     int a = 0;
 }
@@ -123,6 +125,8 @@ public:
     processor_t *proc;
     state_t *state;
 
+    u32 physWidth;
+
     bool integerWriteValid;
     u64 integerWriteData;
 
@@ -133,13 +137,20 @@ public:
     u64 csrReadData;
 
 
-    Hart(u32 hartId, string isa, string priv, Memory *memory){
+    Hart(u32 hartId, string isa, string priv, u32 physWidth, Memory *memory){
+        this->physWidth = physWidth;
         sif = new SpikeIf(memory);
         FILE *fptr = 1 ? fopen(string("spike.log").c_str(),"w") : NULL;
         std::ofstream outfile ("/dev/null",std::ofstream::binary);
         proc = new processor_t(isa.c_str(), priv.c_str(), "", sif, hartId, false, fptr, outfile);
         proc->enable_log_commits();
+        proc->debug = true;
         state = proc->get_state();
+    }
+
+    void close() {
+        auto f = proc->get_log_file();
+        if(f) fclose(f);
     }
 
     void setPc(u64 pc){
@@ -189,6 +200,17 @@ public:
 
     }
 
+    void physExtends(u64 &v){
+        v = (u64)(((s64)v<<(64-physWidth)) >> (64-physWidth));
+    }
+
+    void trap(bool interrupt, u32 code){
+        proc->step(1);
+        assertTrue("DUT didn't trap", state->trap_happened);
+        assertEq("DUT interrupt missmatch", interrupt, state->trap_interrupt);
+        assertEq("DUT code missmatch", code, state->trap_code);
+        physExtends(state->pc);
+    }
 
     void commit(u64 pc){
         if(pc != state->pc){
@@ -196,6 +218,8 @@ public:
             failure();
         }
         proc->step(1);
+        assertTrue("DUT fired a unwished trap", !state->trap_happened);
+        printf("%016lx %08lx\n", pc, state->last_inst.bits());
         for (auto item : state->log_reg_write) {
             if (item.first == 0)
               continue;
@@ -223,7 +247,6 @@ public:
                     break;
                 }
                 csrWrite = false;
-                csrRead = false;
             } break;
             default: {
                 printf("??? unknown spike trace %lx\n", item.first & 0xf);
@@ -231,8 +254,10 @@ public:
             } break;
             }
         }
+
+        csrRead = false;
+        assertTrue("CSR WRITE SPAWNED", !csrWrite);
         assertTrue("INTEGER WRITE SPAWNED", !integerWriteValid);
-        printf("%016lx\n", pc);
     }
 
     void ioAccess(TraceIo io){
@@ -253,9 +278,15 @@ public:
         });
     }
 
-    void rvNew(u32 hartId, string isa, string priv){
+    void rvNew(u32 hartId, string isa, string priv, u32 physWidth){
         harts.resize(max((size_t)(hartId+1), harts.size()));
-        harts[hartId] = new Hart(hartId, isa, priv, &memory);
+        harts[hartId] = new Hart(hartId, isa, priv, physWidth, &memory);
+    }
+
+    void close(){
+        for(auto hart : harts){
+            if(hart) hart->close();
+        }
     }
 };
 
@@ -291,70 +322,83 @@ void checkFile(std::ifstream &lines){
     Context context;
 #define rv context.harts[hartId]
     std::string line;
-    while (getline(lines, line)){
-        istringstream f(line);
-        string str;
-        f >> str;
-        if(str == "rv"){
+    u64 lineId = 0;
+    try{
+        while (getline(lines, line)){
+            istringstream f(line);
+            string str;
             f >> str;
-            if (str == "commit") {
-                u32 hartId;
-                u64 pc;
-                f >> hartId >> hex >> pc >> dec;
-                rv->commit(pc);
-            } else if (str == "rf") {
+            if(str == "rv"){
                 f >> str;
-                if(str == "w") {
-                    u32 hartId, rfKind, address;
-                    u64 data;
-                    f >> hartId >> rfKind >> address >> hex >> data >> dec;
-                    rv->writeRf(rfKind, address, data);
-                } else if(str == "r") {
-                    u32 hartId, rfKind, address;
-                    u64 data;
-                    f >> hartId >> rfKind >> address >> hex >> data >> dec;
-                    rv->readRf(rfKind, address, data);
-                } else {
-                    throw runtime_error(line);
-                }
-
-            } else if (str == "io") {
-                u32 hartId;
-                f >> hartId;
-                auto io = TraceIo(f);
-                rv->ioAccess(io);
-            } else if (str == "set") {
-                f >> str;
-                if(str == "pc"){
-                    u32 hartId;
+                if (str == "commit") {
                     u64 pc;
                     f >> hartId >> hex >> pc >> dec;
-                    rv->setPc(pc);
+                    rv->commit(pc);
+                } else if (str == "rf") {
+                    f >> str;
+                    if(str == "w") {
+                        u32 hartId, rfKind, address;
+                        u64 data;
+                        f >> hartId >> rfKind >> address >> hex >> data >> dec;
+                        rv->writeRf(rfKind, address, data);
+                    } else if(str == "r") {
+                        u32 hartId, rfKind, address;
+                        u64 data;
+                        f >> hartId >> rfKind >> address >> hex >> data >> dec;
+                        rv->readRf(rfKind, address, data);
+                    } else {
+                        throw runtime_error(line);
+                    }
+
+                } else if (str == "io") {
+                    u32 hartId;
+                    f >> hartId;
+                    auto io = TraceIo(f);
+                    rv->ioAccess(io);
+                } else if (str == "trap") {
+                    u32 hartId, code;
+                    bool interrupt;
+                    f >> hartId >> interrupt >> code;
+                    rv->trap(interrupt, code);
+                } else if (str == "set") {
+                    f >> str;
+                    if(str == "pc"){
+                        u32 hartId;
+                        u64 pc;
+                        f >> hartId >> hex >> pc >> dec;
+                        rv->setPc(pc);
+                    } else {
+                        throw runtime_error(line);
+                    }
+                } else if(str == "new"){
+                    u32 hartId, physWidth;
+                    string isa, priv;
+                    f >> hartId >> isa >> priv >> physWidth;
+                    context.rvNew(hartId, isa, priv, physWidth);
                 } else {
                     throw runtime_error(line);
                 }
-            } else if(str == "new"){
-                u32 hartId;
-                string isa, priv;
-                f >> hartId >> isa >> priv;
-                context.rvNew(hartId, isa, priv);
+            } else if(str == "elf"){
+                f >> str;
+                if(str == "load"){
+                    string path;
+                    u64 offset;
+                    f >> path >> hex >> offset >> dec;
+                    context.loadElf(path, offset);
+                } else {
+                    throw runtime_error(line);
+                }
             } else {
                 throw runtime_error(line);
             }
-        } else if(str == "elf"){
-            f >> str;
-            if(str == "load"){
-                string path;
-                u64 offset;
-                f >> path >> hex >> offset >> dec;
-                context.loadElf(path, offset);
-            } else {
-                throw runtime_error(line);
-            }
-        } else {
-            throw runtime_error(line);
+            lineId += 1;
         }
+    } catch (const std::exception &e) {
+        printf("Failed at line %ld : %s\n", lineId, line.c_str());
+        context.close();
+        throw e;
     }
+    context.close();
 
     cout << "Model check Success <3" << endl;
 }

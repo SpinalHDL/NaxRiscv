@@ -29,6 +29,7 @@ LDFLAGS += $(realpath ${SPIKE_BUILD})/package.so
 
 CXXFLAGS += -Wno-unused-parameter -Wno-pedantic -Wno-unused-variable
 CXXFLAGS += -Og -g3
+LDFLAGS += -Og -g3
 
 
 
@@ -57,7 +58,7 @@ build:
 debug: CXXFLAGS += -DDEBUG -g
 debug: all
 
-release: CXXFLAGS += -O2
+release: CXXFLAGS += 
 release: all
 
 clean:

@@ -18,6 +18,7 @@ import spinal.lib.bus.tilelink
 import spinal.lib.bus.tilelink.coherent.{Hub, HubFabric}
 import spinal.lib.bus.tilelink.sim.{MemoryAgent, Monitor, MonitorSubscriber, SlaveDriver, TransactionA, TransactionD}
 import spinal.lib.bus.tilelink.{M2sSupport, M2sTransfers, Opcode, S2mSupport, SizeRange, fabric}
+import spinal.lib.cpu.riscv.RiscvHart
 import spinal.lib.misc.{Elf, TilelinkFabricClint}
 import spinal.lib.sim.SparseMemory
 import spinal.sim.{Signal, SimManagerContext}
@@ -26,12 +27,28 @@ import java.io.{BufferedWriter, File, FileWriter}
 import java.nio.file.Files
 import scala.collection.mutable.ArrayBuffer
 
-class NaxRiscvTilelink extends Area {
+
+
+class NaxRiscvTilelink extends Area with RiscvHart{
   val ibus = Node.master()
   val dbus = Node.master()
   val pbus = Node.master()
 
   val buses = List(ibus, dbus, pbus)
+
+
+  def privPlugin = thread.core.framework.getService[PrivilegedPlugin]
+  override def getHartId() = privPlugin.p.hartId
+  override def getIntMachineTimer() = privPlugin.io.int.machine.timer
+  override def getIntMachineSoftware() = privPlugin.io.int.machine.software
+
+//  core.plugins.foreach{
+//    case p : FetchCachePlugin => ibus.bus << p.mem.toTilelink()
+//    case p : DataCachePlugin =>  dbus.bus << p.mem.toTilelink()
+//    case p : Lsu2Plugin => pbus.bus << p.peripheralBus.toTilelink()
+//    case p : PrivilegedPlugin => {
+//      p.io.int.machine.timer := False
+//      p.io.int.machine.software := False
 
   val thread = Fiber build new Area{
     val l = Config.plugins(
@@ -77,8 +94,6 @@ class NaxRiscvTilelink extends Area {
       case p : DataCachePlugin =>  dbus.bus << p.mem.toTilelink()
       case p : Lsu2Plugin => pbus.bus << p.peripheralBus.toTilelink()
       case p : PrivilegedPlugin => {
-        p.io.int.machine.timer := False
-        p.io.int.machine.software := False
         p.io.int.machine.external := False
         p.io.int.supervisor.external := False
       }
@@ -215,6 +230,7 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
   val csrAccessPlugin = nax.framework.getService[CsrAccessPlugin]
   val decodePlugin = nax.framework.getService[DecoderPlugin]
   val commitPlugin = nax.framework.getService[CommitPlugin]
+  val privPlugin = nax.framework.getService[PrivilegedPlugin]
   val robPlugin = nax.framework.getService[RobPlugin]
   val lsuPlugin = nax.framework.getService[Lsu2Plugin]
   val intRf = nax.framework.getServiceWhere[RegFilePlugin](_.spec == riscv.IntRegFile)
@@ -238,7 +254,11 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
   val csrAccess = csrAccessPlugin.logic.whitebox.csrAccess
   val csrAccessValid = csrAccess.valid.simProxy()
 
+  val trapWb = privPlugin.logic.whitebox
+  val trapFire = trapWb.trap.fire.simProxy()
+
   val backends = ArrayBuffer[TraceBackend]()
+  val commitsCallbacks = ArrayBuffer[(Int, Long) => Unit]()
   nax.scopeProperties.restore()
   val xlen = decodePlugin.xlen
 
@@ -247,7 +267,7 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
 
   def add(tracer : FileBackend) = {
     backends += tracer
-    tracer.newCpu(hartId, "RV32IMA", "MSU")
+    tracer.newCpu(hartId, "RV32IMA", "MSU", 32)
   }
 
   def checkRob() : Unit = {
@@ -286,6 +306,14 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
     }
   }
 
+  def checkTrap(): Unit ={
+    if(trapFire.toBoolean){
+      val code = trapWb.trap.code.toInt
+      val interrupt = trapWb.trap.interrupt.toBoolean
+      backends.foreach(_.trap(hartId, interrupt, code))
+    }
+  }
+
   def checkCommits(): Unit ={
     var mask = commitMask.toInt
     for(i <- 0 until commitPlugin.commitCount){
@@ -300,6 +328,7 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
           if(robCtx.csrWriteDone) backends.foreach(_.writeRf(hartId, 4, robCtx.csrAddress, robCtx.csrWriteData))
         }
         backends.foreach(_.commit(hartId, robCtx.pc))
+        commitsCallbacks.foreach(_(hartId, robCtx.pc))
       }
       mask >>= 1
     }
@@ -336,6 +365,7 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
 
   nax.clockDomain.onSamplings{
     checkCommits()
+    checkTrap()
     checkIoBus()
     checkRob()
   }
@@ -350,12 +380,13 @@ class TraceIo (var write: Boolean,
   def serialized() = f"${write.toInt} $address%016x $data%016x $mask%02x $size ${error.toInt}"
 }
 trait TraceBackend{
-  def newCpu(hartId : Int, isa : String, priv : String) : Unit
+  def newCpu(hartId : Int, isa : String, priv : String, physWidth : Int) : Unit
   def loadElf(path : File, offset : Long) : Unit
   def setPc(hartId : Int, pc : Long): Unit
   def writeRf(hardId : Int, rfKind : Int, address : Int, data : Long) //address out of range mean unknown
   def readRf(hardId : Int, rfKind : Int, address : Int, data : Long) //address out of range mean unknown
   def commit(hartId : Int, pc : Long): Unit
+  def trap(hartId: Int, interrupt : Boolean, code : Int)
   def ioAccess(hartId: Int, access : TraceIo) : Unit
 
   def flush() : Unit
@@ -364,10 +395,14 @@ trait TraceBackend{
 
 class FileBackend(f : File) extends TraceBackend{
   val bf = new BufferedWriter(new FileWriter(f))
+
   override def commit(hartId: Int, pc: Long) = {
     bf.write(f"rv commit $hartId $pc%016x\n")
   }
 
+  override def trap(hartId: Int, interrupt : Boolean, code : Int): Unit ={
+    bf.write(f"rv trap $hartId ${interrupt.toInt} $code\n")
+  }
 
   override def writeRf(hartId: Int, rfKind: Int, address: Int, data: Long) = {
     bf.write(f"rv rf w $hartId $rfKind $address $data%016x\n")
@@ -389,8 +424,8 @@ class FileBackend(f : File) extends TraceBackend{
     bf.write(f"rv set pc $hartId $pc%016x\n")
   }
 
-  override def newCpu(hartId: Int, isa : String, priv : String) = {
-    bf.write(f"rv new $hartId $isa $priv\n")
+  override def newCpu(hartId: Int, isa : String, priv : String, physWidth : Int) = {
+    bf.write(f"rv new $hartId $isa $priv $physWidth\n")
   }
 
   override def flush() = bf.flush()
@@ -435,20 +470,28 @@ object NaxRiscvTilelinkSim extends App{
       val memAgent = new MemoryAgent(dut.mem.node.bus, cd)(null)
       val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, cd)
 
-      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
+      val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
       elf.load(memAgent.mem, -0xffffffff00000000l)
       tracer.loadElf(elf.f, 0)
       tracer.setPc(0, 0x80000000)
+      val passSymbol = elf.getSymbolAddress("pass")
+      val failSymbol = elf.getSymbolAddress("fail")
+      naxProbe.commitsCallbacks += { (hartId, pc) =>
+        if(pc == passSymbol) delayed(1)(simSuccess())
+        if(pc == failSymbol) delayed(1)(simFailure())
+      }
 
-//          memAgent.mem.loadBin(0x80000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-//          memAgent.mem.loadBin(0x80F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
-//          memAgent.mem.loadBin(0x80400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
-//          memAgent.mem.loadBin(0x81000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
+          //          memAgent.mem.loadBin(0x80000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
+          //          memAgent.mem.loadBin(0x80F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
+          //          memAgent.mem.loadBin(0x80400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
+          //          memAgent.mem.loadBin(0x81000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
 
 
-      cd.waitSampling(10000000)
-      simSuccess()
+//          cd.waitSampling(10000000)
+//          simSuccess()
     }
   }
 

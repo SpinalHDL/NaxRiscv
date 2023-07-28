@@ -1,6 +1,6 @@
 package spinal.lib.misc
 
-import net.fornwall.jelf.{ElfFile, ElfSection, ElfSectionHeader}
+import net.fornwall.jelf.{ElfFile, ElfSection, ElfSectionHeader, ElfSymbol, ElfSymbolTableSection}
 import spinal.lib.sim.SparseMemory
 
 import java.io.File
@@ -42,8 +42,44 @@ class Elf(val f : File){
   }
 
   def getSymbolAddress(name : String): Long ={
-    val s = elf.getELFSymbol(name)
+    val s = getELFSymbol(name)
     s.st_value
+  }
+
+  def getELFSymbol(symbolName: String): ElfSymbol = {
+    if (symbolName == null) return null
+    // Check dynamic symbol table for symbol name.
+    import elf._
+    var sh = getDynamicSymbolTableSection
+    if (sh != null) {
+      val numSymbols = sh.symbols.length
+      var i = 0
+      while ( {
+        i < numSymbols
+      }) {
+        var symbol = sh.symbols(i)
+        if (symbolName == symbol.getName) return symbol
+        else if (symbolName == (sh.symbols(numSymbols - 1 - i)).getName) return sh.symbols(numSymbols - 1 - i)
+
+        i += 1
+      }
+    }
+    // Check symbol table for symbol name.
+    sh = getSymbolTableSection
+    if (sh != null) {
+      val numSymbols = sh.symbols.length
+      var i = 0
+      while ( {
+        i < numSymbols
+      }) {
+        var symbol = sh.symbols(i)
+        if (symbolName == symbol.getName) return symbol
+        else if (symbolName == (sh.symbols(numSymbols - 1 - i)).getName) return sh.symbols(numSymbols - 1 - i)
+
+        i += 1
+      }
+    }
+    null
   }
 }
 
