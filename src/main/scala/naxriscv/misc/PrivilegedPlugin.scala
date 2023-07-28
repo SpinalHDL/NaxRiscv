@@ -83,15 +83,15 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
   val io = create early new Area{
     val int = new Area{
       val machine = new Area{
-        val timer = in Bool()
-        val software = in Bool()
-        val external = in Bool()
+        val timer    = Verilator.public(in Bool())
+        val software = Verilator.public(in Bool())
+        val external = Verilator.public(in Bool())
       }
       val supervisor = p.withSupervisor generate new Area{
-        val external = in Bool()
+        val external = Verilator.public(in Bool())
       }
       val user = p.withUserTrap generate new Area{
-        val external = in Bool()
+        val external = Verilator.public(in Bool())
       }
     }
 

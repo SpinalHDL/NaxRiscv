@@ -6,7 +6,9 @@ import spinal.lib.bus.tilelink._
 import spinal.lib.bus.tilelink.sim.{Monitor, MonitorSubscriber, SlaveDriver, TransactionA, TransactionD}
 import spinal.core.sim._
 
-class PeripheralEmulator(bus : tilelink.Bus, cd : ClockDomain) extends MonitorSubscriber{
+import scala.util.Random
+
+class PeripheralEmulator(bus : tilelink.Bus, mei : Bool, sei : Bool, cd : ClockDomain) extends MonitorSubscriber{
   val monitor = new Monitor(bus, cd).add(this)
   val driver = new SlaveDriver(bus, cd)
 
@@ -21,21 +23,46 @@ class PeripheralEmulator(bus : tilelink.Bus, cd : ClockDomain) extends MonitorSu
   val PUT_DEC = 0x60
   val INCR_COUNTER = 0x70
   val FAILURE_ADDRESS = 0x80
+  val IO_FAULT_ADDRESS = 0x0FFFFFF0
+
+  mei #= false
+  sei #= false
 
   override def onA(a: TransactionA) = {
-    a.address.toInt match {
-      case PUTC => print(a.data(0).toChar)
-      case _ => {
-        println(a)
-        simFailure()
+    val d = TransactionD(a)
+    a.opcode match {
+      case Opcode.A.PUT_FULL_DATA => {
+        d.opcode = Opcode.D.ACCESS_ACK
+        a.address.toInt match {
+          case PUTC => print(a.data(0).toChar)
+          case PUT_HEX => print(a.data.reverse.map(v => f"$v%02x").mkString(""))
+          case MACHINE_EXTERNAL_INTERRUPT_CTRL => mei #= a.data(0).toBoolean
+          case SUPERVISOR_EXTERNAL_INTERRUPT_CTRL => sei #= a.data(0).toBoolean
+          case IO_FAULT_ADDRESS => {
+            d.denied = true
+          }
+          case _ => {
+            println(a)
+            simFailure()
+          }
+        }
+      }
+      case Opcode.A.GET => {
+        d.opcode = Opcode.D.ACCESS_ACK_DATA
+        a.address.toInt match {
+          case IO_FAULT_ADDRESS => {
+            d.data = Array.fill(a.bytes)(Random.nextInt().toByte)
+            d.denied = true
+          }
+          case _ => {
+            println(a)
+            simFailure()
+          }
+        }
       }
     }
 
-    if(a.opcode == Opcode.A.PUT_FULL_DATA) {
-      val d = TransactionD(a)
-      d.opcode = Opcode.D.ACCESS_ACK
-      driver.scheduleD(d)
-    }
+    driver.scheduleD(d)
   }
 }
 

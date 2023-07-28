@@ -13,6 +13,7 @@ import net.fornwall.jelf.{ElfFile, ElfSection, ElfSectionHeader}
 import spinal.core
 import spinal.core._
 import spinal.core.fiber._
+import spinal.lib.bus.misc.SizeMapping
 import spinal.lib.bus.tilelink.fabric._
 import spinal.lib.bus.tilelink
 import spinal.lib.bus.tilelink.coherent.{Hub, HubFabric}
@@ -41,6 +42,9 @@ class NaxRiscvTilelink extends Area with RiscvHart{
   override def getHartId() = privPlugin.p.hartId
   override def getIntMachineTimer() = privPlugin.io.int.machine.timer
   override def getIntMachineSoftware() = privPlugin.io.int.machine.software
+  override def getIntMachineExternal() = privPlugin.io.int.machine.external
+  override def getIntSupervisorExternal() = privPlugin.io.int.supervisor.external
+
 
 //  core.plugins.foreach{
 //    case p : FetchCachePlugin => ibus.bus << p.mem.toTilelink()
@@ -93,10 +97,7 @@ class NaxRiscvTilelink extends Area with RiscvHart{
       case p : FetchCachePlugin => ibus.bus << p.mem.toTilelink()
       case p : DataCachePlugin =>  dbus.bus << p.mem.toTilelink()
       case p : Lsu2Plugin => pbus.bus << p.peripheralBus.toTilelink()
-      case p : PrivilegedPlugin => {
-        p.io.int.machine.external := False
-        p.io.int.supervisor.external := False
-      }
+      case p : PrivilegedPlugin =>
       case _ =>
     }
   }
@@ -122,7 +123,7 @@ class NaxRiscvTilelinkSoCDemo extends Component {
   nonCoherent << filter.down
 
   val mem = new tilelink.fabric.SlaveBusAny()
-  mem.node << nonCoherent
+  mem.node at SizeMapping(0x80000000l, 0x80000000l) of nonCoherent
 
   val peripheral = new Area {
     val bus = Node()
@@ -143,6 +144,14 @@ class NaxRiscvTilelinkSoCDemo extends Component {
       )
     )
     emulated.node << bus
+
+    val custom = Fiber build new Area{
+      val mei,sei = in Bool()
+      clint.harts.foreach{hart =>
+        hart.getIntMachineExternal() := mei
+        hart.getIntSupervisorExternal() := sei
+      }
+    }
   }
 }
 
@@ -250,6 +259,23 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
   val ioBusCmdValid = ioBus.cmd.valid.simProxy()
   val ioBusCmdReady = ioBus.cmd.ready.simProxy()
   val ioBusRspValid = ioBus.rsp.valid.simProxy()
+
+  val ioInt = privPlugin.io.int
+  class IntChecker(pin : Bool, id : Int){
+    val proxy = pin.simProxy()
+    var last = false
+    def check() : Unit = {
+      val value = proxy.toBoolean
+      if(value != last){
+        backends.foreach(_.setInterrupt(hartId, id, value))
+        last = value
+      }
+    }
+  }
+  val intMachineTimer = new IntChecker(ioInt.machine.timer, 7)
+  val intMachineSoftware = new IntChecker(ioInt.machine.software, 3)
+  val intMachineExternal = new IntChecker(ioInt.machine.external, 11)
+  val intSupervisorExternal = new IntChecker(ioInt.supervisor.external, 9)
 
   val csrAccess = csrAccessPlugin.logic.whitebox.csrAccess
   val csrAccessValid = csrAccess.valid.simProxy()
@@ -363,11 +389,19 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
     }
   }
 
+  def checkInterrupts(): Unit ={
+    intMachineTimer.check()
+    intMachineSoftware.check()
+    intMachineExternal.check()
+    intSupervisorExternal.check()
+  }
+
   nax.clockDomain.onSamplings{
     checkCommits()
     checkTrap()
     checkIoBus()
     checkRob()
+    checkInterrupts()
   }
 }
 
@@ -388,6 +422,7 @@ trait TraceBackend{
   def commit(hartId : Int, pc : Long): Unit
   def trap(hartId: Int, interrupt : Boolean, code : Int)
   def ioAccess(hartId: Int, access : TraceIo) : Unit
+  def setInterrupt(hartId : Int, intId : Int, value : Boolean) : Unit
 
   def flush() : Unit
   def close() : Unit
@@ -414,6 +449,10 @@ class FileBackend(f : File) extends TraceBackend{
 
   def ioAccess(hartId: Int, access : TraceIo) : Unit = {
     bf.write(f"rv io $hartId ${access.serialized()}\n")
+  }
+
+  override def setInterrupt(hartId: Int, intId: Int, value: Boolean) = {
+    bf.write(f"rv int set $hartId $intId ${value.toInt}\n")
   }
 
   override def loadElf(path: File, offset: Long) = {
@@ -450,7 +489,7 @@ object NaxRiscvTilelinkSim extends App{
       fork {
         disableSimWave()
         //      sleep(1939590-100000)
-//        enableSimWave()
+        enableSimWave()
       }
 
 
@@ -468,13 +507,16 @@ object NaxRiscvTilelinkSim extends App{
 
 
       val memAgent = new MemoryAgent(dut.mem.node.bus, cd)(null)
-      val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, cd)
+      val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
 
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
-      val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
-      elf.load(memAgent.mem, -0xffffffff00000000l)
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/machine/build/rv32ima/machine.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/supervisor/build/rv32ima/supervisor.elf"))
+      val elf = new Elf(new File("ext/NaxSoftware/baremetal/mmu_sv32/build/rv32ima/mmu_sv32.elf"))
+      elf.load(memAgent.mem, -0xffffffff80000000l)
       tracer.loadElf(elf.f, 0)
       tracer.setPc(0, 0x80000000)
       val passSymbol = elf.getSymbolAddress("pass")

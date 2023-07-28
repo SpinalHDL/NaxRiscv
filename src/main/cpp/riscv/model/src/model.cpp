@@ -21,6 +21,20 @@ using namespace std;
 #include <stdint.h>
 
 
+#define CSR_UCYCLE 0xC00
+#define CSR_UCYCLEH 0xC80
+#define MIP 0x344
+#define SIP 0x144
+#define UIP  0x44
+#define CAUSE_MACHINE_SOFTWARE 3
+#define CAUSE_MACHINE_TIMER 7
+#define CAUSE_MACHINE_EXTERNAL 11
+#define CAUSE_SUPERVISOR_EXTERNAL 9
+#define MIE_MTIE (1 << CAUSE_MACHINE_TIMER)
+#define MIE_MEIE (1 << CAUSE_MACHINE_EXTERNAL)
+#define MIE_MSIE (1 << CAUSE_MACHINE_SOFTWARE)
+#define MIE_SEIE (1 << CAUSE_SUPERVISOR_EXTERNAL)
+
 
 #define API __attribute__((visibility("default")))
 
@@ -28,7 +42,7 @@ class successException : public std::exception { };
 #define failure() throw std::exception();
 #define success() throw successException();
 void breakMe(){
-    int a = 0;
+    volatile int a = 0;
 }
 
 #define assertEq(message, x,ref) if((x) != (ref)) {\
@@ -81,7 +95,7 @@ public:
             memory->read(addr, len, bytes);
             return true;
         }
-        printf("mmio_load %lx %ld\n", addr, len);
+//        printf("mmio_load %lx %ld\n", addr, len);
         if(addr < 0x10000000 || addr > 0x20000000) return false;
         assertTrue("missing mmio\n", !ioQueue.empty());
         auto dut = ioQueue.front();
@@ -97,7 +111,7 @@ public:
             memory->write(addr, len, (u8*) bytes);
             return true;
         }
-        printf("mmio_store %lx %ld\n", addr, len);
+//        printf("mmio_store %lx %ld\n", addr, len);
         if(addr < 0x10000000 || addr > 0x20000000) return false;
         assertTrue("missing mmio\n", !ioQueue.empty());
         auto dut = ioQueue.front();
@@ -143,10 +157,25 @@ public:
         FILE *fptr = 1 ? fopen(string("spike.log").c_str(),"w") : NULL;
         std::ofstream outfile ("/dev/null",std::ofstream::binary);
         proc = new processor_t(isa.c_str(), priv.c_str(), "", sif, hartId, false, fptr, outfile);
+        auto xlen = proc->get_xlen();
+        proc->set_impl(IMPL_MMU_SV32, xlen == 32);
+        proc->set_impl(IMPL_MMU_SV39, xlen == 64);
+        proc->set_impl(IMPL_MMU_SV48, false);
+        proc->set_impl(IMPL_MMU, true);
         proc->enable_log_commits();
+        proc->set_pmp_num(0);
         proc->debug = true;
         state = proc->get_state();
+        state->csrmap[CSR_MCYCLE] = std::make_shared<basic_csr_t>(proc, CSR_MCYCLE, 0);
+        state->csrmap[CSR_MCYCLEH] = std::make_shared<basic_csr_t>(proc, CSR_MCYCLEH, 0);
     }
+
+//    void syncTime(u64 time){
+//        state->csrmap[CSR_MCYCLE]->unlogged_write(time);
+//        if(proc->get_xlen() == 32){
+//            state->csrmap[CSR_MCYCLEH]->unlogged_write(time >> 32);
+//        }
+//    }
 
     void close() {
         auto f = proc->get_log_file();
@@ -205,8 +234,15 @@ public:
     }
 
     void trap(bool interrupt, u32 code){
+        int mask = 1 << code;
+        auto fromPc = state->pc;
+        if(interrupt) state->mip->write_with_mask(mask, mask);
         proc->step(1);
-        assertTrue("DUT didn't trap", state->trap_happened);
+        if(interrupt) state->mip->write_with_mask(mask, 0);
+        if(!state->trap_happened){
+            printf("DUT did trap on %lx\n", fromPc);
+            failure();
+        }
         assertEq("DUT interrupt missmatch", interrupt, state->trap_interrupt);
         assertEq("DUT code missmatch", code, state->trap_code);
         physExtends(state->pc);
@@ -214,12 +250,52 @@ public:
 
     void commit(u64 pc){
         if(pc != state->pc){
-            printf("PC MISSMATCH dut=%lx ref=%lx", pc, state->pc);
+            printf("PC MISSMATCH dut=%lx ref=%lx\n", pc, state->pc);
             failure();
         }
+
+        //Sync CSR
+        u64 csrBackup = 0;
+        if(csrRead){
+            switch(csrAddress){
+            case CSR_MCYCLE:
+            case CSR_MCYCLEH:
+            case CSR_UCYCLE:
+            case CSR_UCYCLEH:
+                state->csrmap[csrAddress]->unlogged_write(csrReadData);
+                break;
+            case MIP:
+            case SIP:
+            case UIP:
+                csrBackup = state->mie->read();
+                state->mip->unlogged_write_with_mask(-1, csrReadData);
+                state->mie->unlogged_write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, 0);
+    //                                cout << main_time << " " << hex << robCtx.csrReadData << " " << state->mip->read()  << " " << state->csrmap[robCtx.csrAddress]->read() << dec << endl;
+                break;
+            }
+            if(csrAddress >= CSR_MHPMCOUNTER3 && csrAddress <= CSR_MHPMCOUNTER31){
+                state->csrmap[csrAddress]->unlogged_write(csrReadData);
+            }
+        }
+
+        //Run the spike model
         proc->step(1);
-        assertTrue("DUT fired a unwished trap", !state->trap_happened);
+
+        //Sync back some CSR
+        state->mip->unlogged_write_with_mask(-1, 0);
+        if(csrRead){
+            switch(csrAddress){
+            case MIP:
+            case SIP:
+            case UIP:
+                state->mie->unlogged_write_with_mask(MIE_MTIE | MIE_MEIE |  MIE_MSIE | MIE_SEIE, csrBackup);
+                break;
+            }
+        }
+
+        //Checks
         printf("%016lx %08lx\n", pc, state->last_inst.bits());
+        assertTrue("DUT missed a trap", !state->trap_happened);
         for (auto item : state->log_reg_write) {
             if (item.first == 0)
               continue;
@@ -237,14 +313,17 @@ public:
                 case 0x30200073: //MRET
                 case 0x10200073: //SRET
                 case 0x00200073: //URET
+                    physExtends(state->pc);
                     break;
-                default:
+                default:{
                     if((inst & 0x7F) == 0x73 && (inst & 0x3000) != 0){
                         assertTrue("CSR WRITE MISSING", csrWrite);
                         assertEq("CSR WRITE ADDRESS", (u32)(csrAddress & 0xCFF), (u32)(rd & 0xCFF));
 //                                                assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
                     }
                     break;
+                }
+
                 }
                 csrWrite = false;
             } break;
@@ -262,6 +341,10 @@ public:
 
     void ioAccess(TraceIo io){
         sif->ioQueue.push(io);
+    }
+
+    void setInt(u32 id, bool value){
+
     }
 
 };
@@ -331,6 +414,7 @@ void checkFile(std::ifstream &lines){
             if(str == "rv"){
                 f >> str;
                 if (str == "commit") {
+                    u32 hartId;
                     u64 pc;
                     f >> hartId >> hex >> pc >> dec;
                     rv->commit(pc);
@@ -360,6 +444,16 @@ void checkFile(std::ifstream &lines){
                     bool interrupt;
                     f >> hartId >> interrupt >> code;
                     rv->trap(interrupt, code);
+                } else if (str == "int") {
+                    f >> str;
+                    if(str == "set") {
+                        u32 hartId, intId;
+                        bool value;
+                        f >> hartId >> intId >> value;
+                        rv->setInt(intId, value);
+                    } else {
+                        throw runtime_error(line);
+                    }
                 } else if (str == "set") {
                     f >> str;
                     if(str == "pc"){
