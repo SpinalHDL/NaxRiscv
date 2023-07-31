@@ -141,14 +141,14 @@ public:
 
     u32 physWidth;
 
-    bool integerWriteValid;
-    u64 integerWriteData;
+    bool integerWriteValid = false;
+    u64 integerWriteData = 0;
 
-    u32 csrAddress;
-    bool csrWrite;
-    bool csrRead;
-    u64 csrWriteData;
-    u64 csrReadData;
+    u32 csrAddress = 0;
+    bool csrWrite = false;
+    bool csrRead = false;
+    u64 csrWriteData = 0;
+    u64 csrReadData = 0;
 
 
     Hart(u32 hartId, string isa, string priv, u32 physWidth, Memory *memory){
@@ -278,6 +278,7 @@ public:
             }
         }
 
+
         //Run the spike model
         proc->step(1);
 
@@ -294,7 +295,7 @@ public:
         }
 
         //Checks
-        printf("%016lx %08lx\n", pc, state->last_inst.bits());
+//        printf("%016lx %08lx\n", pc, state->last_inst.bits());
         assertTrue("DUT missed a trap", !state->trap_happened);
         for (auto item : state->log_reg_write) {
             if (item.first == 0)
@@ -359,6 +360,11 @@ public:
         elf->visitBytes([&](u8 data, u64 address) {
             memory.write(address+offset, 1, &data);
         });
+    }
+
+
+    void loadBin(string path, u64 offset){
+        memory.loadBin(path, offset);
     }
 
     void rvNew(u32 hartId, string isa, string priv, u32 physWidth){
@@ -477,8 +483,18 @@ void checkFile(std::ifstream &lines){
                 if(str == "load"){
                     string path;
                     u64 offset;
-                    f >> path >> hex >> offset >> dec;
+                    f >> hex >> offset >> dec >> path;
                     context.loadElf(path, offset);
+                } else {
+                    throw runtime_error(line);
+                }
+            }  else if(str == "bin"){
+                f >> str;
+                if(str == "load"){
+                    string path;
+                    u64 offset;
+                    f >> hex >> offset >> dec >> path;
+                    context.loadBin(path, offset);
                 } else {
                     throw runtime_error(line);
                 }

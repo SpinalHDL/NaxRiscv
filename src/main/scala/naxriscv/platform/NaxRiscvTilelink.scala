@@ -415,7 +415,8 @@ class TraceIo (var write: Boolean,
 }
 trait TraceBackend{
   def newCpu(hartId : Int, isa : String, priv : String, physWidth : Int) : Unit
-  def loadElf(path : File, offset : Long) : Unit
+  def loadElf(offset : Long, path : File) : Unit
+  def loadBin(offset : Long, path : File) : Unit
   def setPc(hartId : Int, pc : Long): Unit
   def writeRf(hardId : Int, rfKind : Int, address : Int, data : Long) //address out of range mean unknown
   def readRf(hardId : Int, rfKind : Int, address : Int, data : Long) //address out of range mean unknown
@@ -455,10 +456,13 @@ class FileBackend(f : File) extends TraceBackend{
     bf.write(f"rv int set $hartId $intId ${value.toInt}\n")
   }
 
-  override def loadElf(path: File, offset: Long) = {
-    bf.write(f"elf load ${path.getAbsolutePath} $offset%016x\n")
+  override def loadElf(offset: Long, path: File) = {
+    bf.write(f"elf load  $offset%016x ${path.getAbsolutePath}\n")
   }
 
+  override def loadBin(offset: Long, path: File) = {
+    bf.write(f"bin load $offset%016x ${path.getAbsolutePath} \n")
+  }
   override def setPc(hartId: Int, pc: Long) = {
     bf.write(f"rv set pc $hartId $pc%016x\n")
   }
@@ -489,7 +493,7 @@ object NaxRiscvTilelinkSim extends App{
       fork {
         disableSimWave()
         //      sleep(1939590-100000)
-        enableSimWave()
+//        enableSimWave()
       }
 
 
@@ -506,7 +510,8 @@ object NaxRiscvTilelinkSim extends App{
 
 
 
-      val memAgent = new MemoryAgent(dut.mem.node.bus, cd)(null)
+      val memAgent = new MemoryAgent(dut.mem.node.bus, cd, seed = 0)(null)
+      memAgent.mem.randOffset = 0x80000000l
       val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
 
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
@@ -515,25 +520,32 @@ object NaxRiscvTilelinkSim extends App{
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/machine/build/rv32ima/machine.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/supervisor/build/rv32ima/supervisor.elf"))
-      val elf = new Elf(new File("ext/NaxSoftware/baremetal/mmu_sv32/build/rv32ima/mmu_sv32.elf"))
-      elf.load(memAgent.mem, -0xffffffff80000000l)
-      tracer.loadElf(elf.f, 0)
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/mmu_sv32/build/rv32ima/mmu_sv32.elf"))
+//
+//      elf.load(memAgent.mem, -0xffffffff80000000l)
+//      tracer.loadElf(0, elf.f)
+//      tracer.setPc(0, 0x80000000)
+//      val passSymbol = elf.getSymbolAddress("pass")
+//      val failSymbol = elf.getSymbolAddress("fail")
+//      naxProbe.commitsCallbacks += { (hartId, pc) =>
+//        if(pc == passSymbol) delayed(1)(simSuccess())
+//        if(pc == failSymbol) delayed(1)(simFailure())
+//      }
+
+      memAgent.mem.loadBin(0x00000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
+      memAgent.mem.loadBin(0x00F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
+      memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
+      memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
+
+
+      tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
+      tracer.loadBin(0x80F80000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb"))
+      tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
+      tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
       tracer.setPc(0, 0x80000000)
-      val passSymbol = elf.getSymbolAddress("pass")
-      val failSymbol = elf.getSymbolAddress("fail")
-      naxProbe.commitsCallbacks += { (hartId, pc) =>
-        if(pc == passSymbol) delayed(1)(simSuccess())
-        if(pc == failSymbol) delayed(1)(simFailure())
-      }
 
-          //          memAgent.mem.loadBin(0x80000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-          //          memAgent.mem.loadBin(0x80F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
-          //          memAgent.mem.loadBin(0x80400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
-          //          memAgent.mem.loadBin(0x81000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
-
-
-//          cd.waitSampling(10000000)
-//          simSuccess()
+          cd.waitSampling(2000000)
+          simSuccess()
     }
   }
 

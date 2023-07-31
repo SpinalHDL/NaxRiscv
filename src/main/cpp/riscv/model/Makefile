@@ -28,8 +28,8 @@ INCLUDE += -I/home/rawrr/Downloads/idea-IC-213.6777.52/jbr/include/linux
 LDFLAGS += $(realpath ${SPIKE_BUILD})/package.so
 
 CXXFLAGS += -Wno-unused-parameter -Wno-pedantic -Wno-unused-variable
-CXXFLAGS += -Og -g3
-LDFLAGS += -Og -g3
+CXXFLAGS += -O0 -g3
+LDFLAGS += -O0 -g3
 
 
 

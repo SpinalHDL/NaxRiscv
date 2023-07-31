@@ -26,31 +26,58 @@ u32 hToI(char *c, u32 size) {
 }
 
 
+class RandomGen{
+public:
+  u64 state = rand();
+  void setSeed(u64 seed){
+      state = seed;
+  }
+
+  u32 nextInt() {
+    state = (state * 25214903917L + 11L) & 281474976710655L;
+    return (u32)(state >> 16);
+  }
+
+  void nextBytes(u8* bytes, u64 len) {
+    int randCnt = 0;
+    u64 rand = 0l;
+    for(u64 i = 0; i < len;i++){
+      if(randCnt == 0) {
+        rand = nextInt();
+        randCnt = 4;
+      }
+      bytes[i] = (u8) rand;
+      rand >>= 8;
+      randCnt -=1;
+    }
+  }
+};
 
 
 class Memory{
 public:
 	u8* mem[1 << 12];
+	u64 seed = 0;
+	u64 randOffset = 0;
 
 	Memory(){
 		for(u32 i = 0;i < (1 << 12);i++) mem[i] = NULL;
 	}
+
 	~Memory(){
 		for(u32 i = 0;i < (1 << 12);i++) if(mem[i]) delete [] mem[i];
 	}
 
 	u8* get(u32 address){
-		if(mem[address >> 20] == NULL) {
+	    u32 blockId = address >> 20;
+		if(mem[blockId] == NULL) {
 			u8* ptr = new u8[1024*1024];
-			for(u32 i = 0;i < 1024*1024;i+=4) {
-				ptr[i + 0] = 0xFF;
-				ptr[i + 1] = 0xFF;
-				ptr[i + 2] = 0xFF;
-				ptr[i + 3] = 0xFF;
-			}
-			mem[address >> 20] = ptr;
+			RandomGen rand;
+			rand.setSeed(seed ^ ((blockId << 20) + randOffset));
+			rand.nextBytes(ptr, 1024*1024);
+			mem[blockId] = ptr;
 		}
-		return &mem[address >> 20][address & 0xFFFFF];
+		return &mem[blockId][address & 0xFFFFF];
 	}
 
 	void read(u32 address,u32 length, u8 *data){

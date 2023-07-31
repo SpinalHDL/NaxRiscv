@@ -1685,7 +1685,7 @@ class Lsu2Plugin(var lqSize: Int,
         }
 
         LOAD_RSP onEntry{
-          comp.rfWrite := True
+          comp.rfWrite := sq.mem.writeRd
         }
 
         LOAD_RSP whenIsActive{
