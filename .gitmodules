@@ -8,7 +8,3 @@
 [submodule "ext/riscv-isa-sim"]
 	path = ext/riscv-isa-sim
 	url = https://github.com/SpinalHDL/riscv-isa-sim.git
-
-[submodule "ext/rvls"]
-	path = ext/rvls
-	url = https://github.com/SpinalHDL/rvls.git

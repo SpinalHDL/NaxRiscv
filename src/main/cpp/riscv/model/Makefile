@@ -1,10 +1,12 @@
+
+
 CXX      := -c++
 CXXFLAGS := -pedantic-errors -Wall -Wextra -Werror
 LDFLAGS  := -L/usr/lib -lstdc++ -lm
 BUILD    := ./build
 OBJ_DIR  := $(BUILD)/objects
 APP_DIR  := $(BUILD)/apps
-TARGET   := rvls
+TARGET   := socref
 SRC      :=                      \
    $(wildcard *.cpp) \
    $(wildcard src/module2/*.cpp) \
@@ -12,14 +14,9 @@ SRC      :=                      \
    
    
 
-SPIKE?=../riscv-isa-sim
+SPIKE?=../../../../../ext/riscv-isa-sim
 SPIKE_BUILD=$(realpath ${SPIKE}/build)
-SPIKE_OBJS:= libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a
-SPIKE_OBJS:=$(addprefix ${SPIKE_BUILD}/,${SPIKE_OBJS})
-LDFLAGS+=${SPIKE_OBJS}
-LDFLAGS += -L/usr/lib/x86_64-linux-gnu
 
-LIBRARIES += -lpthread -ldl -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
 
 INCLUDE += -I$(realpath ${SPIKE}/riscv)
 INCLUDE += -I$(realpath ${SPIKE}/fesvr)
@@ -28,7 +25,7 @@ INCLUDE += -I$(realpath ${SPIKE_BUILD})
 INCLUDE += -I/home/rawrr/Downloads/idea-IC-213.6777.52/jbr/include
 INCLUDE += -I/home/rawrr/Downloads/idea-IC-213.6777.52/jbr/include/linux 
 
-
+LDFLAGS += $(realpath ${SPIKE_BUILD})/package.so
 
 CXXFLAGS += -Wno-unused-parameter -Wno-pedantic -Wno-unused-variable
 CXXFLAGS += -O0 -g3
@@ -48,7 +45,7 @@ $(OBJ_DIR)/%.o: %.cpp
 
 $(APP_DIR)/$(TARGET): $(OBJECTS)
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -o $(APP_DIR)/$(TARGET) $^ $(LDFLAGS) $(LIBRARIES)
+	$(CXX) $(CXXFLAGS) -o $(APP_DIR)/$(TARGET) $^ $(LDFLAGS)
 
 -include $(DEPENDENCIES)
 
