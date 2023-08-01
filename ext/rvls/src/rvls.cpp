@@ -516,7 +516,7 @@ void checkFile(std::ifstream &lines){
 
 int main(){
     cout << "miaou3" << endl;
-    std::ifstream f("/media/data/open/riscv/VexRiscvOoo/trace.txt");
+    std::ifstream f("../../trace.txt");
     checkFile(f);
 }
 
