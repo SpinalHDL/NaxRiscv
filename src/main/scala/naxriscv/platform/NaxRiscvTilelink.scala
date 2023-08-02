@@ -218,9 +218,18 @@ class RobCtx{
   var csrValid = false
   var csrWriteDone = false
   var csrReadDone = false
-  var  csrAddress = -1
+  var csrAddress = -1
   var csrWriteData = -1l
   var csrReadData = -1l
+
+  var lsuAddress = -1l
+  var lsuLen = 0
+  var storeValid = false
+  var storeData = -1l
+  var storeSqId = -1
+  var loadValid = false
+  var loadLqId = 0
+  var loadData = -1l
 
   def clear(){
     integerWriteValid = false;
@@ -229,6 +238,8 @@ class RobCtx{
     csrWriteDone = false;
     csrReadDone = false;
     floatFlags = 0;
+    loadValid = false
+    storeValid = false
   }
   clear()
 };
@@ -259,6 +270,18 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
   val ioBusCmdValid = ioBus.cmd.valid.simProxy()
   val ioBusCmdReady = ioBus.cmd.ready.simProxy()
   val ioBusRspValid = ioBus.rsp.valid.simProxy()
+
+  val lsuWb = lsuPlugin.logic.sharedPip.cacheRsp.whitebox
+  val lsuWbValid = lsuWb.valid.simProxy()
+  val aguWb = lsuPlugin.logic.sharedPip.feed.agu
+  val aguWbValid = aguWb.valid.simProxy()
+  val wbWb = lsuPlugin.logic.writeback.rsp.whitebox
+  val wbWbValid = wbWb.valid.simProxy()
+  val lqFlush = lsuPlugin.logic.lqFlush.simProxy()
+  val amoLoadWb = lsuPlugin.logic.special.atomic.loadWhitebox
+  val amoLoadValid = amoLoadWb.valid.simProxy()
+  val amoStoreWb = lsuPlugin.logic.special.atomic.storeWhitebox
+  val amoStoreValid = amoStoreWb.valid.simProxy()
 
   val ioInt = privPlugin.io.int
   class IntChecker(pin : Bool, id : Int){
@@ -293,7 +316,8 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
 
   def add(tracer : FileBackend) = {
     backends += tracer
-    tracer.newCpu(hartId, "RV32IMA", "MSU", 32)
+    tracer.newCpuMemoryView(0, lsuPlugin.lqSize+1, lsuPlugin.sqSize) //+1 because AMO
+    tracer.newCpu(hartId, "RV32IMA", "MSU", 32, 0)
   }
 
   def checkRob() : Unit = {
@@ -346,6 +370,12 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
       if((mask & 1) != 0){
         val robId = commitRobId.toInt + i
         val robCtx = robArray(robId)
+        if(robCtx.loadValid){
+          backends.foreach(_.loadCommit(hartId, robCtx.loadLqId))
+        }
+        if(robCtx.storeValid){
+          backends.foreach(_.storeCommit(hartId, robCtx.storeSqId, robCtx.lsuAddress, robCtx.lsuLen, robCtx.storeData))
+        }
         if(robCtx.integerWriteValid){
           backends.foreach(_.writeRf(hartId, 0, 32, robCtx.integerWriteData))
         }
@@ -396,7 +426,56 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
     intSupervisorExternal.check()
   }
 
+  def checkLsu(): Unit ={
+    if(lsuWbValid.toBoolean){
+      val robId = lsuWb.robId.toInt
+      val ctx = robArray(robId)
+      ctx.lsuAddress = lsuWb.address.toLong
+      ctx.lsuLen = 1 << lsuWb.size.toInt
+      if(lsuWb.isLoad.toBoolean) {
+        ctx.loadValid = true
+        ctx.loadData = lsuWb.readData.toLong
+        ctx.loadLqId = lsuWb.lqId.toInt
+        backends.foreach(_.loadExecute(hartId, ctx.loadLqId, ctx.lsuAddress, ctx.lsuLen, ctx.loadData))
+      }
+    }
+    if(aguWbValid.toBoolean){
+      val robId = aguWb.robId.toInt
+      val ctx = robArray(robId)
+      if(!aguWb.load.toBoolean) {
+        ctx.storeValid = true
+        ctx.storeSqId = (aguWb.aguId.toInt) % lsuPlugin.sqSize
+        ctx.storeData = aguWb.data.toLong
+      }
+    }
+    if(wbWbValid.toBoolean){
+      val sqId = wbWb.sqId.toInt
+      backends.foreach(_.storeBroadcast(hartId, sqId))
+    }
+    if(lqFlush.toBoolean){
+      backends.foreach(_.loadFlush(hartId))
+    }
+    if(amoLoadValid.toBoolean){
+      val robId = amoLoadWb.robIdV.toInt
+      val ctx = robArray(robId)
+
+      ctx.loadValid = true
+      ctx.loadData = amoLoadWb.readData.toLong
+      ctx.loadLqId = lsuPlugin.lqSize
+      backends.foreach(_.loadExecute(hartId, ctx.loadLqId, ctx.lsuAddress, ctx.lsuLen, ctx.loadData))
+    }
+    if(amoStoreValid.toBoolean){
+      val robId = amoStoreWb.robIdV.toInt
+      val ctx = robArray(robId)
+
+      ctx.storeValid = true
+      ctx.storeData = amoStoreWb.storeData.toLong
+      println("asd")
+    }
+  }
+
   nax.clockDomain.onSamplings{
+    checkLsu()
     checkCommits()
     checkTrap()
     checkIoBus()
@@ -414,7 +493,8 @@ class TraceIo (var write: Boolean,
   def serialized() = f"${write.toInt} $address%016x $data%016x $mask%02x $size ${error.toInt}"
 }
 trait TraceBackend{
-  def newCpu(hartId : Int, isa : String, priv : String, physWidth : Int) : Unit
+  def newCpuMemoryView(viewId : Int, readIds : Long, writeIds : Long)
+  def newCpu(hartId : Int, isa : String, priv : String, physWidth : Int, memoryViewId : Int) : Unit
   def loadElf(offset : Long, path : File) : Unit
   def loadBin(offset : Long, path : File) : Unit
   def setPc(hartId : Int, pc : Long): Unit
@@ -424,6 +504,12 @@ trait TraceBackend{
   def trap(hartId: Int, interrupt : Boolean, code : Int)
   def ioAccess(hartId: Int, access : TraceIo) : Unit
   def setInterrupt(hartId : Int, intId : Int, value : Boolean) : Unit
+
+  def loadExecute(hartId: Int, id : Long, addr : Long, len : Long, data : Long) : Unit
+  def loadCommit(hartId: Int, id : Long) : Unit
+  def loadFlush(hartId: Int) : Unit
+  def storeCommit(hartId: Int, id : Long, addr : Long, len : Long, data : Long) : Unit
+  def storeBroadcast(hartId: Int, id : Long) : Unit
 
   def flush() : Unit
   def close() : Unit
@@ -467,9 +553,31 @@ class FileBackend(f : File) extends TraceBackend{
     bf.write(f"rv set pc $hartId $pc%016x\n")
   }
 
-  override def newCpu(hartId: Int, isa : String, priv : String, physWidth : Int) = {
-    bf.write(f"rv new $hartId $isa $priv $physWidth\n")
+  override def newCpuMemoryView(memoryViewId : Int, readIds : Long, writeIds : Long) = {
+    bf.write(f"memview new $memoryViewId $readIds $writeIds\n")
   }
+
+  override def newCpu(hartId: Int, isa : String, priv : String, physWidth : Int, memoryViewId : Int) = {
+    bf.write(f"rv new $hartId $isa $priv $physWidth $memoryViewId\n")
+  }
+
+  override def loadExecute(hartId: Int, id : Long, addr : Long, len : Long, data : Long) : Unit = {
+    bf.write(f"rv load exe $hartId $id $len $addr%016x $data%016x\n")
+  }
+  override def loadCommit(hartId: Int, id : Long) : Unit = {
+    bf.write(f"rv load com $hartId $id\n")
+  }
+  override def loadFlush(hartId: Int) : Unit = {
+    bf.write(f"rv load flu $hartId\n")
+  }
+  override def storeCommit(hartId: Int, id : Long, addr : Long, len : Long, data : Long) : Unit = {
+    bf.write(f"rv store com $hartId $id $len $addr%016x $data%016x\n")
+  }
+  override def storeBroadcast(hartId: Int, id : Long) : Unit = {
+    bf.write(f"rv store bro $hartId $id\n")
+  }
+
+
 
   override def flush() = bf.flush()
   override def close() = bf.close()
@@ -514,38 +622,37 @@ object NaxRiscvTilelinkSim extends App{
       memAgent.mem.randOffset = 0x80000000l
       val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
 
-//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/machine/build/rv32ima/machine.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/supervisor/build/rv32ima/supervisor.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/mmu_sv32/build/rv32ima/mmu_sv32.elf"))
-//
-//      elf.load(memAgent.mem, -0xffffffff80000000l)
-//      tracer.loadElf(0, elf.f)
-//      tracer.setPc(0, 0x80000000)
-//      val passSymbol = elf.getSymbolAddress("pass")
-//      val failSymbol = elf.getSymbolAddress("fail")
-//      naxProbe.commitsCallbacks += { (hartId, pc) =>
-//        if(pc == passSymbol) delayed(1)(simSuccess())
-//        if(pc == failSymbol) delayed(1)(simFailure())
-//      }
 
-      memAgent.mem.loadBin(0x00000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-      memAgent.mem.loadBin(0x00F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
-      memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
-      memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
-
-
-      tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
-      tracer.loadBin(0x80F80000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb"))
-      tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
-      tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
+      elf.load(memAgent.mem, -0xffffffff80000000l)
+      tracer.loadElf(0, elf.f)
       tracer.setPc(0, 0x80000000)
+      val passSymbol = elf.getSymbolAddress("pass")
+      val failSymbol = elf.getSymbolAddress("fail")
+      naxProbe.commitsCallbacks += { (hartId, pc) =>
+        if(pc == passSymbol) delayed(1)(simSuccess())
+        if(pc == failSymbol) delayed(1)(simFailure())
+      }
 
-          cd.waitSampling(2000000)
-          simSuccess()
+//      memAgent.mem.loadBin(0x00000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
+//      memAgent.mem.loadBin(0x00F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
+//      memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
+//      memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
+//
+//      tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
+//      tracer.loadBin(0x80F80000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb"))
+//      tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
+//      tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
+//      tracer.setPc(0, 0x80000000)
+
+      cd.waitSampling(2000000)
+      simSuccess()
     }
   }
 

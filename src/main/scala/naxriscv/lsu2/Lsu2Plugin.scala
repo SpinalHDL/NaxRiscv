@@ -795,6 +795,8 @@ class Lsu2Plugin(var lqSize: Int,
         SQ_ROB_FULL := lqSqFeed(SQ_ROB_FULL)
 
         val agu = aguPorts.head.port
+        Verilator.public(agu.valid, agu.load, agu.data, agu.robId, agu.aguId)
+
         val takeAgu = (TAKE_LQ ? (agu.robIdFull - LQ_ROB_FULL).msb | (agu.robIdFull - SQ_ROB_FULL).msb)
         takeAgu.setWhen(!lqSqFeed.isValid)
         takeAgu.clearWhen(!agu.valid)
@@ -1137,6 +1139,17 @@ class Lsu2Plugin(var lqSize: Int,
           i -> B((LSLEN - 1 downto off) -> (rspShifted(off-1) && !rspUnsigned), (off-1 downto 0) -> rspShifted(off-1 downto 0))
         })
 
+        val whitebox = new Area{
+          def patch[T <: Data](that : T) : T = Verilator.public(CombInit(that))
+          val valid = patch(isFireing)
+          val isLoad = patch(stage(IS_LOAD))
+          val address = patch(stage(ADDRESS_TRANSLATED))
+          val readData = patch(rspFormated)
+          val robId = patch(stage(ROB.ID))
+          val lqId = patch(stage(LQ_ID))
+          val size = patch(stage(SIZE))
+        }
+
         val doIt = loadWriteRfOnPrivilegeFail match {
           case false => isValid && IS_LOAD && WRITE_RD && (!NEED_TRANSLATION || tpk.ALLOW_READ && !tpk.PAGE_FAULT && !tpk.ACCESS_FAULT)
           case true  => isValid && IS_LOAD && WRITE_RD
@@ -1435,6 +1448,11 @@ class Lsu2Plugin(var lqSize: Int,
         sq.ptr.onFree.valid := False
         sq.ptr.onFree.payload := ptr.freeReal
 
+        val whitebox = new Area{
+          val valid = Verilator.public(False)
+          val sqId = Verilator.public(ptr.freeReal)
+        }
+
         prefetch.predictor.io.learn.valid := False
         prefetch.predictor.io.learn.allocate := False
         prefetch.predictor.io.learn.physical := delayed.last.address
@@ -1448,6 +1466,7 @@ class Lsu2Plugin(var lqSize: Int,
             prefetch.predictor.io.learn.allocate := True
           } otherwise {
             sq.ptr.onFree.valid := True
+            whitebox.valid := True
           }
         }
 
@@ -1688,6 +1707,12 @@ class Lsu2Plugin(var lqSize: Int,
           comp.rfWrite := sq.mem.writeRd
         }
 
+        val loadWhitebox = new Area{
+          val valid = Verilator.public(False)
+          val robIdV = Verilator.public(robId)
+          val readData = Verilator.public(sharedPip.cacheRsp.rspFormated(0, XLEN bits))
+        }
+
         LOAD_RSP whenIsActive{
           val rsp = setup.cacheLoad.rsp
           sharedPip.cacheRsp.specialOverride := True
@@ -1704,6 +1729,7 @@ class Lsu2Plugin(var lqSize: Int,
             } elsewhen (rsp.fault) {
               goto(TRAP)
             } otherwise {
+              loadWhitebox.valid := True
               goto(ALU)
             }
           }
@@ -1714,8 +1740,15 @@ class Lsu2Plugin(var lqSize: Int,
           goto(IDLE)
         }
 
+        val storeWhitebox = new Area{
+          val valid = Verilator.public(False)
+          val robIdV = Verilator.public(robId)
+          val storeData = Verilator.public(alu.result)
+        }
+
         ALU whenIsActive{
           result := alu.result
+          storeWhitebox.valid := True
           goto(COMPLETION)
         }
 
@@ -1766,10 +1799,10 @@ class Lsu2Plugin(var lqSize: Int,
       }
     }
 
-
+    val lqFlush = Verilator.public(False)
     when(rescheduling.valid){
       lq.regs.foreach(_.delete := True)
-      lq.ptr.free := 0
+      lq.ptr.free := 0; lqFlush := True
       lq.ptr.alloc := 0
       lq.ptr.priority := 0
       lq.tracker.clear := True
@@ -1778,8 +1811,6 @@ class Lsu2Plugin(var lqSize: Int,
       }
       sq.ptr.alloc := sq.ptr.commitNext
       special.enabled := False
-
-
     }
 
     //TODO
