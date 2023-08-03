@@ -1141,7 +1141,7 @@ class Lsu2Plugin(var lqSize: Int,
 
         val whitebox = new Area{
           def patch[T <: Data](that : T) : T = Verilator.public(CombInit(that))
-          val valid = patch(isFireing)
+          val valid = patch(isFireing && !IS_IO && (!NEED_TRANSLATION || !tpk.REDO && !tpk.PAGE_FAULT))
           val isLoad = patch(stage(IS_LOAD))
           val address = patch(stage(ADDRESS_TRANSLATED))
           val readData = patch(rspFormated)
@@ -1162,7 +1162,7 @@ class Lsu2Plugin(var lqSize: Int,
         }
         fpuWriteSize := SIZE
 
-        LOAD_WRITE_FAILURE := IS_LOAD && specialOverride && !IS_IO
+        LOAD_WRITE_FAILURE := IS_LOAD && specialOverride && !IS_IO // IS_IO ??
 
 
         MISS_ALIGNED := (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
@@ -1466,7 +1466,9 @@ class Lsu2Plugin(var lqSize: Int,
             prefetch.predictor.io.learn.allocate := True
           } otherwise {
             sq.ptr.onFree.valid := True
-            whitebox.valid := True
+            when(!delayed.last.io) {
+              whitebox.valid := True
+            }
           }
         }
 
@@ -1744,11 +1746,11 @@ class Lsu2Plugin(var lqSize: Int,
           val valid = Verilator.public(False)
           val robIdV = Verilator.public(robId)
           val storeData = Verilator.public(alu.result)
+          val skipIt = Verilator.public(!reservationHit && storeSc)
         }
 
         ALU whenIsActive{
           result := alu.result
-          storeWhitebox.valid := True
           goto(COMPLETION)
         }
 
@@ -1757,6 +1759,7 @@ class Lsu2Plugin(var lqSize: Int,
           comp.rfWrite := storeSc && sq.mem.writeRd
         }
         COMPLETION whenIsActive{
+          storeWhitebox.valid := True
           setup.specialCompletion.valid := True
           comp.wakeRf := False
           comp.rfWrite := False

@@ -96,6 +96,7 @@ case class DataStoreRsp(addressWidth : Int, refillCount : Int) extends Bundle {
   val flush = Bool()
   val prefetch = Bool()
   val address = UInt(addressWidth bits)
+  val io = Bool()
 }
 
 
@@ -1792,6 +1793,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
       io.store.rsp.flush := FLUSH
       io.store.rsp.prefetch := PREFETCH
       io.store.rsp.address := ADDRESS_POST_TRANSLATION
+      io.store.rsp.io := IO
     }
     pipeline.build()
   }
