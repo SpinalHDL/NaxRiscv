@@ -320,7 +320,7 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
 
   def add(tracer : TraceBackend) = {
     backends += tracer
-    tracer.newCpuMemoryView(0, lsuPlugin.lqSize+1, lsuPlugin.sqSize) //+1 because AMO
+    tracer.newCpuMemoryView(hartId, lsuPlugin.lqSize+1, lsuPlugin.sqSize) //+1 because AMO
     tracer.newCpu(hartId, "RV32IMA", "MSU", 32, 0)
   }
 
@@ -687,6 +687,12 @@ object NaxRiscvTilelinkSim extends App{
 //      tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
 //      tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
 //      tracer.setPc(0, 0x80000000)
+//      cd.onSamplings{
+//        if(memAgent.mem.read(0x1000) == 6){
+//          memAgent.mem.write(0x1000, 0x42)
+//          println(simTime())
+//        }
+//      }
 
       cd.waitSampling(4000000)
       simSuccess()
