@@ -67,7 +67,8 @@ object Config{
               sideChannels : Boolean = false,
               dispatchSlots : Int = 32,
               robSize : Int = 64,
-              withCoherency : Boolean = false): ArrayBuffer[Plugin] ={
+              withCoherency : Boolean = false,
+              hartId : Int = 0): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
 
     val fpu = withFloat || withDouble
@@ -309,7 +310,8 @@ object Config{
       withRdTime = withRdTime,
       withSupervisor = withSupervisor,
       withDebug = withDebug,
-      debugTriggers = debugTriggers
+      debugTriggers = debugTriggers,
+      hartId = hartId
     ))
     if(withPerfCounters) plugins += new PerformanceCounterPlugin(
       additionalCounterCount = 4,

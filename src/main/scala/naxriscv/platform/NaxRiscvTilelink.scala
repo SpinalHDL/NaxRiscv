@@ -30,7 +30,7 @@ import scala.collection.mutable.ArrayBuffer
 
 
 
-class NaxRiscvTilelink extends Area with RiscvHart{
+class NaxRiscvTilelink(hartId : Int) extends Area with RiscvHart{
   val ibus = Node.master()
   val dbus = Node.master()
   val pbus = Node.master()
@@ -60,7 +60,8 @@ class NaxRiscvTilelink extends Area with RiscvHart{
       withRdTime = false,
       aluCount    = 1,
       decodeCount = 1,
-      ioRange = a => a(31 downto 28) === 0x1
+      ioRange = a => a(31 downto 28) === 0x1,
+      hartId = hartId
     )
 
     // Add a plugin to Nax which will handle the negotiation of the tilelink parameters
@@ -107,11 +108,10 @@ class NaxRiscvTilelink extends Area with RiscvHart{
 
 class NaxRiscvTilelinkSoCDemo extends Component {
 
-  val nax = new NaxRiscvTilelink()
+  val naxes = for(hartId <- 0 to 1) yield new NaxRiscvTilelink(hartId)
 
   val filter = new fabric.TransferFilter()
-  filter.up << nax.buses
-
+  for(nax <- naxes) filter.up << nax.buses
 
 
   val nonCoherent = Node()
@@ -131,7 +131,9 @@ class NaxRiscvTilelinkSoCDemo extends Component {
 
     val clint = new TilelinkFabricClint()
     clint.node at 0x10000 of bus
-    clint.bindHart(nax)
+
+    for(nax <- naxes) clint.bindHart(nax)
+
 
     val emulated = new tilelink.fabric.SlaveBus(
       M2sSupport(
@@ -283,6 +285,8 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
   val amoStoreWb = lsuPlugin.logic.special.atomic.storeWhitebox
   val amoStoreValid = amoStoreWb.valid.simProxy()
 
+  var cycleSinceLastCommit = 0
+
   val ioInt = privPlugin.io.int
   class IntChecker(pin : Bool, id : Int){
     val proxy = pin.simProxy()
@@ -366,8 +370,13 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
 
   def checkCommits(): Unit ={
     var mask = commitMask.toInt
+    cycleSinceLastCommit += 1
+    if(cycleSinceLastCommit == 1000){
+      simFailure("Nax didn't commited anything since too long")
+    }
     for(i <- 0 until commitPlugin.commitCount){
       if((mask & 1) != 0){
+        cycleSinceLastCommit = 0
         val robId = commitRobId.toInt + i
         val robCtx = robArray(robId)
         if(robCtx.loadValid){
@@ -622,7 +631,7 @@ object NaxRiscvTilelinkSim extends App{
       fork {
         disableSimWave()
         //      sleep(1939590-100000)
-//        enableSimWave()
+        enableSimWave()
       }
 
 
@@ -634,41 +643,50 @@ object NaxRiscvTilelinkSim extends App{
       val tracer = new FileBackend(new File("trace.txt"))
       tracer.spinalSimFlusher(10*10000)
 
-      val naxProbe = new NaxSimProbe(dut.nax.thread.core, 0)
-      naxProbe.add(tracer)
+      val naxes = for(nax <- dut.naxes) yield new Area{
+        val probe = new NaxSimProbe(nax.thread.core, nax.getHartId())
+        probe.add(tracer)
+      }
+
 
       val memAgent = new MemoryAgent(dut.mem.node.bus, cd, seed = 0)(null)
       memAgent.mem.randOffset = 0x80000000l
       val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
 
-////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
-////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
-////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
-////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/machine/build/rv32ima/machine.elf"))
-////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/supervisor/build/rv32ima/supervisor.elf"))
-////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/mmu_sv32/build/rv32ima/mmu_sv32.elf"))
+      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coherency/build/rv32ima/coherency.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/machine/build/rv32ima/machine.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/supervisor/build/rv32ima/supervisor.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/mmu_sv32/build/rv32ima/mmu_sv32.elf"))
+
+      elf.load(memAgent.mem, -0xffffffff80000000l)
+      tracer.loadElf(0, elf.f)
+
+      for(nax <- dut.naxes){
+        tracer.setPc(nax.getHartId(), 0x80000000)
+      }
+      val passSymbol = elf.getSymbolAddress("pass")
+      val failSymbol = elf.getSymbolAddress("fail")
+      naxes.foreach { nax =>
+        nax.probe.commitsCallbacks += { (hartId, pc) =>
+          if (pc == passSymbol) delayed(1)(simSuccess())
+          if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
+        }
+      }
+
+//      memAgent.mem.loadBin(0x00000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
+//      memAgent.mem.loadBin(0x00F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
+//      memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
+//      memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
 //
-//      elf.load(memAgent.mem, -0xffffffff80000000l)
-//      tracer.loadElf(0, elf.f)
+//      tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
+//      tracer.loadBin(0x80F80000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb"))
+//      tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
+//      tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
 //      tracer.setPc(0, 0x80000000)
-//      val passSymbol = elf.getSymbolAddress("pass")
-//      val failSymbol = elf.getSymbolAddress("fail")
-//      naxProbe.commitsCallbacks += { (hartId, pc) =>
-//        if(pc == passSymbol) delayed(1)(simSuccess())
-//        if(pc == failSymbol) delayed(1)(simFailure())
-//      }
-
-      memAgent.mem.loadBin(0x00000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-      memAgent.mem.loadBin(0x00F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
-      memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
-      memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
-
-      tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
-      tracer.loadBin(0x80F80000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb"))
-      tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
-      tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
-      tracer.setPc(0, 0x80000000)
 
       cd.waitSampling(4000000)
       simSuccess()

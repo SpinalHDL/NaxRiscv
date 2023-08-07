@@ -248,6 +248,7 @@ case class DataMemWriteCmd(p : DataMemBusParameter) extends Bundle {
     val dirty = Bool() //Meaning with data
     val fromUnique = Bool()
     val toShared = Bool()
+    val probeId = UInt(p.probeIdWidth bits)
   }
 }
 
@@ -359,18 +360,15 @@ case class DataMemProbeRsp(p : DataMemBusParameter, fromProbe : Boolean) extends
 case class DataMemProbeBus(p : DataMemBusParameter) extends Bundle with IMasterSlave {
   val cmd = Flow(DataMemProbeCmd(p))
   val rsp = Flow(DataMemProbeRsp(p, true))
-  val rspWb = Stream(DataMemProbeRsp(p, false)) //Used by the writeback slots to emit a probe ack after a matching release
-
   override def asMaster() = {
     master(cmd)
-    slave(rsp, rspWb)
+    slave(rsp)
   }
 
 
   def <<(m : DataMemProbeBus): Unit ={
     m.cmd >> this.cmd
     m.rsp << this.rsp
-    if(p.withCoherency) m.rspWb << this.rspWb
   }
 }
 
@@ -578,7 +576,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
         }
         rspFifo.io.push << rspStream
 
-        val arbiter = StreamArbiterFactory().lambdaLock[ChannelC](_.isLast()).roundRobin.build(bus.c.payloadType, 3)
+        val arbiter = StreamArbiterFactory().lambdaLock[ChannelC](_.isLast()).roundRobin.build(bus.c.payloadType, 2)
         val i0 = arbiter.io.inputs(0)
         i0.arbitrationFrom(write.cmd)
         i0.opcode := write.cmd.coherent.release mux(
@@ -594,7 +592,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
           False,
           write.cmd.coherent.toShared
         )
-        i0.source := write.cmd.id
+        i0.source := write.cmd.coherent.probeId
         i0.address := write.cmd.address
         i0.size := log2Up(p.lineSize)
         i0.data := write.cmd.data
@@ -603,10 +601,6 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
         val i1 = arbiter.io.inputs(1)
         i1.arbitrationFrom(rspFifo.io.pop)
         rspFifo.io.pop.assignTilelinkC(i1)
-
-        val i2 = arbiter.io.inputs(2)
-        i2.arbitrationFrom(probe.rspWb)
-        rspFifo.io.pop.assignTilelinkC(i2)
 
         val beat = bus.c.beatCounter()
         bus.c << arbiter.io.output
@@ -778,8 +772,8 @@ class DataCache(val p : DataCacheParameters) extends Component {
   val GENERATION, GENERATION_OK = Stageable(Bool())
   val PREFETCH = Stageable(Bool())
   val PROBE = Stageable(Bool())
-  val PROBE_UNIQUE = Stageable(Bool())
-  val PROBE_SHARED = Stageable(Bool())
+  val ALLOW_UNIQUE = Stageable(Bool())
+  val ALLOW_SHARED = Stageable(Bool())
   val PROBE_ID = Stageable(UInt(probeIdWidth bits))
   val FLUSH = Stageable(Bool())
   val FLUSH_FREE = Stageable(Bool())
@@ -1054,20 +1048,16 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val victimBufferReady = Reg(Bool())
       val readRspDone = Reg(Bool())
       val writeCmdDone = Reg(Bool())
-      val writeRspDone = Reg(Bool())
 
       val coherency = withCoherency generate new Area{
         val release = Reg(Bool())
         val dirty = Reg(Bool())
         val fromUnique = Reg(Bool())
         val toShared = Reg(Bool())
-        val probe = new Area{
-          val probeAckValid = Reg(Bool()) init(False)
-          val id = Reg(UInt(probeIdWidth bits))
-        }
+        val probeId = Reg(UInt(probeIdWidth bits))
       }
 
-      val free = !valid && withCoherency.mux(!coherency.probe.probeAckValid, True)
+      val free = !valid
 
       refill.read.writebackHazards(id) := valid && address(refillRange) === refill.read.cmdAddress(refillRange)
       when(fire){ refill.slots.foreach(_.writebackHazards(id) := False) }
@@ -1089,6 +1079,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val fromUnique = withCoherency generate Bool()
       val toShared = withCoherency generate Bool()
       val release = withCoherency generate Bool()
+      val probeId = withCoherency generate UInt(probeIdWidth bits)
     }).setIdle()
 
     for (slot <- slots) when(push.valid) {
@@ -1099,13 +1090,12 @@ class DataCache(val p : DataCacheParameters) extends Component {
 
         slot.writeCmdDone := False
         slot.priority.setAll()
-        slot.writeRspDone := False
         if(withCoherency) {
-          slot.coherency.probe.probeAckValid := False
           slot.coherency.release := push.release
           slot.coherency.dirty := push.dirty
           slot.coherency.fromUnique := push.fromUnique
           slot.coherency.toShared := push.toShared
+          slot.coherency.probeId := push.probeId
           slot.readCmdDone := !push.dirty
           slot.readRspDone := !push.dirty
           slot.victimBufferReady := !push.dirty
@@ -1202,18 +1192,20 @@ class DataCache(val p : DataCacheParameters) extends Component {
           val dirty = Bool()
           val fromUnique = Bool()
           val toShared   = Bool()
+          val probeId = UInt(p.probeIdWidth bits)
         }
       })
       bufferRead.valid := arbiter.hit
       bufferRead.id := arbiter.sel
       bufferRead.last := last
       bufferRead.address := slots.map(_.address).read(arbiter.sel)
-      if(withCoherency) {
+      val c = withCoherency generate new Area {
         last setWhen(!bufferRead.coherency.dirty)
         bufferRead.coherency.release := slots.map(_.coherency.release).read(arbiter.sel)
-        bufferRead.coherency.dirty := slots.map(!_.coherency.dirty).read(arbiter.sel)
+        bufferRead.coherency.dirty := slots.map(_.coherency.dirty).read(arbiter.sel)
         bufferRead.coherency.fromUnique := slots.map(_.coherency.fromUnique).read(arbiter.sel)
         bufferRead.coherency.toShared := slots.map(_.coherency.toShared).read(arbiter.sel)
+        bufferRead.coherency.probeId := slots.map(_.coherency.probeId).read(arbiter.sel)
       }
       wordIndex := wordIndex + U(bufferRead.fire && withCoherency.mux(bufferRead.coherency.dirty, True))
       when(bufferRead.fire && last){
@@ -1233,24 +1225,17 @@ class DataCache(val p : DataCacheParameters) extends Component {
         io.mem.write.cmd.coherent.dirty := cmd.coherency.dirty
         io.mem.write.cmd.coherent.fromUnique := cmd.coherency.fromUnique
         io.mem.write.cmd.coherent.toShared := cmd.coherency.toShared
+        io.mem.write.cmd.coherent.probeId := cmd.coherency.probeId
+        when(cmd.fire && cmd.last && !cmd.coherency.release){
+          slots.onSel(cmd.id) { s =>
+            s.fire := True
+          }
+        }
       }
 
       when(io.mem.write.rsp.valid){
         whenIndexed(slots, io.mem.write.rsp.id) { s =>
           s.fire := True
-        }
-      }
-
-      val probeRsp = withCoherency generate new Area{
-        val requests = slots.map(s => !s.valid && s.coherency.probe.probeAckValid)
-        val oh = OHMasking.first(requests)
-        io.mem.probe.rspWb.valid := requests.orR
-        io.mem.probe.rspWb.address := OhMux.or(oh, slots.map(_.address(refillRange) << refillRange.low))
-        io.mem.probe.rspWb.id := OhMux.or(oh, slots.map(_.coherency.probe.id))
-        io.mem.probe.rspWb.toShared := OhMux.or(oh, slots.map(_.coherency.toShared))
-        io.mem.probe.rspWb.fromUnique := OhMux.or(oh, slots.map(_.coherency.fromUnique))
-        when(io.mem.probe.rspWb.ready){
-          slots.onMask(oh)(_.coherency.probe.probeAckValid := False)
         }
       }
     }
@@ -1428,7 +1413,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
         refill.push.valid := True
         refill.push.address := ADDRESS_POST_TRANSLATION
         refill.push.way := refillWay
-        refill.push.victim := writeback.free.andMask(refillWayNeedWriteback)
+        refill.push.victim := writeback.free.andMask(refillWayNeedWriteback && STATUS(refillWay).dirty)
         refill.push.unique := False
         refill.push.data := True
 
@@ -1520,8 +1505,8 @@ class DataCache(val p : DataCacheParameters) extends Component {
       io.store.cmd.ready := True
       if(withCoherency) {
         PROBE := io.mem.probe.cmd.valid
-        PROBE_SHARED := io.mem.probe.cmd.allowShared
-        PROBE_UNIQUE := io.mem.probe.cmd.allowUnique
+        ALLOW_SHARED := io.mem.probe.cmd.allowShared
+        ALLOW_UNIQUE := io.mem.probe.cmd.allowUnique
         PROBE_ID := io.mem.probe.cmd.id
         when(io.mem.probe.cmd.valid){
           io.store.cmd.ready := False
@@ -1660,6 +1645,12 @@ class DataCache(val p : DataCacheParameters) extends Component {
           writeback.push.fromUnique := WAYS_TAGS(refillWay).unique
           writeback.push.toShared := False
           writeback.push.release := True
+          when(startFlush){
+            writeback.push.toShared := True
+            writeback.push.dirty := STATUS(needFlushSel).dirty
+            writeback.push.fromUnique := WAYS_TAGS(needFlushSel).unique
+            status.write.data.onSel(needFlushSel)(_.dirty := False)
+          }
         }
       }
 
@@ -1667,7 +1658,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
         refill.push.valid := True
         refill.push.address := ADDRESS_POST_TRANSLATION
         refill.push.way := refillWay
-        refill.push.victim := writeback.free.andMask(replacedWayNeedWriteback && askRefill)
+        refill.push.victim := writeback.free.andMask(replacedWayNeedWriteback && askRefill && STATUS(refillWay).dirty)
         refill.push.unique := True
         refill.push.data := askRefill
 
@@ -1705,10 +1696,13 @@ class DataCache(val p : DataCacheParameters) extends Component {
 
       val snoop = withCoherency generate new Area {
         val askSomething = PROBE && WAYS_HIT
-        val askWriteback = !wasClean && !PROBE_UNIQUE
-        val askTagUpdate = (!PROBE_SHARED || !PROBE_UNIQUE && hitUnique)
-        val askRefillKill = !PROBE_SHARED && !PROBE_UNIQUE
-        val success = !waysHitHazard && !(askSomething && askTagUpdate && reservation.win) && !(askSomething && askWriteback && (reservation.win || writeback.full))
+        val askWriteback = !wasClean && !ALLOW_UNIQUE
+        val askTagUpdate = (!ALLOW_SHARED || !ALLOW_UNIQUE && hitUnique)
+        val askRefillKill = !ALLOW_SHARED && !ALLOW_UNIQUE //TODO could be less pessimistic
+        val canUpdateTag = !(askSomething && askTagUpdate && !reservation.win)
+        val canWriteback =  !(askSomething && askWriteback && (!reservation.win || writeback.full))
+        val alreadyInWb = writeback.slots.map(slot => slot.valid && slot.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)).orR
+        val success = !waysHitHazard && canUpdateTag && canWriteback && !alreadyInWb
 
         //Disable side-effects of the regular store pipeline
         when(PROBE){
@@ -1725,11 +1719,11 @@ class DataCache(val p : DataCacheParameters) extends Component {
             when(askWriteback || askTagUpdate) {
               reservation.takeIt()
 
-              waysWrite.mask(refillWay) := True
+              waysWrite.mask(wayId) := True
               waysWrite.address := ADDRESS_POST_TRANSLATION(lineRange)
-              waysWrite.tag.loaded := PROBE_SHARED || PROBE_UNIQUE
+              waysWrite.tag.loaded := ALLOW_SHARED || ALLOW_UNIQUE
               waysWrite.tag.fault := hitFault
-              waysWrite.tag.unique := hitUnique && PROBE_UNIQUE
+              waysWrite.tag.unique := hitUnique && ALLOW_UNIQUE
               waysWrite.tag.address := ADDRESS_POST_TRANSLATION(tagRange)
             }
 
@@ -1737,10 +1731,11 @@ class DataCache(val p : DataCacheParameters) extends Component {
               writeback.push.valid := True
               writeback.push.address := ADDRESS_POST_TRANSLATION
               writeback.push.way := wayId
-              writeback.push.dirty := STATUS(refillWay).dirty
-              writeback.push.fromUnique := WAYS_TAGS(refillWay).unique
-              writeback.push.toShared := PROBE_SHARED
+              writeback.push.dirty := (STATUS.map(_.dirty).asBits() & WAYS_HITS).orR
+              writeback.push.fromUnique := (WAYS_TAGS.map(_.unique).asBits() & WAYS_HITS).orR
+              writeback.push.toShared := ALLOW_SHARED
               writeback.push.release := False
+              writeback.push.probeId := PROBE_ID
 
               status.write.valid := True
               status.write.address := ADDRESS_POST_TRANSLATION(lineRange)
@@ -1757,26 +1752,16 @@ class DataCache(val p : DataCacheParameters) extends Component {
         }
 
         io.mem.probe.rsp.valid  := isValid && PROBE
-        io.mem.probe.rsp.toShared := WAYS_HIT && PROBE_SHARED && !(PROBE_UNIQUE && hitUnique)
-        io.mem.probe.rsp.toUnique := WAYS_HIT && PROBE_UNIQUE && hitUnique
+        io.mem.probe.rsp.toShared := WAYS_HIT && ALLOW_SHARED && !(ALLOW_UNIQUE && hitUnique)
+        io.mem.probe.rsp.toUnique := WAYS_HIT && ALLOW_UNIQUE && hitUnique
         io.mem.probe.rsp.fromUnique := WAYS_HIT &&  WAYS_TAGS(refillWay).unique
         io.mem.probe.rsp.fromShared := WAYS_HIT && !WAYS_TAGS(refillWay).unique
         io.mem.probe.rsp.address := ADDRESS_POST_TRANSLATION
         io.mem.probe.rsp.id := PROBE_ID
         io.mem.probe.rsp.redo   := !success
-        io.mem.probe.rsp.allowUnique := PROBE_UNIQUE
-        io.mem.probe.rsp.allowShared := PROBE_SHARED
+        io.mem.probe.rsp.allowUnique := ALLOW_UNIQUE
+        io.mem.probe.rsp.allowShared := ALLOW_SHARED
         io.mem.probe.rsp.writeback := askWriteback
-
-
-        val writebackHits = for(slot <- writeback.slots) yield new Area {
-          val hit = slot.valid && slot.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange) && !slot.fire
-          when(io.mem.probe.rsp.valid && !io.mem.probe.rsp.redo && hit){
-            slot.coherency.probe.probeAckValid := True
-            slot.coherency.probe.id := PROBE_ID
-            io.mem.probe.rsp.writeback := True
-          }
-        }
       }
     }
 
