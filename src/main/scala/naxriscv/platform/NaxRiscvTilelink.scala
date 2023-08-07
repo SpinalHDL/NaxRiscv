@@ -56,7 +56,7 @@ class NaxRiscvTilelink extends Area with RiscvHart{
 
   val thread = Fiber build new Area{
     val l = Config.plugins(
-      withCoherency = false,
+      withCoherency = true,
       withRdTime = false,
       aluCount    = 1,
       decodeCount = 1,
@@ -314,7 +314,7 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
   val robArray = Array.fill(robPlugin.robSize)(new RobCtx)
 
 
-  def add(tracer : FileBackend) = {
+  def add(tracer : TraceBackend) = {
     backends += tracer
     tracer.newCpuMemoryView(0, lsuPlugin.lqSize+1, lsuPlugin.sqSize) //+1 because AMO
     tracer.newCpu(hartId, "RV32IMA", "MSU", 32, 0)
@@ -515,6 +515,27 @@ trait TraceBackend{
   def close() : Unit
 }
 
+class DummyBackend() extends TraceBackend{
+  override def newCpuMemoryView(viewId: Int, readIds: Long, writeIds: Long) = {}
+  override def newCpu(hartId: Int, isa: String, priv: String, physWidth: Int, memoryViewId: Int) = {}
+  override def loadElf(offset: Long, path: File) = {}
+  override def loadBin(offset: Long, path: File) = {}
+  override def setPc(hartId: Int, pc: Long) = {}
+  override def writeRf(hardId: Int, rfKind: Int, address: Int, data: Long) = {}
+  override def readRf(hardId: Int, rfKind: Int, address: Int, data: Long) = {}
+  override def commit(hartId: Int, pc: Long) = {}
+  override def trap(hartId: Int, interrupt: Boolean, code: Int) = {}
+  override def ioAccess(hartId: Int, access: TraceIo) = {}
+  override def setInterrupt(hartId: Int, intId: Int, value: Boolean) = {}
+  override def loadExecute(hartId: Int, id: Long, addr: Long, len: Long, data: Long) = {}
+  override def loadCommit(hartId: Int, id: Long) = {}
+  override def loadFlush(hartId: Int) = {}
+  override def storeCommit(hartId: Int, id: Long, addr: Long, len: Long, data: Long) = {}
+  override def storeBroadcast(hartId: Int, id: Long) = {}
+  override def flush() = ???
+  override def close() = ???
+}
+
 class FileBackend(f : File) extends TraceBackend{
   val bf = new BufferedWriter(new FileWriter(f))
 
@@ -608,15 +629,13 @@ object NaxRiscvTilelinkSim extends App{
 
       val cd = dut.clockDomain
       cd.forkStimulus(10)
-//      cd.forkSimSpeedPrinter(4.0)
+      cd.forkSimSpeedPrinter(4.0)
 
       val tracer = new FileBackend(new File("trace.txt"))
       tracer.spinalSimFlusher(10*10000)
 
       val naxProbe = new NaxSimProbe(dut.nax.thread.core, 0)
       naxProbe.add(tracer)
-
-
 
       val memAgent = new MemoryAgent(dut.mem.node.bus, cd, seed = 0)(null)
       memAgent.mem.randOffset = 0x80000000l
@@ -651,7 +670,7 @@ object NaxRiscvTilelinkSim extends App{
       tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
       tracer.setPc(0, 0x80000000)
 
-      cd.waitSampling(2000000)
+      cd.waitSampling(4000000)
       simSuccess()
     }
   }
