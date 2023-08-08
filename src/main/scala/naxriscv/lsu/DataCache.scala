@@ -173,6 +173,7 @@ case class DataMemReadRsp(p : DataMemBusParameter) extends Bundle {
   val error = Bool()
   val unique = p.withCoherency generate Bool()
   val ackId =  p.withCoherency generate UInt(p.ackIdWidth bits)
+  val withData = p.withCoherency generate Bool()
 }
 
 case class DataMemReadAck(p : DataMemBusParameter) extends Bundle {
@@ -620,6 +621,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
         read.rsp.id     := bus.d.source.resized
         read.rsp.unique := bus.d.param === Param.Cap.toT
         read.rsp.ackId  := bus.d.sink
+        read.rsp.withData := bus.d.opcode === Opcode.D.GRANT_DATA
 
         write.rsp.valid := bus.d.valid && !sel
         write.rsp.error := bus.d.denied || bus.d.corrupt
@@ -894,7 +896,6 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val priority = Reg(Bits(refillCount-1 bits)) //TODO Check it
       val unique = withCoherency generate Reg(Bool())
       val data = withCoherency generate Reg(Bool())
-      val kill = withCoherency generate Reg(Bool())
       val ackId = withCoherency generate Reg(UInt(ackIdWidth bits))
       val ackValid = withCoherency generate RegInit(False)
 
@@ -940,7 +941,6 @@ class DataCache(val p : DataCacheParameters) extends Component {
         if(withCoherency) {
           slot.unique := push.unique
           slot.data := push.data
-          slot.kill := False
         }
       } otherwise {
         val freeFiltred = free.asBools.patch(slot.id, Nil, 1)
@@ -968,12 +968,10 @@ class DataCache(val p : DataCacheParameters) extends Component {
         slot.cmdSent setWhen(io.mem.read.cmd.ready && !writebackHazard)
       }
 
-      val rspKill = withCoherency.mux(slots.map(_.kill).read(io.mem.read.rsp.id), False)
-      val rspWithData = withCoherency.mux(slots.map(_.data).read(io.mem.read.rsp.id), True)
       val rspAddress = slots.map(_.address).read(io.mem.read.rsp.id)
       val way = slots.map(_.way).read(io.mem.read.rsp.id)
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
-
+      val rspWithData = p.withCoherency.mux(io.mem.read.rsp.withData, True)
 
       val bankWriteNotif = B(0, bankCount bits)
       for ((bank, bankId) <- banks.zipWithIndex) {
@@ -1010,7 +1008,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
           fire := True
           io.refillCompletions(io.mem.read.rsp.id) := True
           reservation.takeIt()
-          waysWrite.mask(way) := !rspKill
+          waysWrite.mask(way) := True
           waysWrite.address := rspAddress(lineRange)
           waysWrite.tag.fault := faulty
           waysWrite.tag.address := rspAddress(tagRange)
@@ -1716,7 +1714,6 @@ class DataCache(val p : DataCacheParameters) extends Component {
         val askSomething = PROBE && WAYS_HIT
         val askWriteback = !wasClean && !ALLOW_UNIQUE
         val askTagUpdate = (!ALLOW_SHARED || !ALLOW_UNIQUE && hitUnique)
-        val askRefillKill = !ALLOW_SHARED && !ALLOW_UNIQUE //TODO could be less pessimistic
         val canUpdateTag = !(askSomething && askTagUpdate && !reservation.win)
         val canWriteback =  !(askSomething && askWriteback && (!reservation.win || writeback.full))
         val alreadyInWb = writeback.slots.map(slot => slot.valid && slot.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)).orR
@@ -1724,6 +1721,8 @@ class DataCache(val p : DataCacheParameters) extends Component {
         val locked = io.lock.valid && io.lock.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange) && isUnique
         val success = !waysHitHazard && canUpdateTag && canWriteback && !alreadyInWb && !locked
 
+        val didTagUpdate = RegNext(False) init(False)
+        io.writebackBusy setWhen(didTagUpdate)
 
         //Disable side-effects of the regular store pipeline
         when(PROBE){
@@ -1746,6 +1745,8 @@ class DataCache(val p : DataCacheParameters) extends Component {
               waysWrite.tag.fault := hitFault
               waysWrite.tag.unique := hitUnique && ALLOW_UNIQUE
               waysWrite.tag.address := ADDRESS_POST_TRANSLATION(tagRange)
+
+              didTagUpdate := True
             }
 
             when(askWriteback) {
@@ -1762,13 +1763,6 @@ class DataCache(val p : DataCacheParameters) extends Component {
               status.write.address := ADDRESS_POST_TRANSLATION(lineRange)
               status.write.data := STATUS
               whenMasked(status.write.data, WAYS_HITS)(_.dirty := False)
-            }
-
-            //TODODODODODO REMOVE THIS !!!! and all the kill related stuff, ensure that mem read rsp with data are managed, even if !slot.data
-            when(askRefillKill){
-              for((slot, hit) <- (refill.slots, REFILL_HITS.asBools).zipped){
-                slot.kill setWhen(hit && !slot.data) //Refill slot which are doing a shared -> unique transition need to be killed
-              }
             }
           }
         }

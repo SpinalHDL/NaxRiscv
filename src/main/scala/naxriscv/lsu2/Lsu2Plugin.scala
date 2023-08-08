@@ -457,6 +457,19 @@ class Lsu2Plugin(var lqSize: Int,
       val reservation = new Area{
         val valid = Reg(Bool()) init(False)
         val address = Reg(UInt(PHYSICAL_WIDTH bits))
+
+        def spawn(value : UInt): Unit ={
+          valid := True
+          address := value
+          counter := 0
+        }
+
+        val counter = Reg(UInt(7 bits)) init(0) //Give the reservation a 64 cycle life
+        when(counter.msb){
+          valid := False
+        } otherwise {
+          counter := counter + 1
+        }
       }
 
       val hazardPrediction = withHazardPrediction generate new Area{
@@ -1308,8 +1321,7 @@ class Lsu2Plugin(var lqSize: Int,
                     wakeRf.valid := True
                   }
                   when(LR){
-                    lq.reservation.valid   := True
-                    lq.reservation.address := tpk.TRANSLATED
+                    lq.reservation.spawn(tpk.TRANSLATED)
                   }
                 } otherwise {
                   lq.mem.doSpecial.write(LQ_ID, True)
@@ -1634,6 +1646,7 @@ class Lsu2Plugin(var lqSize: Int,
         }
       }
 
+
       val atomic = new StateMachine{
         val IDLE, LOAD_CMD, LOAD_RSP, LOCK_DELAY, ALU, COMPLETION, SYNC, TRAP = new State
         setEntry(IDLE)
@@ -1659,20 +1672,25 @@ class Lsu2Plugin(var lqSize: Int,
 
         val lockPort = setup.cache.lockPort
         lockPort.valid := False
-        lockPort.address := storeAddress
+        lockPort.address.assignDontCare()
+
+        if(setup.cache.withCoherency) when(lq.reservation.valid) {
+          lockPort.valid := True
+          lockPort.address := lq.reservation.address
+        }
+
         setup.cacheLoad.cmd.unlocked := True //As we already fenced on the dispatch stage
         when(!isActive(IDLE)) {
           lockPort.valid := True
+          lockPort.address := storeAddress
         }
+
+
 
         IDLE whenIsActive {
           when(enabled && isAtomic){
             when(sq.ptr.commit === sq.ptr.free){
-              when(storeSc){
-                goto(ALU)
-              } otherwise {
-                goto(LOCK_DELAY)
-              }
+              goto(LOCK_DELAY)
             }
           }
         }
@@ -1681,7 +1699,11 @@ class Lsu2Plugin(var lqSize: Int,
         LOCK_DELAY whenIsActive{
           lockDelayCounter := lockDelayCounter + 1
           when(lockDelayCounter.andR){
-            goto(LOAD_CMD)
+            when(storeSc){
+              goto(ALU)
+            } otherwise {
+              goto(LOAD_CMD)
+            }
           }
         }
 
