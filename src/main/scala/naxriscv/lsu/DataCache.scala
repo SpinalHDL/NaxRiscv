@@ -1764,6 +1764,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
               whenMasked(status.write.data, WAYS_HITS)(_.dirty := False)
             }
 
+            //TODODODODODO REMOVE THIS !!!! and all the kill related stuff, ensure that mem read rsp with data are managed, even if !slot.data
             when(askRefillKill){
               for((slot, hit) <- (refill.slots, REFILL_HITS.asBools).zipped){
                 slot.kill setWhen(hit && !slot.data) //Refill slot which are doing a shared -> unique transition need to be killed

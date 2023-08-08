@@ -1677,7 +1677,7 @@ class Lsu2Plugin(var lqSize: Int,
           }
         }
 
-        val lockDelayCounter = Reg(UInt(2 bits)) init(0)
+        val lockDelayCounter = Reg(UInt(1 bits)) init(0)
         LOCK_DELAY whenIsActive{
           lockDelayCounter := lockDelayCounter + 1
           when(lockDelayCounter.andR){
@@ -1824,6 +1824,9 @@ class Lsu2Plugin(var lqSize: Int,
       }
       sq.ptr.alloc := sq.ptr.commitNext
       special.enabled := False
+    }
+    when(cache.writebackBusy){
+      lq.reservation.valid := False
     }
 
     //TODO
