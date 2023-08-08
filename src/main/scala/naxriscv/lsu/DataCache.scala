@@ -4,6 +4,7 @@
 
 package naxriscv.lsu
 
+import naxriscv.Global.PHYSICAL_WIDTH
 import naxriscv.utilities.{AddressToMask, Reservation}
 import spinal.core._
 import spinal.lib._
@@ -18,9 +19,10 @@ import spinal.lib.sim.SimData.dataToSimData
 
 import scala.collection.mutable.ArrayBuffer
 
+//allows to lock a physical address into unique state
 case class LockPort() extends Bundle with IMasterSlave {
   val valid = Bool()
-  val address = UInt(12 bits)
+  val address = UInt(PHYSICAL_WIDTH bits)
 
   override def asMaster() = out(this)
 }
@@ -49,6 +51,7 @@ case class DataLoadCmd(preTranslationWidth : Int, dataWidth : Int) extends Bundl
   val size = UInt(log2Up(log2Up(dataWidth/8)+1) bits)
   val redoOnDataHazard = Bool() //Usefull for access not protected by the LSU (ex MMU refill)
   val unlocked = Bool()
+  val unique = Bool()  //Used by atomic to ensure that the line is owned in a coherent unique state
 }
 
 case class DataLoadTranslated(physicalWidth : Int) extends Bundle {
@@ -556,7 +559,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
       }
 
       val onC = new Area{
-        val rsp = probe.rsp.throwWhen(probe.rsp.writeback)
+        val rsp = probe.rsp.throwWhen(!probe.rsp.redo && probe.rsp.writeback)
         when(rsp.valid && rsp.redo){
           probe.cmd.valid       := True
           probe.cmd.address     := probe.rsp.address
@@ -745,6 +748,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
   val REFILL_HITS_EARLY = Stageable(Bits(refillCount bits))
   val REFILL_HITS = Stageable(Bits(refillCount bits))
   val LOCKED, UNLOCKED = Stageable(Bool())
+  val NEED_UNIQUE = Stageable(Bool())
 
 
   case class Tag() extends Bundle{
@@ -909,7 +913,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
     }
 
     //Ignore the way, allowing coherent BtoT to detect ongoing NtoB
-    def isLineBusy(address : UInt, way : UInt) = slots.map(s => s.valid && s.address(lineRange) === address(lineRange)).orR
+    def isLineBusy(address : UInt) = slots.map(s => s.valid && s.address(lineRange) === address(lineRange)).orR
 
     val free = B(OHMasking.first(slots.map(_.free)))
     val full = slots.map(!_.free).andR
@@ -1065,7 +1069,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
 
     io.writebackBusy := slots.map(_.valid).orR
 
-    def isLineBusy(address : UInt, way : UInt) = False//slots.map(s => s.valid && s.way === way && s.address(lineRange) === address(lineRange)).orR
+    def isLineBusy(address : UInt) = False//slots.map(s => s.valid && s.way === way && s.address(lineRange) === address(lineRange)).orR
 
     val free = B(OHMasking.first(slots.map(_.free)))
     val full = slots.map(!_.free).andR
@@ -1241,7 +1245,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
     }
   }
 
-  def isLineBusy(address : UInt, way : UInt) = refill.isLineBusy(address, way) || writeback.isLineBusy(address, way)
+  def isLineBusy(address : UInt) = refill.isLineBusy(address) || writeback.isLineBusy(address)
 
 
 
@@ -1285,6 +1289,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
       REDO_ON_DATA_HAZARD := io.load.cmd.redoOnDataHazard
       WAYS_HAZARD := 0
       UNLOCKED := io.load.cmd.unlocked
+      NEED_UNIQUE := io.load.cmd.unique
     }
 
     val fetch = new Area {
@@ -1391,40 +1396,53 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val refillWayNeedWriteback = WAYS_TAGS(refillWay).loaded && withCoherency.mux(True, STATUS(refillWay).dirty)
       val refillHit = REFILL_HITS.orR
       val refillLoaded = (B(refill.slots.map(_.loaded)) & REFILL_HITS).orR
-      val lineBusy = isLineBusy(ADDRESS_PRE_TRANSLATION, refillWay)
+      val lineBusy = isLineBusy(ADDRESS_PRE_TRANSLATION)
       val bankBusy = (BANK_BUSY_REMAPPED & WAYS_HITS) =/= 0
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
+      val hitUnique = p.withCoherency.mux((WAYS_HITS & WAYS_TAGS.map(_.unique).asBits).orR, True)
+      val uniqueMiss = NEED_UNIQUE && !hitUnique
 
-      REDO := !WAYS_HIT || waysHitHazard || bankBusy || refillHit || LOCKED
+      REDO := !WAYS_HIT || waysHitHazard || bankBusy || refillHit || LOCKED || uniqueMiss
       MISS := !WAYS_HIT && !waysHitHazard && !refillHit && !LOCKED
       FAULT := (WAYS_HITS & WAYS_TAGS.map(_.fault).asBits).orR
       val canRefill = !refill.full && !lineBusy && reservation.win && !(refillWayNeedWriteback && writeback.full)
       val askRefill = MISS && canRefill && !refillHit
+      val askUpgrade = !MISS && canRefill && uniqueMiss
       val startRefill = isValid && askRefill
+      val startUpgrade = isValid && askUpgrade
+      val wayId = OHToUInt(WAYS_HITS)
 
       when(ABORD){
         REDO := False
         MISS := False
       }
 
-      when(startRefill){
+      when(startRefill || startUpgrade){
         reservation.takeIt()
 
         refill.push.valid := True
         refill.push.address := ADDRESS_POST_TRANSLATION
+        refill.push.unique := NEED_UNIQUE
+        refill.push.data := askRefill
+      }
+
+      when(askUpgrade){
+        refill.push.way := wayId
+        refill.push.victim := 0
+      } otherwise {
         refill.push.way := refillWay
         refill.push.victim := writeback.free.andMask(refillWayNeedWriteback && STATUS(refillWay).dirty)
-        refill.push.unique := False
-        refill.push.data := True
+      }
 
-        waysWrite.mask(refillWay) := True
-        waysWrite.address := ADDRESS_PRE_TRANSLATION(lineRange)
-        waysWrite.tag.loaded := False
-
+      when(startRefill){
         status.write.valid := True
         status.write.address := ADDRESS_PRE_TRANSLATION(lineRange)
         status.write.data := STATUS
         status.write.data(refillWay).dirty := False
+
+        waysWrite.mask(refillWay) := True
+        waysWrite.address := ADDRESS_PRE_TRANSLATION(lineRange)
+        waysWrite.tag.loaded := False
 
         writeback.push.valid := refillWayNeedWriteback
         writeback.push.address := (WAYS_TAGS(refillWay).address @@ ADDRESS_PRE_TRANSLATION(lineRange)) << lineRange.low
@@ -1576,7 +1594,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val replacedWay = CombInit(wayRandom.value)
       val replacedWayNeedWriteback = WAYS_TAGS(replacedWay).loaded && STATUS(replacedWay).dirty
       val refillHit = (REFILL_HITS & B(refill.slots.map(_.valid))).orR
-      val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION, replacedWay)
+      val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
       val wasClean = !(B(STATUS.map(_.dirty)) & WAYS_HITS).orR
       val bankBusy = !FLUSH && !PREFETCH && !PROBE && (WAYS_HITS & refill.read.bankWriteNotif).orR
@@ -1702,7 +1720,10 @@ class DataCache(val p : DataCacheParameters) extends Component {
         val canUpdateTag = !(askSomething && askTagUpdate && !reservation.win)
         val canWriteback =  !(askSomething && askWriteback && (!reservation.win || writeback.full))
         val alreadyInWb = writeback.slots.map(slot => slot.valid && slot.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange)).orR
-        val success = !waysHitHazard && canUpdateTag && canWriteback && !alreadyInWb
+        val isUnique = (WAYS_TAGS.map(_.unique).asBits() & WAYS_HITS).orR
+        val locked = io.lock.valid && io.lock.address(refillRange) === ADDRESS_POST_TRANSLATION(refillRange) && isUnique
+        val success = !waysHitHazard && canUpdateTag && canWriteback && !alreadyInWb && !locked
+
 
         //Disable side-effects of the regular store pipeline
         when(PROBE){
@@ -1732,7 +1753,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
               writeback.push.address := ADDRESS_POST_TRANSLATION
               writeback.push.way := wayId
               writeback.push.dirty := (STATUS.map(_.dirty).asBits() & WAYS_HITS).orR
-              writeback.push.fromUnique := (WAYS_TAGS.map(_.unique).asBits() & WAYS_HITS).orR
+              writeback.push.fromUnique := isUnique
               writeback.push.toShared := ALLOW_SHARED
               writeback.push.release := False
               writeback.push.probeId := PROBE_ID

@@ -321,7 +321,7 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
   def add(tracer : TraceBackend) = {
     backends += tracer
     tracer.newCpuMemoryView(hartId, lsuPlugin.lqSize+1, lsuPlugin.sqSize) //+1 because AMO
-    tracer.newCpu(hartId, "RV32IMA", "MSU", 32, 0)
+    tracer.newCpu(hartId, "RV32IMA", "MSU", 32, hartId)
   }
 
   def checkRob() : Unit = {

@@ -956,6 +956,7 @@ class Lsu2Plugin(var lqSize: Int,
         cmd.virtual          := ADDRESS_PRE_TRANSLATION
         cmd.size             := SIZE
         cmd.redoOnDataHazard := False
+        cmd.unique           := AMO || LR
 
         haltIt(!cmd.ready)
       }
@@ -1634,7 +1635,7 @@ class Lsu2Plugin(var lqSize: Int,
       }
 
       val atomic = new StateMachine{
-        val IDLE, LOAD_CMD, LOAD_RSP, ALU, COMPLETION, SYNC, TRAP = new State
+        val IDLE, LOAD_CMD, LOAD_RSP, LOCK_DELAY, ALU, COMPLETION, SYNC, TRAP = new State
         setEntry(IDLE)
 
         setEncoding(binaryOneHot)
@@ -1658,7 +1659,7 @@ class Lsu2Plugin(var lqSize: Int,
 
         val lockPort = setup.cache.lockPort
         lockPort.valid := False
-        lockPort.address := storeAddress.resized
+        lockPort.address := storeAddress
         setup.cacheLoad.cmd.unlocked := True //As we already fenced on the dispatch stage
         when(!isActive(IDLE)) {
           lockPort.valid := True
@@ -1670,9 +1671,17 @@ class Lsu2Plugin(var lqSize: Int,
               when(storeSc){
                 goto(ALU)
               } otherwise {
-                goto(LOAD_CMD)
+                goto(LOCK_DELAY)
               }
             }
+          }
+        }
+
+        val lockDelayCounter = Reg(UInt(2 bits)) init(0)
+        LOCK_DELAY whenIsActive{
+          lockDelayCounter := lockDelayCounter + 1
+          when(lockDelayCounter.andR){
+            goto(LOAD_CMD)
           }
         }
 
@@ -1682,6 +1691,7 @@ class Lsu2Plugin(var lqSize: Int,
           cmd.virtual := storeAddress.resized
           cmd.size    := storeSize
           cmd.redoOnDataHazard := False
+          cmd.unique := True
           when(cmd.fire){
             goto(LOAD_RSP)
           }

@@ -395,6 +395,7 @@ class MmuPlugin(var spec : MmuSpec,
         cmd.size              := U(log2Up(spec.entryBytes))
         cmd.redoOnDataHazard  := True
         cmd.unlocked          := False
+        cmd.unique          := False
 
         setup.cacheLoad.translated.physical := address
         setup.cacheLoad.translated.abord    := False
