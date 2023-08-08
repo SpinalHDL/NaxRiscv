@@ -455,7 +455,8 @@ class Lsu2Plugin(var lqSize: Int,
       }
 
       val reservation = new Area{
-        val valid = Reg(Bool()) init(False)
+        val kill = False
+        val valid = Reg(Bool()) init(False) clearWhen(kill)
         val address = Reg(UInt(PHYSICAL_WIDTH bits))
 
         def spawn(value : UInt): Unit ={
@@ -1663,7 +1664,6 @@ class Lsu2Plugin(var lqSize: Int,
         )
 
         val result = Reg(Bits(XLEN bits))
-        val reservationHit = RegNext(lq.reservation.valid && lq.reservation.address === storeAddress)
 
         when(enabled && isAtomic){
           setup.cacheLoad.translated.physical := storeAddress
@@ -1685,8 +1685,6 @@ class Lsu2Plugin(var lqSize: Int,
           lockPort.address := storeAddress
         }
 
-
-
         IDLE whenIsActive {
           when(enabled && isAtomic){
             when(sq.ptr.commit === sq.ptr.free){
@@ -1695,10 +1693,13 @@ class Lsu2Plugin(var lqSize: Int,
           }
         }
 
-        val lockDelayCounter = Reg(UInt(1 bits)) init(0)
+        val gotReservation = Reg(Bool())
+        val lockDelayCounter = Reg(UInt(2 bits)) init(0)
         LOCK_DELAY whenIsActive{
           lockDelayCounter := lockDelayCounter + 1
           when(lockDelayCounter.andR){
+            gotReservation := lq.reservation.valid && lq.reservation.address === storeAddress
+            lq.reservation.kill := True
             when(storeSc){
               goto(ALU)
             } otherwise {
@@ -1778,7 +1779,8 @@ class Lsu2Plugin(var lqSize: Int,
           val valid = Verilator.public(False)
           val robIdV = Verilator.public(robId)
           val storeData = Verilator.public(alu.result)
-          val skipIt = Verilator.public(!reservationHit && storeSc)
+          val isSc = Verilator.public(storeSc)
+          val scPassed = Verilator.public(gotReservation)
         }
 
         ALU whenIsActive{
@@ -1796,7 +1798,7 @@ class Lsu2Plugin(var lqSize: Int,
           comp.wakeRf := False
           comp.rfWrite := False
           comp.writePort.data := 0
-          comp.writePort.data(0) := !reservationHit
+          comp.writePort.data(0) := !gotReservation
           goto(SYNC)
         }
 
@@ -1804,15 +1806,12 @@ class Lsu2Plugin(var lqSize: Int,
           when(storeAmo) {
             writeback.feed.data(0, XLEN bits) := result
           }
-          when(storeSc && !reservationHit){
+          when(storeSc && !gotReservation){
             writeback.feed.skip := True
           }
 
           when(sq.ptr.onFree.valid) {
             fire := True
-            when(storeSc) {
-              lq.reservation.valid := False
-            }
             goto(IDLE)
           }
         }
@@ -1848,7 +1847,7 @@ class Lsu2Plugin(var lqSize: Int,
       special.enabled := False
     }
     when(cache.writebackBusy){
-      lq.reservation.valid := False
+      lq.reservation.kill := True
     }
 
     //TODO

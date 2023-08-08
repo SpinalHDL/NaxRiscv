@@ -596,7 +596,11 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
           False,
           write.cmd.coherent.toShared
         )
-        i0.source := write.cmd.coherent.probeId
+        i0.source := write.cmd.coherent.release.mux(
+          write.cmd.id,
+          write.cmd.coherent.probeId
+        )
+
         i0.address := write.cmd.address
         i0.size := log2Up(p.lineSize)
         i0.data := write.cmd.data
@@ -1413,6 +1417,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
       when(ABORD){
         REDO := False
         MISS := False
+        askUpgrade := False
       }
 
       when(startRefill || startUpgrade){
@@ -1668,6 +1673,15 @@ class DataCache(val p : DataCacheParameters) extends Component {
             status.write.data.onSel(needFlushSel)(_.dirty := False)
           }
         }
+      }
+
+      if(withCoherency) when(startFlush) {
+        waysWrite.mask(needFlushSel) := True
+        waysWrite.address := ADDRESS_POST_TRANSLATION(lineRange)
+        waysWrite.tag.loaded := True
+        waysWrite.tag.fault := B(WAYS_TAGS.map(_.fault))(needFlushSel)
+        waysWrite.tag.unique := False
+        waysWrite.tag.address := WAYS_TAGS(writeback.push.way).address
       }
 
       when(startRefill || startUpgrade){

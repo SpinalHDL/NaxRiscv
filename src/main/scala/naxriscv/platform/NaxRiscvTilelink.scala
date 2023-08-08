@@ -233,6 +233,9 @@ class RobCtx{
   var loadLqId = 0
   var loadData = -1l
 
+  var isSc = false
+  var scFailure = false
+
   def clear(){
     integerWriteValid = false;
     floatWriteValid = false;
@@ -242,6 +245,7 @@ class RobCtx{
     floatFlags = 0;
     loadValid = false
     storeValid = false
+    isSc = false
   }
   clear()
 };
@@ -371,7 +375,7 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
   def checkCommits(): Unit ={
     var mask = commitMask.toInt
     cycleSinceLastCommit += 1
-    if(cycleSinceLastCommit == 1000){
+    if(cycleSinceLastCommit == 10000){
       simFailure("Nax didn't commited anything since too long")
     }
     for(i <- 0 until commitPlugin.commitCount){
@@ -381,6 +385,9 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
         val robCtx = robArray(robId)
         if(robCtx.loadValid){
           backends.foreach(_.loadCommit(hartId, robCtx.loadLqId))
+        }
+        if(robCtx.isSc){
+          backends.foreach(_.storeConditional(hartId, robCtx.scFailure))
         }
         if(robCtx.storeValid){
           backends.foreach(_.storeCommit(hartId, robCtx.storeSqId, robCtx.lsuAddress, robCtx.lsuLen, robCtx.storeData))
@@ -477,9 +484,15 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
     if(amoStoreValid.toBoolean){
       val robId = amoStoreWb.robIdV.toInt
       val ctx = robArray(robId)
-
-      ctx.storeValid = !amoStoreWb.skipIt.toBoolean
+      ctx.storeValid = true
       ctx.storeData = amoStoreWb.storeData.toLong
+
+      if(amoStoreWb.isSc.toBoolean){
+        val passed = amoStoreWb.scPassed.toBoolean
+        if(!passed) ctx.storeValid = false
+        ctx.isSc = true
+        ctx.scFailure = !passed
+      }
     }
   }
 
@@ -519,6 +532,7 @@ trait TraceBackend{
   def loadFlush(hartId: Int) : Unit
   def storeCommit(hartId: Int, id : Long, addr : Long, len : Long, data : Long) : Unit
   def storeBroadcast(hartId: Int, id : Long) : Unit
+  def storeConditional(hartId : Int, failure: Boolean) : Unit
 
   def flush() : Unit
   def close() : Unit
@@ -541,8 +555,9 @@ class DummyBackend() extends TraceBackend{
   override def loadFlush(hartId: Int) = {}
   override def storeCommit(hartId: Int, id: Long, addr: Long, len: Long, data: Long) = {}
   override def storeBroadcast(hartId: Int, id: Long) = {}
-  override def flush() = ???
-  override def close() = ???
+  override def storeConditional(hartId: Int, failure: Boolean) = {}
+  override def flush() = {}
+  override def close() = {}
 }
 
 class FileBackend(f : File) extends TraceBackend{
@@ -606,7 +621,9 @@ class FileBackend(f : File) extends TraceBackend{
   override def storeBroadcast(hartId: Int, id : Long) : Unit = {
     bf.write(f"rv store bro $hartId $id\n")
   }
-
+  override def storeConditional(hartId: Int, failure: Boolean) = {
+    bf.write(f"rv store sc $hartId ${failure.toInt}\n")
+  }
 
 
   override def flush() = bf.flush()
@@ -631,7 +648,7 @@ object NaxRiscvTilelinkSim extends App{
       fork {
         disableSimWave()
         //      sleep(1939590-100000)
-        enableSimWave()
+//        enableSimWave()
       }
 
 
@@ -665,9 +682,7 @@ object NaxRiscvTilelinkSim extends App{
       elf.load(memAgent.mem, -0xffffffff80000000l)
       tracer.loadElf(0, elf.f)
 
-      for(nax <- dut.naxes){
-        tracer.setPc(nax.getHartId(), 0x80000000)
-      }
+
       val passSymbol = elf.getSymbolAddress("pass")
       val failSymbol = elf.getSymbolAddress("fail")
       naxes.foreach { nax =>
@@ -686,13 +701,10 @@ object NaxRiscvTilelinkSim extends App{
 //      tracer.loadBin(0x80F80000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb"))
 //      tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
 //      tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
-//      tracer.setPc(0, 0x80000000)
-//      cd.onSamplings{
-//        if(memAgent.mem.read(0x1000) == 6){
-//          memAgent.mem.write(0x1000, 0x42)
-//          println(simTime())
-//        }
-//      }
+
+      for(nax <- dut.naxes){
+        tracer.setPc(nax.getHartId(), 0x80000000)
+      }
 
       cd.waitSampling(4000000)
       simSuccess()
