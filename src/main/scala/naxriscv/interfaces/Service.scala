@@ -353,6 +353,7 @@ trait IssueService extends Service with LockedService {
   def newRobDependency() : RobWait
   def fenceOlder(microOp: MicroOp) : Unit
   def fenceYounger(microOp: MicroOp) : Unit
+  def forceSparse(microOp: MicroOp) : Unit
 }
 
 case class WakeRob() extends Bundle {

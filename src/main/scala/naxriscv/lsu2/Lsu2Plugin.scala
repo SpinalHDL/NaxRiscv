@@ -10,7 +10,7 @@ import naxriscv.execute.EnvCallPlugin
 import naxriscv.fetch.FetchPlugin
 import naxriscv.frontend.{DispatchPlugin, FrontendPlugin}
 import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
-import naxriscv.{Fetch, Frontend, Global, ROB}
+import naxriscv.{DecodeList, Fetch, Frontend, Global, ROB}
 import naxriscv.interfaces._
 import naxriscv.lsu.{DataCachePlugin, LsuFlushPayload, LsuFlusher, LsuPeripheralBus, LsuPeripheralBusParameter, LsuUtils, PrefetchPredictor}
 import naxriscv.lsu2.Lsu2Plugin.CTRL_ENUM
@@ -120,6 +120,7 @@ class Lsu2Plugin(var lqSize: Int,
 
 
     val AMO, LR, SC = Stageable(Bool())
+    val FENCE, ATOMIC = Stageable(Bool())
     val MISS_ALIGNED = Stageable(Bool())
     val PAGE_FAULT = Stageable(Bool())
 
@@ -223,6 +224,15 @@ class Lsu2Plugin(var lqSize: Int,
     dispatch.fenceYounger(Rvi.SC)
     dispatch.fenceOlder  (Rvi.SC)
 
+    if(cache.withCoherency) {
+      dispatch.forceSparse(Rvi.FENCE)
+      decoder.addMicroOpDecodingDefault(FENCE, False)
+      decoder.addMicroOpDecoding(Rvi.FENCE, DecodeList(FENCE -> True))
+
+      decoder.addMicroOpDecodingDefault(LR, False)
+      decoder.addMicroOpDecoding(Rvi.LR, DecodeList(LR -> True))
+      dispatch.fenceYounger  (Rvi.LR) //ensure LR -> ior ordering
+    }
 
     val fpuWriteSize = UInt(2 bits)
     class RegfilePorts(regfile : RegfileService) extends Area{
@@ -1818,6 +1828,56 @@ class Lsu2Plugin(var lqSize: Int,
 
         frontend.pipeline.dispatch.haltIt(isActive(SYNC))
       }
+    }
+
+
+    /*
+      io  -> iow  : OK
+      ior -> r    : Need to hold load from executing
+      w   -> w    : OK
+      w   -> ior  : Need to wait for SQ writeback
+      r   -> iow  : OK
+
+      AMO + SC appear as a "ow", they wait until older store / load are fully done, and fence out younger instruction
+      So they are already fully ordered. So nothing to do on that side.
+
+      LR
+      - aq : need to fence younger "r" (that need to be done)
+      - rl : need to fence older "iorw" (dispatch.fenceOlder is already doing it for "ior", but w need to be checked for being fully done)
+     */
+    val fencer = cache.withCoherency generate new Area{
+      val stage = allocation.allocStage
+      import stage._
+
+      val loadsDone = lq.ptr.alloc === lq.ptr.free
+      val storeDone = sq.ptr.alloc === sq.ptr.free
+      val loadsWait, storesWait = False
+
+      case class FenceFlags() extends Bundle {
+        val SW,SR,SO,SI,PW,PR,PO,PI = Bool()
+      }
+
+      val trigger = False
+      val op = for(i <- 0 until DISPATCH_COUNT) yield new Area {
+        val flags = (MICRO_OP, i)(27 downto 20).as(FenceFlags())
+        import flags._
+        when((DISPATCH_MASK, i)) {
+          when((FENCE, i)) {
+            trigger := True
+            loadsWait setWhen ((PI || PO || PR) && SR)
+            storesWait setWhen (PW && (SI || SO || SR))
+          }
+          when((LR, i)){
+            trigger := True
+            storesWait setWhen((MICRO_OP, i)(25)) //release
+          }
+        }
+      }
+
+      val done = RegInit(False)
+      done setWhen((loadsDone || !loadsWait) && (storeDone || !storesWait))
+      done clearWhen(!stage.isStuck)
+      stage.haltWhen(trigger && !done)
     }
 
     val builders = hardFork{

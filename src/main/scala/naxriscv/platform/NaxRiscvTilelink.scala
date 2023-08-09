@@ -326,6 +326,7 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
     backends += tracer
     tracer.newCpuMemoryView(hartId, lsuPlugin.lqSize+1, lsuPlugin.sqSize) //+1 because AMO
     tracer.newCpu(hartId, "RV32IMA", "MSU", 32, hartId)
+    tracer.setPc(hartId, 0x80000000)
   }
 
   def checkRob() : Unit = {
@@ -648,7 +649,7 @@ object NaxRiscvTilelinkSim extends App{
       fork {
         disableSimWave()
         //      sleep(1939590-100000)
-//        enableSimWave()
+        enableSimWave()
       }
 
 
@@ -673,8 +674,8 @@ object NaxRiscvTilelinkSim extends App{
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
-//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
-      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coherency/build/rv32ima/coherency.elf"))
+      val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coherency/build/rv32ima/coherency.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/machine/build/rv32ima/machine.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/supervisor/build/rv32ima/supervisor.elf"))
 //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/mmu_sv32/build/rv32ima/mmu_sv32.elf"))
@@ -702,9 +703,7 @@ object NaxRiscvTilelinkSim extends App{
 //      tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
 //      tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
 
-      for(nax <- dut.naxes){
-        tracer.setPc(nax.getHartId(), 0x80000000)
-      }
+
 
       cd.waitSampling(4000000)
       simSuccess()
