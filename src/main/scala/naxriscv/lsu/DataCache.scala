@@ -976,6 +976,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val way = slots.map(_.way).read(io.mem.read.rsp.id)
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
       val rspWithData = p.withCoherency.mux(io.mem.read.rsp.withData, True)
+      assert(!(io.mem.read.rsp.valid && !rspWithData && slots.map(_.data).read(io.mem.read.rsp.id)), "Data cache asked for data but didn't recieved any :(")
 
       val bankWriteNotif = B(0, bankCount bits)
       for ((bank, bankId) <- banks.zipWithIndex) {
@@ -1595,7 +1596,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
 
       val reservation = tagsOrStatusWriteArbitration.create(3)
       val replacedWay = CombInit(wayRandom.value)
-      val replacedWayNeedWriteback = WAYS_TAGS(replacedWay).loaded && STATUS(replacedWay).dirty
+      val replacedWayNeedWriteback = WAYS_TAGS(replacedWay).loaded && withCoherency.mux(True, STATUS(replacedWay).dirty)
       val refillHit = (REFILL_HITS & B(refill.slots.map(_.valid))).orR
       val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION)
       val waysHitHazard = (WAYS_HITS & resulting(WAYS_HAZARD)).orR
@@ -1675,15 +1676,6 @@ class DataCache(val p : DataCacheParameters) extends Component {
         }
       }
 
-      if(withCoherency) when(startFlush) {
-        waysWrite.mask(needFlushSel) := True
-        waysWrite.address := ADDRESS_POST_TRANSLATION(lineRange)
-        waysWrite.tag.loaded := True
-        waysWrite.tag.fault := B(WAYS_TAGS.map(_.fault))(needFlushSel)
-        waysWrite.tag.unique := False
-        waysWrite.tag.address := WAYS_TAGS(writeback.push.way).address
-      }
-
       when(startRefill || startUpgrade){
         refill.push.valid := True
         refill.push.address := ADDRESS_POST_TRANSLATION
@@ -1717,8 +1709,19 @@ class DataCache(val p : DataCacheParameters) extends Component {
           whenMasked(waysWrite.mask.asBools, needFlushOh)(_ := True)
         }
         waysWrite.address := ADDRESS_POST_TRANSLATION(lineRange)
-        waysWrite.tag.loaded := False
+        if(withCoherency) when(startFlush) {
+          waysWrite.mask(needFlushSel) := True
+          waysWrite.tag.loaded := True
+          waysWrite.tag.fault := B(WAYS_TAGS.map(_.fault))(needFlushSel)
+          waysWrite.tag.unique := False
+          waysWrite.tag.address := WAYS_TAGS(writeback.push.way).address
+        } else {
+          waysWrite.tag.loaded := False
+        }
+
       }
+
+
 
       when(isValid && REDO && GENERATION_OK && !PREFETCH && !PROBE){
         target := !target
@@ -1813,7 +1816,9 @@ class DataCache(val p : DataCacheParameters) extends Component {
     pipeline.build()
   }
 
-
+//  when(waysWrite.mask === 8 && waysWrite.address===0x1f){
+//    report(L"GOT IT at $REPORT_TIME")
+//  }
   io.refillEvent := refill.push.valid
   io.writebackEvent := writeback.push.valid
 }
