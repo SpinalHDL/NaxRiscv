@@ -322,11 +322,12 @@ class NaxSimProbe(nax : NaxRiscv, hartId : Int){
   val robArray = Array.fill(robPlugin.robSize)(new RobCtx)
 
 
-  def add(tracer : TraceBackend) = {
+  def add(tracer : TraceBackend) : this.type = {
     backends += tracer
     tracer.newCpuMemoryView(hartId, lsuPlugin.lqSize+1, lsuPlugin.sqSize) //+1 because AMO
     tracer.newCpu(hartId, "RV32IMA", "MSU", 32, hartId)
     tracer.setPc(hartId, 0x80000000)
+    this
   }
 
   def checkRob() : Unit = {
@@ -535,6 +536,8 @@ trait TraceBackend{
   def storeBroadcast(hartId: Int, id : Long) : Unit
   def storeConditional(hartId : Int, failure: Boolean) : Unit
 
+  def time(value : Long) : Unit
+
   def flush() : Unit
   def close() : Unit
 }
@@ -557,6 +560,7 @@ class DummyBackend() extends TraceBackend{
   override def storeCommit(hartId: Int, id: Long, addr: Long, len: Long, data: Long) = {}
   override def storeBroadcast(hartId: Int, id: Long) = {}
   override def storeConditional(hartId: Int, failure: Boolean) = {}
+  override def time(value: Long) = {}
   override def flush() = {}
   override def close() = {}
 }
@@ -626,6 +630,8 @@ class FileBackend(f : File) extends TraceBackend{
     bf.write(f"rv store sc $hartId ${failure.toInt}\n")
   }
 
+  override def time(value: Long) = bf.write(f"time $value\n")
+
 
   override def flush() = bf.flush()
   override def close() = bf.close()
@@ -633,6 +639,9 @@ class FileBackend(f : File) extends TraceBackend{
   def spinalSimFlusher(period : Long): Unit ={
     periodicaly(period)(flush())
     onSimEnd(close())
+  }
+  def spinalSimTime(period : Long): Unit ={
+    periodicaly(period)(time(simTime()))
   }
 }
 
@@ -655,9 +664,9 @@ object NaxRiscvTilelinkSim extends App{
 //        disableSimWave()
 //        simFailure("done")
 //
-//        waitUntil(simTime() > 38119240-100000)
+//        waitUntil(simTime() > 128815290-300000)
 //        enableSimWave()
-//        sleep(200000)
+//        sleep(400000)
 //        disableSimWave()
 //
 //        simFailure("done")
@@ -669,13 +678,6 @@ object NaxRiscvTilelinkSim extends App{
       cd.forkStimulus(10)
 //      cd.forkSimSpeedPrinter(4.0)
 
-      val tracer = new FileBackend(new File("trace.txt"))
-      tracer.spinalSimFlusher(10*10000)
-
-      val naxes = for(nax <- dut.naxes) yield new Area{
-        val probe = new NaxSimProbe(nax.thread.core, nax.getHartId())
-        probe.add(tracer)
-      }
 
 
       val memAgent = new MemoryAgent(dut.mem.node.bus, cd, seed = 0, randomProberFactor = 0.2f)(null){
@@ -703,10 +705,18 @@ object NaxRiscvTilelinkSim extends App{
 
       val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
 
-//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+//      val tracer = new FileBackend(new File("trace.txt"))
+//      tracer.spinalSimFlusher(10*10000)
+//      tracer.spinalSimTime(10000)
+//
+//      val naxes = dut.naxes.map(nax =>
+//        new NaxSimProbe(nax.thread.core, nax.getHartId()).add(tracer)
+//      )
+
+////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
 ////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
 ////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
-////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
+//      val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
 ////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coherency/build/rv32ima/coherency.elf"))
 ////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/machine/build/rv32ima/machine.elf"))
 ////      val elf = new Elf(new File("ext/NaxSoftware/baremetal/supervisor/build/rv32ima/supervisor.elf"))
@@ -719,7 +729,7 @@ object NaxRiscvTilelinkSim extends App{
 //      val passSymbol = elf.getSymbolAddress("pass")
 //      val failSymbol = elf.getSymbolAddress("fail")
 //      naxes.foreach { nax =>
-//        nax.probe.commitsCallbacks += { (hartId, pc) =>
+//        nax.commitsCallbacks += { (hartId, pc) =>
 //          if (pc == passSymbol) delayed(1)(simSuccess())
 //          if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
 //        }
@@ -730,10 +740,10 @@ object NaxRiscvTilelinkSim extends App{
       memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
       memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
 
-      tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
-      tracer.loadBin(0x80F80000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb"))
-      tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
-      tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
+//      tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
+//      tracer.loadBin(0x80F80000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb"))
+//      tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
+//      tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
 
 
 

@@ -908,10 +908,11 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val loaded = Reg(Bool())
       val loadedCounterMax = (loadControlAt-1) max (storeControlAt-1)
       val loadedCounter = Reg(UInt(log2Up(loadedCounterMax+1) bits))
-      loadedCounter := loadedCounter + U(loaded).resized
-      valid clearWhen (loadedCounter === loadedCounterMax)
+      val loadedDone = loadedCounter === loadedCounterMax
+      loadedCounter := loadedCounter + U(loaded && !loadedDone).resized
+      valid clearWhen (loadedDone && withCoherency.mux(!ackValid, True))
 
-      val free = !valid && withCoherency.mux(!ackValid, True)
+      val free = !valid
 
       val victim = Reg(Bits(writebackCount bits))
       val writebackHazards = Reg(Bits(writebackCount bits)) //TODO Check it
@@ -1011,7 +1012,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
         when(wordIndex === wordIndex.maxValue || !rspWithData) {
           hadError := False
           fire := True
-          io.refillCompletions(io.mem.read.rsp.id) := True
+          if(!withCoherency) io.refillCompletions(io.mem.read.rsp.id) := True
           reservation.takeIt()
           waysWrite.mask(way) := True
           waysWrite.address := rspAddress(lineRange)
@@ -1038,6 +1039,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
       io.mem.read.ack.valid := requests.orR
       io.mem.read.ack.ackId := OhMux.or(oh, slots.map(_.ackId))
       when(io.mem.read.ack.ready){
+        io.refillCompletions.asBools.onMask(oh)(_ := True)
         slots.onMask(oh)(_.ackValid := False)
       }
     }
@@ -1718,7 +1720,6 @@ class DataCache(val p : DataCacheParameters) extends Component {
         } else {
           waysWrite.tag.loaded := False
         }
-
       }
 
 
