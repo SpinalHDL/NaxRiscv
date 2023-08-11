@@ -658,6 +658,12 @@ object NaxRiscvTilelinkSim extends App{
     compiled.doSimUntilVoid(seed = 42) { dut =>
       fork {
         disableSimWave()
+        while(true) {
+          disableSimWave()
+          sleep(100000 * 10)
+          enableSimWave()
+          sleep(  100 * 10)
+        }
 //        waitUntil(simTime() > 15323180-100000)
 //        enableSimWave()
 //        sleep(500000)
@@ -705,7 +711,7 @@ object NaxRiscvTilelinkSim extends App{
 
       val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
 
-//      val tracer = new FileBackend(new File("trace.txt"))
+//      val tracer = new FileBackend(new File("trace.log"))
 //      tracer.spinalSimFlusher(10*10000)
 //      tracer.spinalSimTime(10000)
 //

@@ -49,10 +49,18 @@ class PeripheralEmulator(bus : tilelink.Bus, mei : Bool, sei : Bool, cd : ClockD
       }
       case Opcode.A.GET => {
         d.opcode = Opcode.D.ACCESS_ACK_DATA
+        d.data = Array.fill(a.bytes)(0)
         a.address.toInt match {
           case IO_FAULT_ADDRESS => {
-            d.data = Array.fill(a.bytes)(Random.nextInt().toByte)
             d.denied = true
+            Random.nextBytes(d.data)
+          }
+          case GETC => {
+            if(System.in.available() != 0) {
+              d.data(0) = System.in.read().toByte
+            } else {
+              for(i <- 0 until d.bytes) d.data(i) = 0xFF.toByte
+            }
           }
           case _ => {
             println(a)
