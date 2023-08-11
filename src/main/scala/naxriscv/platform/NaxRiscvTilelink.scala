@@ -27,6 +27,7 @@ import spinal.sim.{Signal, SimManagerContext}
 import java.io.{BufferedWriter, File, FileWriter}
 import java.nio.file.Files
 import scala.collection.mutable.ArrayBuffer
+import scala.util.Random
 
 
 
@@ -647,12 +648,12 @@ class FileBackend(f : File) extends TraceBackend{
 
 object NaxRiscvTilelinkSim extends App{
   val sc = SimConfig
-  sc.allOptimisation
+  sc.normalOptimisation
   sc.withFstWave
   sc.withConfig(SpinalConfig().includeSimulation)
-  sc.addSimulatorFlag("--threads 1")
+  sc.addSimulatorFlag("--threads 4")
 
-  val compiled = sc.compile(new NaxRiscvTilelinkSoCDemo(1))
+  val compiled = sc.compile(new NaxRiscvTilelinkSoCDemo(2))
 
   def doIt() {
     compiled.doSimUntilVoid(seed = 42) { dut =>
@@ -670,7 +671,7 @@ object NaxRiscvTilelinkSim extends App{
 //        disableSimWave()
 //        simFailure("done")
 //
-//        waitUntil(simTime() > 128815290-300000)
+//        waitUntil(simTime() > 3275640-300000)
 //        enableSimWave()
 //        sleep(400000)
 //        disableSimWave()
@@ -687,6 +688,20 @@ object NaxRiscvTilelinkSim extends App{
 
 
       val memAgent = new MemoryAgent(dut.mem.node.bus, cd, seed = 0, randomProberFactor = 0.2f)(null){
+        mem.randOffset = 0x80000000l
+
+        import driver.driver._
+        a.factor = 0.8f
+        c.factor = 0.8f
+        e.factor = 0.8f
+        b.ctrl.transactionDelay = () => {
+          val x = Random.nextInt(100)
+          (x*x*3/100/100)
+        }
+        d.ctrl.transactionDelay = () => {
+          val x = Random.nextInt(100)
+          (x*x*3/100/100)
+        }
 //        override def onA(a: TransactionA) = {
 //          if(a.address == 0x0FE5C7C0l){
 //            println(f"\nGOT IT AT ${a.opcode} ${a.param} $simTime\n")
@@ -706,7 +721,7 @@ object NaxRiscvTilelinkSim extends App{
 //          super.onD(d)
 //        }
       }
-      memAgent.mem.randOffset = 0x80000000l
+
       val checker = Checker(memAgent.monitor)
 
       val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
@@ -742,12 +757,12 @@ object NaxRiscvTilelinkSim extends App{
 //      }
 
       memAgent.mem.loadBin(0x00000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-      memAgent.mem.loadBin(0x00F80000l, "ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb")
       memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
       memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
+      memAgent.mem.loadBin(0x00F80000l, s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb")
 
 //      tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
-//      tracer.loadBin(0x80F80000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb"))
+//      tracer.loadBin(0x00F80000l, new File(s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb"))
 //      tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
 //      tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
 

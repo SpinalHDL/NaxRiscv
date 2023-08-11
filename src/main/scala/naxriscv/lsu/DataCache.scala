@@ -540,10 +540,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
     val coherent = p.withCoherency generate new Area{
       val onA = new Area{
         bus.a.arbitrationFrom(read.cmd)
-        bus.a.opcode := read.cmd.data mux(
-          tilelink.Opcode.A.ACQUIRE_BLOCK(),
-          tilelink.Opcode.A.ACQUIRE_PERM()
-        )
+        bus.a.opcode := tilelink.Opcode.A.ACQUIRE_BLOCK
         bus.a.param   := tilelink.Param.Grow(read.cmd.data, read.cmd.unique)
         bus.a.source  := read.cmd.id.resized
         bus.a.address := read.cmd.address

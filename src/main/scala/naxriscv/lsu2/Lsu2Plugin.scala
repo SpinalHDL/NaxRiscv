@@ -980,7 +980,7 @@ class Lsu2Plugin(var lqSize: Int,
         cmd.virtual          := ADDRESS_PRE_TRANSLATION
         cmd.size             := SIZE
         cmd.redoOnDataHazard := False
-        cmd.unique           := AMO || LR
+        cmd.unique           := IS_LOAD.mux[Bool](LR, AMO)
 
         haltIt(!cmd.ready)
       }
