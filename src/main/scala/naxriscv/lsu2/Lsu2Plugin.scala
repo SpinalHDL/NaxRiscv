@@ -468,11 +468,16 @@ class Lsu2Plugin(var lqSize: Int,
         val kill = False
         val valid = Reg(Bool()) init(False) clearWhen(kill)
         val address = Reg(UInt(PHYSICAL_WIDTH bits))
-
+        val tagsEvent = cache.withCoherency generate new Area {
+          val checkIt = RegNext(False) init (False)
+          val hadIt = History(cache.logic.cache.io.tagEvent, (1 to sharedCtrlAt - sharedFeedAt+1)).orR
+          kill setWhen (checkIt && hadIt)
+        }
         def spawn(value : UInt): Unit ={
           valid := True
           address := value
           counter := 0
+          tagsEvent.checkIt := True
         }
 
         val counter = Reg(UInt(7 bits)) init(0) //Give the reservation a 64 cycle life
@@ -980,7 +985,7 @@ class Lsu2Plugin(var lqSize: Int,
         cmd.virtual          := ADDRESS_PRE_TRANSLATION
         cmd.size             := SIZE
         cmd.redoOnDataHazard := False
-        cmd.unique           := IS_LOAD.mux[Bool](LR, AMO)
+        cmd.unique           := !IS_LOAD || LR
 
         haltIt(!cmd.ready)
       }

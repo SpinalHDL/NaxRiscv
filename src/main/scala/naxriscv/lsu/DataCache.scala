@@ -710,6 +710,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
     val refillEvent = out Bool()
     val writebackEvent = out Bool()
     val writebackBusy = out Bool()
+    val tagEvent = out Bool()
   }
 
   val cpuWordWidth = cpuDataWidth
@@ -1031,14 +1032,22 @@ class DataCache(val p : DataCacheParameters) extends Component {
     }
 
     val ackSender = withCoherency generate new Area{
+      val ack = cloneOf(io.mem.read.ack)
       val requests = slots.map(_.ackValid)
       val oh = OHMasking.first(requests)
-      io.mem.read.ack.valid := requests.orR
-      io.mem.read.ack.ackId := OhMux.or(oh, slots.map(_.ackId))
-      when(io.mem.read.ack.ready){
+      ack.valid := requests.orR
+      ack.ackId := OhMux.or(oh, slots.map(_.ackId))
+      when(ack.ready){
         io.refillCompletions.asBools.onMask(oh)(_ := True)
         slots.onMask(oh)(_.ackValid := False)
       }
+
+      val buffer = ack.m2sPipe()
+      val counter = Reg(UInt(2 bits)) init(0)
+      when(buffer.valid){
+        counter := counter + 1
+      }
+      io.mem.read.ack << buffer.haltWhen(counter =/= 3) //Give some time for the CPU to do forward progress
     }
   }
 
@@ -1819,4 +1828,5 @@ class DataCache(val p : DataCacheParameters) extends Component {
 //  }
   io.refillEvent := refill.push.valid
   io.writebackEvent := writeback.push.valid
+  io.tagEvent := waysWrite.mask.orR
 }
