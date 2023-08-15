@@ -9,8 +9,35 @@ import naxriscv.misc.{CommitPlugin, PrivilegedPlugin, RegFilePlugin, RobPlugin}
 import naxriscv.{NaxRiscv, riscv}
 import spinal.core.{Bool, assert}
 import spinal.core.sim._
+import spinal.lib.bus.tilelink.M2sTransfers
+import spinal.lib.system.tag.MemoryConnection
 
 import scala.collection.mutable.ArrayBuffer
+
+class NaxriscvTilelinkProbe(naxTl : NaxriscvTilelink, hartId : Int) extends NaxriscvProbe(naxTl.thread.core, hartId){
+  override def add(tracer: TraceBackend) = {
+    super.add(tracer)
+    val dSpec = MemoryConnection.getMemoryTransfers(naxTl.dbus)
+    for(e <- dSpec){
+      e.transfers match {
+        case t : M2sTransfers => if (t.nonEmpty){
+          tracer.addRegion(hartId, 0, e.mapping)
+        }
+      }
+    }
+
+    val pSpec = MemoryConnection.getMemoryTransfers(naxTl.pbus)
+    for(e <- pSpec){
+      e.transfers match {
+        case t : M2sTransfers => if (t.nonEmpty){
+          tracer.addRegion(hartId, 1, e.mapping)
+        }
+      }
+    }
+    this
+  }
+}
+
 class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
 
   class RobCtx{

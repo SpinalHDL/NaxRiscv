@@ -3,6 +3,7 @@ package naxriscv.platform
 import java.io.{BufferedWriter, File, FileWriter}
 import spinal.core._
 import spinal.core.sim._
+import spinal.lib.bus.misc.{AddressMapping, OrMapping, SizeMapping}
 
 class TraceIo (var write: Boolean,
                var address: Long,
@@ -24,6 +25,13 @@ trait TraceBackend{
   def trap(hartId: Int, interrupt : Boolean, code : Int)
   def ioAccess(hartId: Int, access : TraceIo) : Unit
   def setInterrupt(hartId : Int, intId : Int, value : Boolean) : Unit
+  def addRegion(hartId : Int, kind : Int, base : Long, size : Long) : Unit
+  def addRegion(hartId : Int, kind : Int, mapping : AddressMapping) : Unit = {
+    mapping match {
+      case SizeMapping(base, size) => addRegion(hartId, kind, base.toLong, size.toLong)
+      case OrMapping(conds) => conds.foreach(addRegion(hartId,kind, _))
+    }
+  }
 
   def loadExecute(hartId: Int, id : Long, addr : Long, len : Long, data : Long) : Unit
   def loadCommit(hartId: Int, id : Long) : Unit
@@ -50,6 +58,7 @@ class DummyBackend() extends TraceBackend{
   override def trap(hartId: Int, interrupt: Boolean, code: Int) = {}
   override def ioAccess(hartId: Int, access: TraceIo) = {}
   override def setInterrupt(hartId: Int, intId: Int, value: Boolean) = {}
+  override def addRegion(hartId: Int, kind : Int, base: Long, size: Long) = {}
   override def loadExecute(hartId: Int, id: Long, addr: Long, len: Long, data: Long) = {}
   override def loadCommit(hartId: Int, id: Long) = {}
   override def loadFlush(hartId: Int) = {}
@@ -86,6 +95,10 @@ class FileBackend(f : File) extends TraceBackend{
 
   override def setInterrupt(hartId: Int, intId: Int, value: Boolean) = {
     bf.write(f"rv int set $hartId $intId ${value.toInt}\n")
+  }
+
+  override def addRegion(hartId: Int, kind: Int, base: Long, size: Long) = {
+    bf.write(f"rv region add $hartId $kind $base%016x $size%016x\n")
   }
 
   override def loadElf(offset: Long, path: File) = {
