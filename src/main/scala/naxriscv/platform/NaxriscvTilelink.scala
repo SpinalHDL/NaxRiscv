@@ -31,12 +31,29 @@ import scala.util.Random
 
 
 
-class NaxriscvTilelink(hartId : Int) extends Area with RiscvHart{
+class NaxriscvTilelink() extends Area with RiscvHart{
   val ibus = Node.master()
   val dbus = Node.master()
   val pbus = Node.master()
 
   val buses = List(ibus, dbus, pbus)
+  val plugins = Handle[Seq[Plugin]]
+
+  def setPluginsSimple(hartId : Int) : this.type = {
+    plugins load Config.plugins(
+      withCoherency = true,
+      withRdTime = false,
+      aluCount = 1,
+      decodeCount = 1,
+      ioRange = a => a(31 downto 28) === 0x1,
+      hartId = hartId
+    )
+    this
+  }
+  def setPlugins(p : Seq[Plugin]) : this.type = {
+    plugins.load(p)
+    this
+  }
 
 
   def privPlugin = thread.core.framework.getService[PrivilegedPlugin]
@@ -47,14 +64,8 @@ class NaxriscvTilelink(hartId : Int) extends Area with RiscvHart{
   override def getIntSupervisorExternal() = privPlugin.io.int.supervisor.external
 
   val thread = Fiber build new Area{
-    val l = Config.plugins(
-      withCoherency = true,
-      withRdTime = false,
-      aluCount    = 1,
-      decodeCount = 1,
-      ioRange = a => a(31 downto 28) === 0x1,
-      hartId = hartId
-    )
+    val l = ArrayBuffer[Plugin]()
+    l ++= plugins
 
     // Add a plugin to Nax which will handle the negotiation of the tilelink parameters
     l += new Plugin {

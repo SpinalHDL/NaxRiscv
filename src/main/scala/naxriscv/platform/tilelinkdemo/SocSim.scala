@@ -15,8 +15,10 @@ object SocSim extends App{
   sc.withFstWave
   sc.withConfig(SpinalConfig().includeSimulation)
   sc.addSimulatorFlag("--threads 4")
+//  sc.addSimulatorFlag("--prof-exec")
+  sc.withConfig(SpinalConfig(defaultConfigForClockDomains = ClockDomainConfig(resetKind = SYNC)))
 
-  val compiled = sc.compile(new SocDemo(2))
+  val compiled = sc.compile(new SocDemo(4))
 
   compiled.doSimUntilVoid(seed = 42) { dut =>
     fork {

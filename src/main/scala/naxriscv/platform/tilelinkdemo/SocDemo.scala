@@ -13,7 +13,7 @@ import spinal.lib.system.tag.PMA
 
 
 class SocDemo(cpuCount : Int) extends Component {
-  val naxes = for(hartId <- 0 until cpuCount) yield new NaxriscvTilelink(hartId)
+  val naxes = for(hartId <- 0 until cpuCount) yield new NaxriscvTilelink().setPluginsSimple(hartId)
 
   val memFilter, ioFilter = new fabric.TransferFilter()
   for(nax <- naxes) {

@@ -1,6 +1,7 @@
 package naxriscv.platform.litex
 
 import naxriscv.platform.NaxriscvTilelink
+import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
 import spinal.core.fiber._
@@ -14,8 +15,8 @@ import spinal.lib.bus.tilelink.fabric.Node
 import spinal.lib.misc.TilelinkFabricClint
 import spinal.lib.system.tag.PMA
 
-class NaxSoc(cpuCount : Int) extends Component{
-  val naxes = for(hartId <- 0 until cpuCount) yield new NaxriscvTilelink(hartId)
+class NaxSoc(naxPlugins : Seq[Seq[Plugin]]) extends Component{
+  val naxes = for(p <- naxPlugins) yield new NaxriscvTilelink().setPlugins(p)
 
   val memFilter, ioFilter = new fabric.TransferFilter()
   for(nax <- naxes) {
@@ -44,12 +45,12 @@ class NaxSoc(cpuCount : Int) extends Component{
     toAxiLite4.up << bus
   }
 
-  val mem = Fiber build master(toAxi4.down.pipelined())
-  val csr = Fiber build master(peripheral.toAxiLite4.down.pipelined())
+  val mBus = Fiber build master(toAxi4.down.pipelined())
+  val pBus = Fiber build master(peripheral.toAxiLite4.down.pipelined())
 
   val patcher = Fiber build new Area{
-    Axi4SpecRenamer(mem.get)
-    AxiLite4SpecRenamer(csr.get)
+    Axi4SpecRenamer(mBus.get)
+    AxiLite4SpecRenamer(pBus.get)
 
     naxes.foreach{hart =>
       hart.getIntMachineExternal() := False
@@ -60,5 +61,5 @@ class NaxSoc(cpuCount : Int) extends Component{
 
 
 object NaxSoc extends App{
-  SpinalVerilog(new NaxSoc(1))
+//  SpinalVerilog(new NaxSoc(1))
 }
