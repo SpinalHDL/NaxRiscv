@@ -22,6 +22,11 @@ case class LitexMemoryRegion(mapping : SizeMapping, mode : String, bus : String)
   def onMemory = !onPeripheral
 }
 
+//--update-repo=no --no-netlist-cache
+//litex_sim --cpu-type=naxriscv  --with-sdram --sdram-data-width=64 --trace --trace-fst
+//python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --scala-args='alu-count=1,decode-count=1' --with-jtag-tap
+//python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-spi-sdcard --with-ethernet --scala-args='alu-count=1,decode-count=1' --with-jtag-tap --build
+//python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1' --with-jtag-tap --build --load
 object NaxGen extends App{
   var netlistDirectory = "."
   var netlistName = "NaxSoc"
@@ -62,6 +67,7 @@ object NaxGen extends App{
   spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
   spinalConfig.addStandardMemBlackboxing(blackboxByteEnables)
   spinalConfig.addTransformationPhase(new EnforceSyncRamPhase)
+  spinalConfig.includeSimulation
 
   spinalConfig.generateVerilog {
 
@@ -70,7 +76,7 @@ object NaxGen extends App{
       s"""
          |import scala.collection.mutable.ArrayBuffer
          |import naxriscv.utilities.Plugin
-         |import naxriscv.platform.LitexMemoryRegion
+         |import naxriscv.platform.litex.LitexMemoryRegion
          |import spinal.lib.bus.misc.SizeMapping
          |val plugins = ArrayBuffer[Plugin]()
          |val resetVector = ${resetVector}l
@@ -88,9 +94,9 @@ object NaxGen extends App{
     codes += "plugins\n"
     val code = codes.mkString("\n")
     def plugins() = ScalaInterpreter.evaluate[ArrayBuffer[Plugin]](code, List(
-      ("memoryRegions", "Seq[naxriscv.platform.LitexMemoryRegion]", memoryRegions)
+      ("memoryRegions", "Seq[naxriscv.platform.litex.LitexMemoryRegion]", memoryRegions)
     ))
-    new NaxSoc(List.fill(1)(plugins)).setDefinitionName(netlistName)
+    new NaxSoc(List.fill(1)(plugins), memoryRegions).setDefinitionName(netlistName)
   }
 }
 
@@ -128,6 +134,9 @@ netboot
 boot 0x40f00000
 
 dtc -O dtb -o rv32.dtb arty_a7.dts
+
+TFTP =>
+sudo setcap cap_net_bind_service=ep /usr/bin/python3.10
 py3tftp -p 69
 
 tar -cvf chroot.tar debian-riscv64-tarball-20180418
