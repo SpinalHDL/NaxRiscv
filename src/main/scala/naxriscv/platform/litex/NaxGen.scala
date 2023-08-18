@@ -5,6 +5,7 @@
 package naxriscv.platform.litex
 
 import naxriscv.compatibility.{EnforceSyncRamPhase, MemReadDuringWritePatcherPhase, MultiPortWritesSymplifier}
+import naxriscv.misc.PrivilegedPlugin
 import naxriscv.utilities._
 import spinal.core._
 import spinal.lib.bus.misc.SizeMapping
@@ -24,7 +25,7 @@ case class LitexMemoryRegion(mapping : SizeMapping, mode : String, bus : String)
 
 //--update-repo=no --no-netlist-cache
 //litex_sim --cpu-type=naxriscv  --with-sdram --sdram-data-width=64 --trace --trace-fst
-//python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --scala-args='alu-count=1,decode-count=1' --with-jtag-tap
+//python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --scala-args='alu-count=1,decode-count=1' --sys-clk-freq 50000000  --with-jtag-tap
 //python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-spi-sdcard --with-ethernet --scala-args='alu-count=1,decode-count=1' --with-jtag-tap --build
 //python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1' --with-jtag-tap --build --load
 object NaxGen extends App{
@@ -32,13 +33,11 @@ object NaxGen extends App{
   var netlistName = "NaxSoc"
   var resetVector = 0l
   var xlen = 32
-  var jtagTap = false
-  var jtagInstruction = false
-  var debug = false
   var cpuCount = 1
   val files = ArrayBuffer[String]()
   val scalaArgs = ArrayBuffer[String]()
-  val memoryRegions = ArrayBuffer[LitexMemoryRegion]()
+  val socConfig = new NaxSocConfig
+  import socConfig._
 
   assert(new scopt.OptionParser[Unit]("NaxRiscv") {
     help("help").text("prints this usage text")
@@ -52,13 +51,13 @@ object NaxGen extends App{
     opt[Long]("reset-vector") action  { (v, c) => resetVector = v }
     opt[Int]("xlen") action { (v, c) => xlen = v }
     opt[Int]("cpu-count") action { (v, c) => cpuCount = v }
-    opt[Unit]("with-jtag-tap") action  { (v, c) => jtagTap = true }
-    opt[Unit]("with-jtag-instruction") action  { (v, c) => jtagInstruction = true }
-    opt[Unit]("with-debug") action { (v, c) => debug = true }
+    opt[Unit]("with-jtag-tap") action  { (v, c) => withJtagTap = true }
+    opt[Unit]("with-jtag-instruction") action  { (v, c) => withJtagInstruction = true }
+    opt[Unit]("with-debug") action { (v, c) => withDebug = true }
     opt[Seq[String]]("memory-region") unbounded() action  { (v, c) =>
       assert(v.length == 4, "--memory-region need 4 parameters")
       val r = new LitexMemoryRegion(SizeMapping(BigInt(v(0)), BigInt(v(1))), v(2), v(3))
-      memoryRegions += r
+      regions += r
       assert(!(r.onMemory && !r.isCachable), s"Region $r isn't supported by NaxRiscv, data cache will always cache memory")
       assert(!(r.onMemory &&  r.isIo ), s"Region $r isn't supported by NaxRiscv, IO have to be on peripheral bus")
     }
@@ -84,9 +83,9 @@ object NaxGen extends App{
          |val resetVector = ${resetVector}l
          |val args = scala.collection.mutable.LinkedHashMap[String, Any]()
          |val xlen = ${xlen}
-         |val jtagTap = ${jtagTap}
-         |val jtagInstruction = ${jtagInstruction}
-         |val debug = ${debug}
+         |val jtagTap = ${withJtagTap}
+         |val jtagInstruction = ${withJtagInstruction}
+         |val debug = ${withDebug}
          |def arg[T](key : String, default : T) = args.getOrElse(key, default).asInstanceOf[T]
          |
          |
@@ -96,9 +95,18 @@ object NaxGen extends App{
     codes += "plugins\n"
     val code = codes.mkString("\n")
     def plugins() = ScalaInterpreter.evaluate[ArrayBuffer[Plugin]](code, List(
-      ("memoryRegions", "Seq[naxriscv.platform.litex.LitexMemoryRegion]", memoryRegions)
+      ("memoryRegions", "Seq[naxriscv.platform.litex.LitexMemoryRegion]", regions)
     ))
-    new NaxSoc(List.fill(cpuCount)(plugins), memoryRegions).setDefinitionName(netlistName)
+    socConfig.naxPlugins = List.tabulate(cpuCount){ i =>
+      val p = plugins
+      p.foreach{
+        case pp : PrivilegedPlugin => pp.p.hartId = i
+        case _ =>
+      }
+      p
+    }
+    println()
+    new NaxSoc(socConfig).setDefinitionName(netlistName)
   }
 }
 

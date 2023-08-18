@@ -13,12 +13,23 @@ import spinal.lib.bus.tilelink
 import spinal.lib.bus.tilelink._
 import spinal.lib.bus.tilelink.coherent.HubFabric
 import spinal.lib.bus.tilelink.fabric.Node
+import spinal.lib.cpu.riscv.debug.DebugModuleFiber
 import spinal.lib.misc.TilelinkFabricClint
 import spinal.lib.system.tag.{MappedNode, MemoryConnection, MemoryTransferTag, MemoryTransfers, PMA}
 
 import scala.collection.mutable.ArrayBuffer
 
-class NaxSoc(naxPlugins : Seq[Seq[Plugin]], regions : ArrayBuffer[LitexMemoryRegion]) extends Component{
+class NaxSocConfig(){
+  var naxPlugins : Seq[Seq[Plugin]] = null
+  val regions = ArrayBuffer[LitexMemoryRegion]()
+  var withJtagTap = false
+  var withJtagInstruction = false
+  var withDebug = false
+}
+
+class NaxSoc(c : NaxSocConfig) extends Component{
+  import c._
+
   val naxes = for(p <- naxPlugins) yield new NaxriscvTilelink().setPlugins(p)
   for(nax <- naxes){
     nax.dbus.setDownConnection(_.connectFrom(_)(a = StreamPipe.HALF, d = StreamPipe.M2S))
@@ -77,6 +88,16 @@ class NaxSoc(naxPlugins : Seq[Seq[Plugin]], regions : ArrayBuffer[LitexMemoryReg
   val mBus = Fiber build master(toAxi4.down.pipelined())
   val pBus = Fiber build master(peripheral.toAxiLite4.down.pipelined())
 
+  val debug = c.withDebug generate new Area{
+    val cd = ClockDomain.current.copy(reset = in Bool())
+    val cdi = c.withJtagInstruction generate ClockDomain.external("jtag_instruction", withReset = false)
+
+    val dm = cd(new DebugModuleFiber())
+    naxes.foreach(dm.bindHart)
+    val tap = c.withJtagTap generate cd(dm.withJtagTap())
+    val instruction = c.withJtagInstruction generate cdi(dm.withJtagInstruction())
+  }
+
   val patcher = Fiber build new Area{
     Axi4SpecRenamer(mBus.get)
     AxiLite4SpecRenamer(pBus.get)
@@ -90,13 +111,12 @@ class NaxSoc(naxPlugins : Seq[Seq[Plugin]], regions : ArrayBuffer[LitexMemoryReg
     val d = MemoryConnection.getMemoryTransfers(naxes(0).dbus)
     val p = MemoryConnection.getMemoryTransfers(naxes(0).pbus)
 
-    naxes(0).thread.core.plugins.foreach {
-      case p: EmbeddedJtagPlugin => {
-        if (p.withTap) p.logic.jtag.toIo().setName("jtag")
-        else p.logic.jtagInstruction.toIo().setName("jtag_instruction")
-        p.logic.ndmreset.toIo().setName("debug_ndmreset")
-      }
-      case _ =>
+
+    if (withJtagTap) debug.tap.jtag.setName("jtag")
+    if (withJtagInstruction) debug.instruction.setName("jtag_instruction")
+    if (c.withDebug) {
+      debug.dm.ndmreset.toIo().setName("debug_ndmreset")
+      debug.cd.reset.setName("debug_reset")
     }
   }
 }

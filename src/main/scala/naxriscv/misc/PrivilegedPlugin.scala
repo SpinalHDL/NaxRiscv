@@ -49,7 +49,7 @@ case class PrivilegedConfig(withSupervisor : Boolean,
                             vendorId: Int,
                             archId: Int,
                             impId: Int,
-                            hartId: Int) {
+                            var hartId: Int) {
 
 }
 
@@ -129,7 +129,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
     if(p.withUser) addMisa('U')
     if(p.withSupervisor) addMisa('S')
 
-    val debugBus = p.withDebug generate master(DebugHartBus())
+    val debugBus = p.withDebug generate slave(DebugHartBus())
 
     val trapEvent = False
     val redoTriggered = False

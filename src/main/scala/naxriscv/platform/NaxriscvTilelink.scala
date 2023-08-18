@@ -7,6 +7,7 @@ import naxriscv.fetch._
 import naxriscv.misc._
 import naxriscv._
 import naxriscv.execute.CsrAccessPlugin
+import naxriscv.execute.fpu.FpuSettingPlugin
 import naxriscv.frontend.DecoderPlugin
 import naxriscv.lsu.DataCachePlugin
 import net.fornwall.jelf.{ElfFile, ElfSection, ElfSectionHeader}
@@ -20,6 +21,7 @@ import spinal.lib.bus.tilelink.coherent.{Hub, HubFabric}
 import spinal.lib.bus.tilelink.sim.{Checker, Endpoint, MemoryAgent, Monitor, MonitorSubscriber, SlaveDriver, TransactionA, TransactionC, TransactionD}
 import spinal.lib.bus.tilelink.{M2sSupport, M2sTransfers, Opcode, S2mSupport, SizeRange, fabric}
 import spinal.lib.cpu.riscv.RiscvHart
+import spinal.lib.cpu.riscv.debug.DebugHartBus
 import spinal.lib.misc.{Elf, TilelinkFabricClint}
 import spinal.lib.sim.SparseMemory
 import spinal.sim.{Signal, SimManagerContext}
@@ -57,11 +59,17 @@ class NaxriscvTilelink() extends Area with RiscvHart{
 
 
   def privPlugin = thread.core.framework.getService[PrivilegedPlugin]
+  override def getXlen() = thread.core.framework.getService[DecoderPlugin].xlen
+  override def getFlen() = thread.core.framework.getServiceOption[FpuSettingPlugin] match {
+    case Some(x) => x.rvd.toInt*64 max x.rvf.toInt*32
+    case None => 0
+  }
   override def getHartId() = privPlugin.p.hartId
   override def getIntMachineTimer() = privPlugin.io.int.machine.timer
   override def getIntMachineSoftware() = privPlugin.io.int.machine.software
   override def getIntMachineExternal() = privPlugin.io.int.machine.external
   override def getIntSupervisorExternal() = privPlugin.io.int.supervisor.external
+  override def getDebugBus(): DebugHartBus = privPlugin.setup.debugBus
 
   val thread = Fiber build new Area{
     val l = ArrayBuffer[Plugin]()
