@@ -20,6 +20,9 @@ import scala.collection.mutable.ArrayBuffer
 
 class NaxSoc(naxPlugins : Seq[Seq[Plugin]], regions : ArrayBuffer[LitexMemoryRegion]) extends Component{
   val naxes = for(p <- naxPlugins) yield new NaxriscvTilelink().setPlugins(p)
+  for(nax <- naxes){
+    nax.dbus.setDownConnection(_.connectFrom(_)(a = StreamPipe.HALF, d = StreamPipe.M2S))
+  }
 
   val memFilter, ioFilter = new fabric.TransferFilter()
   for(nax <- naxes) {
@@ -31,10 +34,11 @@ class NaxSoc(naxPlugins : Seq[Seq[Plugin]], regions : ArrayBuffer[LitexMemoryReg
   hub.up << memFilter.down
 
   val toAxi4 = new fabric.Axi4Bridge
+  toAxi4.up.forceDataWidth(64)
+  toAxi4.down.addTag(PMA.MAIN)
   regions.filter(_.onMemory).foreach(r =>
     toAxi4.up at r.mapping of hub.down
   )
-  toAxi4.down.addTag(PMA.MAIN)
 
   val peripheral = new Area {
     val bus = Node()
@@ -45,16 +49,14 @@ class NaxSoc(naxPlugins : Seq[Seq[Plugin]], regions : ArrayBuffer[LitexMemoryReg
 
     for(nax <- naxes) clint.bindHart(nax)
 
+    val axiLiteRegions = regions.filter(e => e.onPeripheral && !e.isIo)
     val toAxiLite4 = new fabric.AxiLite4Bridge
-    toAxiLite4.up at(OrMapping(regions.filter(_.onPeripheral).map(_.mapping))) of bus
+    toAxiLite4.up at(OrMapping(axiLiteRegions.map(_.mapping))) of bus
     toAxiLite4.up.forceDataWidth(32)
-    toAxiLite4.up.setDecoderConnection(_.connectFrom(_)(d=StreamPipe.M2S))
-//    regions.filter(_.onPeripheral).foreach(r =>
-//      toAxiLite4.up at r.mapping of bus
-//    )
+    toAxiLite4.up.setDownConnection(_.connectFrom(_)(d = StreamPipe.M2S))
 
-    val virtualRegions = for(region <- regions if region.onPeripheral) yield new Area with SpinalTagReady{
-      val self = this
+    val virtualRegions = for(region <- axiLiteRegions) yield new Area with SpinalTagReady{
+      def self = this
 
       new MemoryConnection {
         override def m = toAxiLite4.down
@@ -96,8 +98,6 @@ class NaxSoc(naxPlugins : Seq[Seq[Plugin]], regions : ArrayBuffer[LitexMemoryReg
       }
       case _ =>
     }
-
-    println(p)
   }
 }
 

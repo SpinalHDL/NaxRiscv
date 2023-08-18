@@ -35,6 +35,7 @@ object NaxGen extends App{
   var jtagTap = false
   var jtagInstruction = false
   var debug = false
+  var cpuCount = 1
   val files = ArrayBuffer[String]()
   val scalaArgs = ArrayBuffer[String]()
   val memoryRegions = ArrayBuffer[LitexMemoryRegion]()
@@ -49,10 +50,11 @@ object NaxGen extends App{
       for(e <- elements) scalaArgs += s"""args("${e(0)}") = ${e(1)}"""
     }
     opt[Long]("reset-vector") action  { (v, c) => resetVector = v }
-    opt[Int]("xlen") action  { (v, c) => xlen = v }
+    opt[Int]("xlen") action { (v, c) => xlen = v }
+    opt[Int]("cpu-count") action { (v, c) => cpuCount = v }
     opt[Unit]("with-jtag-tap") action  { (v, c) => jtagTap = true }
     opt[Unit]("with-jtag-instruction") action  { (v, c) => jtagInstruction = true }
-    opt[Unit]("with-debug") action  { (v, c) => debug = true }
+    opt[Unit]("with-debug") action { (v, c) => debug = true }
     opt[Seq[String]]("memory-region") unbounded() action  { (v, c) =>
       assert(v.length == 4, "--memory-region need 4 parameters")
       val r = new LitexMemoryRegion(SizeMapping(BigInt(v(0)), BigInt(v(1))), v(2), v(3))
@@ -96,7 +98,7 @@ object NaxGen extends App{
     def plugins() = ScalaInterpreter.evaluate[ArrayBuffer[Plugin]](code, List(
       ("memoryRegions", "Seq[naxriscv.platform.litex.LitexMemoryRegion]", memoryRegions)
     ))
-    new NaxSoc(List.fill(1)(plugins), memoryRegions).setDefinitionName(netlistName)
+    new NaxSoc(List.fill(cpuCount)(plugins), memoryRegions).setDefinitionName(netlistName)
   }
 }
 
