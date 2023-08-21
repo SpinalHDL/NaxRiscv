@@ -15,7 +15,7 @@ export NAXRISCV=${PWD}
 (cd ext/NaxSoftware && ./init.sh)
 
 # Building riscv-isa-sim (spike), used as a golden model during the sim to check the dut behaviour (lock-step)
-sudo apt-get install device-tree-compiler
+sudo apt-get install device-tree-compiler libboost-all-dev
 cd $NAXRISCV/ext/riscv-isa-sim
 mkdir build
 cd build

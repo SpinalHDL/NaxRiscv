@@ -1,6 +1,6 @@
 package naxriscv.platform.tilelinkdemo
 
-import naxriscv.platform.{FileBackend, NaxriscvProbe, NaxriscvTilelinkProbe, PeripheralEmulator}
+import naxriscv.platform.{FileBackend, JniBackend, NaxriscvProbe, NaxriscvTilelinkProbe, PeripheralEmulator}
 import spinal.core._
 import spinal.core.sim._
 import spinal.lib.bus.tilelink.sim.{Checker, MemoryAgent}
@@ -13,12 +13,12 @@ object SocSim extends App{
   val sc = SimConfig
   sc.normalOptimisation
   sc.withFstWave
-  sc.withConfig(SpinalConfig().includeSimulation)
+  sc.withConfig(SpinalConfig(defaultConfigForClockDomains = ClockDomainConfig(resetKind = SYNC)).includeSimulation)
   sc.addSimulatorFlag("--threads 4")
 //  sc.addSimulatorFlag("--prof-exec")
-  sc.withConfig(SpinalConfig(defaultConfigForClockDomains = ClockDomainConfig(resetKind = SYNC)))
 
-  val compiled = sc.compile(new SocDemo(4))
+
+  val compiled = sc.compile(new SocDemo(1))
 
   compiled.doSimUntilVoid(seed = 42) { dut =>
     fork {
@@ -91,13 +91,15 @@ object SocSim extends App{
     val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
 
 //    val tracer = new FileBackend(new File("trace.log"))
-//    tracer.spinalSimFlusher(10*10000)
-//    tracer.spinalSimTime(10000)
-//
-//    val naxes = dut.naxes.map(nax =>
-//      new NaxriscvTilelinkProbe(nax, nax.getHartId()).add(tracer)
-//    )
-//
+    val tracer = new JniBackend()
+    tracer.spinalSimFlusher(10*10000)
+    tracer.spinalSimTime(10000)
+    tracer.debug()
+
+    val naxes = dut.naxes.map(nax =>
+      new NaxriscvTilelinkProbe(nax, nax.getHartId()).add(tracer)
+    )
+
 //    val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
 //    //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
 //    //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))

@@ -14,6 +14,15 @@ class TraceIo (var write: Boolean,
   def serialized() = f"${write.toInt} $address%016x $data%016x $mask%02x $size ${error.toInt}"
 }
 trait TraceBackend{
+  def spinalSimFlusher(period: Long): Unit = {
+    periodicaly(period)(flush())
+    onSimEnd(close())
+  }
+
+  def spinalSimTime(period: Long): Unit = {
+    periodicaly(period)(time(simTime()))
+  }
+
   def newCpuMemoryView(viewId : Int, readIds : Long, writeIds : Long)
   def newCpu(hartId : Int, isa : String, priv : String, physWidth : Int, memoryViewId : Int) : Unit
   def loadElf(offset : Long, path : File) : Unit
@@ -144,12 +153,42 @@ class FileBackend(f : File) extends TraceBackend{
 
   override def flush() = bf.flush()
   override def close() = bf.close()
+}
 
-  def spinalSimFlusher(period : Long): Unit ={
-    periodicaly(period)(flush())
-    onSimEnd(close())
+class JniBackend(workspace : File = new File(".")) extends TraceBackend{
+  import rvls.jni.Frontend
+  val handle = Frontend.newContext(workspace.getAbsolutePath)
+
+  override def flush(): Unit = {}
+  override def close(): Unit = {
+    Frontend.deleteContext(handle)
   }
-  def spinalSimTime(period : Long): Unit ={
-    periodicaly(period)(time(simTime()))
+
+  def spikeDebug(): Unit = Frontend.spikeDebug(handle, true)
+  def spikeLogCommit() : Unit = Frontend.spikeLogCommit(handle, true)
+  def debug() : Unit = {
+    spikeDebug()
+    spikeLogCommit()
   }
+
+  override def newCpuMemoryView(viewId: Int, readIds: Long, writeIds: Long): Unit = Frontend.newCpuMemoryView(handle, viewId, readIds, writeIds)
+  override def newCpu(hartId: Int, isa: String, priv: String, physWidth: Int, memoryViewId: Int): Unit = Frontend.newCpu(handle, hartId, isa, priv, physWidth, memoryViewId)
+  override def loadElf(offset: Long, path: File): Unit = Frontend.loadElf(handle, offset, path.getAbsolutePath)
+  override def loadBin(offset: Long, path: File): Unit = Frontend.loadBin(handle, offset, path.getAbsolutePath)
+  override def setPc(hartId: Int, pc: Long): Unit = Frontend.setPc(handle, hartId, pc)
+  override def writeRf(hardId: Int, rfKind: Int, address: Int, data: Long): Unit = Frontend.writeRf(handle, hardId, rfKind, address, data)
+  override def readRf(hardId: Int, rfKind: Int, address: Int, data: Long): Unit = Frontend.readRf(handle, hardId, rfKind, address, data)
+  override def commit(hartId: Int, pc: Long): Unit = Frontend.commit(handle, hartId, pc)
+  override def trap(hartId: Int, interrupt: Boolean, code: Int): Unit = Frontend.trap(handle, hartId, interrupt, code)
+  override def ioAccess(hartId: Int, access: TraceIo): Unit = Frontend.ioAccess(handle, hartId, access.write, access.address, access.data, access.mask, access.size, access.error)
+  override def setInterrupt(hartId: Int, intId: Int, value: Boolean): Unit = Frontend.setInterrupt(handle, hartId, intId, value)
+  override def addRegion(hartId: Int, kind: Int, base: Long, size: Long): Unit = Frontend.addRegion(handle, hartId, kind, base, size)
+  override def loadExecute(hartId: Int, id: Long, addr: Long, len: Long, data: Long): Unit = Frontend.loadExecute(handle, hartId, id, addr, len, data)
+  override def loadCommit(hartId: Int, id: Long): Unit = Frontend.loadCommit(handle, hartId, id)
+  override def loadFlush(hartId: Int): Unit = Frontend.loadFlush(handle, hartId)
+  override def storeCommit(hartId: Int, id: Long, addr: Long, len: Long, data: Long): Unit = Frontend.storeCommit(handle, hartId, id, addr, len, data)
+  override def storeBroadcast(hartId: Int, id: Long): Unit = Frontend.storeBroadcast(handle, hartId, id)
+  override def storeConditional(hartId: Int, failure: Boolean): Unit = Frontend.storeConditional(handle, hartId, failure)
+  override def time(value: Long): Unit = Frontend.time(handle, value)
+
 }

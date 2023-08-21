@@ -14,7 +14,8 @@ import spinal.lib.bus.tilelink._
 import spinal.lib.bus.tilelink.coherent.HubFabric
 import spinal.lib.bus.tilelink.fabric.Node
 import spinal.lib.cpu.riscv.debug.DebugModuleFiber
-import spinal.lib.misc.TilelinkFabricClint
+import spinal.lib.misc.plic.TilelinkPlicFiber
+import spinal.lib.misc.{InterruptNode, TilelinkFabricClint}
 import spinal.lib.system.tag.{MappedNode, MemoryConnection, MemoryTransferTag, MemoryTransfers, PMA}
 
 import scala.collection.mutable.ArrayBuffer
@@ -32,17 +33,19 @@ class NaxSoc(c : NaxSocConfig) extends Component{
 
   val naxes = for(p <- naxPlugins) yield new NaxriscvTilelink().setPlugins(p)
   for(nax <- naxes){
-    nax.dbus.setDownConnection(_.connectFrom(_)(a = StreamPipe.HALF, d = StreamPipe.M2S))
+    nax.dBus.setDownConnection(_.connectFrom(_)(a = StreamPipe.HALF, d = StreamPipe.M2S))
+    nax.pBus.setDownConnection(_.connectFrom(_)(d = StreamPipe.HALF))
   }
 
   val memFilter, ioFilter = new fabric.TransferFilter()
   for(nax <- naxes) {
-    memFilter.up << List(nax.ibus, nax.dbus)
-    ioFilter.up << List(nax.pbus)
+    memFilter.up << List(nax.iBus, nax.dBus)
+    ioFilter.up << List(nax.pBus)
   }
 
   val hub = new HubFabric()
   hub.up << memFilter.down
+  hub.up.setUpConnection(_.connectFrom(_)(c = StreamPipe.FULL))
 
   val toAxi4 = new fabric.Axi4Bridge
   toAxi4.up.forceDataWidth(64)
@@ -54,17 +57,33 @@ class NaxSoc(c : NaxSocConfig) extends Component{
   val peripheral = new Area {
     val bus = Node()
     bus << (hub.down, ioFilter.down)
+    bus.setUpConnection(_.connectFrom(_)(d = StreamPipe.M2S))
 
     val clint = new TilelinkFabricClint()
     clint.node at 0xF0010000l of bus
 
-    for(nax <- naxes) clint.bindHart(nax)
+    val plic = new TilelinkPlicFiber()
+    plic.node at 0xF0C00000l of bus
+
+    val externalInterrupts = new Area {
+      val port = in Bits (32 bits)
+      val toPlic = for (i <- 0 to 31) yield (i != 0) generate new Area {
+        val node = plic.createInterruptSlave(i)
+        node.withUps = false
+        node.flag := port(i)
+      }
+    }
+
+
+    for(nax <- naxes) {
+      nax.bind(clint)
+      nax.bind(plic)
+    }
 
     val axiLiteRegions = regions.filter(e => e.onPeripheral && !e.isIo)
     val toAxiLite4 = new fabric.AxiLite4Bridge
     toAxiLite4.up at(OrMapping(axiLiteRegions.map(_.mapping))) of bus
     toAxiLite4.up.forceDataWidth(32)
-    toAxiLite4.up.setDownConnection(_.connectFrom(_)(d = StreamPipe.M2S))
 
     val virtualRegions = for(region <- axiLiteRegions) yield new Area with SpinalTagReady{
       def self = this
@@ -102,14 +121,9 @@ class NaxSoc(c : NaxSocConfig) extends Component{
     Axi4SpecRenamer(mBus.get)
     AxiLite4SpecRenamer(pBus.get)
 
-    naxes.foreach{hart =>
-      hart.getIntMachineExternal() := False
-      hart.getIntSupervisorExternal() := False
-    }
-
-    val i = MemoryConnection.getMemoryTransfers(naxes(0).ibus)
-    val d = MemoryConnection.getMemoryTransfers(naxes(0).dbus)
-    val p = MemoryConnection.getMemoryTransfers(naxes(0).pbus)
+    val i = MemoryConnection.getMemoryTransfers(naxes(0).iBus)
+    val d = MemoryConnection.getMemoryTransfers(naxes(0).dBus)
+    val p = MemoryConnection.getMemoryTransfers(naxes(0).pBus)
 
 
     if (withJtagTap) debug.tap.jtag.setName("jtag")

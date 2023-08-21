@@ -1,6 +1,7 @@
 package naxriscv.platform.tilelinkdemo
 
-import naxriscv.platform.NaxriscvTilelink
+import naxriscv.platform.{JniBackend, NaxriscvTilelink}
+import riscv.model.Model
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib.bus.misc.SizeMapping
@@ -9,6 +10,7 @@ import spinal.lib.bus.tilelink._
 import spinal.lib.bus.tilelink.coherent.HubFabric
 import spinal.lib.bus.tilelink.fabric.Node
 import spinal.lib.misc.TilelinkFabricClint
+import spinal.lib.misc.plic.TilelinkPlicFiber
 import spinal.lib.system.tag.PMA
 
 
@@ -17,8 +19,8 @@ class SocDemo(cpuCount : Int) extends Component {
 
   val memFilter, ioFilter = new fabric.TransferFilter()
   for(nax <- naxes) {
-    memFilter.up << List(nax.ibus, nax.dbus)
-    ioFilter.up << List(nax.pbus)
+    memFilter.up << List(nax.iBus, nax.dBus)
+    ioFilter.up << List(nax.pBus)
   }
 
   val nonCoherent = Node()
@@ -38,7 +40,13 @@ class SocDemo(cpuCount : Int) extends Component {
     val clint = new TilelinkFabricClint()
     clint.node at 0x10000 of bus
 
-    for(nax <- naxes) clint.bindHart(nax)
+    val plic = new TilelinkPlicFiber()
+    plic.node at 0xC00000l of bus
+
+    for(nax <- naxes) {
+      nax.bind(clint)
+      nax.bind(plic)
+    }
 
 
     val emulated = new tilelink.fabric.SlaveBus(
@@ -55,9 +63,9 @@ class SocDemo(cpuCount : Int) extends Component {
 
     val custom = Fiber build new Area{
       val mei,sei = in Bool()
-      clint.harts.foreach{hart =>
-        hart.getIntMachineExternal() := mei
-        hart.getIntSupervisorExternal() := sei
+      naxes.foreach{ hart =>
+        hart.getIntMachineExternal() setWhen mei
+        hart.getIntSupervisorExternal() setWhen sei
       }
     }
   }
@@ -65,4 +73,20 @@ class SocDemo(cpuCount : Int) extends Component {
 
 object SocDemo extends App{
   SpinalVerilog(new SocDemo(2))
+}
+
+object Jni extends App{
+  val m = new Model
+  println(m.newModel())
+}
+
+object RvlsTest extends App{
+  val f = new JniBackend
+  f.newCpuMemoryView(0, 1, 2)
+  f.newCpu(0,"RV32IMA", "MSU", 32, 0);
+  try {
+    f.commit(0, 0x44)
+  }catch {
+    case _ => println("MIAOUUUU")
+  }
 }

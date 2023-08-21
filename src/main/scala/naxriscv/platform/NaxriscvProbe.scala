@@ -17,7 +17,7 @@ import scala.collection.mutable.ArrayBuffer
 class NaxriscvTilelinkProbe(naxTl : NaxriscvTilelink, hartId : Int) extends NaxriscvProbe(naxTl.thread.core, hartId){
   override def add(tracer: TraceBackend) = {
     super.add(tracer)
-    val dSpec = MemoryConnection.getMemoryTransfers(naxTl.dbus)
+    val dSpec = MemoryConnection.getMemoryTransfers(naxTl.dBus)
     for(e <- dSpec){
       e.transfers match {
         case t : M2sTransfers => if (t.nonEmpty){
@@ -26,7 +26,7 @@ class NaxriscvTilelinkProbe(naxTl : NaxriscvTilelink, hartId : Int) extends Naxr
       }
     }
 
-    val pSpec = MemoryConnection.getMemoryTransfers(naxTl.pbus)
+    val pSpec = MemoryConnection.getMemoryTransfers(naxTl.pBus)
     for(e <- pSpec){
       e.transfers match {
         case t : M2sTransfers => if (t.nonEmpty){

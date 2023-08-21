@@ -26,6 +26,7 @@ case class LitexMemoryRegion(mapping : SizeMapping, mode : String, bus : String)
 //--update-repo=no --no-netlist-cache
 //litex_sim --cpu-type=naxriscv  --with-sdram --sdram-data-width=64 --trace --trace-fst
 //python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --scala-args='alu-count=1,decode-count=1' --sys-clk-freq 50000000  --with-jtag-tap
+//python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-spi-sdcard --with-ethernet --scala-args='alu-count=1,decode-count=1' --with-jtag-tap --sys-clk-freq 100000000 --cpu-count 2 --soc-json build/digilent_nexys_video/csr.json --build --load
 //python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-spi-sdcard --with-ethernet --scala-args='alu-count=1,decode-count=1' --with-jtag-tap --build
 //python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1' --with-jtag-tap --build --load
 object NaxGen extends App{
