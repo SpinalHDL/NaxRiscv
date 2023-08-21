@@ -84,9 +84,5 @@ object RvlsTest extends App{
   val f = new JniBackend
   f.newCpuMemoryView(0, 1, 2)
   f.newCpu(0,"RV32IMA", "MSU", 32, 0);
-  try {
-    f.commit(0, 0x44)
-  }catch {
-    case _ => println("MIAOUUUU")
-  }
+  f.trap(0, false, 1)
 }

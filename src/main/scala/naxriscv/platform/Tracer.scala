@@ -82,73 +82,78 @@ class DummyBackend() extends TraceBackend{
 class FileBackend(f : File) extends TraceBackend{
   val bf = new BufferedWriter(new FileWriter(f))
 
+  def log(line : String) = {
+    bf.write(line)
+//    println(line)
+  }
+
   override def commit(hartId: Int, pc: Long) = {
-    bf.write(f"rv commit $hartId $pc%016x\n")
+    log(f"rv commit $hartId $pc%016x\n")
   }
 
   override def trap(hartId: Int, interrupt : Boolean, code : Int): Unit ={
-    bf.write(f"rv trap $hartId ${interrupt.toInt} $code\n")
+    log(f"rv trap $hartId ${interrupt.toInt} $code\n")
   }
 
   override def writeRf(hartId: Int, rfKind: Int, address: Int, data: Long) = {
-    bf.write(f"rv rf w $hartId $rfKind $address $data%016x\n")
+    log(f"rv rf w $hartId $rfKind $address $data%016x\n")
   }
 
   override def readRf(hartId: Int, rfKind: Int, address: Int, data: Long) = {
-    bf.write(f"rv rf r $hartId $rfKind $address $data%016x\n")
+    log(f"rv rf r $hartId $rfKind $address $data%016x\n")
   }
 
   def ioAccess(hartId: Int, access : TraceIo) : Unit = {
-    bf.write(f"rv io $hartId ${access.serialized()}\n")
+    log(f"rv io $hartId ${access.serialized()}\n")
   }
 
   override def setInterrupt(hartId: Int, intId: Int, value: Boolean) = {
-    bf.write(f"rv int set $hartId $intId ${value.toInt}\n")
+    log(f"rv int set $hartId $intId ${value.toInt}\n")
   }
 
   override def addRegion(hartId: Int, kind: Int, base: Long, size: Long) = {
-    bf.write(f"rv region add $hartId $kind $base%016x $size%016x\n")
+    log(f"rv region add $hartId $kind $base%016x $size%016x\n")
   }
 
   override def loadElf(offset: Long, path: File) = {
-    bf.write(f"elf load  $offset%016x ${path.getAbsolutePath}\n")
+    log(f"elf load  $offset%016x ${path.getAbsolutePath}\n")
   }
 
   override def loadBin(offset: Long, path: File) = {
-    bf.write(f"bin load $offset%016x ${path.getAbsolutePath} \n")
+    log(f"bin load $offset%016x ${path.getAbsolutePath} \n")
   }
   override def setPc(hartId: Int, pc: Long) = {
-    bf.write(f"rv set pc $hartId $pc%016x\n")
+    log(f"rv set pc $hartId $pc%016x\n")
   }
 
   override def newCpuMemoryView(memoryViewId : Int, readIds : Long, writeIds : Long) = {
-    bf.write(f"memview new $memoryViewId $readIds $writeIds\n")
+    log(f"memview new $memoryViewId $readIds $writeIds\n")
   }
 
   override def newCpu(hartId: Int, isa : String, priv : String, physWidth : Int, memoryViewId : Int) = {
-    bf.write(f"rv new $hartId $isa $priv $physWidth $memoryViewId\n")
+    log(f"rv new $hartId $isa $priv $physWidth $memoryViewId\n")
   }
 
   override def loadExecute(hartId: Int, id : Long, addr : Long, len : Long, data : Long) : Unit = {
-    bf.write(f"rv load exe $hartId $id $len $addr%016x $data%016x\n")
+    log(f"rv load exe $hartId $id $len $addr%016x $data%016x\n")
   }
   override def loadCommit(hartId: Int, id : Long) : Unit = {
-    bf.write(f"rv load com $hartId $id\n")
+    log(f"rv load com $hartId $id\n")
   }
   override def loadFlush(hartId: Int) : Unit = {
-    bf.write(f"rv load flu $hartId\n")
+    log(f"rv load flu $hartId\n")
   }
   override def storeCommit(hartId: Int, id : Long, addr : Long, len : Long, data : Long) : Unit = {
-    bf.write(f"rv store com $hartId $id $len $addr%016x $data%016x\n")
+    log(f"rv store com $hartId $id $len $addr%016x $data%016x\n")
   }
   override def storeBroadcast(hartId: Int, id : Long) : Unit = {
-    bf.write(f"rv store bro $hartId $id\n")
+    log(f"rv store bro $hartId $id\n")
   }
   override def storeConditional(hartId: Int, failure: Boolean) = {
-    bf.write(f"rv store sc $hartId ${failure.toInt}\n")
+    log(f"rv store sc $hartId ${failure.toInt}\n")
   }
 
-  override def time(value: Long) = bf.write(f"time $value\n")
+  override def time(value: Long) = log(f"time $value\n")
 
 
   override def flush() = bf.flush()
@@ -178,8 +183,8 @@ class JniBackend(workspace : File = new File(".")) extends TraceBackend{
   override def setPc(hartId: Int, pc: Long): Unit = Frontend.setPc(handle, hartId, pc)
   override def writeRf(hardId: Int, rfKind: Int, address: Int, data: Long): Unit = Frontend.writeRf(handle, hardId, rfKind, address, data)
   override def readRf(hardId: Int, rfKind: Int, address: Int, data: Long): Unit = Frontend.readRf(handle, hardId, rfKind, address, data)
-  override def commit(hartId: Int, pc: Long): Unit = Frontend.commit(handle, hartId, pc)
-  override def trap(hartId: Int, interrupt: Boolean, code: Int): Unit = Frontend.trap(handle, hartId, interrupt, code)
+  override def commit(hartId: Int, pc: Long): Unit = if(!Frontend.commit(handle, hartId, pc)) throw new Exception()
+  override def trap(hartId: Int, interrupt: Boolean, code: Int): Unit = if(!Frontend.trap(handle, hartId, interrupt, code)) throw new Exception()
   override def ioAccess(hartId: Int, access: TraceIo): Unit = Frontend.ioAccess(handle, hartId, access.write, access.address, access.data, access.mask, access.size, access.error)
   override def setInterrupt(hartId: Int, intId: Int, value: Boolean): Unit = Frontend.setInterrupt(handle, hartId, intId, value)
   override def addRegion(hartId: Int, kind: Int, base: Long, size: Long): Unit = Frontend.addRegion(handle, hartId, kind, base, size)
