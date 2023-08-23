@@ -850,6 +850,16 @@ public:
         mmioDut.pop();
         return !dut.error;
     }
+
+    virtual bool mmio_fetch(reg_t addr, size_t len, u8* bytes)  {
+        return mmio_load(addr, len, bytes);
+    }
+
+
+    virtual bool mmio_mmu(reg_t addr, size_t len, u8* bytes)  {
+        return mmio_load(addr, len, bytes);
+    }
+
     // Callback for processors to let the simulation know they were reset.
     virtual void proc_reset(unsigned id)  {
 //        printf("proc_reset %d\n", id);
