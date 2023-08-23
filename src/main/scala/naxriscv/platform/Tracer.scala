@@ -1,5 +1,7 @@
 package naxriscv.platform
 
+import org.apache.commons.io.FileUtils
+
 import java.io.{BufferedWriter, File, FileWriter}
 import spinal.core._
 import spinal.core.sim._
@@ -162,6 +164,7 @@ class FileBackend(f : File) extends TraceBackend{
 
 class JniBackend(workspace : File = new File(".")) extends TraceBackend{
   import rvls.jni.Frontend
+  FileUtils.forceMkdir(workspace)
   val handle = Frontend.newContext(workspace.getAbsolutePath)
 
   override def flush(): Unit = {}

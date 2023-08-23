@@ -25,9 +25,12 @@ class SocDemo(cpuCount : Int) extends Component {
 
   val nonCoherent = Node()
 
-  val hub = new HubFabric()
-  hub.up << memFilter.down
-  nonCoherent << hub.down
+//  val hub = new HubFabric()
+//  hub.up << memFilter.down
+//  nonCoherent << hub.down
+
+
+  nonCoherent << memFilter.down
 
   val mem = new tilelink.fabric.SlaveBusAny()
   mem.node at SizeMapping(0x80000000l, 0x80000000l) of nonCoherent
@@ -35,7 +38,7 @@ class SocDemo(cpuCount : Int) extends Component {
 
   val peripheral = new Area {
     val bus = Node()
-    bus at (0x10000000l, 0x10000000l)  of (hub.down, ioFilter.down)
+    bus at (0x10000000l, 0x10000000l)  of (ioFilter.down)
 
     val clint = new TilelinkFabricClint()
     clint.node at 0x10000 of bus
@@ -84,5 +87,5 @@ object RvlsTest extends App{
   val f = new JniBackend
   f.newCpuMemoryView(0, 1, 2)
   f.newCpu(0,"RV32IMA", "MSU", 32, 0);
-  f.trap(0, false, 1)
+  f.trap(0, false, 42)
 }

@@ -262,6 +262,7 @@ Vex : timed 5026 gametics in 3851 realtics (45.679043 fps)
 no draw no blit :
 Nax : timed 5026 gametics in 277 realtics (635.054138 fps
 
+nax(when 1 alu, -1) 49.4 fps, (same but -2) (34.498920 fps)
 
 root@buildroot:~# ramspeed -b 1 -g  1
 RAMspeed (GENERIC) v2.6.0 by Rhett M. Hollander and Paul V. Bolotoff, 2002-09

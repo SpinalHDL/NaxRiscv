@@ -449,7 +449,7 @@ object Gen extends App{
       decodeCount = 2,
       debugTriggers = 4,
       withDedicatedLoadAgu = false,
-      withRvc = false,
+      withRvc = true,
       withLoadStore = true,
       withMmu = true,
       withDebug = false,
