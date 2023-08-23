@@ -24,59 +24,16 @@ object SocSim extends App {
 
   val compiled = sc.compile(new SocDemo(2))
 
-  for (i <- 0 until 64) test("test_" + i) {
-    compiled.doSimUntilVoid(name = s"test_$i", seed = i)(testIt(_))
-  }
-
-//  DualSimTracer.withCb(compiled, window = 500*10,42)(testIt)
-
-//  val seed = 0
-//  var mTime = 0l
-//  var mEnded = false
-//  val window = 500000*10
-//
-//  test("explorer") {
-//    try {
-//      compiled.doSimUntilVoid(name = s"explorer", seed = seed) { dut =>
-//        disableSimWave()
-//        periodicaly(window) {
-//          mTime = simTime()
-//        }
-//        onSimEnd {
-//          mTime = simTime()
-//          mEnded = true
-//        }
-//        testIt(dut, cb => {})
-//      }
-//    } catch {
-//      case e : Throwable => throw e
-//    }
+//  for (i <- 0 until 64) test("test_" + i) {
+//    compiled.doSimUntilVoid(name = s"test_$i", seed = i)(testIt(_))
 //  }
-//
-//  test("tracer") {
-//    val traceCallbacks = ArrayBuffer[() => Unit]()
-//    compiled.doSimUntilVoid(name = s"tracer", seed = seed) { dut =>
-//      fork{
-//        sleep(0)
-//        while(true) {
-//          while (simTime + window * 2 >= mTime && !mEnded) {
-//            Thread.sleep(100, 0)
-//          }
-//          if (mEnded) {
-//            sleep((mTime - simTime - window) max 0)
-//            enableSimWave()
-//            traceCallbacks.foreach(_())
-//            sleep(window + 1000)
-//            simFailure("slave thread didn't ended ????")
-//          }
-//          sleep(window)
-//        }
-//      }
-//      testIt(dut, callback => traceCallbacks += (() => callback))
-//    }
-//  }
+
+  DualSimTracer.withCb(compiled, window = 50000*10, 2)(testIt)
+
 
   await()
+
+//  compiled.doSimUntilVoid(name = s"test", seed = 2)(testIt(_))
 
   def testIt(dut : SocDemo, onTrace : (=> Unit) => Unit = cb => {}): Unit = {
     disableSimWave()
@@ -142,21 +99,32 @@ object SocSim extends App {
 
     val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
 
-    //    val tracerFile = new FileBackend(new File("trace.log"))
-    //    tracerFile.spinalSimFlusher(10 * 10000)
-    //    tracerFile.spinalSimTime(10000)
 
-    val tracer = new JniBackend(new File("logs", currentTestName))
+    val tracer = new JniBackend(new File(compiled.compiledPath, currentTestName))
     tracer.spinalSimFlusher(10 * 10000)
     tracer.spinalSimTime(10000)
-    onTrace(tracer.debug())
-    //          tracer.debug()
+    // tracer.debug()
 
     val naxes = dut.naxes.map(nax =>
-      new NaxriscvTilelinkProbe(nax, nax.getHartId()) /*.add(tracerFile).*/ add (tracer)
+      new NaxriscvTilelinkProbe(nax, nax.getHartId()).add (tracer)
     )
 
-//        val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+
+    onTrace{
+      tracer.debug()
+
+      val tracerFile = new FileBackend(new File(new File(compiled.compiledPath, currentTestName), "tracer.log"))
+      tracerFile.spinalSimFlusher(10 * 10000)
+      tracerFile.spinalSimTime(10000)
+      naxes.foreach { hart =>
+        hart.add(tracerFile)
+        val r = hart.backends.reverse
+        hart.backends.clear()
+        hart.backends ++= r
+      }
+    }
+
+    //        val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
         //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
         //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
         //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))

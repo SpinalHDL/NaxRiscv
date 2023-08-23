@@ -82,6 +82,7 @@ class DummyBackend() extends TraceBackend{
 }
 
 class FileBackend(f : File) extends TraceBackend{
+  FileUtils.forceMkdir(f.getParentFile)
   val bf = new BufferedWriter(new FileWriter(f))
 
   def log(line : String) = {
