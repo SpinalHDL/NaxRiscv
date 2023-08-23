@@ -975,7 +975,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val way = slots.map(_.way).read(io.mem.read.rsp.id)
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
       val rspWithData = p.withCoherency.mux(io.mem.read.rsp.withData, True)
-      assert(!(io.mem.read.rsp.valid && !rspWithData && slots.map(_.data).read(io.mem.read.rsp.id)), "Data cache asked for data but didn't recieved any :(")
+      if(withCoherency) assert(!(io.mem.read.rsp.valid && !rspWithData && slots.map(_.data).read(io.mem.read.rsp.id)), "Data cache asked for data but didn't recieved any :(")
 
       val bankWriteNotif = B(0, bankCount bits)
       for ((bank, bankId) <- banks.zipWithIndex) {

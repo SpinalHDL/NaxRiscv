@@ -474,10 +474,10 @@ class Lsu2Plugin(var lqSize: Int,
           kill setWhen (checkIt && hadIt)
         }
         def spawn(value : UInt): Unit ={
-          valid := True
+          valid := !valid // !valid ensure that if we spam LR, we won't always get the reservation, allowing other cores to acquire the memory block
           address := value
           counter := 0
-          tagsEvent.checkIt := True
+          if(cache.withCoherency) tagsEvent.checkIt := True
         }
 
         val counter = Reg(UInt(7 bits)) init(0) //Give the reservation a 64 cycle life
