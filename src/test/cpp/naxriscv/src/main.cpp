@@ -1030,6 +1030,7 @@ public:
     ofstream gem5;
     disassembler_t disasm;
     bool gem5Enable = false;
+    bool scValid, scPassed;
 
     u64 opCounter = 0;
     int periode = 2;
@@ -1099,6 +1100,13 @@ public:
     }
 
     virtual void preCycle(){
+        if(nax->Lsu2Plugin_logic_special_atomic_storeWhitebox_valid){
+          if(nax->Lsu2Plugin_logic_special_atomic_storeWhitebox_isSc){
+        	scValid = true;
+			scPassed = nax->Lsu2Plugin_logic_special_atomic_storeWhitebox_scPassed;
+          }
+        }
+
         if(nax->robToPc_valid){
             for(int i = 0;i < DISPATCH_COUNT;i++){
                 robCtx[nax->robToPc_robId + i].pc = *robToPc[i];
@@ -2138,6 +2146,13 @@ void simLoop(){
                             }
                             if(spike_enabled) {
                                 RvData spike_pc = state->pc;
+                                if(whitebox->scValid){
+                                	whitebox->scValid = false;
+                                	if(!whitebox->scPassed){
+                                		proc->get_mmu()->yield_load_reservation();
+                                	}
+                                }
+
                                 spikeStep(robCtx);
                                 last_commit_pc = pc;
 

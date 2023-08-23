@@ -1794,8 +1794,8 @@ class Lsu2Plugin(var lqSize: Int,
           val valid = Verilator.public(False)
           val robIdV = Verilator.public(robId)
           val storeData = Verilator.public(alu.result)
-          val isSc = Verilator.public(storeSc)
-          val scPassed = Verilator.public(gotReservation)
+          val isSc = Verilator.public(CombInit(storeSc))
+          val scPassed = Verilator.public(CombInit(gotReservation))
         }
 
         ALU whenIsActive{
