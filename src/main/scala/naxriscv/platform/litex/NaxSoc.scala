@@ -1,12 +1,13 @@
 package naxriscv.platform.litex
 
 import naxriscv.debug.EmbeddedJtagPlugin
+import naxriscv.lsu.DataCachePlugin
 import naxriscv.platform.TilelinkNaxRiscvFiber
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
 import spinal.core.fiber._
-import spinal.lib.bus.amba4.axi.Axi4SpecRenamer
+import spinal.lib.bus.amba4.axi.{Axi4, Axi4Config, Axi4SpecRenamer, Axi4ToTilelinkFiber}
 import spinal.lib.bus.amba4.axilite.{AxiLite4, AxiLite4SpecRenamer}
 import spinal.lib.bus.misc.{OffsetTransformer, OrMapping, SizeMapping}
 import spinal.lib.bus.tilelink
@@ -26,6 +27,7 @@ class NaxSocConfig(){
   var withJtagTap = false
   var withJtagInstruction = false
   var withDebug = false
+  var withDma = false
 }
 
 class NaxSoc(c : NaxSocConfig) extends Component{
@@ -43,6 +45,22 @@ class NaxSoc(c : NaxSocConfig) extends Component{
     ioFilter.up << List(nax.pBus)
   }
 
+  val dma = c.withDma generate new Area {
+    val bus = slave(
+      Axi4(
+        Axi4Config(
+          addressWidth = 32,
+          dataWidth = c.naxPlugins.head.collectFirst { case p: DataCachePlugin => p.memDataWidth }.get,
+          idWidth = 4
+        )
+      )
+    )
+
+    val bridge = new Axi4ToTilelinkFiber(64, 4)
+    bridge.up load bus
+    memFilter.up << bridge.down
+  }
+
   val hub = new HubFiber()
   hub.up << memFilter.down
   hub.up.setUpConnection(c = StreamPipe.FULL)
@@ -53,6 +71,8 @@ class NaxSoc(c : NaxSocConfig) extends Component{
   regions.filter(_.onMemory).foreach(r =>
     toAxi4.up at r.mapping of hub.down
   )
+
+
 
   val peripheral = new Area {
     val bus = Node()
@@ -118,8 +138,14 @@ class NaxSoc(c : NaxSocConfig) extends Component{
   }
 
   val patcher = Fiber build new Area{
+    if(c.withDma) {
+      Axi4SpecRenamer(dma.bus.addAttribute("mark_debug", "true"))
+      dma.bridge.down.bus.addAttribute("mark_debug", "true")
+    }
     Axi4SpecRenamer(mBus.get)
     AxiLite4SpecRenamer(pBus.get)
+
+
 
     val i = MemoryConnection.getMemoryTransfers(naxes(0).iBus)
     val d = MemoryConnection.getMemoryTransfers(naxes(0).dBus)

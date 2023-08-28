@@ -17,13 +17,13 @@ import spinal.core.fiber._
 import spinal.lib.bus.misc.SizeMapping
 import spinal.lib.bus.tilelink.fabric._
 import spinal.lib.bus.tilelink
-import spinal.lib.bus.tilelink.coherent.{Hub, HubFabric}
+import spinal.lib.bus.tilelink.coherent.{Hub, HubFiber}
 import spinal.lib.bus.tilelink.sim.{Checker, Endpoint, MemoryAgent, Monitor, MonitorSubscriber, SlaveDriver, TransactionA, TransactionC, TransactionD}
 import spinal.lib.bus.tilelink.{M2sSupport, M2sTransfers, Opcode, S2mSupport, SizeRange, fabric}
 import spinal.lib.cpu.riscv.RiscvHart
 import spinal.lib.cpu.riscv.debug.DebugHartBus
 import spinal.lib.misc.plic.InterruptCtrlFiber
-import spinal.lib.misc.{ClintPort, Elf, InterruptCtrl, InterruptNode, TilelinkFabricClint}
+import spinal.lib.misc.{ClintPort, Elf, InterruptCtrl, InterruptNode, TilelinkClintFiber}
 import spinal.lib.sim.SparseMemory
 import spinal.sim.{Signal, SimManagerContext}
 
@@ -34,7 +34,7 @@ import scala.util.Random
 
 
 
-class NaxriscvTilelink() extends Area with RiscvHart{
+class TilelinkNaxRiscvFiber() extends Area with RiscvHart{
   val iBus = Node.master()
   val dBus = Node.master()
   val pBus = Node.master()
@@ -47,13 +47,13 @@ class NaxriscvTilelink() extends Area with RiscvHart{
     icfs += icf
   }
 
-  val clint = Handle[TilelinkFabricClint]
-  def bind(clint : TilelinkFabricClint): Unit = {
+  val clint = Handle[TilelinkClintFiber]
+  def bind(clint : TilelinkClintFiber): Unit = {
     clint.lock.retain()
     this.clint load clint
   }
 
-  def setPluginsSimple(hartId : Int) : this.type = {
+  def setCoherentConfig(hartId : Int) : this.type = {
     plugins load Config.plugins(
       withCoherency = true,
       withRdTime = false,
