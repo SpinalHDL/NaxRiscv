@@ -14,7 +14,7 @@ import spinal.lib.system.tag.MemoryConnection
 
 import scala.collection.mutable.ArrayBuffer
 
-class NaxriscvTilelinkProbe(naxTl : NaxriscvTilelink, hartId : Int) extends NaxriscvProbe(naxTl.thread.core, hartId){
+class NaxriscvTilelinkProbe(naxTl : TilelinkNaxRiscvFiber, hartId : Int) extends NaxriscvProbe(naxTl.thread.core, hartId){
   override def add(tracer: TraceBackend) = {
     super.add(tracer)
     val dSpec = MemoryConnection.getMemoryTransfers(naxTl.dBus)

@@ -1,7 +1,7 @@
 package naxriscv.platform.litex
 
 import naxriscv.debug.EmbeddedJtagPlugin
-import naxriscv.platform.NaxriscvTilelink
+import naxriscv.platform.TilelinkNaxRiscvFiber
 import naxriscv.utilities.Plugin
 import spinal.core._
 import spinal.lib._
@@ -11,11 +11,11 @@ import spinal.lib.bus.amba4.axilite.{AxiLite4, AxiLite4SpecRenamer}
 import spinal.lib.bus.misc.{OffsetTransformer, OrMapping, SizeMapping}
 import spinal.lib.bus.tilelink
 import spinal.lib.bus.tilelink._
-import spinal.lib.bus.tilelink.coherent.HubFabric
+import spinal.lib.bus.tilelink.coherent.HubFiber
 import spinal.lib.bus.tilelink.fabric.Node
 import spinal.lib.cpu.riscv.debug.DebugModuleFiber
 import spinal.lib.misc.plic.TilelinkPlicFiber
-import spinal.lib.misc.{InterruptNode, TilelinkFabricClint}
+import spinal.lib.misc.{InterruptNode, TilelinkClintFiber}
 import spinal.lib.system.tag.{MappedNode, MemoryConnection, MemoryTransferTag, MemoryTransfers, PMA}
 
 import scala.collection.mutable.ArrayBuffer
@@ -31,10 +31,10 @@ class NaxSocConfig(){
 class NaxSoc(c : NaxSocConfig) extends Component{
   import c._
 
-  val naxes = for(p <- naxPlugins) yield new NaxriscvTilelink().setPlugins(p)
+  val naxes = for(p <- naxPlugins) yield new TilelinkNaxRiscvFiber().setPlugins(p)
   for(nax <- naxes){
-    nax.dBus.setDownConnection(_.connectFrom(_)(a = StreamPipe.HALF, d = StreamPipe.M2S))
-    nax.pBus.setDownConnection(_.connectFrom(_)(d = StreamPipe.HALF))
+    nax.dBus.setDownConnection(a = StreamPipe.HALF, d = StreamPipe.M2S)
+    nax.pBus.setDownConnection(d = StreamPipe.HALF)
   }
 
   val memFilter, ioFilter = new fabric.TransferFilter()
@@ -43,9 +43,9 @@ class NaxSoc(c : NaxSocConfig) extends Component{
     ioFilter.up << List(nax.pBus)
   }
 
-  val hub = new HubFabric()
+  val hub = new HubFiber()
   hub.up << memFilter.down
-  hub.up.setUpConnection(_.connectFrom(_)(c = StreamPipe.FULL))
+  hub.up.setUpConnection(c = StreamPipe.FULL)
 
   val toAxi4 = new fabric.Axi4Bridge
   toAxi4.up.forceDataWidth(64)
@@ -57,9 +57,9 @@ class NaxSoc(c : NaxSocConfig) extends Component{
   val peripheral = new Area {
     val bus = Node()
     bus << (hub.down, ioFilter.down)
-    bus.setUpConnection(_.connectFrom(_)(d = StreamPipe.M2S))
+    bus.setUpConnection(d = StreamPipe.M2S)
 
-    val clint = new TilelinkFabricClint()
+    val clint = new TilelinkClintFiber()
     clint.node at 0xF0010000l of bus
 
     val plic = new TilelinkPlicFiber()
