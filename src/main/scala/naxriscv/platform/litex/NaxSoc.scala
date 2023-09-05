@@ -28,10 +28,12 @@ class NaxSocConfig(){
   var withJtagInstruction = false
   var withDebug = false
   var withDma = false
+  var mBusWidth = 64
 }
 
 class NaxSoc(c : NaxSocConfig) extends Component{
   import c._
+  val mainDataWidth = c.naxPlugins.head.collectFirst { case p: DataCachePlugin => p.memDataWidth }.get
 
   val naxes = for(p <- naxPlugins) yield new TilelinkNaxRiscvFiber().setPlugins(p)
   for(nax <- naxes){
@@ -50,7 +52,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
       Axi4(
         Axi4Config(
           addressWidth = 32,
-          dataWidth = c.naxPlugins.head.collectFirst { case p: DataCachePlugin => p.memDataWidth }.get,
+          dataWidth = mainDataWidth,
           idWidth = 4
         )
       )
@@ -58,15 +60,17 @@ class NaxSoc(c : NaxSocConfig) extends Component{
 
     val bridge = new Axi4ToTilelinkFiber(64, 4)
     bridge.up load bus
+    bridge.down.setUpConnection(a = StreamPipe.M2S)
     memFilter.up << bridge.down
   }
 
   val hub = new HubFiber()
   hub.up << memFilter.down
-  hub.up.setUpConnection(c = StreamPipe.FULL)
+  hub.up.setUpConnection(a = StreamPipe.S2M, c = StreamPipe.FULL)
+  hub.down.forceDataWidth(mainDataWidth)
 
   val toAxi4 = new fabric.Axi4Bridge
-  toAxi4.up.forceDataWidth(64)
+  toAxi4.up.forceDataWidth(mBusWidth)
   toAxi4.down.addTag(PMA.MAIN)
   regions.filter(_.onMemory).foreach(r =>
     toAxi4.up at r.mapping of hub.down
@@ -139,12 +143,13 @@ class NaxSoc(c : NaxSocConfig) extends Component{
 
   val patcher = Fiber build new Area{
     if(c.withDma) {
-      Axi4SpecRenamer(dma.bus.addAttribute("mark_debug", "true"))
-      dma.bridge.down.bus.addAttribute("mark_debug", "true")
+      Axi4SpecRenamer(dma.bus)
+      dma.bridge.down.bus
     }
     Axi4SpecRenamer(mBus.get)
     AxiLite4SpecRenamer(pBus.get)
 
+    naxes(0).dBus.bus
 
 
     val i = MemoryConnection.getMemoryTransfers(naxes(0).iBus)

@@ -187,3 +187,60 @@ object RamPorts extends App{
   }
 
 }
+
+
+/*
+valid, tag, cached, cacheId, dirty, unique, owner, next
+1+10+9
+18+1+1+4
+ */
+object FallRandomly extends App {
+  val cacheSize = 256*1024
+  val cacheBlocks = cacheSize/64
+  val shots = cacheBlocks * 9 / 8
+  val sets = cacheBlocks
+  val ways = 4
+
+//  val ways = 8
+//  val sets = cacheBlocks/ways
+
+  val storage = Array.fill(sets)(0)
+  for(i <- 0 until shots){
+    storage(Random.nextInt(sets)) += 1
+  }
+
+  var sum = 0
+  for(s <- storage) sum += s
+  val avg = sum / sets.toFloat
+  println(s"AVG => $avg")
+
+  var latency = 0
+
+//  def latOf(e: Int) = (1 + e * 2) - 2 max 0
+  def latOf(e: Int) = ((e * 2).max(2)) - 2
+//  def latOf(e: Int) = ((e * 2).max(1)) - 2
+
+  latency = 0
+  for(s <- storage) latency += latOf(s)
+  println(s"Latency penality (miss) ${latency*1.0/sets}")
+
+  latency = 0
+  var nonEmpties = 0
+  for (s <- storage) {
+    for(i <- 1 to s) {
+      latency += latOf(i)
+      nonEmpties += 1
+    }
+  }
+  println(s"Latency penality (hit) ${latency * 1.0 / nonEmpties}")
+
+  var overWays = 0
+  for(s <- storage) overWays += (s-ways).max(0)
+  println(s"Overallocated $overWays")
+  for(i <- 0 to 10){
+    var count = 0
+    for(s <- storage) if(s == i) count += 1
+    println(s"$i => $count")
+  }
+
+}
