@@ -267,7 +267,7 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
     bus.a.param   := 0
     bus.a.source  := 0
     bus.a.address := cmd.address
-    bus.a.size    := log2Up(p.bytesMax)
+    bus.a.size    := cmd.size
     bus.a.mask    := cmd.mask
     bus.a.data    := cmd.data
     bus.a.corrupt := False
