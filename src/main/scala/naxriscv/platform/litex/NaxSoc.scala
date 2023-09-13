@@ -1,6 +1,7 @@
 package naxriscv.platform.litex
 
 import naxriscv.debug.EmbeddedJtagPlugin
+import naxriscv.execute.CsrTracer
 import naxriscv.lsu.DataCachePlugin
 import naxriscv.platform.TilelinkNaxRiscvFiber
 import naxriscv.utilities.Plugin
@@ -37,8 +38,9 @@ class NaxSoc(c : NaxSocConfig) extends Component{
 
   val naxes = for(p <- naxPlugins) yield new TilelinkNaxRiscvFiber().setPlugins(p)
   for(nax <- naxes){
-    nax.dBus.setDownConnection(a = StreamPipe.HALF, d = StreamPipe.M2S)
-    nax.pBus.setDownConnection(d = StreamPipe.HALF)
+    nax.dBus.setDownConnection(a = StreamPipe.HALF, d = StreamPipe.M2S, b = StreamPipe.HALF, c = StreamPipe.FULL, e = StreamPipe.HALF)
+    nax.iBus.setDownConnection(a = StreamPipe.HALF, d = StreamPipe.M2S)
+    nax.pBus.setDownConnection(a = StreamPipe.HALF, d = StreamPipe.HALF)
   }
 
   val memFilter, ioFilter = new fabric.TransferFilter()
@@ -60,13 +62,13 @@ class NaxSoc(c : NaxSocConfig) extends Component{
 
     val bridge = new Axi4ToTilelinkFiber(64, 4)
     bridge.up load bus
-    bridge.down.setUpConnection(a = StreamPipe.M2S)
+    bridge.down.setDownConnection(a = StreamPipe.FULL)
     memFilter.up << bridge.down
   }
 
   val hub = new HubFiber()
   hub.up << memFilter.down
-  hub.up.setUpConnection(a = StreamPipe.S2M, c = StreamPipe.FULL)
+  hub.up.setUpConnection(a = StreamPipe.FULL, c = StreamPipe.FULL)
   hub.down.forceDataWidth(mainDataWidth)
 
   val toAxi4 = new fabric.Axi4Bridge
@@ -81,7 +83,8 @@ class NaxSoc(c : NaxSocConfig) extends Component{
   val peripheral = new Area {
     val bus = Node()
     bus << (hub.down, ioFilter.down)
-    bus.setUpConnection(d = StreamPipe.M2S)
+    bus.setDownConnection(a = StreamPipe.HALF, d = StreamPipe.HALF)
+    bus.forceDataWidth(32)
 
     val clint = new TilelinkClintFiber()
     clint.node at 0xF0010000l of bus
@@ -107,7 +110,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
     val axiLiteRegions = regions.filter(e => e.onPeripheral && !e.isIo)
     val toAxiLite4 = new fabric.AxiLite4Bridge
     toAxiLite4.up at(OrMapping(axiLiteRegions.map(_.mapping))) of bus
-    toAxiLite4.up.forceDataWidth(32)
+//    toAxiLite4.up.setUpConnection(a = StreamPipe.HALF, d = StreamPipe.HALF)
 
     val virtualRegions = for(region <- axiLiteRegions) yield new Area with SpinalTagReady{
       def self = this
@@ -129,7 +132,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
   }
 
   val mBus = Fiber build master(toAxi4.down.pipelined())
-  val pBus = Fiber build master(peripheral.toAxiLite4.down.pipelined())
+  val pBus = Fiber build master(peripheral.toAxiLite4.down.pipelined(ar=StreamPipe.HALF, aw=StreamPipe.HALF, w=StreamPipe.HALF, b=StreamPipe.HALF, r=StreamPipe.HALF))
 
   val debug = c.withDebug generate new Area{
     val cd = ClockDomain.current.copy(reset = in Bool())
@@ -162,6 +165,21 @@ class NaxSoc(c : NaxSocConfig) extends Component{
     if (c.withDebug) {
       debug.dm.ndmreset.toIo().setName("debug_ndmreset")
       debug.cd.reset.setName("debug_reset")
+    }
+
+    val tracer = master(Reg(Flow(Bits(8 bits))))
+    val trigger = False
+    tracer.valid init(False)
+    tracer.valid := Delay(trigger, 2)
+    tracer.payload init(0)
+    for(nax <- naxes) {
+      nax.plugins.collectFirst { case p: CsrTracer => p } match {
+        case Some(p) => when(p.logic.flowOut.valid){
+          trigger := True
+          tracer.payload := p.logic.flowOut.payload
+        }
+        case None =>
+      }
     }
   }
 }

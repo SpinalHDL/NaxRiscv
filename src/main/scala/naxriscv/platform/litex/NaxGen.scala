@@ -5,6 +5,7 @@
 package naxriscv.platform.litex
 
 import naxriscv.compatibility.{EnforceSyncRamPhase, MemReadDuringWritePatcherPhase, MultiPortWritesSymplifier}
+import naxriscv.execute.CsrTracer
 import naxriscv.misc.PrivilegedPlugin
 import naxriscv.utilities._
 import spinal.core._
@@ -31,8 +32,13 @@ case class LitexMemoryRegion(mapping : SizeMapping, mode : String, bus : String)
 //python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-spi-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1' --with-jtag-tap --build --load
 //vexref python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=vexriscv_smp  --with-coherent-dma --with-sdcard
 
+//Regular
 // litex_sim --cpu-type=naxriscv  --with-sdram --sdram-data-width=64 --bus-standard axi-lite  --scala-args='alu-count=1,decode-count=1' --with-coherent-dma --trace-fst --sdram-init boot.json
 // python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-coherent-dma --with-sdcard --with-ethernet --scala-args='alu-count=1,decode-count=1' --with-jtag-tap --sys-clk-freq 50000000 --cpu-count 1 --soc-json build/digilent_nexys_video/csr.json --build --load
+//
+//Debian
+//python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-coherent-dma --with-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1'  --with-jtag-tap --sys-clk-freq 100000000 --cpu-count 2 --soc-json build/digilent_nexys_video/csr.json --build --load
+//litex_sim --cpu-type=naxriscv  --with-sdram --sdram-data-width=64 --bus-standard axi-lite  --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1' --with-coherent-dma --xlen=64 --trace-fst --sdram-init boot.json
 object NaxGen extends App{
   var netlistDirectory = "."
   var netlistName = "NaxSoc"
@@ -110,7 +116,7 @@ object NaxGen extends App{
         case pp : PrivilegedPlugin => pp.p.hartId = i
         case _ =>
       }
-      p
+      p :+ new CsrTracer
     }
     println()
     new NaxSoc(socConfig).setDefinitionName(netlistName)
@@ -138,6 +144,23 @@ object ScalaInterpreter extends App{
 
 
 /*
+
+export SDL_VIDEODRIVER=x11
+time dd if=/dev/mmcblk0 of=/dev/null bs=1024 count=2048
+
+root@buildroot:~# hdparm -t /dev/mmcblk0
+/dev/mmcblk0: //Debian kernel
+Timing buffered disk reads:    2 MB in 4.84 seconds = 423 kB/s
+/dev/sda:
+Timing buffered disk reads:    3 MB in 3.73 seconds = 822 kB/s
+/dev/mmcblk0: buildroot kernel
+Timing buffered disk reads:    3 MB in 3.02 seconds = 1016 kB/s
+
+/dev/mmcblk0: buildroot rv32gc
+Timing buffered disk reads:    9 MB in 3.09 seconds = 2973 kB/s
+
+
+
 python3 -m litex_boards.targets.digilent_arty --cpu-type=naxriscv --with-ethernet --eth-ip 192.168.178.43 --eth-dynamic-ip  --load
 litex_sim --cpu-type=naxriscv --with-sdram --sdram-module=MT41K128M16 --sdram-data-width=16  --sdram-init images/sim.json --trace --trace-fst --trace-start 2000000000000
 eth_local_ip 192.168.178.43
@@ -196,7 +219,7 @@ ip addr change 192.168.1.50/24 dev eth0
 ip addr show
 ip route add default via 192.168.1.100
 
-date -s "19 AUG 2022 14:47"
+date -s "13 SEP 2023 11:49"
 
 export SDL_VIDEODRIVER=directfb
 /usr/games/openttd  -r 640x480 -b 8bpp-optimized -g
