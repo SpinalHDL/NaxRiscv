@@ -10,4 +10,4 @@
 	url = https://github.com/SpinalHDL/riscv-isa-sim.git
 [submodule "ext/rvls"]
 	path = ext/rvls
-	url = git@github.com:SpinalHDL/RVLS.git
+	url = https://github.com/SpinalHDL/rvls.git
