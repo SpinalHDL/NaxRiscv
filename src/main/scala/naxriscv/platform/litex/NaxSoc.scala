@@ -71,12 +71,15 @@ class NaxSoc(c : NaxSocConfig) extends Component{
   hub.up.setUpConnection(a = StreamPipe.FULL, c = StreamPipe.FULL)
   hub.down.forceDataWidth(mainDataWidth)
 
-  val toAxi4 = new fabric.Axi4Bridge
-  toAxi4.up.forceDataWidth(mBusWidth)
-  toAxi4.down.addTag(PMA.MAIN)
-  regions.filter(_.onMemory).foreach(r =>
-    toAxi4.up at r.mapping of hub.down
-  )
+  val withMem = regions.exists(_.onMemory)
+  val toAxi4 = withMem generate new fabric.Axi4Bridge
+  if(withMem) {
+    toAxi4.up.forceDataWidth(mBusWidth)
+    toAxi4.down.addTag(PMA.MAIN)
+    regions.filter(_.onMemory).foreach(r =>
+      toAxi4.up at r.mapping of hub.down
+    )
+  }
 
 
 
@@ -131,7 +134,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
     }
   }
 
-  val mBus = Fiber build master(toAxi4.down.pipelined())
+  val mBus = withMem generate (Fiber build master(toAxi4.down.pipelined()))
   val pBus = Fiber build master(peripheral.toAxiLite4.down.pipelined(ar=StreamPipe.HALF, aw=StreamPipe.HALF, w=StreamPipe.HALF, b=StreamPipe.HALF, r=StreamPipe.HALF))
 
   val debug = c.withDebug generate new Area{
@@ -149,7 +152,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
       Axi4SpecRenamer(dma.bus)
       dma.bridge.down.bus
     }
-    Axi4SpecRenamer(mBus.get)
+    if(withMem) Axi4SpecRenamer(mBus.get)
     AxiLite4SpecRenamer(pBus.get)
 
     naxes(0).dBus.bus
