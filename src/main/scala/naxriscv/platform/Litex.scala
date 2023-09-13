@@ -264,7 +264,7 @@ ip route add default via 192.168.1.100
 date -s "19 AUG 2022 14:47"
 
 export SDL_VIDEODRIVER=directfb
-/usr/games/openttd  -r 640x480 -b 8bpp-optimized -g
+/usr/games/openttd  -r 640x480 -b 8bpp-optimized -g -s null -m null
 
 wget https://file-examples.com/storage/fe5467a6a163010b197fb20/2017/11/file_example_MP3_1MG.mp3
 mpg123 -w wave.wav file_example_MP3_1MG.mp3
