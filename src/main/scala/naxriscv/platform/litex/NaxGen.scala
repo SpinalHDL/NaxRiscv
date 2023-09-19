@@ -37,7 +37,7 @@ case class LitexMemoryRegion(mapping : SizeMapping, mode : String, bus : String)
 // python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-coherent-dma --with-sdcard --with-ethernet --scala-args='alu-count=1,decode-count=1' --with-jtag-tap --sys-clk-freq 50000000 --cpu-count 1 --soc-json build/digilent_nexys_video/csr.json --build --load
 //
 //Debian
-//python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-coherent-dma --with-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1'  --with-jtag-tap --sys-clk-freq 100000000 --cpu-count 2 --soc-json build/digilent_nexys_video/csr.json --build --load
+//python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv  --bus-standard axi-lite --with-video-framebuffer --with-coherent-dma --with-sdcard --with-ethernet --xlen=64 --scala-args='rvc=true,rvf=true,rvd=true,alu-count=2,decode-count=2'  --with-jtag-tap --sys-clk-freq 100000000 --cpu-count 2 --soc-json build/digilent_nexys_video/csr.json --build --load
 //litex_sim --cpu-type=naxriscv  --with-sdram --sdram-data-width=64 --bus-standard axi-lite  --scala-args='rvc=true,rvf=true,rvd=true,alu-count=1,decode-count=1' --with-coherent-dma --xlen=64 --trace-fst --sdram-init boot.json
 object NaxGen extends App{
   var netlistDirectory = "."
@@ -144,6 +144,36 @@ object ScalaInterpreter extends App{
 
 
 /*
+
+x11 =>
+allowed_users=console
+allowed_users=anybody
+
+libxpm-dev libxext-dev libasound2-dev libgtk-3-dev
+
+
+cputnik &
+wmclock &
+asmon &
+wmmon &
+pclock &
+wmtictactoe &
+nohup watch wmtetris  >/dev/null 2>&1 &
+wmcellauto &
+wmcalc &
+wmMand &
+
+
+autoreconf --force --install
+
+
+iptables -t nat -A PREROUTING -p tcp -dport 51914 -j DNAT -to-destination 10.42.0.214:22
+iptables -t nat -A POSTROUTING -p tcp -d 10.42.0.214 -dport 51914 -j MASQUERADE
+
+sudo iptables -t nat -A PREROUTING -p tcp --dport 51914 -j DNAT --to-destination 10.42.0.214:22
+sudo iptables -t nat -A POSTROUTING -p tcp -d 10.42.0.214 --dport 51914 -j SNAT
+
+sudo iptables -t nat -A PREROUTING -p tcp --dport 51914 -j DNAT --to-destination 10.42.0.214:22
 
 export SDL_VIDEODRIVER=x11
 time dd if=/dev/mmcblk0 of=/dev/null bs=1024 count=2048
