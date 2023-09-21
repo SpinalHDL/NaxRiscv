@@ -24,6 +24,7 @@ class PerfCsrPlugin extends Plugin{
 
     val i = getService[FetchCachePlugin]
     val iRefill = add(0x840, i.logic.refill.fire)
+    val iWait = add(0x842, i.logic.refill.valid)
 
 
     val d = getService[DataCachePlugin]
