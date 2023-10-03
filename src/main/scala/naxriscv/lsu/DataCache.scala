@@ -548,6 +548,8 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
       }
 
       val onB = new Area{
+        //TODO add suport for ACQUIRE_PERM !!!
+        assert(!(bus.b.valid && bus.b.opcode === Opcode.B.PROBE_PERM))
         probe.cmd.valid       := bus.b.valid
         probe.cmd.address     := bus.b.address
         probe.cmd.id          := bus.b.source
