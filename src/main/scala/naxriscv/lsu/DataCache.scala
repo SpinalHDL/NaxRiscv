@@ -13,6 +13,7 @@ import spinal.lib.bus.bmb.{Bmb, BmbAccessParameter, BmbParameter, BmbSourceParam
 import spinal.lib.bus.misc.SizeMapping
 import spinal.lib.bus.tilelink
 import spinal.lib.bus.tilelink._
+import spinal.lib.misc.Plru
 import spinal.lib.pipeline.Connection.M2S
 import spinal.lib.pipeline.{Pipeline, Stage, Stageable, StageableOffsetNone}
 import spinal.lib.sim.SimData.dataToSimData
@@ -483,6 +484,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
         withDataA    = true,
         withDataB    = false,
         withDataD    = true,
+        withDataC    = true,
         node         = null
       )
     )
@@ -867,6 +869,15 @@ class DataCache(val p : DataCacheParameters) extends Component {
 
   val wayRandom = CounterFreeRun(wayCount)
 
+  val PLRU = Stageable(Plru.State(wayCount))
+  val plru = new Area {
+    val ram = Mem.fill(linePerWay)(Plru.State(wayCount))
+    val write = ram.writePort
+    val fromLoad, fromStore = cloneOf(write)
+    write.valid := fromLoad.valid || fromStore.valid
+    write.payload := fromLoad.valid.mux(fromLoad.payload, fromStore.payload)
+  }
+
   val invalidate = new Area{
     val counter = Reg(UInt(log2Up(linePerWay)+1 bits)) init(0)
     val done = counter.msb
@@ -877,6 +888,13 @@ class DataCache(val p : DataCacheParameters) extends Component {
       waysWrite.mask.setAll()
       waysWrite.address := counter.resized
       waysWrite.tag.loaded := False
+    }
+
+    val firstEver = RegInit(True) clearWhen (done)
+    when(!done && firstEver){
+      plru.write.valid := True
+      plru.write.address := counter.resized
+      plru.write.data.clearAll()
     }
   }
 
@@ -931,6 +949,10 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val unique = Bool()
       val data = Bool()
     }).setIdle()
+
+    import spinal.core.sim._
+    val pushCounter = Reg(UInt(32 bits)) init(0) simPublic()
+    when(push.valid) {pushCounter := pushCounter + 1}
 
     for (slot <- slots) when(push.valid) {
       when(free(slot.id)) {
@@ -1353,6 +1375,8 @@ class DataCache(val p : DataCacheParameters) extends Component {
       translatedStage(ADDRESS_POST_TRANSLATION) := io.load.translated.physical
       translatedStage(ABORD) := io.load.translated.abord
 
+      readTagsStage(PLRU) := plru.ram.readAsync(readTagsStage(ADDRESS_PRE_TRANSLATION)(lineRange))
+
       for ((way, wayId) <- ways.zipWithIndex) yield new Area {
         {
           import readTagsStage._
@@ -1404,8 +1428,19 @@ class DataCache(val p : DataCacheParameters) extends Component {
     val ctrl = new Area {
       import controlStage._
 
+      val plruLogic = new Area {
+        val core = new Plru(wayCount, false)
+        core.io.context.state := PLRU
+        core.io.update.id.assignDontCare()
+
+        plru.fromLoad.valid := False
+        plru.fromLoad.address := ADDRESS_PRE_TRANSLATION(lineRange)
+        plru.fromLoad.data := core.io.update.state
+      }
+
       val reservation = tagsOrStatusWriteArbitration.create(2)
-      val refillWay = CombInit(wayRandom.value)
+      val refillWay = CombInit(plruLogic.core.io.evict.id)
+//      val refillWay = CombInit(wayRandom.value)
       val refillWayNeedWriteback = WAYS_TAGS(refillWay).loaded && withCoherency.mux(True, STATUS(refillWay).dirty)
       val refillHit = REFILL_HITS.orR
       val refillLoaded = (B(refill.slots.map(_.loaded)) & REFILL_HITS).orR
@@ -1467,6 +1502,14 @@ class DataCache(val p : DataCacheParameters) extends Component {
           writeback.push.toShared := False
           writeback.push.release := True
         }
+
+        plru.fromLoad.valid := True
+        plruLogic.core.io.update.id := refillWay
+      }
+
+      when(isValid && !REDO && !MISS){
+        plru.fromLoad.valid := True
+        plruLogic.core.io.update.id := wayId
       }
 
       REFILL_SLOT_FULL := MISS && !refillHit && refill.full
@@ -1553,6 +1596,8 @@ class DataCache(val p : DataCacheParameters) extends Component {
     }
 
     val fetch = new Area {
+      readTagsStage(PLRU) := plru.ram.readAsync(readTagsStage(ADDRESS_POST_TRANSLATION)(lineRange))
+
       for ((way, wayId) <- ways.zipWithIndex) yield new Area {
         {
           import readTagsStage._
@@ -1602,10 +1647,22 @@ class DataCache(val p : DataCacheParameters) extends Component {
       import controlStage._
       if(!withCoherency) PROBE := False
 
+
+      val plruLogic = new Area {
+        val core = new Plru(wayCount, false)
+        core.io.context.state := PLRU
+        core.io.update.id.assignDontCare()
+
+        plru.fromStore.valid := False
+        plru.fromStore.address := ADDRESS_POST_TRANSLATION(lineRange)
+        plru.fromStore.data := core.io.update.state
+      }
+
       GENERATION_OK := GENERATION === target || PREFETCH || PROBE
 
       val reservation = tagsOrStatusWriteArbitration.create(3)
-      val replacedWay = CombInit(wayRandom.value)
+      val replacedWay = CombInit(plruLogic.core.io.evict.id)
+//      val replacedWay = CombInit(wayRandom.value)
       val replacedWayNeedWriteback = WAYS_TAGS(replacedWay).loaded && withCoherency.mux(True, STATUS(replacedWay).dirty)
       val refillHit = (REFILL_HITS & B(refill.slots.map(_.valid))).orR
       val lineBusy = isLineBusy(ADDRESS_POST_TRANSLATION)
@@ -1701,7 +1758,15 @@ class DataCache(val p : DataCacheParameters) extends Component {
         whenIndexed(status.write.data, refillWay)(_.dirty := False)
       }
 
+      when(startRefill){
+        plru.fromStore.valid := True
+        plruLogic.core.io.update.id := refillWay
+      }
+
       when(writeCache){
+        plru.fromStore.valid := True
+        plruLogic.core.io.update.id := wayId
+
         for((bank, bankId) <- banks.zipWithIndex) when(WAYS_HITS(bankId)){
           bank.write.valid := bankId === bankHitId
           bank.write.address := ADDRESS_POST_TRANSLATION(lineRange.high downto log2Up(bankWidth / 8))
