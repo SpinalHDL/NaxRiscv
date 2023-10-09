@@ -1,5 +1,7 @@
 package naxriscv.platform.tilelinkdemo
 
+import naxriscv.fetch.FetchCachePlugin
+import naxriscv.lsu.DataCachePlugin
 import naxriscv.platform.{FileBackend, JniBackend, NaxriscvProbe, NaxriscvTilelinkProbe, PeripheralEmulator}
 import spinal.core._
 import spinal.core.sim._
@@ -22,7 +24,14 @@ object SocSim extends App {
   val tester = new MultithreadedTester(8)
   import tester._
 
-  val compiled = sc.compile(new SocDemo(2))
+  class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount){
+    setDefinitionName("SocDemo")
+    val dcache = naxes(0).plugins.collectFirst { case p: DataCachePlugin => p }.get
+    val icache = naxes(0).plugins.collectFirst { case p: FetchCachePlugin => p }.get
+//    dcache.cacheSize = 1024
+//    icache.cacheSize = 2048
+  }
+  val compiled = sc.compile(new SocDemoSim(2))
 
 //  for (i <- 0 until 64) test("test_" + i) {
 //    compiled.doSimUntilVoid(name = s"test_$i", seed = i)(testIt(_))
@@ -35,8 +44,9 @@ object SocSim extends App {
 
 //  compiled.doSimUntilVoid(name = s"test", seed = 2)(testIt(_))
 
-  def testIt(dut : SocDemo, onTrace : (=> Unit) => Unit = cb => {}): Unit = {
-    disableSimWave()
+  def testIt(dut : SocDemoSim, onTrace : (=> Unit) => Unit = cb => {}): Unit = {
+//    disableSimWave()
+//    enableSimWave()
     fork {
 
 //      sleep(100000*5)
@@ -75,7 +85,6 @@ object SocSim extends App {
     val cd = dut.clockDomain
     cd.forkStimulus(10)
     //    cd.forkSimSpeedPrinter(1.0)
-
 
     val memAgent = new MemoryAgent(dut.mem.node.bus, cd, seed = 0, randomProberFactor = 0.2f)(null) {
       mem.randOffset = 0x80000000l
@@ -124,8 +133,8 @@ object SocSim extends App {
       }
     }
 
-    //        val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
-        //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
+//            val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
         //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
         //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
     //    val elf = new Elf(new File("ext/NaxSoftware/baremetal/simple/build/rv32ima/simple.elf"))
@@ -137,12 +146,15 @@ object SocSim extends App {
 //        elf.load(memAgent.mem, -0xffffffff80000000l)
 //        tracer.loadElf(0, elf.f)
 //
-//
 //        val passSymbol = elf.getSymbolAddress("pass")
 //        val failSymbol = elf.getSymbolAddress("fail")
 //        naxes.foreach { nax =>
 //          nax.commitsCallbacks += { (hartId, pc) =>
-//            if (pc == passSymbol) delayed(1)(simSuccess())
+//            if (pc == passSymbol) delayed(1) {
+//              println("nax(0) d$ refill = " + dut.dcache.logic.cache.refill.pushCounter.toLong)
+//              println("nax(0) i$ refill = " + dut.icache.logic.refill.pushCounter.toLong)
+//              simSuccess()
+//            }
 //            if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
 //          }
 //        }
@@ -158,6 +170,7 @@ object SocSim extends App {
     tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
     tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
 
+    println("Sim starting <3")
     //      cd.waitSampling(4000000)
     //      simSuccess()
   }

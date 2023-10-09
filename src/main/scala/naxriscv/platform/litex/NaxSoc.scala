@@ -13,7 +13,7 @@ import spinal.lib.bus.amba4.axilite.{AxiLite4, AxiLite4SpecRenamer}
 import spinal.lib.bus.misc.{OffsetTransformer, OrMapping, SizeMapping}
 import spinal.lib.bus.tilelink
 import spinal.lib.bus.tilelink._
-import spinal.lib.bus.tilelink.coherent.HubFiber
+import spinal.lib.bus.tilelink.coherent.{DirectoryFiber, HubFiber}
 import spinal.lib.bus.tilelink.fabric.Node
 import spinal.lib.cpu.riscv.debug.DebugModuleFiber
 import spinal.lib.misc.plic.TilelinkPlicFiber
@@ -66,7 +66,10 @@ class NaxSoc(c : NaxSocConfig) extends Component{
     memFilter.up << bridge.down
   }
 
-  val hub = new HubFiber()
+//  val hub = new HubFiber()
+  val hub = new DirectoryFiber()
+  hub.parameter.cacheWays = 4
+  hub.parameter.cacheBytes = 128 * 1024
   hub.up << memFilter.down
   hub.up.setUpConnection(a = StreamPipe.FULL, c = StreamPipe.FULL)
   hub.down.forceDataWidth(mainDataWidth)
