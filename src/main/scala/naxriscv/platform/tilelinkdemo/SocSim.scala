@@ -28,10 +28,12 @@ object SocSim extends App {
     setDefinitionName("SocDemo")
     val dcache = naxes(0).plugins.collectFirst { case p: DataCachePlugin => p }.get
     val icache = naxes(0).plugins.collectFirst { case p: FetchCachePlugin => p }.get
-//    dcache.cacheSize = 1024
+
+    dcache.cacheSize = 2048
+    hub.parameter.cacheBytes = 4096
 //    icache.cacheSize = 2048
   }
-  val compiled = sc.compile(new SocDemoSim(2))
+  val compiled = sc.compile(new SocDemoSim(4))
 
 //  for (i <- 0 until 64) test("test_" + i) {
 //    compiled.doSimUntilVoid(name = s"test_$i", seed = i)(testIt(_))
@@ -88,6 +90,7 @@ object SocSim extends App {
 
     val memAgent = new MemoryAgent(dut.mem.node.bus, cd, seed = 0, randomProberFactor = 0.2f)(null) {
       mem.randOffset = 0x80000000l
+//      randomProberFactor = 2.0f //TODO remove me
 
       import driver.driver._
 
@@ -112,12 +115,14 @@ object SocSim extends App {
     val tracer = new JniBackend(new File(compiled.compiledPath, currentTestName))
     tracer.spinalSimFlusher(10 * 10000)
     tracer.spinalSimTime(10000)
-    // tracer.debug()
+//    tracer.debug()
 
     val naxes = dut.naxes.map(nax =>
-      new NaxriscvTilelinkProbe(nax, nax.getHartId()).add (tracer)
+      new NaxriscvTilelinkProbe(nax, nax.getHartId()).add(tracer)
     )
 
+
+//    delayed(100000){simFailure("miaou")}
 
     onTrace{
       tracer.debug()
@@ -133,42 +138,49 @@ object SocSim extends App {
       }
     }
 
+
+
 //            val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
 //              val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
-        //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
-        //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
-    //    val elf = new Elf(new File("ext/NaxSoftware/baremetal/simple/build/rv32ima/simple.elf"))
-//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/coherency/build/rv32ima/coherency.elf"))
-        //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/machine/build/rv32ima/machine.elf"))
-        //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/supervisor/build/rv32ima/supervisor.elf"))
-        //      val elf = new Elf(new File("ext/NaxSoftware/baremetal/mmu_sv32/build/rv32ima/mmu_sv32.elf"))
+//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
+//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
+//        val elf = new Elf(new File("ext/NaxSoftware/baremetal/simple/build/rv32ima/simple.elf"))
+    //            val elf = new Elf(new File("ext/NaxSoftware/baremetal/coherency/build/rv32ima/coherency.elf"))
+                val elf = new Elf(new File("ext/NaxSoftware/baremetal/coherency_burst/build/rv32ima/coherency_burst.elf"))
+//            val elf = new Elf(new File("ext/NaxSoftware/baremetal/pulling_ordering/build/rv32ima/pulling_ordering.elf"))
 
-//        elf.load(memAgent.mem, -0xffffffff80000000l)
-//        tracer.loadElf(0, elf.f)
+//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/machine/build/rv32ima/machine.elf"))
+//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/supervisor/build/rv32ima/supervisor.elf"))
+//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/mmu_sv32/build/rv32ima/mmu_sv32.elf"))
+
+        elf.load(memAgent.mem, -0xffffffff80000000l)
+        tracer.loadElf(0, elf.f)
+//       tracerFile.loadElf(0, elf.f)
+
+        val passSymbol = elf.getSymbolAddress("pass")
+        val failSymbol = elf.getSymbolAddress("fail")
+        naxes.foreach { nax =>
+          nax.commitsCallbacks += { (hartId, pc) =>
+            if (pc == passSymbol) delayed(1) {
+              println("nax(0) d$ refill = " + dut.dcache.logic.cache.refill.pushCounter.toLong)
+              println("nax(0) i$ refill = " + dut.icache.logic.refill.pushCounter.toLong)
+              simSuccess()
+            }
+            if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
+          }
+        }
+
 //
-//        val passSymbol = elf.getSymbolAddress("pass")
-//        val failSymbol = elf.getSymbolAddress("fail")
-//        naxes.foreach { nax =>
-//          nax.commitsCallbacks += { (hartId, pc) =>
-//            if (pc == passSymbol) delayed(1) {
-//              println("nax(0) d$ refill = " + dut.dcache.logic.cache.refill.pushCounter.toLong)
-//              println("nax(0) i$ refill = " + dut.icache.logic.refill.pushCounter.toLong)
-//              simSuccess()
-//            }
-//            if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
-//          }
-//        }
-
-    memAgent.mem.loadBin(0x00000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-    memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
-    memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
-    memAgent.mem.loadBin(0x00F80000l, s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb")
-
-
-    tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
-    tracer.loadBin(0x80F80000l, new File(s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb"))
-    tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
-    tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
+//    memAgent.mem.loadBin(0x00000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
+//    memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
+//    memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
+//    memAgent.mem.loadBin(0x00F80000l, s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb")
+//
+//
+//    tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
+//    tracer.loadBin(0x80F80000l, new File(s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb"))
+//    tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
+//    tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
 
     println("Sim starting <3")
     //      cd.waitSampling(4000000)

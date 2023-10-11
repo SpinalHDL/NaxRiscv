@@ -235,6 +235,9 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
       }
       mask >>= 1
     }
+    if (lqFlush.toBoolean) {
+      backends.foreach(_.loadFlush(hartId))
+    }
   }
 
 
@@ -299,9 +302,6 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
     if(wbWbValid.toBoolean){
       val sqId = wbWb.sqId.toInt
       backends.foreach(_.storeBroadcast(hartId, sqId))
-    }
-    if(lqFlush.toBoolean){
-      backends.foreach(_.loadFlush(hartId))
     }
     if(amoLoadValid.toBoolean){
       val robId = amoLoadWb.robIdV.toInt

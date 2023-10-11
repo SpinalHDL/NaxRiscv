@@ -26,15 +26,18 @@ class SocDemo(cpuCount : Int) extends Component {
 
   val nonCoherent = Node()
 
+  //  nonCoherent << memFilter.down
+
   //  val hub = new HubFiber()
   val hub = new DirectoryFiber()
   hub.parameter.cacheWays = 4
   hub.parameter.cacheBytes = 128*1024
+
   hub.up << memFilter.down
   nonCoherent << hub.down
 
 
-//  nonCoherent << memFilter.down
+
 
   val mem = new tilelink.fabric.SlaveBusAny()
   mem.node at SizeMapping(0x80000000l, 0x80000000l) of nonCoherent

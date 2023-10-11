@@ -24,6 +24,7 @@ class PeripheralEmulator(bus : tilelink.Bus, mei : Bool, sei : Bool, cd : ClockD
   val INCR_COUNTER = 0x70
   val FAILURE_ADDRESS = 0x80
   val IO_FAULT_ADDRESS = 0x0FFFFFF0
+  val RANDOM = 0xA8
 
   mei #= false
   sei #= false
@@ -61,6 +62,9 @@ class PeripheralEmulator(bus : tilelink.Bus, mei : Bool, sei : Bool, cd : ClockD
             } else {
               for(i <- 0 until d.bytes) d.data(i) = 0xFF.toByte
             }
+          }
+          case RANDOM => {
+            simRandom.nextBytes(d.data)
           }
           case _ => {
             println(a)

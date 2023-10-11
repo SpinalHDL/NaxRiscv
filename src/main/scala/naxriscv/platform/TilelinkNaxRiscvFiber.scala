@@ -30,7 +30,6 @@ import spinal.sim.{Signal, SimManagerContext}
 import java.io.{BufferedWriter, File, FileWriter}
 import java.nio.file.Files
 import scala.collection.mutable.ArrayBuffer
-import scala.util.Random
 
 
 
@@ -57,8 +56,8 @@ class TilelinkNaxRiscvFiber() extends Area with RiscvHart{
     plugins load Config.plugins(
       withCoherency = true,
       withRdTime = false,
-      aluCount = 1,
-      decodeCount = 1,
+      aluCount = 2,
+      decodeCount = 2,
       ioRange = a => a(31 downto 28) === 0x1,
       hartId = hartId
     )
