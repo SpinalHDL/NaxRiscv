@@ -1312,7 +1312,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
     val rspStage        = pipeline.stages(loadRspAt)
 
 
-    waysHazard((loadReadBanksAt+1 to loadReadBanksAt+1).map(pipeline.stages(_)), ADDRESS_PRE_TRANSLATION)
+    waysHazard((loadReadBanksAt+1 to loadControlAt).map(pipeline.stages(_)), ADDRESS_PRE_TRANSLATION)
     val start = new Area {
       val stage = pipeline.stages.head
 
@@ -1453,7 +1453,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
       REDO := !WAYS_HIT || waysHitHazard || bankBusy || refillHit || LOCKED || uniqueMiss
       MISS := !WAYS_HIT && !waysHitHazard && !refillHit && !LOCKED
       FAULT := (WAYS_HITS & WAYS_TAGS.map(_.fault).asBits).orR
-      val canRefill = !refill.full && !lineBusy && reservation.win && !(refillWayNeedWriteback && writeback.full)
+      val canRefill = !refill.full && !lineBusy && reservation.win && !(refillWayNeedWriteback && writeback.full) && !resulting(WAYS_HAZARD)(refillWay)
       val askRefill = MISS && canRefill && !refillHit
       val askUpgrade = !MISS && canRefill && uniqueMiss
       val startRefill = isValid && askRefill
@@ -1671,11 +1671,12 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val bankBusy = !FLUSH && !PREFETCH && !PROBE && (WAYS_HITS & refill.read.bankWriteNotif).orR
       val hitUnique = withCoherency.mux((WAYS_HITS & B(WAYS_TAGS.map(_.unique))).orR, True)
       val hitFault = (WAYS_HITS & B(WAYS_TAGS.map(_.fault))).orR
+      val refillWay = CombInit(replacedWay)
 
       REDO := MISS || waysHitHazard || bankBusy || refillHit || (wasClean && !reservation.win) || !hitUnique
       MISS := !WAYS_HIT && !waysHitHazard && !refillHit
 
-      val canRefill = !refill.full && !lineBusy && !load.ctrl.startRefill && reservation.win
+      val canRefill = !refill.full && !lineBusy && !load.ctrl.startRefill && reservation.win && !resulting(WAYS_HAZARD)(refillWay)
       val askRefill = MISS && canRefill && !refillHit && !(replacedWayNeedWriteback && writeback.full)
       val askUpgrade = !MISS && canRefill && !hitUnique
       val startRefill = isValid && GENERATION_OK && askRefill
@@ -1697,8 +1698,8 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val canFlush = reservation.win && !writeback.full && !refill.slots.map(_.valid).orR && !resulting(WAYS_HAZARD).orR
       val startFlush = isValid && FLUSH && GENERATION_OK && needFlush && canFlush
 
-      val refillWay = CombInit(replacedWay)
-      when(askUpgrade){
+
+      when(!MISS && !hitUnique){
         refillWay := wayId
       }
 
