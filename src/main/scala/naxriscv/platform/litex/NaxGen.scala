@@ -74,6 +74,8 @@ object NaxGen extends App{
     opt[Unit]("with-jtag-tap") action  { (v, c) => withJtagTap = true }
     opt[Unit]("with-jtag-instruction") action  { (v, c) => withJtagInstruction = true }
     opt[Unit]("with-debug") action { (v, c) => withDebug = true }
+    opt[Int]("l2-bytes") action { (v, c) => l2Bytes = v }
+    opt[Int]("l2-ways") action { (v, c) => l2Ways = v }
     opt[Unit]("with-dma") action { (v, c) => withDma = true }
     opt[Seq[String]]("memory-region") unbounded() action  { (v, c) =>
       assert(v.length == 4, "--memory-region need 4 parameters")

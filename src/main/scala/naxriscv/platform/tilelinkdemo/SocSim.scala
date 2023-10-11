@@ -29,8 +29,8 @@ object SocSim extends App {
     val dcache = naxes(0).plugins.collectFirst { case p: DataCachePlugin => p }.get
     val icache = naxes(0).plugins.collectFirst { case p: FetchCachePlugin => p }.get
 
-    dcache.cacheSize = 2048
-    hub.parameter.cacheBytes = 4096
+//    dcache.cacheSize = 2048
+//    hub.parameter.cacheBytes = 4096
 //    icache.cacheSize = 2048
   }
   val compiled = sc.compile(new SocDemoSim(4))
@@ -138,7 +138,7 @@ object SocSim extends App {
       }
     }
 
-
+/*
 
 //            val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
 //              val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
@@ -169,18 +169,18 @@ object SocSim extends App {
             if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
           }
         }
+*/
+//
+    memAgent.mem.loadBin(0x00000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
+    memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
+    memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
+    memAgent.mem.loadBin(0x00F80000l, s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb")
 
-//
-//    memAgent.mem.loadBin(0x00000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-//    memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
-//    memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
-//    memAgent.mem.loadBin(0x00F80000l, s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb")
-//
-//
-//    tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
-//    tracer.loadBin(0x80F80000l, new File(s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb"))
-//    tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
-//    tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
+
+    tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
+    tracer.loadBin(0x80F80000l, new File(s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb"))
+    tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
+    tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
 
     println("Sim starting <3")
     //      cd.waitSampling(4000000)

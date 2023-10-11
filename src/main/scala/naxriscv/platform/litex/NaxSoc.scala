@@ -30,6 +30,9 @@ class NaxSocConfig(){
   var withDebug = false
   var withDma = false
   var mBusWidth = 64
+  var l2Bytes = 128*1024
+  var l2Ways = 8
+  def withL2 = l2Bytes > 0
 }
 
 class NaxSoc(c : NaxSocConfig) extends Component{
@@ -66,13 +69,25 @@ class NaxSoc(c : NaxSocConfig) extends Component{
     memFilter.up << bridge.down
   }
 
-//  val hub = new HubFiber()
-  val hub = new DirectoryFiber()
-  hub.parameter.cacheWays = 4
-  hub.parameter.cacheBytes = 128 * 1024
-  hub.up << memFilter.down
-  hub.up.setUpConnection(a = StreamPipe.FULL, c = StreamPipe.FULL)
-  hub.down.forceDataWidth(mainDataWidth)
+
+  var nonCoherent : Node = null
+  val noL2 = !withL2 generate new Area {
+    val hub = new HubFiber()
+    hub.up << memFilter.down
+    hub.up.setUpConnection(a = StreamPipe.FULL, c = StreamPipe.FULL)
+    hub.down.forceDataWidth(mainDataWidth)
+    nonCoherent = hub.down
+  }
+
+  val l2 = withL2 generate new Area {
+    val cache = new DirectoryFiber()
+    cache.parameter.cacheWays = 4
+    cache.parameter.cacheBytes = 128 * 1024
+    cache.up << memFilter.down
+    cache.up.setUpConnection(a = StreamPipe.FULL, c = StreamPipe.FULL)
+    cache.down.forceDataWidth(mainDataWidth)
+    nonCoherent = cache.down
+  }
 
   val withMem = regions.exists(_.onMemory)
   val toAxi4 = withMem generate new fabric.Axi4Bridge
@@ -80,7 +95,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
     toAxi4.up.forceDataWidth(mBusWidth)
     toAxi4.down.addTag(PMA.MAIN)
     regions.filter(_.onMemory).foreach(r =>
-      toAxi4.up at r.mapping of hub.down
+      toAxi4.up at r.mapping of nonCoherent
     )
   }
 
@@ -88,7 +103,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
 
   val peripheral = new Area {
     val bus = Node()
-    bus << (hub.down, ioFilter.down)
+    bus << (nonCoherent, ioFilter.down)
     bus.setDownConnection(a = StreamPipe.HALF, d = StreamPipe.HALF)
     bus.forceDataWidth(32)
 
