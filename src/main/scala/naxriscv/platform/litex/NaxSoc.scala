@@ -13,7 +13,7 @@ import spinal.lib.bus.amba4.axilite.{AxiLite4, AxiLite4SpecRenamer}
 import spinal.lib.bus.misc.{OffsetTransformer, OrMapping, SizeMapping}
 import spinal.lib.bus.tilelink
 import spinal.lib.bus.tilelink._
-import spinal.lib.bus.tilelink.coherent.{DirectoryFiber, HubFiber}
+import spinal.lib.bus.tilelink.coherent.{CacheFiber, HubFiber}
 import spinal.lib.bus.tilelink.fabric.Node
 import spinal.lib.cpu.riscv.debug.DebugModuleFiber
 import spinal.lib.misc.plic.TilelinkPlicFiber
@@ -80,7 +80,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
   }
 
   val l2 = withL2 generate new Area {
-    val cache = new DirectoryFiber()
+    val cache = new CacheFiber()
     cache.parameter.cacheWays = 4
     cache.parameter.cacheBytes = 128 * 1024
     cache.up << memFilter.down

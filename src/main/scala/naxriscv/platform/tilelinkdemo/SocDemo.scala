@@ -8,7 +8,7 @@ import spinal.lib.StreamPipe
 import spinal.lib.bus.misc.SizeMapping
 import spinal.lib.bus.tilelink
 import spinal.lib.bus.tilelink._
-import spinal.lib.bus.tilelink.coherent.{DirectoryFiber, HubFiber}
+import spinal.lib.bus.tilelink.coherent.{CacheFiber, HubFiber}
 import spinal.lib.bus.tilelink.fabric.Node
 import spinal.lib.misc.TilelinkClintFiber
 import spinal.lib.misc.plic.TilelinkPlicFiber
@@ -29,7 +29,7 @@ class SocDemo(cpuCount : Int) extends Component {
   //  nonCoherent << memFilter.down
 
   //  val hub = new HubFiber()
-  val hub = new DirectoryFiber()
+  val hub = new CacheFiber()
   hub.parameter.cacheWays = 4
   hub.parameter.cacheBytes = 128*1024
 
