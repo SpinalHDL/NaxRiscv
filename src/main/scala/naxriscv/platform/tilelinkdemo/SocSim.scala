@@ -90,7 +90,6 @@ object SocSim extends App {
 
     val memAgent = new MemoryAgent(dut.mem.node.bus, cd, seed = 0, randomProberFactor = 0.2f)(null) {
       mem.randOffset = 0x80000000l
-//      randomProberFactor = 2.0f //TODO remove me
 
       import driver.driver._
 

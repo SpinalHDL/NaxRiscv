@@ -81,8 +81,8 @@ class NaxSoc(c : NaxSocConfig) extends Component{
 
   val l2 = withL2 generate new Area {
     val cache = new CacheFiber()
-    cache.parameter.cacheWays = 4
-    cache.parameter.cacheBytes = 128 * 1024
+    cache.parameter.cacheWays = l2Ways
+    cache.parameter.cacheBytes = l2Bytes
     cache.up << memFilter.down
     cache.up.setUpConnection(a = StreamPipe.FULL, c = StreamPipe.FULL)
     cache.down.forceDataWidth(mainDataWidth)
