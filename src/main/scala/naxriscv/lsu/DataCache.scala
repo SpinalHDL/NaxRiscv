@@ -334,6 +334,7 @@ case class DataMemProbeCmd(p : DataMemBusParameter) extends Bundle {
   val id = UInt(p.probeIdWidth bits)
   val allowUnique = Bool()
   val allowShared = Bool()
+  val getDirtyData = Bool()
 }
 
 case class DataMemProbeRsp(p : DataMemBusParameter, fromProbe : Boolean) extends Bundle {
@@ -341,7 +342,7 @@ case class DataMemProbeRsp(p : DataMemBusParameter, fromProbe : Boolean) extends
   val address = UInt(p.addressWidth bits)
   val fromUnique, fromShared = Bool()
   val toShared, toUnique = Bool()
-  val allowShared, allowUnique = Bool() //Used for redo
+  val allowShared, allowUnique, getDirtyData = Bool() //Used for redo
   val redo = fromProbe generate Bool()
   val writeback = fromProbe generate Bool()
 
@@ -550,13 +551,13 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
       }
 
       val onB = new Area{
-        //TODO add suport for ACQUIRE_PERM !!!
         assert(!(bus.b.valid && bus.b.opcode === Opcode.B.PROBE_PERM))
-        probe.cmd.valid       := bus.b.valid
-        probe.cmd.address     := bus.b.address
-        probe.cmd.id          := bus.b.source
-        probe.cmd.allowUnique := bus.b.param === Param.Cap.toT
-        probe.cmd.allowShared := bus.b.param =/= Param.Cap.toN
+        probe.cmd.valid        := bus.b.valid
+        probe.cmd.address      := bus.b.address
+        probe.cmd.id           := bus.b.source
+        probe.cmd.allowUnique  := bus.b.param === Param.Cap.toT
+        probe.cmd.allowShared  := bus.b.param =/= Param.Cap.toN
+        probe.cmd.getDirtyData := bus.b.opcode === Opcode.B.PROBE_BLOCK
         bus.b.ready := True
       }
 
@@ -568,6 +569,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
           probe.cmd.id          := probe.rsp.id
           probe.cmd.allowUnique := probe.rsp.allowUnique
           probe.cmd.allowShared := probe.rsp.allowShared
+          probe.cmd.getDirtyData := probe.rsp.getDirtyData
           bus.b.ready := False
         }
 
@@ -786,6 +788,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
   val PROBE = Stageable(Bool())
   val ALLOW_UNIQUE = Stageable(Bool())
   val ALLOW_SHARED = Stageable(Bool())
+  val ALLOW_PROBE_DATA = Stageable(Bool())
   val PROBE_ID = Stageable(UInt(probeIdWidth bits))
   val FLUSH = Stageable(Bool())
   val FLUSH_FREE = Stageable(Bool())
@@ -1582,6 +1585,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
         PROBE := io.mem.probe.cmd.valid
         ALLOW_SHARED := io.mem.probe.cmd.allowShared
         ALLOW_UNIQUE := io.mem.probe.cmd.allowUnique
+        ALLOW_PROBE_DATA := io.mem.probe.cmd.getDirtyData
         PROBE_ID := io.mem.probe.cmd.id
         when(io.mem.probe.cmd.valid){
           io.store.cmd.ready := False
@@ -1804,7 +1808,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
 
       val snoop = withCoherency generate new Area {
         val askSomething = PROBE && WAYS_HIT
-        val askWriteback = !wasClean && !ALLOW_UNIQUE
+        val askWriteback = !wasClean && !ALLOW_UNIQUE && ALLOW_PROBE_DATA
         val askTagUpdate = (!ALLOW_SHARED || !ALLOW_UNIQUE && hitUnique)
         val canUpdateTag = !(askSomething && askTagUpdate && !reservation.win)
         val canWriteback =  !(askSomething && askWriteback && (!reservation.win || writeback.full))
@@ -1869,6 +1873,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
         io.mem.probe.rsp.redo   := !success
         io.mem.probe.rsp.allowUnique := ALLOW_UNIQUE
         io.mem.probe.rsp.allowShared := ALLOW_SHARED
+        io.mem.probe.rsp.getDirtyData := ALLOW_PROBE_DATA
         io.mem.probe.rsp.writeback := askWriteback
       }
     }
