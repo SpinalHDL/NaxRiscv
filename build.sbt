@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 val spinalVersion = "dev"
 
 lazy val root = (project in file(".")).
@@ -11,8 +15,10 @@ lazy val root = (project in file(".")).
     scalacOptions += s"-Xplugin-require:idsl-plugin",
     libraryDependencies ++= Seq(
       "org.scalatest" %% "scalatest" % "3.2.5",
-      "org.yaml" % "snakeyaml" % "1.8"
+      "org.yaml" % "snakeyaml" % "1.8",
+      "net.fornwall" % "jelf" % "0.7.0"
     ),
+    Compile / unmanagedSourceDirectories += baseDirectory.value / "ext/rvls/bindings/jni",
     name := "NaxRiscv"
   ).dependsOn(spinalHdlIdslPlugin, spinalHdlSim,spinalHdlCore,spinalHdlLib)
 lazy val spinalHdlIdslPlugin = ProjectRef(file("../SpinalHDL"), "idslplugin")

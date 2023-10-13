@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
 
 #include <verilated.h>
 #include "verilated_fst_c.h"
@@ -486,10 +489,14 @@ class WithMemoryLatency{
 public:
     virtual void setLatency(int cycles) = 0;
 };
+class WithMemoryBandwidth{
+public:
+    virtual void setBandwidth(float ratio) = 0;
+};
 
 #define FETCH_MEM_DATA_BYTES (FETCH_MEM_DATA_BITS/8)
 
-class FetchCached : public SimElement, public WithMemoryLatency{
+class FetchCached : public SimElement, public WithMemoryLatency, public WithMemoryBandwidth{
 public:
 	bool error_next = false;
 	u64 pendingCount = 0;
@@ -497,17 +504,17 @@ public:
 	u64 time;
 	bool stall;
 
-    VNaxRiscv* nax;
-    Soc *soc;
+  VNaxRiscv* nax;
+  Soc *soc;
 
-    u32 readyTrigger = 100;
-    u32 latency = 2;
-    void setLatency(int cycles){
-        latency = cycles*2;
-    }
-    void setBandwidth(float ratio){
-        readyTrigger = 128*ratio;
-    }
+  u32 readyTrigger = 100;
+  u32 latency = 2;
+  void setLatency(int cycles){
+      latency = cycles*2;
+  }
+  void setBandwidth(float ratio){
+      readyTrigger = 128*ratio;
+  }
 
 	FetchCached(VNaxRiscv* nax, Soc *soc, bool stall){
 		this->nax = nax;
@@ -571,7 +578,7 @@ public:
 };
 
 
-class DataCached : public SimElement, public WithMemoryLatency{
+class DataCached : public SimElement, public WithMemoryLatency, public WithMemoryBandwidth{
 public:
     vector<DataCachedReadChannel> readChannels;
     DataCachedWriteChannel writeCmdChannel;
@@ -843,6 +850,16 @@ public:
         mmioDut.pop();
         return !dut.error;
     }
+
+    virtual bool mmio_fetch(reg_t addr, size_t len, u8* bytes)  {
+        return mmio_load(addr, len, bytes);
+    }
+
+
+    virtual bool mmio_mmu(reg_t addr, size_t len, u8* bytes)  {
+        return mmio_load(addr, len, bytes);
+    }
+
     // Callback for processors to let the simulation know they were reset.
     virtual void proc_reset(unsigned id)  {
 //        printf("proc_reset %d\n", id);
@@ -1013,6 +1030,7 @@ public:
     ofstream gem5;
     disassembler_t disasm;
     bool gem5Enable = false;
+    bool scValid, scPassed;
 
     u64 opCounter = 0;
     int periode = 2;
@@ -1082,6 +1100,13 @@ public:
     }
 
     virtual void preCycle(){
+        if(nax->Lsu2Plugin_logic_special_atomic_storeWhitebox_valid){
+          if(nax->Lsu2Plugin_logic_special_atomic_storeWhitebox_isSc){
+        	scValid = true;
+			scPassed = nax->Lsu2Plugin_logic_special_atomic_storeWhitebox_scPassed;
+          }
+        }
+
         if(nax->robToPc_valid){
             for(int i = 0;i < DISPATCH_COUNT;i++){
                 robCtx[nax->robToPc_robId + i].pc = *robToPc[i];
@@ -1350,6 +1375,7 @@ enum ARG
     ARG_SPIKE_DISABLED,
     ARG_TIMEOUT_DISABLED,
     ARG_MEMORY_LATENCY,
+    ARG_MEMORY_BANDWIDTH,
     ARG_BLOCK_DEVICE,
     ARG_FRAMEBUFFER,
     ARG_SIM_MASTER,
@@ -1398,6 +1424,7 @@ static const struct option long_options[] =
     { "spike-disabled", no_argument, 0, ARG_SPIKE_DISABLED},
     { "timeout-disabled", no_argument, 0, ARG_TIMEOUT_DISABLED},
     { "memory-latency", required_argument, 0, ARG_MEMORY_LATENCY },
+    { "memory-bandwidth", required_argument, 0, ARG_MEMORY_BANDWIDTH },
     { "block-device", required_argument, 0, ARG_BLOCK_DEVICE },
     { "framebuffer", required_argument, 0, ARG_FRAMEBUFFER },
     { "sim-master", no_argument, 0, ARG_SIM_MASTER },
@@ -1570,6 +1597,7 @@ void parseArgFirst(int argc, char** argv){
             case ARG_BLOCK_DEVICE:
             case ARG_FRAMEBUFFER:
             case ARG_MEMORY_LATENCY:
+            case ARG_MEMORY_BANDWIDTH:
             case ARG_LOAD_HEX:
             case ARG_LOAD_ELF:
             case ARG_LOAD_BIN:
@@ -1658,6 +1686,13 @@ void parseArgsSecond(int argc, char** argv){
                 for(auto e : simElements){
                     if(auto v = dynamic_cast<WithMemoryLatency*>(e)) {
                        v->setLatency(stoi(optarg));
+                    }
+                }
+            }break;
+            case ARG_MEMORY_BANDWIDTH:{
+                for(auto e : simElements){
+                    if(auto v = dynamic_cast<WithMemoryBandwidth*>(e)) {
+                       v->setBandwidth(stof(optarg));
                     }
                 }
             }break;
@@ -2111,6 +2146,13 @@ void simLoop(){
                             }
                             if(spike_enabled) {
                                 RvData spike_pc = state->pc;
+                                if(whitebox->scValid){
+                                	whitebox->scValid = false;
+                                	if(!whitebox->scPassed){
+                                		proc->get_mmu()->yield_load_reservation();
+                                	}
+                                }
+
                                 spikeStep(robCtx);
                                 last_commit_pc = pc;
 

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.lsu
 
 import naxriscv.Frontend.{DECODE_COUNT, DISPATCH_COUNT, DISPATCH_MASK}
@@ -21,6 +25,8 @@ import spinal.core.fiber.{Handle, hardFork}
 import spinal.lib.bus.amba4.axi.{Axi4, Axi4Config}
 import spinal.lib.bus.amba4.axilite.{AxiLite4, AxiLite4Config}
 import spinal.lib.bus.bmb.{Bmb, BmbAccessParameter, BmbParameter, BmbSourceParameter}
+import spinal.lib.bus.tilelink
+import spinal.lib.bus.tilelink.{M2sSupport, SizeRange}
 import spinal.lib.fsm._
 
 import scala.collection.mutable
@@ -96,7 +102,20 @@ case class LsuStorePort(sqSize : Int,
 }
 
 case class LsuPeripheralBusParameter(addressWidth : Int,
-                                     dataWidth : Int)
+                                     dataWidth : Int){
+  val bytesMax = dataWidth/8
+  def toTileLinkM2sParameters() = tilelink.M2sParameters(
+    sourceCount = 1,
+    support = M2sSupport(
+      addressWidth = addressWidth,
+      dataWidth = dataWidth,
+      transfers = tilelink.M2sTransfers(
+        get = SizeRange.upTo(bytesMax),
+        putFull = SizeRange.upTo(bytesMax)
+      )
+    )
+  )
+}
 
 case class LsuPeripheralBusCmd(p : LsuPeripheralBusParameter) extends Bundle{
   val write = Bool()
@@ -240,6 +259,26 @@ case class LsuPeripheralBus(p : LsuPeripheralBusParameter) extends Bundle with I
     rsp.data  := bmb.rsp.data
     rsp.error := bmb.rsp.isError
   }.bmb
+
+  def toTilelink(): tilelink.Bus = new Composite(this, "toTilelink"){
+    val bus = tilelink.Bus(p.toTileLinkM2sParameters())
+    bus.a.valid := cmd.valid
+    bus.a.opcode  := cmd.write.mux(tilelink.Opcode.A.PUT_FULL_DATA(), tilelink.Opcode.A.GET())
+    bus.a.param   := 0
+    bus.a.source  := 0
+    bus.a.address := cmd.address
+    bus.a.size    := cmd.size
+    bus.a.mask    := cmd.mask
+    bus.a.data    := cmd.data
+    bus.a.corrupt := False
+    cmd.ready := bus.a.ready
+
+    rsp.valid := bus.d.valid
+    rsp.data  := bus.d.data
+    rsp.error := bus.d.denied || bus.d.corrupt
+    bus.d.ready := True
+  }.bus
+
 }
 
 case class LsuFlushPayload() extends Bundle{

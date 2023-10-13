@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.frontend
 
 import naxriscv.Frontend._
@@ -38,6 +42,7 @@ class DispatchPlugin(var slotCount : Int = 0,
   val fenceYoungerSpec, fenceOlderSpec = mutable.LinkedHashSet[MicroOp]()
   override def fenceOlder(microOp: MicroOp) = getService[DecoderService].addMicroOpDecoding(microOp, DecodeList(FENCE_OLDER -> True, SPARSE_ROB_LINE -> True))
   override def fenceYounger(microOp: MicroOp) = getService[DecoderService].addMicroOpDecoding(microOp, DecodeList(FENCE_YOUNGER -> True, SPARSE_ROB_LINE -> True))
+  override def forceSparse(microOp: MicroOp) = getService[DecoderService].addMicroOpDecoding(microOp, DecodeList(SPARSE_ROB_LINE -> True))
 
   val setup = create early new Area{
     val decoder = getService[DecoderService]

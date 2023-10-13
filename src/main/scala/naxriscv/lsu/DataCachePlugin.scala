@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.lsu
 
 import naxriscv.Global
@@ -36,7 +40,10 @@ class DataCachePlugin(var memDataWidth : Int,
                       var storeControlAt: Int = 2,
                       var storeRspAt: Int = 2,
                       var tagsReadAsync : Boolean = true,
-                      var reducedBankWidth : Boolean = false
+                      var reducedBankWidth : Boolean = false,
+                      var withCoherency : Boolean = false,
+                      var probeIdWidth : Int = -1,
+                      var ackIdWidth : Int = -1
                      ) extends Plugin with LockedImpl{
   def loadRspLatency = loadRspAt
   def storeRspLatency = storeRspAt
@@ -51,6 +58,13 @@ class DataCachePlugin(var memDataWidth : Int,
   def cpuDataWidth = XLEN.get max FLEN
 
   def writebackBusy = setup.writebackBusy
+
+  def setCoherencyInfo(probeIdWidth : Int, ackIdWidth : Int) = {
+    this.probeIdWidth = probeIdWidth
+    this.ackIdWidth = ackIdWidth
+    setup.dataCacheParameters.probeIdWidth = probeIdWidth
+    setup.dataCacheParameters.ackIdWidth = ackIdWidth
+  }
 
   case class LoadPortSpec(port : DataLoadPort, priority : Int)
   val loadPorts = ArrayBuffer[LoadPortSpec]()
@@ -98,13 +112,8 @@ class DataCachePlugin(var memDataWidth : Int,
     val refillCompletions = Bits(refillCount bits)
 
     val lockPort = LockPort()
-  }
 
-  val logic = create late new Area{
-    lock.await()
-
-
-    val cache = new DataCache(
+    val dataCacheParameters = DataCacheParameters(
       cacheSize       = cacheSize,
       wayCount        = wayCount,
       memDataWidth    = memDataWidth,
@@ -113,9 +122,9 @@ class DataCachePlugin(var memDataWidth : Int,
       writebackCount  = writebackCount,
       preTranslationWidth    = VIRTUAL_EXT_WIDTH,
       postTranslationWidth   = PHYSICAL_WIDTH,
-      lineSize         = lineSize,
-      loadRefillCheckEarly  = loadRefillCheckEarly,
-      storeRefillCheckEarly = storeRefillCheckEarly,
+      lineSize               = lineSize,
+      loadRefillCheckEarly   = loadRefillCheckEarly,
+      storeRefillCheckEarly  = storeRefillCheckEarly,
       loadReadBanksAt  = loadReadBanksAt,
       loadReadTagsAt   = loadReadTagsAt,
       loadTranslatedAt = loadTranslatedAt,
@@ -132,7 +141,19 @@ class DataCachePlugin(var memDataWidth : Int,
       storeControlAt   = storeControlAt,
       storeRspAt       = storeRspAt,
       tagsReadAsync    = tagsReadAsync,
-      reducedBankWidth = reducedBankWidth
+      reducedBankWidth = reducedBankWidth,
+      withCoherency    = withCoherency,
+      probeIdWidth     = probeIdWidth,
+      ackIdWidth       = ackIdWidth
+    )
+  }
+
+  val logic = create late new Area{
+    lock.await()
+
+
+    val cache = new DataCache(
+      setup.dataCacheParameters
     )
 
     setup.writebackBusy <> cache.io.writebackBusy

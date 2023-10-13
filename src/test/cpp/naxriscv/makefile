@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023 "Everybody"
+#
+# SPDX-License-Identifier: MIT
+
 NAXRISCV_REPO?=$(realpath ../../../..)
 NAXRISCV_GEN_FOLDER?=${NAXRISCV_REPO}
 NAXRISCV_VERILOG?=${NAXRISCV_GEN_FOLDER}/NaxRiscv.v
@@ -38,8 +42,11 @@ FLAGS +=  -CFLAGS "-fprofile-use -fprofile-correction"
 endif
 
 
+SPIKE_OBJS:= libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a
+SPIKE_OBJS:=$(addprefix ${SPIKE_BUILD}/,${SPIKE_OBJS})
+
 SRCS=src/main.cpp
-SRCS+=${SPIKE_BUILD}/package.so # g++ -shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/opt/riscv/lib  -o package.so spike.o  libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
+SRCS+=${SPIKE_OBJS} # g++ -shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/opt/riscv/lib  -o package.so spike.o  libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
 
 
 #SRCS+=${SPIKE_BUILD}/libspike_main.a

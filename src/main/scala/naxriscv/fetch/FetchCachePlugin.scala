@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.fetch
 
 import naxriscv.{Fetch, Global}
@@ -11,8 +15,11 @@ import naxriscv.Frontend._
 import naxriscv.Fetch._
 import naxriscv.prediction.HistoryPlugin
 import spinal.lib.bus.amba4.axi.{Axi4Config, Axi4ReadOnly}
+import spinal.lib.bus.tilelink
 import spinal.lib.bus.amba4.axilite.{AxiLite4Config, AxiLite4ReadOnly}
 import spinal.lib.bus.bmb.{Bmb, BmbAccessParameter, BmbParameter, BmbSourceParameter}
+import spinal.lib.bus.tilelink.{M2sSupport, SizeRange}
+import spinal.lib.misc.Plru
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -26,10 +33,24 @@ case class FetchL1Rsp(dataWidth : Int) extends Bundle{
   val error = Bool()
 }
 
-case class FetchL1Bus(physicalWidth : Int,
-                      dataWidth : Int,
-                      lineSize : Int,
-                      withBackPresure : Boolean) extends Bundle with IMasterSlave {
+
+case class FetchL1BusParameters(physicalWidth : Int,
+                                dataWidth : Int,
+                                lineSize : Int,
+                                withBackPresure : Boolean){
+  def toTileLinkM2sParameters() = tilelink.M2sParameters(
+    sourceCount = 1,
+    support = M2sSupport(
+      addressWidth = physicalWidth,
+      dataWidth = dataWidth,
+      transfers = tilelink.M2sTransfers(get = SizeRange(lineSize))
+    )
+  )
+}
+
+case class FetchL1Bus(p : FetchL1BusParameters) extends Bundle with IMasterSlave {
+  import p._
+
   val cmd = Stream(FetchL1Cmd(physicalWidth))
   val rsp = Stream(FetchL1Rsp(dataWidth))
 
@@ -66,10 +87,9 @@ case class FetchL1Bus(physicalWidth : Int,
 
   def resizer(newDataWidth : Int) : FetchL1Bus = new Composite(this, "resizer"){
     val ret = FetchL1Bus(
-      physicalWidth   = physicalWidth,
-      dataWidth       = newDataWidth,
-      lineSize        = lineSize,
-      withBackPresure = withBackPresure || newDataWidth > dataWidth
+      p.copy(
+        withBackPresure = withBackPresure || newDataWidth > dataWidth
+      )
     )
 
     ret.cmd << self.cmd
@@ -144,6 +164,22 @@ case class FetchL1Bus(physicalWidth : Int,
     rsp.error := bmb.rsp.isError
   }.bmb
 
+  def toTilelink(): tilelink.Bus = new Composite(this, "toTilelink"){
+    val bus = tilelink.Bus(p.toTileLinkM2sParameters())
+    bus.a.valid := cmd.valid
+    bus.a.opcode  := tilelink.Opcode.A.GET
+    bus.a.param   := 0
+    bus.a.source  := 0
+    bus.a.address := cmd.address
+    bus.a.size    := log2Up(lineSize)
+    cmd.ready := bus.a.ready
+
+    rsp.valid := bus.d.valid
+    rsp.data  := bus.d.data
+    rsp.error := bus.d.denied || bus.d.corrupt
+    bus.d.ready := (if(withBackPresure) rsp.ready else True)
+  }.bus
+
   def toAxiLite4(): AxiLite4ReadOnly = new Composite(this, "toAxi4"){
     val axiConfig = AxiLite4Config(
       addressWidth = physicalWidth,
@@ -200,12 +236,15 @@ class FetchCachePlugin(var cacheSize : Int,
   }
 
   override def stagesCountMin = injectionAt + 1
-
-  val mem = create early master(FetchL1Bus(
+  def getBusParameter() = FetchL1BusParameters(
     physicalWidth = PHYSICAL_WIDTH,
     dataWidth     = memDataWidth,
     lineSize      = lineSize,
     withBackPresure = false
+  )
+
+  val mem = create early master(FetchL1Bus(
+    getBusParameter()
   ))
   def invalidatePort = setup.invalidatePort
 
@@ -261,6 +300,7 @@ class FetchCachePlugin(var cacheSize : Int,
 
 
     val readStage = setup.pipeline.getStage(readAt)
+    val plruStage = setup.pipeline.getStage(readAt+1)
     val hitsStage = setup.pipeline.getStage(hitsAt)
     val hitStage = setup.pipeline.getStage(hitAt)
     val bankMuxesStage = setup.pipeline.getStage(bankMuxesAt)
@@ -324,11 +364,18 @@ class FetchCachePlugin(var cacheSize : Int,
       }
     }
 
+    val PLRU = Stageable(Plru.State(wayCount))
+    val plru = new Area {
+      val ram = Mem.fill(linePerWay)(Plru.State(wayCount))
+      val write = ram.writePort
+    }
+
     val invalidate = new Area{
       val requested = RegInit(False) setWhen(setup.invalidatePort.cmd.valid)
       val canStart = True
       val counter = Reg(UInt(log2Up(linePerWay)+1 bits)) init(0)
       val done = counter.msb
+      val firstEver = RegInit(True) clearWhen (done)
       when(!done){
         counter := counter + 1
       }
@@ -358,6 +405,7 @@ class FetchCachePlugin(var cacheSize : Int,
       val start = new Area{
         val valid = False
         val address = UInt(PHYSICAL_WIDTH bits)
+        val wayToAllocate = UInt(log2Up(wayCount) bits)
         val isIo = Bool()
       }
     
@@ -366,11 +414,19 @@ class FetchCachePlugin(var cacheSize : Int,
       val address = KeepAttribute(Reg(UInt(PHYSICAL_WIDTH bits)))
       val isIo = Reg(Bool())
       val hadError = RegInit(False)
-      
+      val wayToAllocate = Reg(UInt(log2Up(wayCount) bits))
+
+      import spinal.core.sim._
+      val pushCounter = Reg(UInt(32 bits)) init (0) simPublic()
+
       when(!valid){
-        valid setWhen(start.valid)
+        when(start.valid){
+          valid := True
+          pushCounter := pushCounter + 1
+        }
         address := start.address
         isIo := start.isIo
+        wayToAllocate := start.wayToAllocate
       }
 
       invalidate.canStart clearWhen(valid)
@@ -380,7 +436,7 @@ class FetchCachePlugin(var cacheSize : Int,
       mem.cmd.address := address(tagRange.high downto lineRange.low) @@ U(0, lineRange.low bit)
       mem.cmd.io := isIo
 
-      val wayToAllocate = Counter(wayCount, !valid)
+      val randomWay = Counter(wayCount, !valid)
       val wordIndex = KeepAttribute(Reg(UInt(log2Up(memWordPerLine) bits)) init (0))
 
       when(invalidate.done) {
@@ -398,7 +454,7 @@ class FetchCachePlugin(var cacheSize : Int,
           bank.write.address := address(lineRange) @@ wordIndex
           bank.write.data := mem.rsp.data
         } else {
-          val sel = U(bankId) - wayToAllocate.value
+          val sel = U(bankId) - wayToAllocate
           val groupSel = wayToAllocate(log2Up(bankCount)-1 downto log2Up(bankCount/memToBankRatio))
           val subSel = sel(log2Up(bankCount/memToBankRatio) -1 downto 0)
           bank.write.valid := mem.rsp.valid && groupSel === (bankId >> log2Up(bankCount/memToBankRatio))
@@ -444,7 +500,6 @@ class FetchCachePlugin(var cacheSize : Int,
         WORD := BANKS_MUXES.read(bankId) //MuxOH(WAYS_HITS, BANKS_MUXES)
       }
 
-
       val onWays = for((way, wayId) <- ways.zipWithIndex) yield new Area{
         {
           import readStage._
@@ -463,10 +518,25 @@ class FetchCachePlugin(var cacheSize : Int,
         }
       }
 
+      plruStage(PLRU) := plru.ram.readAsync(plruStage(FETCH_PC)(lineRange))
+
       {import hitStage._;   WAYS_HIT := B(WAYS_HITS).orR}
 
       val ctrl = new Area{
         import controlStage._
+
+        val plruLogic = new Area {
+          val core = new Plru(wayCount, false)
+          core.io.context.state := PLRU
+          core.io.update.id := OHToUInt(WAYS_HITS)
+
+          plru.write.valid := False
+          plru.write.address := FETCH_PC(lineRange)
+          plru.write.data := core.io.update.state
+
+          refill.start.wayToAllocate := core.io.evict.id
+//          refill.start.wayToAllocate := refill.randomWay
+        }
 
         setup.redoJump.valid := False
         setup.redoJump.pc    := FETCH_PC
@@ -475,13 +545,15 @@ class FetchCachePlugin(var cacheSize : Int,
         WORD_FAULT_PAGE := tpk.PAGE_FAULT || !tpk.ALLOW_EXECUTE
 
 
-
-
         val redoIt = False
         when(redoIt){
           setup.redoJump.valid := True
           flushIt()
           setup.pipeline.getStage(0).haltIt() //"optional"
+        } otherwise {
+          when(isFireing){
+            plru.write.valid := True
+          }
         }
 
         when(isValid) {
@@ -518,6 +590,11 @@ class FetchCachePlugin(var cacheSize : Int,
     }
 
 
+    when(!invalidate.done && invalidate.firstEver) {
+      plru.write.valid := True
+      plru.write.address := invalidate.counter.resized
+      plru.write.data.clearAll()
+    }
 
 
     translation.release()

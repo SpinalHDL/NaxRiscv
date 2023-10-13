@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.platform
 
 import naxriscv._
@@ -260,7 +264,7 @@ ip route add default via 192.168.1.100
 date -s "19 AUG 2022 14:47"
 
 export SDL_VIDEODRIVER=directfb
-/usr/games/openttd  -r 640x480 -b 8bpp-optimized -g
+/usr/games/openttd  -r 640x480 -b 8bpp-optimized -g -s null -m null
 
 wget https://file-examples.com/storage/fe5467a6a163010b197fb20/2017/11/file_example_MP3_1MG.mp3
 mpg123 -w wave.wav file_example_MP3_1MG.mp3
@@ -440,7 +444,7 @@ Vexriscv_smp =>
 
 obj_dir/VNaxRiscv --name play --load-elf ../../../../ext/NaxSoftware/baremetal/framebuffer/build/rv32ima/framebuffer.elf --framebuffer 0x80200000,800,600
 
-dtc -O dtb -o linux.dtb linux.dts
+
 export LINUX_IMAGES=$NAXRISCV/../imageDoom
 ./obj_dir/VNaxRiscv \
     --framebuffer 0x80200000,800,600  \

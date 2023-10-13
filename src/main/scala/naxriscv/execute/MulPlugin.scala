@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.execute
 
 import naxriscv.{DecodeList, Frontend, Global}
@@ -29,7 +33,8 @@ class MulPlugin(val euId : String,
                 var splitWidthB : Int = 17,
                 var sum1WidthMax : Int = -1,
                 var sum2WidthMax : Int = -1,
-                var staticLatency : Boolean = true) extends ExecutionUnitElementSimple(euId, staticLatency) {
+                var staticLatency : Boolean = true,
+                var bufferedHigh : Boolean = false) extends ExecutionUnitElementSimple(euId, staticLatency) {
   import MulPlugin._
 
   override def euWritebackAt = writebackAt
@@ -41,6 +46,11 @@ class MulPlugin(val euId : String,
     if(sum2WidthMax == -1) sum2WidthMax = XLEN.get*4/3
 
     getServiceOption[PrivilegedService].foreach(_.addMisa('M'))
+
+    if(bufferedHigh) {
+      eu.setDecodingDefault(HIGH, False)
+      assert(!staticLatency)
+    }
 
     add(Rvi.MUL   , List(), DecodeList(HIGH -> False, RS1_SIGNED -> True,  RS2_SIGNED -> True))
     add(Rvi.MULH  , List(), DecodeList(HIGH -> True,  RS1_SIGNED -> True,  RS2_SIGNED -> True))
@@ -116,7 +126,12 @@ class MulPlugin(val euId : String,
 
     val writeback = new ExecuteArea(writebackAt) {
       import stage._
-      wb.payload := B(HIGH ? stage(MUL_SUM3)(XLEN, XLEN bits) otherwise stage(MUL_SUM3)(0, XLEN bits))
+      val buffer = bufferedHigh generate new Area{
+        val valid = RegNext(False) init (False) setWhen (isValid && !isReady && !isRemoved)
+        val data = RegNext(stage(MUL_SUM3)(XLEN, XLEN bits))
+        haltIt(HIGH && !valid)
+      }
+      wb.payload := B(HIGH ? (if(bufferedHigh) buffer.data else stage(MUL_SUM3)(XLEN, XLEN bits)) otherwise stage(MUL_SUM3)(0, XLEN bits))
     }
   }
 

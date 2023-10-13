@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.utilities
 
 import spinal.core._
@@ -105,6 +109,15 @@ class Framework(val plugins : Seq[Plugin]) extends Area{
     filtered.length match {
       case 0 => throw new Exception(s"Can't find the service ${classTag[T].runtimeClass.getName}")
       case 1 => filtered.head
+      case _ => throw new Exception(s"Found multiple instances of ${classTag[T].runtimeClass.getName}")
+    }
+  }
+
+  def getServiceOption[T <: Service : ClassTag] : Option[T] = {
+    val filtered = getServicesOf[T]
+    filtered.length match {
+      case 0 => None
+      case 1 => Some(filtered.head)
       case _ => throw new Exception(s"Found multiple instances of ${classTag[T].runtimeClass.getName}")
     }
   }

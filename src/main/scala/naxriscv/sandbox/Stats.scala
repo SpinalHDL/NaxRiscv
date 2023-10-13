@@ -1,29 +1,79 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.sandbox
 
 import spinal.core._
+import spinal.lib.{Flow, OHMasking, OHToUInt, UIntToOh}
 import spinal.lib.blackbox.xilinx.s7.FDRE
 import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
 
 import scala.collection.mutable.ArrayBuffer
+import scala.util.Random
 
 object Stats extends App{
-  val population = 16
-  val spaceSize = 256
+  val population = 8
+  val spaceSize = 16
+  val ways = 1
 //  val population = 23
 //  val spaceSize = 365
+
 
   var prob = 1.0
   for(i <- 0 until population){
     prob *= 1.0*(spaceSize-i)/spaceSize
   }
-  println(1.0*(spaceSize-1)/spaceSize)
-  println(prob)
+  println(1.0*(spaceSize-1)/spaceSize) //Chance for 1 item to not collide with 1 specific random item
+  println(prob) //Chance for 1 item to not collide with a population
 
+//  0.9375
+//  0.12082010507583618
 
-  val loads = 16
-  val stores = 16
-  println(Math.pow(1-1.0/spaceSize, stores))
-  println(Math.pow(Math.pow(1-1.0/spaceSize, stores),loads))
+//  val loads = 16
+//  val stores = 16
+//  println(Math.pow(1-1.0/spaceSize, stores))
+//  println(Math.pow(Math.pow(1-1.0/spaceSize, stores),loads))
+}
+
+object Stats2 extends App{
+  val sets = 256
+  val ways = 1
+  val used = 16
+
+  val setId = Random.nextInt(sets)
+  var conflicts = 0
+  val tries = 10000
+  for(_ <- 0 until tries){
+    var setFullness = 0
+    for(_ <- 0 until used) if(Random.nextInt(sets) == setId) setFullness += 1
+    if(setFullness >= ways) conflicts += 1
+  }
+  //Inserting 1 element
+  println(f"Conflicts ${100.0f * conflicts / tries}")
+}
+
+object Stats3 extends App{
+  val cacheSize = 16*1024
+  val ways = 4
+  val sets = cacheSize / 64 / ways
+  val entries = 4*sets*ways
+  val factor = entries/sets
+  val state = Array.fill(entries)(0)
+  for(s <- 0 until sets){
+    for(w <- 0 until ways){
+      state(Random.nextInt(factor)*sets+s) += 1
+    }
+  }
+
+  val setId = Random.nextInt(sets)
+  var conflicts = 0
+  val tries = 10000
+  for(_ <- 0 until tries){
+    if(state(Random.nextInt(entries)) != 0) conflicts += 1
+  }
+
+  println(f"Conflicts ${100.0f * conflicts / tries}")
 }
 
 
@@ -32,9 +82,20 @@ object SyntTest extends App{
 
   val rtls = ArrayBuffer[Rtl]()
   rtls += Rtl(SpinalVerilog(new Component {
-    val inputs = in Bits(5 bits)
-    val r0 = out(RegNext(inputs.orR))
-    val r1 = out(RegNext(inputs.andR))
+//    val entries = in(Vec.fill(16)(Bits(20 bits)))
+//    val value = in Bits(20 bits)
+//    val result = out(B(entries.map(_ === value)))
+
+    val downPendingMax = 16
+    val valids = Reg(Bits(downPendingMax bits)) init(0)
+    val freeOh = OHMasking.firstV2(~valids)
+    val freeId = OHToUInt(freeOh)
+    val free = !valids.andR
+    val allocate = Bool()
+    val release = Flow(UInt(log2Up(downPendingMax) bits))
+    valids := (valids | freeOh.andMask(allocate)) & (~UIntToOh(release.payload)).orMask(release.valid)
+    in(allocate, release)
+    out(free, freeId)
   }))
   val targets = XilinxStdTargets().take(2)
 
@@ -123,6 +184,63 @@ object RamPorts extends App{
 
   for(w <- List(2,3,4); r <- List(2,4,6)){
     println(s"w=$w r=$r XOR ${xor(w,r)}")
+  }
+
+}
+
+
+/*
+valid, tag, cached, cacheId, dirty, unique, owner, next
+1+10+9
+18+1+1+4
+ */
+object FallRandomly extends App {
+  val cacheSize = 256*1024
+  val cacheBlocks = cacheSize/64
+  val shots = cacheBlocks * 9 / 8
+  val sets = cacheBlocks
+  val ways = 4
+
+//  val ways = 8
+//  val sets = cacheBlocks/ways
+
+  val storage = Array.fill(sets)(0)
+  for(i <- 0 until shots){
+    storage(Random.nextInt(sets)) += 1
+  }
+
+  var sum = 0
+  for(s <- storage) sum += s
+  val avg = sum / sets.toFloat
+  println(s"AVG => $avg")
+
+  var latency = 0
+
+//  def latOf(e: Int) = (1 + e * 2) - 2 max 0
+  def latOf(e: Int) = ((e * 2).max(2)) - 2
+//  def latOf(e: Int) = ((e * 2).max(1)) - 2
+
+  latency = 0
+  for(s <- storage) latency += latOf(s)
+  println(s"Latency penality (miss) ${latency*1.0/sets}")
+
+  latency = 0
+  var nonEmpties = 0
+  for (s <- storage) {
+    for(i <- 1 to s) {
+      latency += latOf(i)
+      nonEmpties += 1
+    }
+  }
+  println(s"Latency penality (hit) ${latency * 1.0 / nonEmpties}")
+
+  var overWays = 0
+  for(s <- storage) overWays += (s-ways).max(0)
+  println(s"Overallocated $overWays")
+  for(i <- 0 to 10){
+    var count = 0
+    for(s <- storage) if(s == i) count += 1
+    println(s"$i => $count")
   }
 
 }

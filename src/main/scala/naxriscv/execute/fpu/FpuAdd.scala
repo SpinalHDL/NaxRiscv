@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.execute.fpu
 
 import spinal.core.{widthOf, _}
@@ -25,8 +29,8 @@ class FpuAdd(pipeline : Pipeline,
     val rs1MantissaBigger = insert(rs1.mantissa > rs2.mantissa)
     val absRs1Bigger      = insert(((rs1ExponentBigger || rs1ExponentEqual && rs1MantissaBigger) && !rs1.isZero || rs1.isInfinity) && !rs2.isInfinity)
     val needSub           = insert(rs1.sign ^ rs2.sign)
-    val passThrough  = insert(rs1.isZero || rs2.isZero)
-    val expDifAbsSat = insert(expDifAbs.sat(widthOf(expDifAbs) - log2Up((rs1.mantissa.bitWidth max rs2.mantissa.bitWidth))).orMask(passThrough))
+    val passThrough       = insert(rs1.isZero || rs2.isZero)
+    val expDifAbsSat      = insert(expDifAbs.sat(widthOf(expDifAbs) - log2Up((rs1.mantissa.bitWidth max rs2.mantissa.bitWidth))).orMask(passThrough))
   }
   import preShift._
 

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv
 
 import spinal.core._
@@ -62,7 +66,9 @@ object Config{
               simulation : Boolean = GenerationFlags.simulation,
               sideChannels : Boolean = false,
               dispatchSlots : Int = 32,
-              robSize : Int = 64): ArrayBuffer[Plugin] ={
+              robSize : Int = 64,
+              withCoherency : Boolean = false,
+              hartId : Int = 0): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
 
     val fpu = withFloat || withDouble
@@ -277,7 +283,10 @@ object Config{
       reducedBankWidth = false,
       //      loadHitAt      = 2
       //      loadRspAt      = 3,
-      loadRefillCheckEarly = false
+      loadRefillCheckEarly = false,
+      withCoherency = withCoherency,
+      probeIdWidth = if(withCoherency) 4 else 0,
+      ackIdWidth = if(withCoherency) 4 else 0
     )
 
     //MISC
@@ -301,7 +310,8 @@ object Config{
       withRdTime = withRdTime,
       withSupervisor = withSupervisor,
       withDebug = withDebug,
-      debugTriggers = debugTriggers
+      debugTriggers = debugTriggers,
+      hartId = hartId
     ))
     if(withPerfCounters) plugins += new PerformanceCounterPlugin(
       additionalCounterCount = 4,
@@ -439,7 +449,7 @@ object Gen extends App{
       decodeCount = 2,
       debugTriggers = 4,
       withDedicatedLoadAgu = false,
-      withRvc = false,
+      withRvc = true,
       withLoadStore = true,
       withMmu = true,
       withDebug = false,
@@ -450,6 +460,7 @@ object Gen extends App{
       withLsu2 = true,
       lqSize = 16,
       sqSize = 16,
+//      withCoherency = true,
       ioRange = a => a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
     )
     l.foreach{
@@ -823,4 +834,41 @@ BRAM	6	365	1.6438355
 DSP	4	740	0.5405406
 IO	138	500	27.599998
 BUFG	1	32	3.125
+
+
+
+make output/nax/buildroot/run0/PASS ARGS="--stats-print --memory-latency 25 --memory-bandwidth 0.8"
+with 4*2KB
+root@buildroot:~#SUCCESS buildroot_run0
+STATS :
+  IPC               0.383806
+  cycles            366078779
+  commits           140503396
+  reschedules       2868806
+  trap              10513
+  storeToLoadHazard 13478
+  loadHitMiss       145029
+
+with 4*4KB
+root@buildroot:~#SUCCESS buildroot_run0
+STATS :
+  IPC               0.436099
+  cycles            319994552
+  commits           139549454
+  reschedules       2839479
+  trap              9863
+  storeToLoadHazard 12096
+  loadHitMiss       146718
+
+with 4*4KB  --memory-latency 8 --memory-bandwidth 1.0
+  IPC               0.590046
+  cycles            240993947
+  commits           142197543
+  reschedules       2851075
+  trap              8858
+  branch miss       0
+  jump miss         0
+  storeToLoadHazard 11832
+  loadHitMiss       150247
+
  */

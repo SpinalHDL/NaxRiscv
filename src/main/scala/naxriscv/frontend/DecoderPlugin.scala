@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.frontend
 
 import naxriscv._
@@ -26,7 +30,7 @@ object DecoderPlugin extends AreaRoot{
 }
 
 
-class DecoderPlugin(xlen : Int) extends Plugin with DecoderService with LockedImpl{
+class DecoderPlugin(val xlen : Int) extends Plugin with DecoderService with LockedImpl{
   import DecoderPlugin.OP_ID
 
   create config{

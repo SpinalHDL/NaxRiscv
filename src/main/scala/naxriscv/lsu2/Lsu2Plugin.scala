@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.lsu2
 
 import naxriscv.Frontend._
@@ -6,9 +10,9 @@ import naxriscv.execute.EnvCallPlugin
 import naxriscv.fetch.FetchPlugin
 import naxriscv.frontend.{DispatchPlugin, FrontendPlugin}
 import naxriscv.interfaces.AddressTranslationPortUsage.LOAD_STORE
-import naxriscv.{Fetch, Frontend, Global, ROB}
+import naxriscv.{DecodeList, Fetch, Frontend, Global, ROB}
 import naxriscv.interfaces._
-import naxriscv.lsu.{DataCachePlugin, LsuFlushPayload, LsuFlusher, LsuPeripheralBus, LsuUtils, PrefetchPredictor}
+import naxriscv.lsu.{DataCachePlugin, LsuFlushPayload, LsuFlusher, LsuPeripheralBus, LsuPeripheralBusParameter, LsuUtils, PrefetchPredictor}
 import naxriscv.lsu2.Lsu2Plugin.CTRL_ENUM
 import naxriscv.misc.RobPlugin
 import naxriscv.riscv.{AtomicAlu, CSR, FloatRegFile, IntRegFile, Rvi}
@@ -116,6 +120,7 @@ class Lsu2Plugin(var lqSize: Int,
 
 
     val AMO, LR, SC = Stageable(Bool())
+    val FENCE, ATOMIC = Stageable(Bool())
     val MISS_ALIGNED = Stageable(Bool())
     val PAGE_FAULT = Stageable(Bool())
 
@@ -219,6 +224,15 @@ class Lsu2Plugin(var lqSize: Int,
     dispatch.fenceYounger(Rvi.SC)
     dispatch.fenceOlder  (Rvi.SC)
 
+    if(cache.withCoherency) {
+      dispatch.forceSparse(Rvi.FENCE)
+      decoder.addMicroOpDecodingDefault(FENCE, False)
+      decoder.addMicroOpDecoding(Rvi.FENCE, DecodeList(FENCE -> True))
+
+      decoder.addMicroOpDecodingDefault(LR, False)
+      decoder.addMicroOpDecoding(Rvi.LR, DecodeList(LR -> True))
+      dispatch.fenceYounger  (Rvi.LR) //ensure LR -> ior ordering
+    }
 
     val fpuWriteSize = UInt(2 bits)
     class RegfilePorts(regfile : RegfileService) extends Area{
@@ -243,7 +257,9 @@ class Lsu2Plugin(var lqSize: Int,
     doc.property("RVA", true)
   }
 
-  val peripheralBus = create late master(LsuPeripheralBus(PHYSICAL_WIDTH, wordWidth)).setName("LsuPlugin_peripheralBus")
+  def getPeripheralBusParameters() = LsuPeripheralBusParameter(PHYSICAL_WIDTH, wordWidth)
+  val peripheralBus = create late Verilator.public(master(LsuPeripheralBus(getPeripheralBusParameters())).setName("LsuPlugin_peripheralBus"))
+
 
   val logic = create late new Area{
     val imp = setup.get
@@ -449,8 +465,27 @@ class Lsu2Plugin(var lqSize: Int,
       }
 
       val reservation = new Area{
-        val valid = Reg(Bool()) init(False)
+        val kill = False
+        val valid = Reg(Bool()) init(False) clearWhen(kill)
         val address = Reg(UInt(PHYSICAL_WIDTH bits))
+        val tagsEvent = cache.withCoherency generate new Area {
+          val checkIt = RegNext(False) init (False)
+          val hadIt = History(cache.logic.cache.io.tagEvent, (1 to sharedCtrlAt - sharedFeedAt+1)).orR
+          kill setWhen (checkIt && hadIt)
+        }
+        def spawn(value : UInt): Unit ={
+          valid := !valid // !valid ensure that if we spam LR, we won't always get the reservation, allowing other cores to acquire the memory block
+          address := value
+          counter := 0
+          if(cache.withCoherency) tagsEvent.checkIt := True
+        }
+
+        val counter = Reg(UInt(7 bits)) init(0) //Give the reservation a 64 cycle life
+        when(counter.msb){
+          valid := False
+        } otherwise {
+          counter := counter + 1
+        }
       }
 
       val hazardPrediction = withHazardPrediction generate new Area{
@@ -789,6 +824,8 @@ class Lsu2Plugin(var lqSize: Int,
         SQ_ROB_FULL := lqSqFeed(SQ_ROB_FULL)
 
         val agu = aguPorts.head.port
+        Verilator.public(agu.valid, agu.load, agu.data, agu.robId, agu.aguId)
+
         val takeAgu = (TAKE_LQ ? (agu.robIdFull - LQ_ROB_FULL).msb | (agu.robIdFull - SQ_ROB_FULL).msb)
         takeAgu.setWhen(!lqSqFeed.isValid)
         takeAgu.clearWhen(!agu.valid)
@@ -948,6 +985,7 @@ class Lsu2Plugin(var lqSize: Int,
         cmd.virtual          := ADDRESS_PRE_TRANSLATION
         cmd.size             := SIZE
         cmd.redoOnDataHazard := False
+        cmd.unique           := !IS_LOAD || LR
 
         haltIt(!cmd.ready)
       }
@@ -1131,6 +1169,17 @@ class Lsu2Plugin(var lqSize: Int,
           i -> B((LSLEN - 1 downto off) -> (rspShifted(off-1) && !rspUnsigned), (off-1 downto 0) -> rspShifted(off-1 downto 0))
         })
 
+        val whitebox = new Area{
+          def patch[T <: Data](that : T) : T = Verilator.public(CombInit(that))
+          val valid = patch(isFireing && !IS_IO && (!NEED_TRANSLATION || !tpk.REDO && !tpk.PAGE_FAULT))
+          val isLoad = patch(stage(IS_LOAD))
+          val address = patch(stage(ADDRESS_TRANSLATED))
+          val readData = patch(rspFormated)
+          val robId = patch(stage(ROB.ID))
+          val lqId = patch(stage(LQ_ID))
+          val size = patch(stage(SIZE))
+        }
+
         val doIt = loadWriteRfOnPrivilegeFail match {
           case false => isValid && IS_LOAD && WRITE_RD && (!NEED_TRANSLATION || tpk.ALLOW_READ && !tpk.PAGE_FAULT && !tpk.ACCESS_FAULT)
           case true  => isValid && IS_LOAD && WRITE_RD
@@ -1143,7 +1192,7 @@ class Lsu2Plugin(var lqSize: Int,
         }
         fpuWriteSize := SIZE
 
-        LOAD_WRITE_FAILURE := IS_LOAD && specialOverride && !IS_IO
+        LOAD_WRITE_FAILURE := IS_LOAD && specialOverride && !IS_IO // IS_IO ??
 
 
         MISS_ALIGNED := (1 to log2Up(wordWidth/8)).map(i => SIZE === i && ADDRESS_PRE_TRANSLATION(i-1 downto 0) =/= 0).orR
@@ -1288,8 +1337,7 @@ class Lsu2Plugin(var lqSize: Int,
                     wakeRf.valid := True
                   }
                   when(LR){
-                    lq.reservation.valid   := True
-                    lq.reservation.address := tpk.TRANSLATED
+                    lq.reservation.spawn(tpk.TRANSLATED)
                   }
                 } otherwise {
                   lq.mem.doSpecial.write(LQ_ID, True)
@@ -1384,7 +1432,7 @@ class Lsu2Plugin(var lqSize: Int,
         val data = mem.data.readAsync(ptr.writeBackReal)
         val skip = False //Used for store conditional
         val doit = ptr.writeBack =/= ptr.commit && waitOn.ready && !prediction.valid
-        val fire = CombInit(doit)
+        val fire = CombInit(doit) && setup.cacheStore.cmd.ready
 
         setup.cacheStore.cmd.valid := doit
         setup.cacheStore.cmd.address := mem.addressPost.readAsync(ptr.writeBackReal)
@@ -1429,6 +1477,11 @@ class Lsu2Plugin(var lqSize: Int,
         sq.ptr.onFree.valid := False
         sq.ptr.onFree.payload := ptr.freeReal
 
+        val whitebox = new Area{
+          val valid = Verilator.public(False)
+          val sqId = Verilator.public(ptr.freeReal)
+        }
+
         prefetch.predictor.io.learn.valid := False
         prefetch.predictor.io.learn.allocate := False
         prefetch.predictor.io.learn.physical := delayed.last.address
@@ -1442,6 +1495,9 @@ class Lsu2Plugin(var lqSize: Int,
             prefetch.predictor.io.learn.allocate := True
           } otherwise {
             sq.ptr.onFree.valid := True
+            when(!delayed.last.io) {
+              whitebox.valid := True
+            }
           }
         }
 
@@ -1606,8 +1662,9 @@ class Lsu2Plugin(var lqSize: Int,
         }
       }
 
+
       val atomic = new StateMachine{
-        val IDLE, LOAD_CMD, LOAD_RSP, ALU, COMPLETION, SYNC, TRAP = new State
+        val IDLE, LOAD_CMD, LOAD_RSP, LOCK_DELAY, ALU, COMPLETION, SYNC, TRAP = new State
         setEntry(IDLE)
 
         setEncoding(binaryOneHot)
@@ -1622,7 +1679,6 @@ class Lsu2Plugin(var lqSize: Int,
         )
 
         val result = Reg(Bits(XLEN bits))
-        val reservationHit = RegNext(lq.reservation.valid && lq.reservation.address === storeAddress)
 
         when(enabled && isAtomic){
           setup.cacheLoad.translated.physical := storeAddress
@@ -1631,20 +1687,38 @@ class Lsu2Plugin(var lqSize: Int,
 
         val lockPort = setup.cache.lockPort
         lockPort.valid := False
-        lockPort.address := storeAddress.resized
+        lockPort.address.assignDontCare()
+
+        if(setup.cache.withCoherency) when(lq.reservation.valid) {
+          lockPort.valid := True
+          lockPort.address := lq.reservation.address
+        }
+
         setup.cacheLoad.cmd.unlocked := True //As we already fenced on the dispatch stage
         when(!isActive(IDLE)) {
           lockPort.valid := True
+          lockPort.address := storeAddress
         }
 
         IDLE whenIsActive {
           when(enabled && isAtomic){
             when(sq.ptr.commit === sq.ptr.free){
-              when(storeSc){
-                goto(ALU)
-              } otherwise {
-                goto(LOAD_CMD)
-              }
+              goto(LOCK_DELAY)
+            }
+          }
+        }
+
+        val gotReservation = Reg(Bool())
+        val lockDelayCounter = Reg(UInt(2 bits)) init(0)
+        LOCK_DELAY whenIsActive{
+          lockDelayCounter := lockDelayCounter + 1
+          when(lockDelayCounter.andR){
+            gotReservation := lq.reservation.valid && lq.reservation.address === storeAddress
+            lq.reservation.kill := True
+            when(storeSc){
+              goto(ALU)
+            } otherwise {
+              goto(LOAD_CMD)
             }
           }
         }
@@ -1655,6 +1729,7 @@ class Lsu2Plugin(var lqSize: Int,
           cmd.virtual := storeAddress.resized
           cmd.size    := storeSize
           cmd.redoOnDataHazard := False
+          cmd.unique := True
           when(cmd.fire){
             goto(LOAD_RSP)
           }
@@ -1679,7 +1754,13 @@ class Lsu2Plugin(var lqSize: Int,
         }
 
         LOAD_RSP onEntry{
-          comp.rfWrite := True
+          comp.rfWrite := sq.mem.writeRd
+        }
+
+        val loadWhitebox = new Area{
+          val valid = Verilator.public(False)
+          val robIdV = Verilator.public(robId)
+          val readData = Verilator.public(sharedPip.cacheRsp.rspFormated(0, XLEN bits))
         }
 
         LOAD_RSP whenIsActive{
@@ -1698,6 +1779,7 @@ class Lsu2Plugin(var lqSize: Int,
             } elsewhen (rsp.fault) {
               goto(TRAP)
             } otherwise {
+              loadWhitebox.valid := True
               goto(ALU)
             }
           }
@@ -1706,6 +1788,14 @@ class Lsu2Plugin(var lqSize: Int,
         TRAP whenIsActive{
           setup.specialTrap.valid := True
           goto(IDLE)
+        }
+
+        val storeWhitebox = new Area{
+          val valid = Verilator.public(False)
+          val robIdV = Verilator.public(robId)
+          val storeData = Verilator.public(alu.result)
+          val isSc = Verilator.public(CombInit(storeSc))
+          val scPassed = Verilator.public(CombInit(gotReservation))
         }
 
         ALU whenIsActive{
@@ -1718,11 +1808,12 @@ class Lsu2Plugin(var lqSize: Int,
           comp.rfWrite := storeSc && sq.mem.writeRd
         }
         COMPLETION whenIsActive{
+          storeWhitebox.valid := True
           setup.specialCompletion.valid := True
           comp.wakeRf := False
           comp.rfWrite := False
           comp.writePort.data := 0
-          comp.writePort.data(0) := !reservationHit
+          comp.writePort.data(0) := !gotReservation
           goto(SYNC)
         }
 
@@ -1730,21 +1821,68 @@ class Lsu2Plugin(var lqSize: Int,
           when(storeAmo) {
             writeback.feed.data(0, XLEN bits) := result
           }
-          when(storeSc && !reservationHit){
+          when(storeSc && !gotReservation){
             writeback.feed.skip := True
           }
 
           when(sq.ptr.onFree.valid) {
             fire := True
-            when(storeSc) {
-              lq.reservation.valid := False
-            }
             goto(IDLE)
           }
         }
 
         frontend.pipeline.dispatch.haltIt(isActive(SYNC))
       }
+    }
+
+
+    /*
+      io  -> iow  : OK
+      ior -> r    : Need to hold load from executing
+      w   -> w    : OK
+      w   -> ior  : Need to wait for SQ writeback
+      r   -> iow  : OK
+
+      AMO + SC appear as a "ow", they wait until older store / load are fully done, and fence out younger instruction
+      So they are already fully ordered. So nothing to do on that side.
+
+      LR
+      - aq : need to fence younger "r" (that need to be done)
+      - rl : need to fence older "iorw" (dispatch.fenceOlder is already doing it for "ior", but w need to be checked for being fully done)
+     */
+    val fencer = cache.withCoherency generate new Area{
+      val stage = allocation.allocStage
+      import stage._
+
+      val loadsDone = lq.ptr.alloc === lq.ptr.free
+      val storeDone = sq.ptr.alloc === sq.ptr.free
+      val loadsWait, storesWait = False
+
+      case class FenceFlags() extends Bundle {
+        val SW,SR,SO,SI,PW,PR,PO,PI = Bool()
+      }
+
+      val trigger = False
+      val op = for(i <- 0 until DISPATCH_COUNT) yield new Area {
+        val flags = (MICRO_OP, i)(27 downto 20).as(FenceFlags())
+        import flags._
+        when((DISPATCH_MASK, i)) {
+          when((FENCE, i)) {
+            trigger := True
+            loadsWait setWhen ((PI || PO || PR) && SR)
+            storesWait setWhen (PW && (SI || SO || SR))
+          }
+          when((LR, i)){
+            trigger := True
+            storesWait setWhen((MICRO_OP, i)(25)) //release
+          }
+        }
+      }
+
+      val done = RegInit(False)
+      done setWhen((loadsDone || !loadsWait) && (storeDone || !storesWait))
+      done clearWhen(!stage.isStuck)
+      stage.haltWhen(trigger && !done)
     }
 
     val builders = hardFork{
@@ -1760,10 +1898,10 @@ class Lsu2Plugin(var lqSize: Int,
       }
     }
 
-
+    val lqFlush = Verilator.public(False)
     when(rescheduling.valid){
       lq.regs.foreach(_.delete := True)
-      lq.ptr.free := 0
+      lq.ptr.free := 0; lqFlush := True
       lq.ptr.alloc := 0
       lq.ptr.priority := 0
       lq.tracker.clear := True
@@ -1772,8 +1910,9 @@ class Lsu2Plugin(var lqSize: Int,
       }
       sq.ptr.alloc := sq.ptr.commitNext
       special.enabled := False
-
-
+    }
+    when(cache.writebackBusy){
+      lq.reservation.kill := True
     }
 
     //TODO

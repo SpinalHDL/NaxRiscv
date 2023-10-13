@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.execute
 
 import naxriscv.{DecodeList, Fetch, Frontend, Global, ROB}

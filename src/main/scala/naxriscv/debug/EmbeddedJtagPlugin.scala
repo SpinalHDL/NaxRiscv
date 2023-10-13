@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.debug
 
 import naxriscv.Global
@@ -83,8 +87,8 @@ class EmbeddedJtagPlugin(var p : DebugTransportModuleParameter,
 make compile && ./obj_dir/VNaxRiscv --timeout-disable --spike-disable
 
 src/openocd -f ../VexRiscvOoo/src/main/tcl/openocd/naxriscv_sim.tcl
-src/openocd -f tcl/interface/ftdi/ft2232h_breakout.cfg -f ../VexRiscvOoo/src/main/tcl/openocd/naxriscv_jtag.tcl
-src/openocd -s tcl -f ../VexRiscvOoo/src/main/tcl/openocd/digilent_nexys_video.tcl -f ../VexRiscvOoo/src/main/tcl/openocd/naxriscv_jtag_tunneled.tcl
+src/openocd -f tcl/interface/ftdi/ft2232h_breakout.cfg -f ../../nax/NaxRiscv/src/main/tcl/openocd/naxriscv_jtag.tcl
+src/openocd -s tcl -f ../../nax/NaxRiscv/src/main/tcl/openocd/digilent_nexys_video.tcl -f ../../nax/NaxRiscv/src/main/tcl/openocd/naxriscv_jtag_tunneled.tcl
 
 mdw 0x40000000 16
 mww 0x40000000 0x12345678

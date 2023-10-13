@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 "Everybody"
+//
+// SPDX-License-Identifier: MIT
+
 package naxriscv.misc
 
 import naxriscv.{Fetch, Frontend, Global}
@@ -45,7 +49,7 @@ case class PrivilegedConfig(withSupervisor : Boolean,
                             vendorId: Int,
                             archId: Int,
                             impId: Int,
-                            hartId: Int) {
+                            var hartId: Int) {
 
 }
 
@@ -79,15 +83,15 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
   val io = create early new Area{
     val int = new Area{
       val machine = new Area{
-        val timer = in Bool()
-        val software = in Bool()
-        val external = in Bool()
+        val timer    = Verilator.public(in Bool())
+        val software = Verilator.public(in Bool())
+        val external = Verilator.public(in Bool())
       }
       val supervisor = p.withSupervisor generate new Area{
-        val external = in Bool()
+        val external = Verilator.public(in Bool())
       }
       val user = p.withUserTrap generate new Area{
-        val external = in Bool()
+        val external = Verilator.public(in Bool())
       }
     }
 
@@ -125,7 +129,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
     if(p.withUser) addMisa('U')
     if(p.withSupervisor) addMisa('S')
 
-    val debugBus = p.withDebug generate master(DebugHartBus())
+    val debugBus = p.withDebug generate slave(DebugHartBus())
 
     val trapEvent = False
     val redoTriggered = False
