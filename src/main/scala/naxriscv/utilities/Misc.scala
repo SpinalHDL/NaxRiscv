@@ -61,6 +61,81 @@ object MulSpliter{
   }
 }
 
+//object MulAggregator{
+//  case class Splits(offset : Int, width : Int, budget : Int, var id : Int = 0, from : Seq[Int]){
+//
+//  }
+//
+//  def apply(splits : Seq[Splits], widthMax : Int, srcsMax : Int) = {
+//    var srcs = splits.sortBy(_.offset).toList
+//    val works = ArrayBuffer[Splits]()
+//    srcs ++= splits
+//    for((e,i) <- srcs.zipWithIndex) e.id = i
+//
+//    while(srcs.size >= 2) {
+//    /*  var elements = srcs.take(srcsMax)
+//      val a = elements(0)
+//      val b = elements(1)
+//      if(a.offset != b.offset){
+//        //Bad seed
+//        assert(a.offset < b.offset)
+//        val frontPadding = b.offset - a.offset
+//        if(frontPadding >= a.width){
+//          works += a.copy(from = List(a.id))
+//          srcs = srcs.tail
+//        } else {
+//          works += a.copy(width = frontPadding, from = List(a.id))
+//          srcs = a.copy(offset = b.offset, width = a.width-frontPadding) :: srcs.tail
+//        }
+//      } else {
+//        val offset = a.offset
+//        val endMax = offset + widthMax
+//        elements = elements.filter(_.offset < endMax)
+//
+//        if (a.offset + a.width <= adderOffset) {
+//          //'a' is completly isolated
+//          works += a.copy(from = List(a.id))
+//          srcs = srcs.tail
+//        } else {
+//          val frontPadding = b.offset - a.offset
+//          if (frontPadding != 0) {
+//            works += a.copy(width = frontPadding, from = List(a.id))
+//          }
+//          //        val adderWidth = widthMax :: elements.map(e => e.offset +
+//
+//        }
+//      }*/
+//      srcs = srcs.sortBy(_.offset)
+//      val a = srcs(0)
+//      val b = srcs(1)
+//
+//      if(a.offset + a.width <= b.offset){
+//        works += a.copy(from = List(a.id))
+//        srcs = srcs.tail
+//      } else {
+//        val frontPadding = b.offset - a.offset
+//        if (frontPadding != 0) {
+//          works += a.copy(width = frontPadding, from = List(a.id))
+//        }
+//        val adderWidth = List(a.width-frontPadding, b.width, widthMax).min
+//        works += Splits(offset = b.offset, width = adderWidth, from = List(a.id, b.id))
+//        if(adderWidth != b.width){
+//          srcs = b.copy(offset = b.offset + adderWidth, width = b.width - adderWidth) :: srcs
+//        }
+//        if(frontPadding + adderWidth != a.width){
+//          srcs = a.copy(offset = a.offset + frontPadding + adderWidth, width = a.width - frontPadding - adderWidth) :: srcs
+//        }
+//      }
+//    }
+//
+//    if(srcs.nonEmpty) {
+//      works += srcs.head.copy(from = List(srcs.head.id))
+//    }
+//
+//    works
+//  }
+//}
+
 trait WithRfWriteSharedSpec{
   case class RfWriteSharingSpec(key : Any, withReady : Boolean, priority : Int)
   private val rfWriteSharing = mutable.LinkedHashMap[RegfileSpec, RfWriteSharingSpec]()

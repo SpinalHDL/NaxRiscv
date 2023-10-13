@@ -33,7 +33,7 @@ object SocSim extends App {
 //    hub.parameter.cacheBytes = 4096
 //    icache.cacheSize = 2048
   }
-  val compiled = sc.compile(new SocDemoSim(4))
+  val compiled = sc.compile(new SocDemoSim(2))
 
 //  for (i <- 0 until 64) test("test_" + i) {
 //    compiled.doSimUntilVoid(name = s"test_$i", seed = i)(testIt(_))
@@ -142,10 +142,10 @@ object SocSim extends App {
 //            val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
 //              val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
 //              val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
-//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
+              val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
 //        val elf = new Elf(new File("ext/NaxSoftware/baremetal/simple/build/rv32ima/simple.elf"))
     //            val elf = new Elf(new File("ext/NaxSoftware/baremetal/coherency/build/rv32ima/coherency.elf"))
-                val elf = new Elf(new File("ext/NaxSoftware/baremetal/coherency_burst/build/rv32ima/coherency_burst.elf"))
+//                val elf = new Elf(new File("ext/NaxSoftware/baremetal/coherency_burst/build/rv32ima/coherency_burst.elf"))
 //            val elf = new Elf(new File("ext/NaxSoftware/baremetal/pulling_ordering/build/rv32ima/pulling_ordering.elf"))
 
 //              val elf = new Elf(new File("ext/NaxSoftware/baremetal/machine/build/rv32ima/machine.elf"))
@@ -169,7 +169,7 @@ object SocSim extends App {
           }
         }
 */
-//
+
     memAgent.mem.loadBin(0x00000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
     memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
     memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
