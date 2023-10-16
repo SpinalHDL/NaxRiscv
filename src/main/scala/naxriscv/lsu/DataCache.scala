@@ -692,7 +692,6 @@ case class DataCacheParameters(cacheSize: Int,
   def toTilelinkS2mSupported(proposed : S2mSupport) = S2mSupport(S2mTransfers(probe = SizeRange(lineSize)))
 }
 
-//TODO L1 status tracking into L2 need to be exact, so need to notify when going from shared to invalid/another line.
 class DataCache(val p : DataCacheParameters) extends Component {
   import p._
 
