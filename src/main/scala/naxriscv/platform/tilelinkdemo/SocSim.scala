@@ -35,7 +35,7 @@ object SocSim extends App {
     // dcache.cacheSize = 2048
     // icache.cacheSize = 2048
 
-    // hub.parameter.cacheBytes = 4096
+    // l2.cache.parameter.cacheBytes = 4096
   }
   val compiled = sc.compile(new SocDemoSim(cpuCount = 1))
 
