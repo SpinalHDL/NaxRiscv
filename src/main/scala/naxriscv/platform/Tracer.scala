@@ -163,7 +163,7 @@ class FileBackend(f : File) extends TraceBackend{
   override def close() = bf.close()
 }
 
-class JniBackend(workspace : File = new File(".")) extends TraceBackend{
+class RvlsBackend(workspace : File = new File(".")) extends TraceBackend{
   import rvls.jni.Frontend
   FileUtils.forceMkdir(workspace)
   val handle = Frontend.newContext(workspace.getAbsolutePath)

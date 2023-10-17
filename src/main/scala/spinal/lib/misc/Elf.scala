@@ -21,7 +21,7 @@ class Elf(val f : File){
     val fileAddress = section.header.sh_offset
     val memoryAddress = section.header.sh_addr
     val size = section.header.sh_size.toInt
-    println(f"${section.header.getName} ${memoryAddress}%x ${size}")
+    // println(f"${section.header.getName} ${memoryAddress}%x ${size}")
     if(size == 0) return Array.fill(0)(0.toByte)
 
     val ret = new Array[Byte](size)

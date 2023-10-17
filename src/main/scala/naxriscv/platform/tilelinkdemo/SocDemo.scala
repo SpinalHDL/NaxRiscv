@@ -1,6 +1,6 @@
 package naxriscv.platform.tilelinkdemo
 
-import naxriscv.platform.{JniBackend, TilelinkNaxRiscvFiber}
+import naxriscv.platform.{RvlsBackend, TilelinkNaxRiscvFiber}
 import riscv.model.Model
 import spinal.core._
 import spinal.core.fiber._
@@ -91,7 +91,7 @@ object Jni extends App{
 }
 
 object RvlsTest extends App{
-  val f = new JniBackend
+  val f = new RvlsBackend
   f.newCpuMemoryView(0, 1, 2)
   f.newCpu(0,"RV32IMA", "MSU", 32, 0);
   f.trap(0, false, 42)

@@ -2,7 +2,7 @@ package naxriscv.platform.tilelinkdemo
 
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.DataCachePlugin
-import naxriscv.platform.{FileBackend, JniBackend, NaxriscvProbe, NaxriscvTilelinkProbe, PeripheralEmulator}
+import naxriscv.platform.{FileBackend, RvlsBackend, NaxriscvProbe, NaxriscvTilelinkProbe, PeripheralEmulator}
 import spinal.core._
 import spinal.core.sim._
 import spinal.lib.bus.tilelink.sim.{Checker, MemoryAgent}
@@ -14,6 +14,10 @@ import scala.collection.mutable.ArrayBuffer
 
 
 object SocSim extends App {
+  val runLinux = true
+  val dualSim = false // Double simulation, one ahead of the other which will trigger wave capture of the second simulation when it fail
+  val traceIt = false
+
   val sc = SimConfig
   sc.normalOptimisation
   sc.withFstWave
@@ -21,110 +25,53 @@ object SocSim extends App {
   sc.addSimulatorFlag("--threads 1")
 //  sc.addSimulatorFlag("--prof-exec")
 
-  val tester = new MultithreadedTester(8)
-  import tester._
-
+  // Tweek the toplevel a bit
   class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount){
     setDefinitionName("SocDemo")
     val dcache = naxes(0).plugins.collectFirst { case p: DataCachePlugin => p }.get
     val icache = naxes(0).plugins.collectFirst { case p: FetchCachePlugin => p }.get
 
-//    dcache.cacheSize = 2048
-//    hub.parameter.cacheBytes = 4096
-//    icache.cacheSize = 2048
+    // You can for instance override cache parameters of cpu 0 like that :
+    // dcache.cacheSize = 2048
+    // icache.cacheSize = 2048
+
+    // hub.parameter.cacheBytes = 4096
   }
-  val compiled = sc.compile(new SocDemoSim(2))
+  val compiled = sc.compile(new SocDemoSim(cpuCount = 1))
 
-//  for (i <- 0 until 64) test("test_" + i) {
-//    compiled.doSimUntilVoid(name = s"test_$i", seed = i)(testIt(_))
-//  }
+  // How we want to run the test
+  dualSim match {
+    case true => DualSimTracer.withCb(compiled, window = 50000*10, seed = 2)(testIt)
+    case false => compiled.doSimUntilVoid(name = s"test", seed = 2){dut => disableSimWave(); testIt(dut, f => if(traceIt) f)}
+  }
 
-  DualSimTracer.withCb(compiled, window = 50000*10, 2)(testIt)
-
-
-  await()
-
-//  compiled.doSimUntilVoid(name = s"test", seed = 2)(testIt(_))
-
+  // Testbench code
   def testIt(dut : SocDemoSim, onTrace : (=> Unit) => Unit = cb => {}): Unit = {
-//    disableSimWave()
-//    enableSimWave()
-    fork {
-
-//      sleep(100000*5)
-//      simFailure("<3")
-      //        sleep(100 * 10)
-      //        sleep(100000 * 10)
-      //        println("****")
-      //        enableSimWave()
-      //        sleep(10 * 10)
-      //
-      //        println(s"\n\nRAND=${simRandom.nextInt()}\n\n")
-      //        simSuccess()
-
-//      while (true) {
-//        disableSimWave()
-//        sleep(100000 * 10)
-//        enableSimWave()
-//        sleep(100 * 10)
-//      }
-      //      waitUntil(simTime() > 307150-10000)
-      //      enableSimWave()
-      //      sleep(10000*2)
-      //      disableSimWave()
-      //      simSuccess()
-      //
-      //        waitUntil(simTime() > 3275640-300000)
-      //        enableSimWave()
-      //        sleep(400000)
-      //        disableSimWave()
-      //
-      //        simFailure("done")
-    }
-
-
-
     val cd = dut.clockDomain
     cd.forkStimulus(10)
-    //    cd.forkSimSpeedPrinter(1.0)
+    // cd.forkSimSpeedPrinter(1.0)
 
-    val memAgent = new MemoryAgent(dut.mem.node.bus, cd, seed = 0, randomProberFactor = 0.2f)(null) {
+    // Connect the few peripherals
+    val ma = new MemoryAgent(dut.mem.node.bus, cd, seed = 0, randomProberFactor = 0.2f)(null) {
       mem.randOffset = 0x80000000l
-
-      import driver.driver._
-
-      a.factor = 0.8f
-      if (c != null) c.factor = 0.8f
-      if (c != null) e.factor = 0.8f
-      if (c != null) b.ctrl.transactionDelay = () => {
-        val x = simRandom(sm).nextInt(100)
-        (x * x * 3 / 100 / 100)
-      }
-      d.ctrl.transactionDelay = () => {
-        val x = simRandom(sm).nextInt(100)
-        (x * x * 3 / 100 / 100)
-      }
+      driver.driver.setFactor(0.8f)
+      val checker = if(monitor.bus.p.withBCE) Checker(monitor)
     }
+    val pa = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
 
-    val checker = Checker(memAgent.monitor)
+    // Rvls will check that the CPUs are doing things right
+    val rvls = new RvlsBackend(new File(compiled.compiledPath, currentTestName))
+    rvls.spinalSimFlusher(10 * 10000)
+    rvls.spinalSimTime(10000)
 
-    val peripheralAgent = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
+    // Collect traces from the CPUs behaviour
+    val naxes = dut.naxes.map(nax => new NaxriscvTilelinkProbe(nax, nax.getHartId()))
+    naxes.foreach(_.add(rvls))
 
-
-    val tracer = new JniBackend(new File(compiled.compiledPath, currentTestName))
-    tracer.spinalSimFlusher(10 * 10000)
-    tracer.spinalSimTime(10000)
-//    tracer.debug()
-
-    val naxes = dut.naxes.map(nax =>
-      new NaxriscvTilelinkProbe(nax, nax.getHartId()).add(tracer)
-    )
-
-
-//    delayed(100000){simFailure("miaou")}
-
+    // Things to enable when we want to collect traces
     onTrace{
-      tracer.debug()
+      enableSimWave()
+      rvls.debug()
 
       val tracerFile = new FileBackend(new File(new File(compiled.compiledPath, currentTestName), "tracer.log"))
       tracerFile.spinalSimFlusher(10 * 10000)
@@ -137,60 +84,36 @@ object SocSim extends App {
       }
     }
 
-/*
+    // Load the binaries
+    if(runLinux){
+      def load(offset : Long, file : String) = {
+        ma.mem.loadBin(offset-0x80000000l, file)
+        rvls.loadBin(offset, new File(file))
+      }
 
-//            val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
-//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/coremark/build/rv32ima/coremark.elf"))
-//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/freertosDemo/build/rv32ima/freertosDemo.elf"))
-              val elf = new Elf(new File("ext/NaxSoftware/baremetal/play/build/rv32ima/play.elf"))
-//        val elf = new Elf(new File("ext/NaxSoftware/baremetal/simple/build/rv32ima/simple.elf"))
-    //            val elf = new Elf(new File("ext/NaxSoftware/baremetal/coherency/build/rv32ima/coherency.elf"))
-//                val elf = new Elf(new File("ext/NaxSoftware/baremetal/coherency_burst/build/rv32ima/coherency_burst.elf"))
-//            val elf = new Elf(new File("ext/NaxSoftware/baremetal/pulling_ordering/build/rv32ima/pulling_ordering.elf"))
+      load(0x80000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
+      load(0x80F80000l, s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb")
+      load(0x80400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
+      load(0x81000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
+    } else {
+      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+      elf.load(ma.mem, -0xffffffff80000000l)
+      rvls.loadElf(0, elf.f)
 
-//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/machine/build/rv32ima/machine.elf"))
-//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/supervisor/build/rv32ima/supervisor.elf"))
-//              val elf = new Elf(new File("ext/NaxSoftware/baremetal/mmu_sv32/build/rv32ima/mmu_sv32.elf"))
-
-        elf.load(memAgent.mem, -0xffffffff80000000l)
-        tracer.loadElf(0, elf.f)
-//       tracerFile.loadElf(0, elf.f)
-
-        val passSymbol = elf.getSymbolAddress("pass")
-        val failSymbol = elf.getSymbolAddress("fail")
-        naxes.foreach { nax =>
-          nax.commitsCallbacks += { (hartId, pc) =>
-            if (pc == passSymbol) delayed(1) {
-              println("nax(0) d$ refill = " + dut.dcache.logic.cache.refill.pushCounter.toLong)
-              println("nax(0) i$ refill = " + dut.icache.logic.refill.pushCounter.toLong)
-              simSuccess()
-            }
-            if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
+      val passSymbol = elf.getSymbolAddress("pass")
+      val failSymbol = elf.getSymbolAddress("fail")
+      naxes.foreach { nax =>
+        nax.commitsCallbacks += { (hartId, pc) =>
+          if (pc == passSymbol) delayed(1) {
+            println("nax(0) d$ refill = " + dut.dcache.logic.cache.refill.pushCounter.toLong)
+            println("nax(0) i$ refill = " + dut.icache.logic.refill.pushCounter.toLong)
+            simSuccess()
           }
+          if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
         }
-*/
-
-    memAgent.mem.loadBin(0x00000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-    memAgent.mem.loadBin(0x00400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
-    memAgent.mem.loadBin(0x01000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
-    memAgent.mem.loadBin(0x00F80000l, s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb")
-
-
-    tracer.loadBin(0x80000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin"))
-    tracer.loadBin(0x80F80000l, new File(s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb"))
-    tracer.loadBin(0x80400000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/Image"))
-    tracer.loadBin(0x81000000l, new File("ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio"))
+      }
+    }
 
     println("Sim starting <3")
-    //      cd.waitSampling(4000000)
-    //      simSuccess()
   }
-
-
 }
-
-/*
-Starting klogd: [Error] Simulation failed at time=2265553930
-Exception in thread "main" spinal.sim.SimFailure: Nax didn't commited anything since too long
-  at spinal.core.sim.package$.simFailure(package.scala:164)
- */
