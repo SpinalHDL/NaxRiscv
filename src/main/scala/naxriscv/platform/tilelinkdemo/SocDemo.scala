@@ -14,17 +14,21 @@ import spinal.lib.misc.TilelinkClintFiber
 import spinal.lib.misc.plic.TilelinkPlicFiber
 import spinal.lib.system.tag.PMA
 
-
+// SocDemo is a little SoC made only for simulation purposes.
 class SocDemo(cpuCount : Int, withL2 : Boolean = true) extends Component {
+  // Create a few NaxRiscv cpu
   val naxes = for(hartId <- 0 until cpuCount) yield new TilelinkNaxRiscvFiber().setCoherentConfig(hartId)
 
+  // As NaxRiscv may emit memory request to some unmapped memory space, we need to catch those with TransactionFilter
   val memFilter, ioFilter = new fabric.TransferFilter()
   for(nax <- naxes) {
     memFilter.up << List(nax.iBus, nax.dBus)
     ioFilter.up << List(nax.pBus)
   }
 
+  // Handle memory coherency
   var nonCoherent: Node = null
+
   val noL2 = !withL2 generate new Area {
     val hub = new HubFiber()
     hub.up << memFilter.down
@@ -39,10 +43,12 @@ class SocDemo(cpuCount : Int, withL2 : Boolean = true) extends Component {
     nonCoherent = cache.down
   }
 
+  // Create a tilelink memory bus which will get out of the SoC to connect the main memory
   val mem = new tilelink.fabric.SlaveBusAny()
   mem.node at SizeMapping(0x80000000l, 0x80000000l) of nonCoherent
   mem.node.addTag(PMA.MAIN)
 
+  // Handle all the IO / Peripheral things
   val peripheral = new Area {
     val bus = Node()
     bus at (0x10000000l, 0x10000000l)  of (ioFilter.down)
