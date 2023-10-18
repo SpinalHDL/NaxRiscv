@@ -137,11 +137,10 @@ class NaxSoc(c : NaxSocConfig) extends Component{
       def self = this
 
       new MemoryConnection {
-        override def m = toAxiLite4.down
-        override def s = self
+        override def up = toAxiLite4.down
+        override def down = self
         override def transformers = List(OffsetTransformer(region.mapping.lowerBound))
         override def mapping = region.mapping
-        override def sToM(downs: MemoryTransfers, args: MappedNode) = downs
         populate()
       }
 
