@@ -258,36 +258,29 @@ object Config{
           }
         )
       }
+
+      plugins += new DataCachePlugin(
+        memDataWidth = 64,
+        cacheSize = 4096 * 4,
+        wayCount = 4,
+        refillCount = 2,
+        writebackCount = 2,
+        tagsReadAsync = withDistributedRam,
+        loadReadTagsAt = if (withDistributedRam) 1 else 0,
+        storeReadTagsAt = if (withDistributedRam) 1 else 0,
+        reducedBankWidth = false,
+        //      loadHitAt      = 2
+        //      loadRspAt      = 3,
+        loadRefillCheckEarly = false,
+        withCoherency = withCoherency,
+        probeIdWidth = if (withCoherency) 4 else 0,
+        ackIdWidth = if (withCoherency) 4 else 0
+      )
     }
 
-    if(!withLoadStore){
-      plugins += new Plugin{
-        val setup = create early new Area{
-          val cache = getService[DataCachePlugin]
-          val store = cache.newStorePort()
-          spinal.lib.slave(store)
-          spinal.lib.slave(cache.setup.lockPort)
-        }
-      }
-    }
 
-    plugins += new DataCachePlugin(
-      memDataWidth = 64,
-      cacheSize    = 4096*4,
-      wayCount     = 4,
-      refillCount = 2,
-      writebackCount = 2,
-      tagsReadAsync = withDistributedRam,
-      loadReadTagsAt = if(withDistributedRam) 1 else 0,
-      storeReadTagsAt = if(withDistributedRam) 1 else 0,
-      reducedBankWidth = false,
-      //      loadHitAt      = 2
-      //      loadRspAt      = 3,
-      loadRefillCheckEarly = false,
-      withCoherency = withCoherency,
-      probeIdWidth = if(withCoherency) 4 else 0,
-      ackIdWidth = if(withCoherency) 4 else 0
-    )
+
+
 
     //MISC
     plugins += new RobPlugin(
