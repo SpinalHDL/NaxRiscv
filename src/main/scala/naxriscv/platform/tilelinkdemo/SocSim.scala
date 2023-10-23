@@ -78,12 +78,12 @@ object SocSim extends App {
   // Tweek the toplevel a bit
   class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount, withL2 = withL2){
     setDefinitionName("SocDemo")
-    val dcache = naxes(0).plugins.collectFirst { case p: DataCachePlugin => p }.get
-    val icache = naxes(0).plugins.collectFirst { case p: FetchCachePlugin => p }.get
-
-    // You can for instance override cache parameters of cpu 0 like that :
-    // dcache.cacheSize = 2048
-    // icache.cacheSize = 2048
+    // You can for instance override cache parameters of the CPU caches like that :
+    naxes.flatMap(_.plugins).foreach{
+      case p : FetchCachePlugin => //p.cacheSize = 2048
+      case p : DataCachePlugin =>  //p.cacheSize = 2048
+      case _ => 
+    }
 
     // l2.cache.parameter.cacheBytes = 4096
   }
@@ -154,8 +154,12 @@ object SocSim extends App {
         naxes.foreach { nax =>
           nax.commitsCallbacks += { (hartId, pc) =>
             if (pc == passSymbol) delayed(1) {
-              println("nax(0) d$ refill = " + dut.dcache.logic.cache.refill.pushCounter.toLong)
-              println("nax(0) i$ refill = " + dut.icache.logic.refill.pushCounter.toLong)
+              dut.naxes.flatMap(_.plugins).foreach {
+                case p: FetchCachePlugin => println("i$ refill = " + p.logic.refill.pushCounter.toLong)
+                case p: DataCachePlugin => println("d$ refill = " + p.logic.cache.refill.pushCounter.toLong)
+                case _ =>
+              }
+
               simSuccess()
             }
             if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
