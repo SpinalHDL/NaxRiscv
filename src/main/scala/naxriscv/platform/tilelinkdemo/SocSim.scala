@@ -31,6 +31,8 @@ Parameters :
 --load-bin HEX,STRING : Load at address the given file. ex : 80000000,fw_jump.bin
 --load-elf STRING : Load the given elf file. If both pass/fail symbole are defined, they will end the simulation once reached
 
+The following commands are for the sbt terminal (that you can enter using "sbt" in the terminal)
+
 Run baremetal example :
 naxriscv.platform.tilelinkdemo.SocSim                                      \
 --load-elf ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf
