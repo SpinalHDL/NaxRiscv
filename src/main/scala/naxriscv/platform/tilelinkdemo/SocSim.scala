@@ -2,7 +2,7 @@ package naxriscv.platform.tilelinkdemo
 
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.DataCachePlugin
-import naxriscv.platform.{FileBackend, RvlsBackend, NaxriscvProbe, NaxriscvTilelinkProbe, PeripheralEmulator}
+import naxriscv.platform.{FileBackend, NaxriscvProbe, NaxriscvTilelinkProbe, PeripheralEmulator, RvlsBackend}
 import spinal.core._
 import spinal.core.sim._
 import spinal.lib.bus.tilelink.sim.{Checker, MemoryAgent}
@@ -10,13 +10,50 @@ import spinal.lib.misc.Elf
 import spinal.lib.misc.test.{DualSimTracer, MultithreadedFunSuite, MultithreadedTester}
 
 import java.io.File
+import java.lang
 import scala.collection.mutable.ArrayBuffer
 
 
+
+
+/*
+Multi core SoC simulation.
+
+Parameters :
+--trace : Enable wave capture
+--dualSim : Enable dual lock step simulation to only trace the 50000 cycles before failure
+--naxCount INT : Number of NaxRiscv cores
+--load-bin HEX,STRING : Load at address the given file. ex : 80000000,fw_jump.bin
+--load-elf STRING : Load the given elf file. If both pass/fail symbole are defined, they will end the simulation once reached
+
+Run baremetal example :
+naxriscv.platform.tilelinkdemo.SocSim                                      \
+--load-elf ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf
+
+Boot dual core linux example :
+naxriscv.platform.tilelinkdemo.SocSim                                      \
+--load-bin 80000000,ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin   \
+--load-bin 80F80000,ext/NaxSoftware/buildroot/images/rv32ima/linux_1c.dtb  \
+--load-bin 80400000,ext/NaxSoftware/buildroot/images/rv32ima/Image         \
+--load-bin 81000000,ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio   \
+--nax-count 2
+ */
 object SocSim extends App {
-  val runLinux = true
-  val dualSim = false // Double simulation, one ahead of the other which will trigger wave capture of the second simulation when it fail
-  val traceIt = false
+  var dualSim = false // Double simulation, one ahead of the other which will trigger wave capture of the second simulation when it fail
+  var traceIt = false
+  var naxCount = 1
+  val bins = ArrayBuffer[(Long, String)]()
+  val elfs = ArrayBuffer[String]()
+
+  assert(new scopt.OptionParser[Unit]("NaxRiscv") {
+    help("help").text("prints this usage text")
+    opt[Unit]("dual-sim") action { (v, c) => dualSim = true }
+    opt[Unit]("trace") action { (v, c) => traceIt = true }
+    opt[Int]("nax-count") action { (v, c) => naxCount = v }
+    opt[Seq[String]]("load-bin") unbounded() action { (v, c) => bins += (lang.Long.parseLong(v(0), 16) -> v(1)) }
+    opt[String]("load-elf") unbounded() action { (v, c) => elfs += v }
+  }.parse(args, Unit).nonEmpty)
+
 
   val sc = SimConfig
   sc.normalOptimisation
@@ -85,31 +122,29 @@ object SocSim extends App {
     }
 
     // Load the binaries
-    if(runLinux){
-      def load(offset : Long, file : String) = {
-        ma.mem.loadBin(offset-0x80000000l, file)
-        rvls.loadBin(offset, new File(file))
-      }
+    for((offset, file) <- bins){
+      ma.mem.loadBin(offset - 0x80000000l, file)
+      rvls.loadBin(offset, new File(file))
+    }
 
-      load(0x80000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-      load(0x80F80000l, s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb")
-      load(0x80400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
-      load(0x81000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
-    } else {
-      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+    // load elfs
+    for (file <- elfs) {
+      val elf = new Elf(new File(file))
       elf.load(ma.mem, -0xffffffff80000000l)
       rvls.loadElf(0, elf.f)
 
-      val passSymbol = elf.getSymbolAddress("pass")
-      val failSymbol = elf.getSymbolAddress("fail")
-      naxes.foreach { nax =>
-        nax.commitsCallbacks += { (hartId, pc) =>
-          if (pc == passSymbol) delayed(1) {
-            println("nax(0) d$ refill = " + dut.dcache.logic.cache.refill.pushCounter.toLong)
-            println("nax(0) i$ refill = " + dut.icache.logic.refill.pushCounter.toLong)
-            simSuccess()
+      if(elf.getELFSymbol("pass") != null && elf.getELFSymbol("fail") != null) {
+        val passSymbol = elf.getSymbolAddress("pass")
+        val failSymbol = elf.getSymbolAddress("fail")
+        naxes.foreach { nax =>
+          nax.commitsCallbacks += { (hartId, pc) =>
+            if (pc == passSymbol) delayed(1) {
+              println("nax(0) d$ refill = " + dut.dcache.logic.cache.refill.pushCounter.toLong)
+              println("nax(0) i$ refill = " + dut.icache.logic.refill.pushCounter.toLong)
+              simSuccess()
+            }
+            if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
           }
-          if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
         }
       }
     }
