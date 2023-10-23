@@ -19,10 +19,15 @@ import scala.collection.mutable.ArrayBuffer
 /*
 Multi core SoC simulation.
 
+Setup :
+- You need Verilator installed
+- Unless you add --no-rvls, you need to compile rvls. See ext/rvls/README.md
+
 Parameters :
 --trace : Enable wave capture
 --dualSim : Enable dual lock step simulation to only trace the 50000 cycles before failure
 --naxCount INT : Number of NaxRiscv cores
+--no-rvls : Disable rvls, so you don't need to compile it, but the NaxRiscv behaviour will not be checked.
 --load-bin HEX,STRING : Load at address the given file. ex : 80000000,fw_jump.bin
 --load-elf STRING : Load the given elf file. If both pass/fail symbole are defined, they will end the simulation once reached
 
@@ -38,9 +43,11 @@ naxriscv.platform.tilelinkdemo.SocSim                                      \
 --load-bin 81000000,ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio   \
 --nax-count 2
  */
+
 object SocSim extends App {
   var dualSim = false // Double simulation, one ahead of the other which will trigger wave capture of the second simulation when it fail
   var traceIt = false
+  var withRvls = true
   var naxCount = 1
   val bins = ArrayBuffer[(Long, String)]()
   val elfs = ArrayBuffer[String]()
@@ -49,6 +56,7 @@ object SocSim extends App {
     help("help").text("prints this usage text")
     opt[Unit]("dual-sim") action { (v, c) => dualSim = true }
     opt[Unit]("trace") action { (v, c) => traceIt = true }
+    opt[Unit]("no-rvls")  action { (v, c) => withRvls = false }
     opt[Int]("nax-count") action { (v, c) => naxCount = v }
     opt[Seq[String]]("load-bin") unbounded() action { (v, c) => bins += (lang.Long.parseLong(v(0), 16) -> v(1)) }
     opt[String]("load-elf") unbounded() action { (v, c) => elfs += v }
@@ -97,18 +105,20 @@ object SocSim extends App {
     val pa = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
 
     // Rvls will check that the CPUs are doing things right
-    val rvls = new RvlsBackend(new File(compiled.compiledPath, currentTestName))
-    rvls.spinalSimFlusher(10 * 10000)
-    rvls.spinalSimTime(10000)
+    val rvls = withRvls generate new RvlsBackend(new File(compiled.compiledPath, currentTestName))
+    if(withRvls) {
+      rvls.spinalSimFlusher(10 * 10000)
+      rvls.spinalSimTime(10000)
+    }
 
     // Collect traces from the CPUs behaviour
     val naxes = dut.naxes.map(nax => new NaxriscvTilelinkProbe(nax, nax.getHartId()))
-    naxes.foreach(_.add(rvls))
+    if(withRvls) naxes.foreach(_.add(rvls))
 
     // Things to enable when we want to collect traces
     onTrace{
       enableSimWave()
-      rvls.debug()
+      if(withRvls) rvls.debug()
 
       val tracerFile = new FileBackend(new File(new File(compiled.compiledPath, currentTestName), "tracer.log"))
       tracerFile.spinalSimFlusher(10 * 10000)
@@ -124,14 +134,14 @@ object SocSim extends App {
     // Load the binaries
     for((offset, file) <- bins){
       ma.mem.loadBin(offset - 0x80000000l, file)
-      rvls.loadBin(offset, new File(file))
+      if(withRvls) rvls.loadBin(offset, new File(file))
     }
 
     // load elfs
     for (file <- elfs) {
       val elf = new Elf(new File(file))
       elf.load(ma.mem, -0xffffffff80000000l)
-      rvls.loadElf(0, elf.f)
+      if(withRvls) rvls.loadElf(0, elf.f)
 
       if(elf.getELFSymbol("pass") != null && elf.getELFSymbol("fail") != null) {
         val passSymbol = elf.getSymbolAddress("pass")
