@@ -25,8 +25,9 @@ Setup :
 
 Parameters :
 --trace : Enable wave capture
---dualSim : Enable dual lock step simulation to only trace the 50000 cycles before failure
+--dual-sim : Enable dual lock step simulation to only trace the 50000 cycles before failure
 --naxCount INT : Number of NaxRiscv cores
+--no-l2 : Disable the l2 cache
 --no-rvls : Disable rvls, so you don't need to compile it, but the NaxRiscv behaviour will not be checked.
 --load-bin HEX,STRING : Load at address the given file. ex : 80000000,fw_jump.bin
 --load-elf STRING : Load the given elf file. If both pass/fail symbole are defined, they will end the simulation once reached
@@ -50,6 +51,7 @@ object SocSim extends App {
   var dualSim = false // Double simulation, one ahead of the other which will trigger wave capture of the second simulation when it fail
   var traceIt = false
   var withRvls = true
+  var withL2 = true
   var naxCount = 1
   val bins = ArrayBuffer[(Long, String)]()
   val elfs = ArrayBuffer[String]()
@@ -58,7 +60,8 @@ object SocSim extends App {
     help("help").text("prints this usage text")
     opt[Unit]("dual-sim") action { (v, c) => dualSim = true }
     opt[Unit]("trace") action { (v, c) => traceIt = true }
-    opt[Unit]("no-rvls")  action { (v, c) => withRvls = false }
+    opt[Unit]("no-rvls") action { (v, c) => withRvls = false }
+    opt[Unit]("no-l2") action { (v, c) => withL2 = false }
     opt[Int]("nax-count") action { (v, c) => naxCount = v }
     opt[Seq[String]]("load-bin") unbounded() action { (v, c) => bins += (lang.Long.parseLong(v(0), 16) -> v(1)) }
     opt[String]("load-elf") unbounded() action { (v, c) => elfs += v }
@@ -73,7 +76,7 @@ object SocSim extends App {
 //  sc.addSimulatorFlag("--prof-exec")
 
   // Tweek the toplevel a bit
-  class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount){
+  class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount, withL2 = withL2){
     setDefinitionName("SocDemo")
     val dcache = naxes(0).plugins.collectFirst { case p: DataCachePlugin => p }.get
     val icache = naxes(0).plugins.collectFirst { case p: FetchCachePlugin => p }.get
