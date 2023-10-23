@@ -5,6 +5,7 @@ import naxriscv.lsu.DataCachePlugin
 import naxriscv.platform.{FileBackend, NaxriscvProbe, NaxriscvTilelinkProbe, PeripheralEmulator, RvlsBackend}
 import spinal.core._
 import spinal.core.sim._
+import spinal.lib.bus.tilelink.ScopeFiber
 import spinal.lib.bus.tilelink.sim.{Checker, MemoryAgent}
 import spinal.lib.misc.Elf
 import spinal.lib.misc.test.{DualSimTracer, MultithreadedFunSuite, MultithreadedTester}
@@ -82,10 +83,29 @@ object SocSim extends App {
     naxes.flatMap(_.plugins).foreach{
       case p : FetchCachePlugin => //p.cacheSize = 2048
       case p : DataCachePlugin =>  //p.cacheSize = 2048
-      case _ => 
+      case _ =>
     }
 
     // l2.cache.parameter.cacheBytes = 4096
+
+    // Here we add a scope peripheral, which can count the number of cycle that a given signal is high
+    // See ext/NaxSoftware/baremetal/socdemo for software usages
+    val scope = new ScopeFiber()
+    scope.up at 0x04000000 of peripheral.bus
+    if(withL2) {
+      scope.add(l2.cache.logic.cache.events.acquire.hit, 0xF00)  //acquire is used by data cache
+      scope.add(l2.cache.logic.cache.events.acquire.miss, 0xF04)
+      scope.add(l2.cache.logic.cache.events.getPut.hit, 0xF20)   //getPut is used by instruction cache refill and DMA
+      scope.add(l2.cache.logic.cache.events.getPut.miss, 0xF24)
+    }
+    for((nax, i) <- naxes.zipWithIndex) nax.plugins.foreach {
+      case p: FetchCachePlugin => scope.add(p.logic.refill.fire, i*0x80 + 0x000)
+      case p: DataCachePlugin => {
+        scope.add(p.logic.cache.refill.push.fire, i * 0x80 + 0x010)
+        scope.add(p.logic.cache.writeback.push.fire, i * 0x80 + 0x014)
+      }
+      case _ =>
+    }
   }
   val compiled = sc.compile(new SocDemoSim(cpuCount = 1))
 
