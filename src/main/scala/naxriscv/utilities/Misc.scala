@@ -71,7 +71,12 @@ object MulSpliter{
                                offsetB <- 0 until inWidthB by splitWidthB;
                                widthA = (inWidthA - offsetA) min splitWidthA;
                                widthB = (inWidthB - offsetB) min splitWidthB) yield {
-      Splits(offsetA, offsetB, widthA, widthB, signedA && offsetA + widthA == inWidthA, signedB && offsetB + widthB == inWidthB, -1)
+      Splits(offsetA, offsetB,
+        widthA, widthB,
+        signedA && offsetA + widthA == inWidthA,
+        signedB && offsetB + widthB == inWidthB,
+        -1
+      )
     }
     val splits = splitsUnordered.sortWith(_.endC < _.endC).zipWithIndex.map(e => e._1.copy(id = e._2))
     splits
@@ -212,11 +217,11 @@ object AdderAggregator {
 //      sources ++= adders.map(_.toSource())
 //    }
 
-    val aw = 16
-    val bw = 19
+    val aw = 65
+    val bw = 65
     val cw = aw + bw
     SimConfig.withFstWave.compile(new Component{
-      val doSigned = false
+      val doSigned = true
       val a = in Bits (aw bits)
       val b = in Bits (bw bits)
       val aSigned = out(S(a))
@@ -226,8 +231,8 @@ object AdderAggregator {
 
       val splitsSpec = MulSpliter.splits(
         aw, bw,
-        3, 7,
-//        8, 8,
+//        3, 7,
+        17, 17,
         doSigned, doSigned
       )
       val muls = splitsSpec.map(_.toMulU(a, b, cw))
@@ -235,17 +240,22 @@ object AdderAggregator {
       var sourcesSpec = splitsSpec.map(s => AdderAggregator.Source(s, cw)).toList
       for((s, m) <- (sourcesSpec, muls).zipped) sourceToSignal(s) = m
 
-      class Step extends Area {
+      var stepCounter = 0
+      class Step() extends Area {
         val ss = sourcesSpec
-        var addersSpec = AdderAggregator(sourcesSpec, 5, 2)
+        var addersSpec = stepCounter match {
+//          case 0 => AdderAggregator(sourcesSpec, 17, 2)
+          case _ => AdderAggregator(sourcesSpec, 64, 4)
+        }
         val adders = addersSpec.map(_.craft(sourceToSignal))
         sourcesSpec = addersSpec.map(_.toSource()).toList
         for ((s, m) <- (sourcesSpec, adders).zipped) sourceToSignal(s) = m
         println(addersSpec.mkString("\n"))
         println("------------")
+        stepCounter += 1
       }
       val stepsBuffer = ArrayBuffer[Step]()
-      while(sourcesSpec.size != 1) stepsBuffer += new Step
+      while(sourcesSpec.size != 1) stepsBuffer += new Step()
       val steps = stepsBuffer
 
       c := sourceToSignal(sourcesSpec(0)).asBits.resized
