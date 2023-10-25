@@ -110,7 +110,7 @@ class MulPlugin(val euId : String,
     val mul = new ExecuteArea(mulAt) {
       import stage._
       // MulSpliter.splits Will generate a data model of all partial multiplications
-      val splits = MulSpliter.splits(SRC_WIDTH, SRC_WIDTH, splitWidthA, splitWidthB, !useRsUnsignedPlugin, !useRsUnsignedPlugin)
+      val splits = MulSpliter(SRC_WIDTH, SRC_WIDTH, splitWidthA, splitWidthB, !useRsUnsignedPlugin, !useRsUnsignedPlugin)
       // Generate the partial multiplications from the splits data model
       val VALUES = splits.map(s => insert(s.toMulU(MUL_SRC1, MUL_SRC2, finalWidth)))
       VALUES.foreach(e => KeepAttribute(stage(e)))

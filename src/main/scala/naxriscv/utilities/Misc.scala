@@ -41,7 +41,18 @@ class Reservation{
   }
 }
 
+/**
+ * MulSpliter is a tool which will cut a multiplication into multiple smaller multiplications
+ * Those smaller multiplication results would need to be summed together.
+ * MulSpliter Doesn't generate any hardware by itself, but instead provide you with the datamodel
+ * of the work to do.
+ * Usefull for large multiplications which need to be pipelined on multiple cycles when retiming isn't good
+ */
 object MulSpliter{
+  /**
+   * A and B being the input operands
+   * offsetX, widthX, signedX specifying the operand
+   */
   case class Splits(offsetA : Int, offsetB : Int,
                     widthA : Int, widthB : Int,
                     signedA : Boolean, signedB : Boolean, id : Int){
@@ -50,6 +61,9 @@ object MulSpliter{
     val endC = offsetC+widthC
     def signedC = signedA || signedB
 
+    // Generate the multiplcation hardware, and return a UInt.
+    // For signed multiplications, the result is sign extended to give a signedWidth bits signal
+    // allowing to just sum all the partial multiplication in a single unsigned manner.
     def toMulU(srcA : Bits, srcB : Bits, signedWidth : Int): UInt = {
       val a = srcA(offsetA, widthA bits)
       val b = srcB(offsetB, widthB bits)
@@ -63,9 +77,10 @@ object MulSpliter{
     }
   }
 
-  def splits(inWidthA : Int, inWidthB : Int,
-             splitWidthA : Int, splitWidthB : Int,
-             signedA : Boolean, signedB : Boolean) = {
+  // Generate the datamodel
+  def apply(inWidthA : Int, inWidthB : Int,
+            splitWidthA : Int, splitWidthB : Int,
+            signedA : Boolean, signedB : Boolean) = {
     val outWidth = inWidthA + inWidthB
     val splitsUnordered = for (offsetA <- 0 until inWidthA by splitWidthA;
                                offsetB <- 0 until inWidthB by splitWidthB;
@@ -87,12 +102,12 @@ object MulSpliter{
  * Facility to add together a large number of values in a optimized / staged manner
  * Able to cut / concat sources to build multiple adders
  */
-
 object AdderAggregator {
   def Source(s : MulSpliter.Splits, signedWidth : Int) : Source = {
     val width = if(s.signedC) signedWidth - s.offsetC else s.widthC
     Source(s.offsetC, (BigInt(1) << width)-1)
   }
+  // Represent a input value
   case class Source(offset: Int, localMax: BigInt) extends OverridedEqualsHashCode{
     var offsetTmp = offset
     val width = log2Up(localMax + 1)
@@ -102,9 +117,11 @@ object AdderAggregator {
     override def toString = s"Source($offset, $width bits, $localMax)"
   }
 
+  // Represent a input value in a lane, from which we specify "offset" at which bits should be taken
   case class LaneSource(s : Source){
     val offset = s.offsetTmp
 
+    // Provide the maximal value that "this" can have for a given lane's offset/width
     def valueMax(offset: Int, width: Int) = {
       val widthOverflow = (s.offsetNext) - (offset + width)
       val fixedValue = if (widthOverflow > 0) (BigInt(1) << s.width - widthOverflow) - 1 else s.localMax
@@ -115,8 +132,12 @@ object AdderAggregator {
     }
   }
 
+  // Represent an adder input by aggregating multiple laneSources which never overlap
+  // The idea is to create as long as possible inputs for the adder
   case class Lane(from: Seq[LaneSource]) {
     def valueMax(offset: Int, width: Int) = from.map(_.valueMax(offset, width)).sum
+
+    // Generate the aggregation hardware
     def craft(offset: Int, width: Int, s2u: scala.collection.Map[Source, UInt]): UInt = {
       val ret = U(0, width bits).allowOverride()
       for(s <- from){
@@ -128,12 +149,15 @@ object AdderAggregator {
     }
   }
 
+  // Represent an adder which sum multiple lanes
+  // offset and width specify which portions of the sources signal we are interrested into (can be parts of them)
   case class Adder(offset: Int, width: Int, lanes: Seq[Lane]) {
     def toSource() = {
       val source = Source(offset, lanes.map(_.valueMax(offset, width)).sum)
       source
     }
 
+    // Generate the adder hardware using a s2u map to retrieve the sources hardware signals
     def craft(s2u : scala.collection.Map[Source, UInt]): UInt = {
       val sRet = toSource()
       val uLanes = lanes.map(_.craft(offset, width, s2u).resize(sRet.width bits))
@@ -141,7 +165,11 @@ object AdderAggregator {
     }
   }
 
-
+  // Generate the data model to add multiple unsigned sources together
+  // widthMax specify how many bits an adder can have
+  // lanesMax specify how many inputs an adder can have
+  // Note that if the returned adders is only for one layer, meaning you may have to call
+  // this function multiple time to reduce more and more, until you get only a single adder.
   def apply(splits: Seq[Source], widthMax: Int, lanesMax: Int): Seq[Adder] = {
     var srcs = ArrayBuffer[Source]()
     val adders = ArrayBuffer[Adder]()
@@ -203,6 +231,7 @@ object AdderAggregator {
     adders
   }
 
+  //Here is an example of usage.
   def main(args: Array[String]): Unit = {
     import spinal.core.sim._
 //    var sources = ArrayBuffer[Source]()
@@ -229,9 +258,8 @@ object AdderAggregator {
       val c = out Bits (cw bits)
       val cSigned = out(S(c))
 
-      val splitsSpec = MulSpliter.splits(
+      val splitsSpec = MulSpliter(
         aw, bw,
-//        3, 7,
         17, 17,
         doSigned, doSigned
       )
