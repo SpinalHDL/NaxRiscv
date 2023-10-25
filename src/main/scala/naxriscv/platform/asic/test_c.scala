@@ -13,6 +13,7 @@ object test_c extends App{
   LutInputs.set(4)
   def plugins = {
     val l = Config.plugins(
+      asic = true,
       withRdTime = false,
       aluCount    = 1,
       decodeCount = 1,

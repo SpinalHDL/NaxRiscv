@@ -20,8 +20,7 @@ import scala.collection.mutable
 
 object MulPlugin extends AreaObject {
   val HIGH = Stageable(Bool())
-  val RS1_SIGNED = Stageable(Bool())
-  val RS2_SIGNED = Stageable(Bool())
+  val RESULT_IS_SIGNED = Stageable(Bool())
 }
 
 /**
@@ -33,6 +32,9 @@ object MulPlugin extends AreaObject {
  * @param bufferedHigh When activated, will buffer in a register the XLEN MSB of the result to improve timings
  *                     at the cost of 1 cycle lost (only when reading the XLEN MSB)
  *                     Activate itself by default if XLEN == 64
+ * @param useRsUnsignedPlugin The plugin can work in to modes, either it does the multiplication in signed mode (FPGA)
+ *                            either it use the RsUnsignedPlugin and do multiplication in a unsigned manner (ASIC)
+ *                            If you set useRsUnsignedPlugin, you need to respecify sumsSpec and splitWidth
  */
 class MulPlugin(val euId : String,
                 var srcAt : Int = 0,
@@ -43,8 +45,10 @@ class MulPlugin(val euId : String,
                 var splitWidthA : Int = 17,
                 var splitWidthB : Int = 17,
                 var staticLatency : Boolean = true,
+                var useRsUnsignedPlugin : Boolean = false,
                 var bufferedHigh : Option[Boolean] = None) extends ExecutionUnitElementSimple(euId, staticLatency) {
   import MulPlugin._
+  import RsUnsignedPlugin._
 
   override def euWritebackAt = writebackAt
 
@@ -75,10 +79,10 @@ class MulPlugin(val euId : String,
   override val logic = create late new Logic{
 
     val finalWidth = XLEN*2
-
+    val SRC_WIDTH = XLEN.get + (!useRsUnsignedPlugin).toInt
     val keys = new AreaRoot{
-      val MUL_SRC1 = Stageable(Bits(XLEN.get+1 bits))
-      val MUL_SRC2 = Stageable(Bits(XLEN.get+1 bits))
+      val MUL_SRC1 = Stageable(Bits(SRC_WIDTH bits))
+      val MUL_SRC2 = Stageable(Bits(SRC_WIDTH bits))
     }
     import keys._
 
@@ -87,18 +91,26 @@ class MulPlugin(val euId : String,
 
       val rs1 = eu(IntRegFile, RS1)
       val rs2 = eu(IntRegFile, RS2)
-      MUL_SRC1 := (RS1_SIGNED && rs1.msb) ## (rs1)
-      MUL_SRC2 := (RS2_SIGNED && rs2.msb) ## (rs2)
-
-      KeepAttribute(stage(MUL_SRC1))
-      KeepAttribute(stage(MUL_SRC2))
+      useRsUnsignedPlugin match {
+        case false => {
+          MUL_SRC1 := (RS1_SIGNED && rs1.msb) ## (rs1)
+          MUL_SRC2 := (RS2_SIGNED && rs2.msb) ## (rs2)
+          KeepAttribute(stage(MUL_SRC1))
+          KeepAttribute(stage(MUL_SRC2))
+        }
+        case true => {
+          MUL_SRC1 := RS1_UNSIGNED.asBits
+          MUL_SRC2 := RS2_UNSIGNED.asBits
+          RESULT_IS_SIGNED := RS1_REVERT ^ RS2_REVERT
+        }
+      }
     }
 
     // Generate all the partial multiplications
     val mul = new ExecuteArea(mulAt) {
       import stage._
       // MulSpliter.splits Will generate a data model of all partial multiplications
-      val splits = MulSpliter.splits(XLEN.get + 1, XLEN.get + 1, splitWidthA, splitWidthB, true, true)
+      val splits = MulSpliter.splits(SRC_WIDTH, SRC_WIDTH, splitWidthA, splitWidthB, !useRsUnsignedPlugin, !useRsUnsignedPlugin)
       // Generate the partial multiplications from the splits data model
       val VALUES = splits.map(s => insert(s.toMulU(MUL_SRC1, MUL_SRC2, finalWidth)))
       VALUES.foreach(e => KeepAttribute(stage(e)))
@@ -120,14 +132,20 @@ class MulPlugin(val euId : String,
       // Setup the iteration variables for the next step
       sourcesSpec = addersSpec.map(_.toSource()).toList
       for ((s, m) <- (sourcesSpec, adders).zipped) sourceToSignal(s) = m
-//      println(addersSpec.mkString("\n"))
-//      println("------------")
+      if(splitWidthB == 1){
+        println(addersSpec.mkString("\n"))
+        println("------------")
+      }
+
     }
 
     val writeback = new ExecuteArea(writebackAt) {
       import stage._
       assert(sourcesSpec.size == 1)
-      val result = stage(sourceToSignal(sourcesSpec.head))
+      val result = useRsUnsignedPlugin match {
+        case false => stage(sourceToSignal(sourcesSpec.head))
+        case true => stage(sourceToSignal(sourcesSpec.head)).twoComplement(RESULT_IS_SIGNED)
+      }
       val buffer = bufferedHigh.get generate new Area{
         val valid = RegNext(False) init (False) setWhen (isValid && !isReady && !isRemoved)
         val data = RegNext(result(XLEN, XLEN bits))

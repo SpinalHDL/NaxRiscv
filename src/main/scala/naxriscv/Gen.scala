@@ -68,7 +68,8 @@ object Config{
               dispatchSlots : Int = 32,
               robSize : Int = 64,
               withCoherency : Boolean = false,
-              hartId : Int = 0): ArrayBuffer[Plugin] ={
+              hartId : Int = 0,
+              asic : Boolean = false): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
 
     val fpu = withFloat || withDouble
@@ -324,7 +325,18 @@ object Config{
     plugins += new IntFormatPlugin("EU0")
     plugins += new SrcPlugin("EU0")
     plugins += new RsUnsignedPlugin("EU0")
-    plugins += new MulPlugin("EU0", writebackAt = 2, staticLatency = false)
+    plugins += (asic match {
+      case false => new MulPlugin(euId = "EU0", writebackAt = 2, staticLatency = false)
+      case true => new MulPlugin(
+        euId = "EU0",
+        sumAt = 0,
+        sumsSpec = List((16, 16), (32, 1000), (1000, 1000)),
+        splitWidthA = xlen,
+        splitWidthB = 1,
+        useRsUnsignedPlugin = true,
+        staticLatency = false
+      )
+    })
     plugins += new DivPlugin("EU0", writebackAt = 2)
     //    plugins += new IntAluPlugin("EU0")
     //    plugins += new ShiftPlugin("EU0")
@@ -518,7 +530,8 @@ object Gen64 extends App{
       withFloat = false,
       withDouble = false,
       lqSize = 16,
-      sqSize = 16
+      sqSize = 16,
+      asic = false
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))
