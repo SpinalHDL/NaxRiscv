@@ -11,3 +11,6 @@
 [submodule "ext/rvls"]
 	path = ext/rvls
 	url = https://github.com/SpinalHDL/rvls.git
+[submodule "ext/SpinalHDL"]
+	path = ext/SpinalHDL
+	url = https://github.com/SpinalHDL/SpinalHDL.git
