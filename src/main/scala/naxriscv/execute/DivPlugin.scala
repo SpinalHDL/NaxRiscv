@@ -16,9 +16,7 @@ import spinal.lib.pipeline.Stageable
 
 object DivPlugin extends AreaObject {
   val REM = Stageable(Bool())
-  val SIGNED = Stageable(Bool())
   val DIV_RESULT = Stageable(Bits(XLEN bits))
-  val IS_W = Stageable(Bool())
 }
 
 class DivPlugin(val euId : String,
@@ -28,6 +26,7 @@ class DivPlugin(val euId : String,
                 var splitWidthA : Int = 16,
                 var splitWidthB : Int = 16) extends ExecutionUnitElementSimple(euId, staticLatency = false) {
   import DivPlugin._
+  import RsUnsignedPlugin._
 
   override def euWritebackAt = writebackAt
 
@@ -72,27 +71,12 @@ class DivPlugin(val euId : String,
     val feed = new ExecuteArea(cmdAt) {
       import stage._
 
-      val rs1 = stage(eu(IntRegFile, RS1))
-      val rs2 = stage(eu(IntRegFile, RS2))
-
-      val rs1Formated = CombInit(rs1)
-      val rs2Formated = CombInit(rs2)
-
-      if(XLEN.get == 64) when(IS_W){
-        rs1Formated(63 downto 32) := (default -> (SIGNED && rs1(31)))
-        rs2Formated(63 downto 32) := (default -> (SIGNED && rs2(31)))
-      }
-
-      val revertA = SIGNED && rs1Formated.msb
-      val revertB = SIGNED && rs2Formated.msb
-      val divA = twoComplement(rs1Formated, revertA)
-      val divB = twoComplement(rs2Formated, revertB)
-      DIV_REVERT_RESULT := (revertA ^ (revertB && !REM)) && !(rs2Formated === 0 && SIGNED && !REM)
+      DIV_REVERT_RESULT := (RS1_REVERT ^ (RS2_REVERT && !REM)) && !(RS2_FORMATED === 0 && SIGNED && !REM)
 
       val cmdSent = RegInit(False) setWhen (div.io.cmd.fire) clearWhen (isReady || isFlushed)
       div.io.cmd.valid := isValid && SEL && !cmdSent
-      div.io.cmd.a := divA.resized
-      div.io.cmd.b := divB.resized
+      div.io.cmd.a := RS1_UNSIGNED.resized
+      div.io.cmd.b := RS2_UNSIGNED.resized
       div.io.flush := isFlushed // Quite some assumption here
 
       if(cmdAt != writebackAt){

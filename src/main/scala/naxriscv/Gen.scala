@@ -323,6 +323,7 @@ object Config{
     plugins += new ExecutionUnitBase("EU0", writebackCountMax = 1, readPhysRsFromQueue = true)
     plugins += new IntFormatPlugin("EU0")
     plugins += new SrcPlugin("EU0")
+    plugins += new RsUnsignedPlugin("EU0")
     plugins += new MulPlugin("EU0", writebackAt = 2, staticLatency = false)
     plugins += new DivPlugin("EU0", writebackAt = 2)
     //    plugins += new IntAluPlugin("EU0")
