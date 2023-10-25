@@ -46,7 +46,7 @@ object MulSpliter{
                     widthA : Int, widthB : Int,
                     signedA : Boolean, signedB : Boolean, id : Int){
     val offsetC = offsetA+offsetB
-    val widthC = widthA + widthB
+    val widthC = if(widthB != 1) widthA + widthB else widthA
     val endC = offsetC+widthC
     def signedC = signedA || signedB
 
@@ -55,7 +55,7 @@ object MulSpliter{
       val b = srcB(offsetB, widthB bits)
       val sw = signedWidth - offsetC
       (signedA, signedB) match {
-        case (false, false) => U(a) * U(b)
+        case (false, false) => if(widthOf(b) != 1) U(a) * U(b) else U(a).andMask(b.asBool)
         case (false, true) => (S(False ## a) * S(b)).resize(sw bits).asUInt
         case (true, false) => (S(a) * S(False ## b)).resize(sw bits).asUInt
         case (true, true) => (S(a) * S(b)).resize(sw).asUInt
