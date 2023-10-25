@@ -84,7 +84,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
     cache.parameter.cacheWays = l2Ways
     cache.parameter.cacheBytes = l2Bytes
     cache.up << memFilter.down
-    cache.up.setUpConnection(a = StreamPipe.FULL, c = StreamPipe.FULL)
+    cache.up.setUpConnection(a = StreamPipe.FULL, c = StreamPipe.FULL, d = StreamPipe.FULL)
     cache.down.forceDataWidth(mainDataWidth)
     nonCoherent = cache.down
   }
