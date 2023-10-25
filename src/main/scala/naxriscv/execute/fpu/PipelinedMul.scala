@@ -19,7 +19,7 @@ class PipelinedMul(rsA : Stageable[UInt],
                    sum1Stage : Stage,
                    sum2Stage : Stage,
                    sum3Stage : Stage) extends Area{
-  val splits = MulSpliter.splits(widthOf(rsA), widthOf(rsB), splitWidthA, splitWidthB, false, false)
+  val splits = MulSpliter(widthOf(rsA), widthOf(rsB), splitWidthA, splitWidthB, false, false)
   val finalWidth = widthOf(rsA) + widthOf(rsB)
   val sum1Takes = splits.takeWhile(e => e.offsetC + e.widthC <= sum1WidthMax).size
   val sum2Takes = splits.takeWhile(e => e.offsetC + e.widthC <= sum2WidthMax).size-sum1Takes

@@ -68,7 +68,8 @@ object Config{
               dispatchSlots : Int = 32,
               robSize : Int = 64,
               withCoherency : Boolean = false,
-              hartId : Int = 0): ArrayBuffer[Plugin] ={
+              hartId : Int = 0,
+              asic : Boolean = false): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
 
     val fpu = withFloat || withDouble
@@ -258,36 +259,29 @@ object Config{
           }
         )
       }
+
+      plugins += new DataCachePlugin(
+        memDataWidth = 64,
+        cacheSize = 4096 * 4,
+        wayCount = 4,
+        refillCount = 2,
+        writebackCount = 2,
+        tagsReadAsync = withDistributedRam,
+        loadReadTagsAt = if (withDistributedRam) 1 else 0,
+        storeReadTagsAt = if (withDistributedRam) 1 else 0,
+        reducedBankWidth = false,
+        //      loadHitAt      = 2
+        //      loadRspAt      = 3,
+        loadRefillCheckEarly = false,
+        withCoherency = withCoherency,
+        probeIdWidth = if (withCoherency) 4 else 0,
+        ackIdWidth = if (withCoherency) 4 else 0
+      )
     }
 
-    if(!withLoadStore){
-      plugins += new Plugin{
-        val setup = create early new Area{
-          val cache = getService[DataCachePlugin]
-          val store = cache.newStorePort()
-          spinal.lib.slave(store)
-          spinal.lib.slave(cache.setup.lockPort)
-        }
-      }
-    }
 
-    plugins += new DataCachePlugin(
-      memDataWidth = 64,
-      cacheSize    = 4096*4,
-      wayCount     = 4,
-      refillCount = 2,
-      writebackCount = 2,
-      tagsReadAsync = withDistributedRam,
-      loadReadTagsAt = if(withDistributedRam) 1 else 0,
-      storeReadTagsAt = if(withDistributedRam) 1 else 0,
-      reducedBankWidth = false,
-      //      loadHitAt      = 2
-      //      loadRspAt      = 3,
-      loadRefillCheckEarly = false,
-      withCoherency = withCoherency,
-      probeIdWidth = if(withCoherency) 4 else 0,
-      ackIdWidth = if(withCoherency) 4 else 0
-    )
+
+
 
     //MISC
     plugins += new RobPlugin(
@@ -330,7 +324,19 @@ object Config{
     plugins += new ExecutionUnitBase("EU0", writebackCountMax = 1, readPhysRsFromQueue = true)
     plugins += new IntFormatPlugin("EU0")
     plugins += new SrcPlugin("EU0")
-    plugins += new MulPlugin("EU0", writebackAt = 2, staticLatency = false)
+    plugins += new RsUnsignedPlugin("EU0")
+    plugins += (asic match {
+      case false => new MulPlugin(euId = "EU0", writebackAt = 2, staticLatency = false)
+      case true => new MulPlugin(
+        euId = "EU0",
+        sumAt = 0,
+        sumsSpec = List((16, 4), (24, 1000), (1000, 1000)),
+        splitWidthA = xlen,
+        splitWidthB = 1,
+        useRsUnsignedPlugin = true,
+        staticLatency = false
+      )
+    })
     plugins += new DivPlugin("EU0", writebackAt = 2)
     //    plugins += new IntAluPlugin("EU0")
     //    plugins += new ShiftPlugin("EU0")
@@ -449,7 +455,7 @@ object Gen extends App{
       decodeCount = 2,
       debugTriggers = 4,
       withDedicatedLoadAgu = false,
-      withRvc = true,
+      withRvc = false,
       withLoadStore = true,
       withMmu = true,
       withDebug = false,
@@ -524,7 +530,8 @@ object Gen64 extends App{
       withFloat = false,
       withDouble = false,
       lqSize = 16,
-      sqSize = 16
+      sqSize = 16,
+      asic = false
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))

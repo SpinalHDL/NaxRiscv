@@ -16,9 +16,7 @@ import spinal.lib.pipeline.Stageable
 
 object DivPlugin extends AreaObject {
   val REM = Stageable(Bool())
-  val SIGNED = Stageable(Bool())
   val DIV_RESULT = Stageable(Bits(XLEN bits))
-  val IS_W = Stageable(Bool())
 }
 
 class DivPlugin(val euId : String,
@@ -28,22 +26,23 @@ class DivPlugin(val euId : String,
                 var splitWidthA : Int = 16,
                 var splitWidthB : Int = 16) extends ExecutionUnitElementSimple(euId, staticLatency = false) {
   import DivPlugin._
+  import RsUnsignedPlugin._
 
   override def euWritebackAt = writebackAt
 
   override val setup = create early new Setup{
     getServiceOption[PrivilegedService].foreach(_.addMisa('M'))
 
-    add(Rvi.DIV , List(), DecodeList(REM -> False, SIGNED -> True))
-    add(Rvi.DIVU, List(), DecodeList(REM -> False, SIGNED -> False))
-    add(Rvi.REM , List(), DecodeList(REM -> True , SIGNED -> True))
-    add(Rvi.REMU, List(), DecodeList(REM -> True , SIGNED -> False))
+    add(Rvi.DIV , List(), DecodeList(REM -> False, RS1_SIGNED -> True,  RS2_SIGNED -> True))
+    add(Rvi.DIVU, List(), DecodeList(REM -> False, RS1_SIGNED -> False, RS2_SIGNED -> False))
+    add(Rvi.REM , List(), DecodeList(REM -> True , RS1_SIGNED -> True,  RS2_SIGNED -> True))
+    add(Rvi.REMU, List(), DecodeList(REM -> True , RS1_SIGNED -> False, RS2_SIGNED -> False))
 
     if(XLEN.get == 64){
-      add(Rvi.DIVW , List(), DecodeList(REM -> False, SIGNED -> True))
-      add(Rvi.DIVUW, List(), DecodeList(REM -> False, SIGNED -> False))
-      add(Rvi.REMW , List(), DecodeList(REM -> True , SIGNED -> True))
-      add(Rvi.REMUW, List(), DecodeList(REM -> True , SIGNED -> False))
+      add(Rvi.DIVW , List(), DecodeList(REM -> False, RS1_SIGNED -> True,  RS2_SIGNED -> True))
+      add(Rvi.DIVUW, List(), DecodeList(REM -> False, RS1_SIGNED -> False, RS2_SIGNED -> False))
+      add(Rvi.REMW , List(), DecodeList(REM -> True , RS1_SIGNED -> True,  RS2_SIGNED -> True))
+      add(Rvi.REMUW, List(), DecodeList(REM -> True , RS1_SIGNED -> False, RS2_SIGNED -> False))
 
       for(op <- List(Rvi.DIVW , Rvi.DIVUW, Rvi.REMW , Rvi.REMUW)){
         signExtend(op, 31)
@@ -57,7 +56,7 @@ class DivPlugin(val euId : String,
   }
 
   override val logic = create late new Logic{
-    val splits = MulSpliter.splits(XLEN.get + 1, XLEN.get+ 1, splitWidthA, splitWidthB, true, true)
+    val splits = MulSpliter(XLEN.get + 1, XLEN.get+ 1, splitWidthA, splitWidthB, true, true)
     val finalWidth = XLEN*2+2
     val sumSplitAt = splits.size/2
 
@@ -72,27 +71,12 @@ class DivPlugin(val euId : String,
     val feed = new ExecuteArea(cmdAt) {
       import stage._
 
-      val rs1 = stage(eu(IntRegFile, RS1))
-      val rs2 = stage(eu(IntRegFile, RS2))
-
-      val rs1Formated = CombInit(rs1)
-      val rs2Formated = CombInit(rs2)
-
-      if(XLEN.get == 64) when(IS_W){
-        rs1Formated(63 downto 32) := (default -> (SIGNED && rs1(31)))
-        rs2Formated(63 downto 32) := (default -> (SIGNED && rs2(31)))
-      }
-
-      val revertA = SIGNED && rs1Formated.msb
-      val revertB = SIGNED && rs2Formated.msb
-      val divA = twoComplement(rs1Formated, revertA)
-      val divB = twoComplement(rs2Formated, revertB)
-      DIV_REVERT_RESULT := (revertA ^ (revertB && !REM)) && !(rs2Formated === 0 && SIGNED && !REM)
+      DIV_REVERT_RESULT := (RS1_REVERT ^ (RS2_REVERT && !REM)) && !(RS2_FORMATED === 0 && RS2_SIGNED && !REM) //RS2_SIGNED == RS1_SIGNED anyway
 
       val cmdSent = RegInit(False) setWhen (div.io.cmd.fire) clearWhen (isReady || isFlushed)
       div.io.cmd.valid := isValid && SEL && !cmdSent
-      div.io.cmd.a := divA.resized
-      div.io.cmd.b := divB.resized
+      div.io.cmd.a := RS1_UNSIGNED.resized
+      div.io.cmd.b := RS2_UNSIGNED.resized
       div.io.flush := isFlushed // Quite some assumption here
 
       if(cmdAt != writebackAt){
