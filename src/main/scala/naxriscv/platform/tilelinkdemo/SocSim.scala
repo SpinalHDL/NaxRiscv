@@ -42,7 +42,7 @@ naxriscv.platform.tilelinkdemo.SocSim                                      \
 Boot dual core linux example :
 naxriscv.platform.tilelinkdemo.SocSim                                      \
 --load-bin 80000000,ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin   \
---load-bin 80F80000,ext/NaxSoftware/buildroot/images/rv32ima/linux_1c.dtb  \
+--load-bin 80F80000,ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb  \
 --load-bin 80400000,ext/NaxSoftware/buildroot/images/rv32ima/Image         \
 --load-bin 81000000,ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio   \
 --nax-count 2
@@ -107,7 +107,7 @@ object SocSim extends App {
       case _ =>
     }
   }
-  val compiled = sc.compile(new SocDemoSim(cpuCount = 1))
+  val compiled = sc.compile(new SocDemoSim(cpuCount = naxCount))
 
   // How we want to run the test
   dualSim match {
