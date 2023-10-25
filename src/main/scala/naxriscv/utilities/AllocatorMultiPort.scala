@@ -57,7 +57,7 @@ case class AllocatorMultiPortMem[T <: Data](dataType : HardType[T],
   }
 
   val pushArbitration = new Area{
-    var pushOffset = ptr.push
+    var pushOffset = CombInit(ptr.push)
     val push = for(i <- 0 until pushCount) yield new Area{
       val ptr = CombInit(pushOffset)
       pushOffset \= pushOffset + io.push(i).valid.asUInt
@@ -85,7 +85,7 @@ case class AllocatorMultiPortMem[T <: Data](dataType : HardType[T],
 
 
   val popArbitration = new Area{
-    var popOffset = ptr.pop
+    var popOffset = CombInit(ptr.pop)
     val pop = for(i <- 0 until popCount) yield new Area{
       val ptr = CombInit(popOffset)
       io.pop.values(i) := ways.map(_.pop.data).read(ptr(wayRange))
