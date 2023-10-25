@@ -57,7 +57,7 @@ object MulSpliter{
                     widthA : Int, widthB : Int,
                     signedA : Boolean, signedB : Boolean, id : Int){
     val offsetC = offsetA+offsetB
-    val widthC = if(widthB != 1) widthA + widthB else widthA
+    val widthC = if(widthB != 1 || signedB) widthA + widthB else widthA
     val endC = offsetC+widthC
     def signedC = signedA || signedB
 
