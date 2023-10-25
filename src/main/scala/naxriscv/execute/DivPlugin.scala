@@ -33,16 +33,16 @@ class DivPlugin(val euId : String,
   override val setup = create early new Setup{
     getServiceOption[PrivilegedService].foreach(_.addMisa('M'))
 
-    add(Rvi.DIV , List(), DecodeList(REM -> False, SIGNED -> True))
-    add(Rvi.DIVU, List(), DecodeList(REM -> False, SIGNED -> False))
-    add(Rvi.REM , List(), DecodeList(REM -> True , SIGNED -> True))
-    add(Rvi.REMU, List(), DecodeList(REM -> True , SIGNED -> False))
+    add(Rvi.DIV , List(), DecodeList(REM -> False, RS1_SIGNED -> True,  RS2_SIGNED -> True))
+    add(Rvi.DIVU, List(), DecodeList(REM -> False, RS1_SIGNED -> False, RS2_SIGNED -> False))
+    add(Rvi.REM , List(), DecodeList(REM -> True , RS1_SIGNED -> True,  RS2_SIGNED -> True))
+    add(Rvi.REMU, List(), DecodeList(REM -> True , RS1_SIGNED -> False, RS2_SIGNED -> False))
 
     if(XLEN.get == 64){
-      add(Rvi.DIVW , List(), DecodeList(REM -> False, SIGNED -> True))
-      add(Rvi.DIVUW, List(), DecodeList(REM -> False, SIGNED -> False))
-      add(Rvi.REMW , List(), DecodeList(REM -> True , SIGNED -> True))
-      add(Rvi.REMUW, List(), DecodeList(REM -> True , SIGNED -> False))
+      add(Rvi.DIVW , List(), DecodeList(REM -> False, RS1_SIGNED -> True,  RS2_SIGNED -> True))
+      add(Rvi.DIVUW, List(), DecodeList(REM -> False, RS1_SIGNED -> False, RS2_SIGNED -> False))
+      add(Rvi.REMW , List(), DecodeList(REM -> True , RS1_SIGNED -> True,  RS2_SIGNED -> True))
+      add(Rvi.REMUW, List(), DecodeList(REM -> True , RS1_SIGNED -> False, RS2_SIGNED -> False))
 
       for(op <- List(Rvi.DIVW , Rvi.DIVUW, Rvi.REMW , Rvi.REMUW)){
         signExtend(op, 31)
@@ -71,7 +71,7 @@ class DivPlugin(val euId : String,
     val feed = new ExecuteArea(cmdAt) {
       import stage._
 
-      DIV_REVERT_RESULT := (RS1_REVERT ^ (RS2_REVERT && !REM)) && !(RS2_FORMATED === 0 && SIGNED && !REM)
+      DIV_REVERT_RESULT := (RS1_REVERT ^ (RS2_REVERT && !REM)) && !(RS2_FORMATED === 0 && RS2_SIGNED && !REM) //RS2_SIGNED == RS1_SIGNED anyway
 
       val cmdSent = RegInit(False) setWhen (div.io.cmd.fire) clearWhen (isReady || isFlushed)
       div.io.cmd.valid := isValid && SEL && !cmdSent

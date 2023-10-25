@@ -14,8 +14,8 @@ import spinal.lib.pipeline.Stageable
 
 
 object RsUnsignedPlugin extends AreaObject {
-  val SIGNED = Stageable(Bool())
   val IS_W = Stageable(Bool())
+  val RS1_SIGNED, RS2_SIGNED = Stageable(Bool())
   val RS1_REVERT, RS2_REVERT = Stageable(Bool())
   val RS1_FORMATED, RS2_FORMATED = Stageable(Bits(XLEN bits))
   val RS1_UNSIGNED, RS2_UNSIGNED = Stageable(UInt(XLEN bits))
@@ -42,12 +42,12 @@ class RsUnsignedPlugin(val euId : String) extends Plugin{
     RS2_FORMATED := CombInit(rs2)
 
     if (XLEN.get == 64) when(IS_W) {
-      RS1_FORMATED(63 downto 32) := (default -> (SIGNED && rs1(31)))
-      RS2_FORMATED(63 downto 32) := (default -> (SIGNED && rs2(31)))
+      RS1_FORMATED(63 downto 32) := (default -> (RS1_SIGNED && rs1(31)))
+      RS2_FORMATED(63 downto 32) := (default -> (RS2_SIGNED && rs2(31)))
     }
 
-    RS1_REVERT := SIGNED && RS1_FORMATED.msb
-    RS2_REVERT := SIGNED && RS2_FORMATED.msb
+    RS1_REVERT := RS1_SIGNED && RS1_FORMATED.msb
+    RS2_REVERT := RS2_SIGNED && RS2_FORMATED.msb
 
     def twoComplement(that: Bits, enable: Bool): UInt = (Mux(enable, ~that, that).asUInt + enable.asUInt)
     RS1_UNSIGNED := twoComplement(RS1_FORMATED, RS1_REVERT)
