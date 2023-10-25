@@ -72,7 +72,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
       )
 
       val bridge = new Axi4ToTilelinkFiber(64, 4)
-      bridge.up load bus
+      bridge.up load bus.pipelined(ar = StreamPipe.HALF, aw = StreamPipe.HALF, w = StreamPipe.FULL, b = StreamPipe.HALF, r = StreamPipe.FULL)
       bridge.down.setDownConnection(a = StreamPipe.FULL)
       memFilter.up << bridge.down
 
