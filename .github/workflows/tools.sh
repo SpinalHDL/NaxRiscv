@@ -39,6 +39,7 @@ install_spike(){
 install_elfio(){
   git clone https://github.com/serge1/ELFIO.git
   cd ELFIO
+  git checkout d251da09a07dff40af0b63b8f6c8ae71d2d1938d # Avoid C++17
   sudo cp -R elfio /usr/include
   #export C_INCLUDE_PATH=${PWD}/elfio
   cd ..
