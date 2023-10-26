@@ -42,6 +42,7 @@ class MulPlugin(val euId : String,
                 var mulAt: Int = 0,
                 var sumAt: Int = 1,
                 var sumsSpec: List[(Int, Int)] = List((44, 8), (1000, 1000)),
+                var untilOffsetS0: Int = Integer.MAX_VALUE,
                 var writebackAt : Int = 2,
                 var splitWidthA : Int = 17,
                 var splitWidthB : Int = 17,
@@ -136,7 +137,12 @@ class MulPlugin(val euId : String,
 
       val (stepWidth, stepLanes) = sumsSpec(stepId)
       // Generate the specification for ever adders of the current step
-      val addersSpec = AdderAggregator(sourcesSpec, stepWidth, stepLanes)
+      val addersSpec = AdderAggregator(
+        sourcesSpec,
+        stepWidth,
+        stepLanes,
+        untilOffset = if(stepId == 0) untilOffsetS0 else Integer.MAX_VALUE
+      )
       // Generate the hardware corresponding to every addersSpec
       val adders = addersSpec.map(_.craft(sourceToSignal.mapValues(stage(_)))).map(insert(_))
 

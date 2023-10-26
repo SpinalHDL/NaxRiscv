@@ -111,6 +111,7 @@ object AdderAggregator {
   case class Source(offset: Int, localMax: BigInt) extends OverridedEqualsHashCode{
     var offsetTmp = offset
     val width = log2Up(localMax + 1)
+//    var offsetCost, bitCost = 0
 
     def offsetNext = offset + width
 
@@ -170,7 +171,7 @@ object AdderAggregator {
   // lanesMax specify how many inputs an adder can have
   // Note that if the returned adders is only for one layer, meaning you may have to call
   // this function multiple time to reduce more and more, until you get only a single adder.
-  def apply(splits: Seq[Source], widthMax: Int, lanesMax: Int): Seq[Adder] = {
+  def apply(splits: Seq[Source], widthMax: Int, lanesMax: Int, untilOffset : Int = Integer.MAX_VALUE): Seq[Adder] = {
     var srcs = ArrayBuffer[Source]()
     val adders = ArrayBuffer[Adder]()
     srcs ++= splits.sortBy(_.offset)
@@ -179,7 +180,7 @@ object AdderAggregator {
     while (srcs.size != 0) {
       for (i <- srcs.indices.dropRight(1)) assert(srcs(i).offsetTmp <= srcs(i + 1).offsetTmp)
       // Check if the have other srcs in range
-      if (srcs.size == 1 || srcs(0).offsetNext <= srcs(1).offsetTmp) {
+      if (srcs.size == 1 || srcs(0).offsetNext <= srcs(1).offsetTmp || srcs(0).offsetTmp >= untilOffset) {
         val a = srcs.head
         adders += Adder(a.offsetTmp, a.offsetNext - a.offsetTmp, List(Lane(List(LaneSource(a)))))
         srcs.remove(0)
