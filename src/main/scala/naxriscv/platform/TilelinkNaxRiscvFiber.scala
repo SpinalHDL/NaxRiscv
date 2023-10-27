@@ -112,8 +112,8 @@ class TilelinkNaxRiscvFiber() extends Area with RiscvHart{
     l += new Plugin {
       val setup = create early new Area{
         framework.plugins.foreach{
-          case p : FetchCachePlugin => iBus.m2s.forceParameters(p.getBusParameter().toTileLinkM2sParameters())
-          case p : DataCachePlugin => dBus.m2s.forceParameters(p.setup.dataCacheParameters.memParameter.toTileLinkM2sParameters())
+          case p : FetchCachePlugin => iBus.m2s.forceParameters(p.getBusParameter().toTileLinkM2sParameters(p))
+          case p : DataCachePlugin => dBus.m2s.forceParameters(p.setup.dataCacheParameters.memParameter.toTileLinkM2sParameters(p))
           case p : Lsu2Plugin => pBus.m2s.forceParameters(p.getPeripheralBusParameters().toTileLinkM2sParameters())
           case _ =>
         }

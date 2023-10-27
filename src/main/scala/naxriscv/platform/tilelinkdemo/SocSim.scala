@@ -4,6 +4,7 @@ import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.DataCachePlugin
 import naxriscv.platform.{FileBackend, NaxriscvProbe, NaxriscvTilelinkProbe, PeripheralEmulator, RvlsBackend}
 import spinal.core._
+import spinal.core.fiber.Fiber
 import spinal.core.sim._
 import spinal.lib.bus.tilelink.ScopeFiber
 import spinal.lib.bus.tilelink.sim.{Checker, MemoryAgent}
@@ -90,22 +91,39 @@ object SocSim extends App {
 
     // Here we add a scope peripheral, which can count the number of cycle that a given signal is high
     // See ext/NaxSoftware/baremetal/socdemo for software usages
-    val scope = new ScopeFiber()
-    scope.up at 0x04000000 of peripheral.bus
-    if(withL2) {
-      scope.add(l2.cache.logic.cache.events.acquire.hit, 0xF00)  //acquire is used by data cache
-      scope.add(l2.cache.logic.cache.events.acquire.miss, 0xF04)
-      scope.add(l2.cache.logic.cache.events.getPut.hit, 0xF20)   //getPut is used by instruction cache refill and DMA
-      scope.add(l2.cache.logic.cache.events.getPut.miss, 0xF24)
-    }
-    for((nax, i) <- naxes.zipWithIndex) nax.plugins.foreach {
-      case p: FetchCachePlugin => scope.add(p.logic.refill.fire, i*0x80 + 0x000)
-      case p: DataCachePlugin => {
-        scope.add(p.logic.cache.refill.push.fire, i * 0x80 + 0x010)
-        scope.add(p.logic.cache.writeback.push.fire, i * 0x80 + 0x014)
+    val scope = new ScopeFiber(){
+      up at 0x04000000 of peripheral.bus
+      lock.retain()
+
+      val filler = Fiber build new Area {
+        if (withL2) {
+          val l2c = l2.cache.logic.cache
+          add(l2c.events.acquire.hit, 0xF00) //acquire is used by data cache
+          add(l2c.events.acquire.miss, 0xF04)
+          add(l2c.events.getPut.hit, 0xF20) //getPut is used by instruction cache refill and DMA
+          add(l2c.events.getPut.miss, 0xF24)
+        }
+        for ((nax, i) <- naxes.zipWithIndex) nax.plugins.foreach {
+          case p: FetchCachePlugin => add(p.logic.refill.fire, i * 0x80 + 0x000)
+          case p: DataCachePlugin => {
+            add(p.logic.cache.refill.push.fire, i * 0x80 + 0x010)
+            add(p.logic.cache.writeback.push.fire, i * 0x80 + 0x014)
+            if (withL2) {
+              val l2c = l2.cache.logic.cache
+              l2c.rework{
+                //For each core, generate a L2 d$ miss probe
+                val masterSpec = l2c.p.unp.m.masters.find(_.name == p).get
+                val masterHit = masterSpec.sourceHit(l2c.ctrl.processStage(l2c.CTRL_CMD).source)
+                add((masterHit && l2c.events.acquire.miss).setCompositeName(l2c.events.acquire.miss, s"nax_$i"), i * 0x80 + 0x40)
+              }
+            }
+          }
+          case _ =>
+        }
+        lock.release()
       }
-      case _ =>
     }
+
   }
   val compiled = sc.compile(new SocDemoSim(cpuCount = naxCount))
 
