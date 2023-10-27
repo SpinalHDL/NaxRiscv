@@ -57,7 +57,7 @@ object MulSpliter{
                     widthA : Int, widthB : Int,
                     signedA : Boolean, signedB : Boolean, id : Int){
     val offsetC = offsetA+offsetB
-    val widthC = if(widthB != 1 || signedB) widthA + widthB else widthA
+    val widthC = if(widthB == 1 && !signedB) widthA else widthA + widthB
     val endC = offsetC+widthC
     def signedC = signedA || signedB
 
@@ -68,8 +68,14 @@ object MulSpliter{
       val a = srcA(offsetA, widthA bits)
       val b = srcB(offsetB, widthB bits)
       val sw = signedWidth - offsetC
+      if(widthB == 1 && !signedB){
+        return signedA match {
+          case false => U(a).andMask(b.asBool)
+          case true  => S(a.andMask(b.asBool)).resize(sw bits).asUInt
+        }
+      }
       (signedA, signedB) match {
-        case (false, false) => if(widthOf(b) != 1) U(a) * U(b) else U(a).andMask(b.asBool)
+        case (false, false) =>U(a) * U(b)
         case (false, true) => (S(False ## a) * S(b)).resize(sw bits).asUInt
         case (true, false) => (S(a) * S(False ## b)).resize(sw bits).asUInt
         case (true, true) => (S(a) * S(b)).resize(sw).asUInt
@@ -247,8 +253,8 @@ object AdderAggregator {
 //      sources ++= adders.map(_.toSource())
 //    }
 
-    val aw = 65
-    val bw = 65
+    val aw = 32
+    val bw = 32
     val cw = aw + bw
     SimConfig.withFstWave.compile(new Component{
       val doSigned = true
@@ -261,7 +267,7 @@ object AdderAggregator {
 
       val splitsSpec = MulSpliter(
         aw, bw,
-        17, 17,
+        1000, 1,
         doSigned, doSigned
       )
       val muls = splitsSpec.map(_.toMulU(a, b, cw))
@@ -273,8 +279,8 @@ object AdderAggregator {
       class Step() extends Area {
         val ss = sourcesSpec
         var addersSpec = stepCounter match {
-//          case 0 => AdderAggregator(sourcesSpec, 17, 2)
-          case _ => AdderAggregator(sourcesSpec, 64, 4)
+          case 0 => AdderAggregator(sourcesSpec, 16, 2)
+          case _ => AdderAggregator(sourcesSpec, 32, 8)
         }
         val adders = addersSpec.map(_.craft(sourceToSignal))
         sourcesSpec = addersSpec.map(_.toSource()).toList

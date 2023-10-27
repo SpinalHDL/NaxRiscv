@@ -330,8 +330,8 @@ object Config{
       case true => new MulPlugin(
         euId = "EU0",
         sumAt = 0,
-        sumsSpec = List((16, 4), (24, 1000), (1000, 1000)),
-        untilOffsetS0 = 32,
+        sumsSpec = List((20, 2), (24, 8), (1000, 1000)),
+        untilOffsetS0 = 28,
         splitWidthA = xlen,
         splitWidthB = 1,
         useRsUnsignedPlugin = true,
