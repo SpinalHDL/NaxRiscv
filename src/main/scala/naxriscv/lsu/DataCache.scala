@@ -117,11 +117,11 @@ case class DataMemBusParameter( addressWidth: Int,
   val readIdWidth = log2Up(readIdCount)
   val writeIdWidth = log2Up(writeIdCount)
 
-  def toTileLinkM2sParameters() = {
+  def toTileLinkM2sParameters(name : Nameable) = {
     val masters = withCoherency match {
       case false => List(
         M2sAgent(
-          name = null,
+          name = name,
           M2sSource(
             id    = SizeMapping(0, writeIdCount),
             emits = tilelink.M2sTransfers(
@@ -130,7 +130,7 @@ case class DataMemBusParameter( addressWidth: Int,
           )
         ),
         M2sAgent(
-          name = null,
+          name = name,
           M2sSource(
             id    = SizeMapping(log2Up(readIdCount max writeIdCount), readIdCount),
             emits = tilelink.M2sTransfers(
@@ -141,7 +141,7 @@ case class DataMemBusParameter( addressWidth: Int,
       )
       case true => List(
         M2sAgent(
-          name = null,
+          name = name,
           M2sSource(
             id    = SizeMapping(0, readIdCount),
             emits = tilelink.M2sTransfers(
@@ -473,7 +473,7 @@ case class DataMemBus(p : DataMemBusParameter) extends Bundle with IMasterSlave 
 
 
   def toTilelink(): tilelink.Bus = new Composite(this, "toTilelink"){
-    val m2s = p.toTileLinkM2sParameters()
+    val m2s = p.toTileLinkM2sParameters(null)
     val bus = tilelink.Bus(
       BusParameter(
         addressWidth = m2s.addressWidth,

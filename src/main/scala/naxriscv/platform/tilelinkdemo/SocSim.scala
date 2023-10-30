@@ -2,21 +2,73 @@ package naxriscv.platform.tilelinkdemo
 
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.DataCachePlugin
-import naxriscv.platform.{FileBackend, RvlsBackend, NaxriscvProbe, NaxriscvTilelinkProbe, PeripheralEmulator}
+import naxriscv.platform.{FileBackend, NaxriscvProbe, NaxriscvTilelinkProbe, PeripheralEmulator, RvlsBackend}
 import spinal.core._
+import spinal.core.fiber.Fiber
 import spinal.core.sim._
+import spinal.lib.bus.tilelink.ScopeFiber
 import spinal.lib.bus.tilelink.sim.{Checker, MemoryAgent}
 import spinal.lib.misc.Elf
 import spinal.lib.misc.test.{DualSimTracer, MultithreadedFunSuite, MultithreadedTester}
 
 import java.io.File
+import java.lang
 import scala.collection.mutable.ArrayBuffer
 
 
+
+
+/*
+Multi core SoC simulation.
+
+Setup :
+- You need Verilator installed
+- Unless you add --no-rvls, you need to compile rvls. See ext/rvls/README.md
+
+Parameters :
+--trace : Enable wave capture
+--dual-sim : Enable dual lock step simulation to only trace the 50000 cycles before failure
+--naxCount INT : Number of NaxRiscv cores
+--no-l2 : Disable the l2 cache
+--no-rvls : Disable rvls, so you don't need to compile it, but the NaxRiscv behaviour will not be checked.
+--load-bin HEX,STRING : Load at address the given file. ex : 80000000,fw_jump.bin
+--load-elf STRING : Load the given elf file. If both pass/fail symbole are defined, they will end the simulation once reached
+
+The following commands are for the sbt terminal (that you can enter using "sbt" in the terminal)
+
+Run baremetal example :
+naxriscv.platform.tilelinkdemo.SocSim                                      \
+--load-elf ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf
+
+Boot dual core linux example :
+naxriscv.platform.tilelinkdemo.SocSim                                      \
+--load-bin 80000000,ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin   \
+--load-bin 80F80000,ext/NaxSoftware/buildroot/images/rv32ima/linux.dtb  \
+--load-bin 80400000,ext/NaxSoftware/buildroot/images/rv32ima/Image         \
+--load-bin 81000000,ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio   \
+--nax-count 2
+ */
+
 object SocSim extends App {
-  val runLinux = true
-  val dualSim = false // Double simulation, one ahead of the other which will trigger wave capture of the second simulation when it fail
-  val traceIt = false
+  var dualSim = false // Double simulation, one ahead of the other which will trigger wave capture of the second simulation when it fail
+  var traceIt = false
+  var withRvls = true
+  var withL2 = true
+  var naxCount = 1
+  val bins = ArrayBuffer[(Long, String)]()
+  val elfs = ArrayBuffer[String]()
+
+  assert(new scopt.OptionParser[Unit]("NaxRiscv") {
+    help("help").text("prints this usage text")
+    opt[Unit]("dual-sim") action { (v, c) => dualSim = true }
+    opt[Unit]("trace") action { (v, c) => traceIt = true }
+    opt[Unit]("no-rvls") action { (v, c) => withRvls = false }
+    opt[Unit]("no-l2") action { (v, c) => withL2 = false }
+    opt[Int]("nax-count") action { (v, c) => naxCount = v }
+    opt[Seq[String]]("load-bin") unbounded() action { (v, c) => bins += (lang.Long.parseLong(v(0), 16) -> v(1)) }
+    opt[String]("load-elf") unbounded() action { (v, c) => elfs += v }
+  }.parse(args, Unit).nonEmpty)
+
 
   val sc = SimConfig
   sc.normalOptimisation
@@ -26,18 +78,54 @@ object SocSim extends App {
 //  sc.addSimulatorFlag("--prof-exec")
 
   // Tweek the toplevel a bit
-  class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount){
+  class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount, withL2 = withL2){
     setDefinitionName("SocDemo")
-    val dcache = naxes(0).plugins.collectFirst { case p: DataCachePlugin => p }.get
-    val icache = naxes(0).plugins.collectFirst { case p: FetchCachePlugin => p }.get
-
-    // You can for instance override cache parameters of cpu 0 like that :
-    // dcache.cacheSize = 2048
-    // icache.cacheSize = 2048
+    // You can for instance override cache parameters of the CPU caches like that :
+    naxes.flatMap(_.plugins).foreach{
+      case p : FetchCachePlugin => //p.cacheSize = 2048
+      case p : DataCachePlugin =>  //p.cacheSize = 2048
+      case _ =>
+    }
 
     // l2.cache.parameter.cacheBytes = 4096
+
+    // Here we add a scope peripheral, which can count the number of cycle that a given signal is high
+    // See ext/NaxSoftware/baremetal/socdemo for software usages
+    val scope = new ScopeFiber(){
+      up at 0x04000000 of peripheral.bus
+      lock.retain()
+
+      val filler = Fiber build new Area {
+        if (withL2) {
+          val l2c = l2.cache.logic.cache
+          add(l2c.events.acquire.hit, 0xF00) //acquire is used by data cache
+          add(l2c.events.acquire.miss, 0xF04)
+          add(l2c.events.getPut.hit, 0xF20) //getPut is used by instruction cache refill and DMA
+          add(l2c.events.getPut.miss, 0xF24)
+        }
+        for ((nax, i) <- naxes.zipWithIndex) nax.plugins.foreach {
+          case p: FetchCachePlugin => add(p.logic.refill.fire, i * 0x80 + 0x000)
+          case p: DataCachePlugin => {
+            add(p.logic.cache.refill.push.fire, i * 0x80 + 0x010)
+            add(p.logic.cache.writeback.push.fire, i * 0x80 + 0x014)
+            if (withL2) {
+              val l2c = l2.cache.logic.cache
+              l2c.rework{
+                //For each core, generate a L2 d$ miss probe
+                val masterSpec = l2c.p.unp.m.masters.find(_.name == p).get
+                val masterHit = masterSpec.sourceHit(l2c.ctrl.processStage(l2c.CTRL_CMD).source)
+                add((masterHit && l2c.events.acquire.miss).setCompositeName(l2c.events.acquire.miss, s"nax_$i"), i * 0x80 + 0x40)
+              }
+            }
+          }
+          case _ =>
+        }
+        lock.release()
+      }
+    }
+
   }
-  val compiled = sc.compile(new SocDemoSim(cpuCount = 1))
+  val compiled = sc.compile(new SocDemoSim(cpuCount = naxCount))
 
   // How we want to run the test
   dualSim match {
@@ -60,18 +148,20 @@ object SocSim extends App {
     val pa = new PeripheralEmulator(dut.peripheral.emulated.node.bus, dut.peripheral.custom.mei, dut.peripheral.custom.sei, cd)
 
     // Rvls will check that the CPUs are doing things right
-    val rvls = new RvlsBackend(new File(compiled.compiledPath, currentTestName))
-    rvls.spinalSimFlusher(10 * 10000)
-    rvls.spinalSimTime(10000)
+    val rvls = withRvls generate new RvlsBackend(new File(compiled.compiledPath, currentTestName))
+    if(withRvls) {
+      rvls.spinalSimFlusher(10 * 10000)
+      rvls.spinalSimTime(10000)
+    }
 
     // Collect traces from the CPUs behaviour
     val naxes = dut.naxes.map(nax => new NaxriscvTilelinkProbe(nax, nax.getHartId()))
-    naxes.foreach(_.add(rvls))
+    if(withRvls) naxes.foreach(_.add(rvls))
 
     // Things to enable when we want to collect traces
     onTrace{
       enableSimWave()
-      rvls.debug()
+      if(withRvls) rvls.debug()
 
       val tracerFile = new FileBackend(new File(new File(compiled.compiledPath, currentTestName), "tracer.log"))
       tracerFile.spinalSimFlusher(10 * 10000)
@@ -85,31 +175,33 @@ object SocSim extends App {
     }
 
     // Load the binaries
-    if(runLinux){
-      def load(offset : Long, file : String) = {
-        ma.mem.loadBin(offset-0x80000000l, file)
-        rvls.loadBin(offset, new File(file))
-      }
+    for((offset, file) <- bins){
+      ma.mem.loadBin(offset - 0x80000000l, file)
+      if(withRvls) rvls.loadBin(offset, new File(file))
+    }
 
-      load(0x80000000l, "ext/NaxSoftware/buildroot/images/rv32ima/fw_jump.bin")
-      load(0x80F80000l, s"ext/NaxSoftware/buildroot/images/rv32ima/linux_${dut.naxes.size}c.dtb")
-      load(0x80400000l, "ext/NaxSoftware/buildroot/images/rv32ima/Image")
-      load(0x81000000l, "ext/NaxSoftware/buildroot/images/rv32ima/rootfs.cpio")
-    } else {
-      val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+    // load elfs
+    for (file <- elfs) {
+      val elf = new Elf(new File(file))
       elf.load(ma.mem, -0xffffffff80000000l)
-      rvls.loadElf(0, elf.f)
+      if(withRvls) rvls.loadElf(0, elf.f)
 
-      val passSymbol = elf.getSymbolAddress("pass")
-      val failSymbol = elf.getSymbolAddress("fail")
-      naxes.foreach { nax =>
-        nax.commitsCallbacks += { (hartId, pc) =>
-          if (pc == passSymbol) delayed(1) {
-            println("nax(0) d$ refill = " + dut.dcache.logic.cache.refill.pushCounter.toLong)
-            println("nax(0) i$ refill = " + dut.icache.logic.refill.pushCounter.toLong)
-            simSuccess()
+      if(elf.getELFSymbol("pass") != null && elf.getELFSymbol("fail") != null) {
+        val passSymbol = elf.getSymbolAddress("pass")
+        val failSymbol = elf.getSymbolAddress("fail")
+        naxes.foreach { nax =>
+          nax.commitsCallbacks += { (hartId, pc) =>
+            if (pc == passSymbol) delayed(1) {
+              dut.naxes.flatMap(_.plugins).foreach {
+                case p: FetchCachePlugin => println("i$ refill = " + p.logic.refill.pushCounter.toLong)
+                case p: DataCachePlugin => println("d$ refill = " + p.logic.cache.refill.pushCounter.toLong)
+                case _ =>
+              }
+
+              simSuccess()
+            }
+            if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
           }
-          if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
         }
       }
     }

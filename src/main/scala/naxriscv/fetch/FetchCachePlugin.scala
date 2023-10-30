@@ -38,7 +38,7 @@ case class FetchL1BusParameters(physicalWidth : Int,
                                 dataWidth : Int,
                                 lineSize : Int,
                                 withBackPresure : Boolean){
-  def toTileLinkM2sParameters() = tilelink.M2sParameters(
+  def toTileLinkM2sParameters(name : Nameable) = tilelink.M2sParameters(
     sourceCount = 1,
     support = M2sSupport(
       addressWidth = physicalWidth,
@@ -165,7 +165,7 @@ case class FetchL1Bus(p : FetchL1BusParameters) extends Bundle with IMasterSlave
   }.bmb
 
   def toTilelink(): tilelink.Bus = new Composite(this, "toTilelink"){
-    val bus = tilelink.Bus(p.toTileLinkM2sParameters())
+    val bus = tilelink.Bus(p.toTileLinkM2sParameters(null))
     bus.a.valid := cmd.valid
     bus.a.opcode  := tilelink.Opcode.A.GET
     bus.a.param   := 0
