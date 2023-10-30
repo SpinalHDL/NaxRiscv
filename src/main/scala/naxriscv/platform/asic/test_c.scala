@@ -40,22 +40,23 @@ object test_c extends App{
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))
-      case p: FetchCachePlugin => p.wayCount = 2; p.cacheSize = 4096; p.memDataWidth = 64
-      case p: DataCachePlugin => p.wayCount = 2; p.cacheSize = 4096; p.memDataWidth = 64
-      case p: BtbPlugin => p.entries = 64
-      case p: GSharePlugin => p.memBytes = 512
 
-//      case p: FetchCachePlugin => p.wayCount = 1; p.cacheSize = 256; p.memDataWidth = 64
-//      case p: DataCachePlugin => p.wayCount = 1; p.cacheSize = 256; p.memDataWidth = 64
-//      case p: BtbPlugin => p.entries = 8
-//      case p: GSharePlugin => p.memBytes = 32
+//      case p: FetchCachePlugin => p.wayCount = 2; p.cacheSize = 4096; p.memDataWidth = 64
+//      case p: DataCachePlugin => p.wayCount = 2; p.cacheSize = 4096; p.memDataWidth = 64
+//      case p: BtbPlugin => p.entries = 64
+//      case p: GSharePlugin => p.memBytes = 512
+
+      case p: FetchCachePlugin => p.wayCount = 1; p.cacheSize = 256; p.memDataWidth = 64
+      case p: DataCachePlugin => p.wayCount = 1; p.cacheSize = 256; p.memDataWidth = 64
+      case p: BtbPlugin => p.entries = 8
+      case p: GSharePlugin => p.memBytes = 32
       case _ =>
     }
     l
   }
 
-//  val spinalConfig = SpinalConfig()
-  val spinalConfig = SpinalSky130()
+  val spinalConfig = SpinalConfig()
+//  val spinalConfig = SpinalSky130()
   //spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
 //  spinalConfig.addStandardMemBlackboxing(blackboxAllWhatsYouCan)
 
