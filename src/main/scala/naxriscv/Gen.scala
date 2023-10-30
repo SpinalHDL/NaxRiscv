@@ -440,7 +440,8 @@ object Config{
       case lsu: LsuPlugin =>
         lsu.addRfWriteSharing(IntRegFile, intRfWrite, withReady = false, priority = 2)
       case lsu: Lsu2Plugin =>
-        lsu.addRfWriteSharing(IntRegFile, intRfWrite, withReady = false, priority = 2)
+        //Surprisingly doesn't make that big of a difference
+//        lsu.addRfWriteSharing(IntRegFile, intRfWrite, withReady = false, priority = 2)
       case eu0 : ExecutionUnitBase if eu0.euId == "EU0" =>
         eu0.addRfWriteSharing(IntRegFile, intRfWrite, withReady = true, priority = 1)
       case fpu : FpuWriteback =>
