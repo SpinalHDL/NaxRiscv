@@ -153,23 +153,23 @@ class RegFileLatch(addressWidth    : Int,
   io.reads.foreach(e => assert(!e.withReady))
   io.writes.foreach(e => assert(!e.withReady))
 
-  val writeLogic = new Area {
-    val clock = !ClockDomain.current.readClockWire
-
-    val buffers = for (port <- io.writes) yield RegNext(port)
-    buffers.foreach(_.valid.init(False))
+  
+  val writeFrontend = new Area {
+    val clock = ClockDomain.current.readClockWire
+    val buffers = for (port <- io.writes) yield LatchWhen(port.data, clock)
+//    val buffers = for (port <- io.writes) yield RegNext(port.data)
   }
 
   val latches = for (i <- headZero.toInt until 1 << addressWidth) yield new Area {
-    val portOh = writeLogic.buffers.map(port => port.valid && port.address === i)
-    val write = Flow(Bits(dataWidth bits))
-    write.valid := portOh.orR
-    write.payload := OhMux(portOh, writeLogic.buffers.map(_.data))
-
-    val storage = Latch(Bits(dataWidth bits))
-    when(writeLogic.clock && write.valid) {
-      storage := write.payload
+    val write = new Area {
+      val mask = B(io.writes.map(port => port.valid && port.address === i))
+      val maskReg = LatchWhen(mask, writeFrontend.clock)
+      val validReg = LatchWhen(mask.orR, writeFrontend.clock)
+//      val maskReg = RegNext(mask)
+//      val validReg = RegNext(mask.orR)
+      val data = OhMux.or(maskReg, writeFrontend.buffers)
     }
+    val storage = LatchWhen(write.data, !writeFrontend.clock && write.validReg)
   }
 
 
@@ -180,7 +180,7 @@ class RegFileLatch(addressWidth    : Int,
 
     val bypass = (!r.forceNoBypass && bypasseCount != 0) generate new Area {
       val hits = io.bypasses.map(b => b.valid && b.address === r.address)
-      val hitsValue = MuxOH.mux(hits, io.bypasses.map(_.data))
+      val hitsValue = MuxOH.or(hits, io.bypasses.map(_.data))
       when(hits.orR) {
         r.data := hitsValue
       }
