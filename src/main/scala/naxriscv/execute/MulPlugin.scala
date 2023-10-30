@@ -17,6 +17,7 @@ import spinal.lib.Flow
 import spinal.lib.pipeline.Stageable
 
 import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 object MulPlugin extends AreaObject {
   val HIGH = Stageable(Bool())
@@ -41,6 +42,7 @@ class MulPlugin(val euId : String,
                 var mulAt: Int = 0,
                 var sumAt: Int = 1,
                 var sumsSpec: List[(Int, Int)] = List((44, 8), (1000, 1000)),
+                var untilOffsetS0: Int = Integer.MAX_VALUE,
                 var writebackAt : Int = 2,
                 var splitWidthA : Int = 17,
                 var splitWidthB : Int = 17,
@@ -122,12 +124,27 @@ class MulPlugin(val euId : String,
     val sourceToSignal = mutable.LinkedHashMap[AdderAggregator.Source, Stageable[UInt]]()
     for((s, m) <- (sourcesSpec, mul.VALUES).zipped) sourceToSignal(s) = m
 
+    // revertResult is the elaboration states which allows to resign the result of the unsigned multiplier
+    // along the steps (instead of doing the whole resign on the last stage)
+    val revertResult = useRsUnsignedPlugin generate new Area {
+      val chunk = ArrayBuffer[Stageable[UInt]]()
+      var carry = RESULT_IS_SIGNED
+      var ptr = 0
+    }
+
     val steps = for(stepId <- sumsSpec.indices) yield new ExecuteArea(sumAt + stepId) {
+      import stage._
+
       val (stepWidth, stepLanes) = sumsSpec(stepId)
       // Generate the specification for ever adders of the current step
-      val addersSpec = AdderAggregator(sourcesSpec, stepWidth, stepLanes)
+      val addersSpec = AdderAggregator(
+        sourcesSpec,
+        stepWidth,
+        stepLanes,
+        untilOffset = if(stepId == 0) untilOffsetS0 else Integer.MAX_VALUE
+      )
       // Generate the hardware corresponding to every addersSpec
-      val adders = addersSpec.map(_.craft(sourceToSignal.mapValues(stage(_)))).map(stage.insert(_))
+      val adders = addersSpec.map(_.craft(sourceToSignal.mapValues(stage(_)))).map(insert(_))
 
       // Setup the iteration variables for the next step
       sourcesSpec = addersSpec.map(_.toSource()).toList
@@ -137,6 +154,17 @@ class MulPlugin(val euId : String,
         println("------------")
       }
 
+
+      val revert = useRsUnsignedPlugin generate new Area{
+        import revertResult._
+        val range = ptr until (if(sourcesSpec.size == 1) sourcesSpec(0).offsetNext else Math.min(sourcesSpec(0).offsetNext, sourcesSpec(1).offset))
+        val value = sourceToSignal(sourcesSpec(0))(range)
+        val patched = value.xorMask(RESULT_IS_SIGNED) +^ U(revertResult.carry)
+        val carry = insert(patched.msb)
+        revertResult.carry = carry
+        chunk += insert(patched.resize(range.size))
+        ptr += range.size
+      }
     }
 
     val writeback = new ExecuteArea(writebackAt) {
@@ -144,7 +172,8 @@ class MulPlugin(val euId : String,
       assert(sourcesSpec.size == 1)
       val result = useRsUnsignedPlugin match {
         case false => stage(sourceToSignal(sourcesSpec.head))
-        case true => stage(sourceToSignal(sourcesSpec.head)).twoComplement(RESULT_IS_SIGNED)
+        case true => Cat(revertResult.chunk.map(stage(_))).asUInt
+//        case true => stage(sourceToSignal(sourcesSpec.head)).twoComplement(RESULT_IS_SIGNED)
       }
       val buffer = bufferedHigh.get generate new Area{
         val valid = RegNext(False) init (False) setWhen (isValid && !isReady && !isRemoved)

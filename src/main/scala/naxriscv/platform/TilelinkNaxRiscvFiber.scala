@@ -59,7 +59,8 @@ class TilelinkNaxRiscvFiber() extends Area with RiscvHart{
       aluCount = 2,
       decodeCount = 2,
       ioRange = a => a(31 downto 28) === 0x1,
-      hartId = hartId
+      hartId = hartId,
+      asic = false
     )
     this
   }

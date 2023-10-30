@@ -57,7 +57,7 @@ object MulSpliter{
                     widthA : Int, widthB : Int,
                     signedA : Boolean, signedB : Boolean, id : Int){
     val offsetC = offsetA+offsetB
-    val widthC = if(widthB != 1 || signedB) widthA + widthB else widthA
+    val widthC = if(widthB == 1 && !signedB) widthA else widthA + widthB
     val endC = offsetC+widthC
     def signedC = signedA || signedB
 
@@ -68,8 +68,14 @@ object MulSpliter{
       val a = srcA(offsetA, widthA bits)
       val b = srcB(offsetB, widthB bits)
       val sw = signedWidth - offsetC
+      if(widthB == 1 && !signedB){
+        return signedA match {
+          case false => U(a).andMask(b.asBool)
+          case true  => S(a.andMask(b.asBool)).resize(sw bits).asUInt
+        }
+      }
       (signedA, signedB) match {
-        case (false, false) => if(widthOf(b) != 1) U(a) * U(b) else U(a).andMask(b.asBool)
+        case (false, false) =>U(a) * U(b)
         case (false, true) => (S(False ## a) * S(b)).resize(sw bits).asUInt
         case (true, false) => (S(a) * S(False ## b)).resize(sw bits).asUInt
         case (true, true) => (S(a) * S(b)).resize(sw).asUInt
@@ -111,6 +117,7 @@ object AdderAggregator {
   case class Source(offset: Int, localMax: BigInt) extends OverridedEqualsHashCode{
     var offsetTmp = offset
     val width = log2Up(localMax + 1)
+//    var offsetCost, bitCost = 0
 
     def offsetNext = offset + width
 
@@ -170,7 +177,7 @@ object AdderAggregator {
   // lanesMax specify how many inputs an adder can have
   // Note that if the returned adders is only for one layer, meaning you may have to call
   // this function multiple time to reduce more and more, until you get only a single adder.
-  def apply(splits: Seq[Source], widthMax: Int, lanesMax: Int): Seq[Adder] = {
+  def apply(splits: Seq[Source], widthMax: Int, lanesMax: Int, untilOffset : Int = Integer.MAX_VALUE): Seq[Adder] = {
     var srcs = ArrayBuffer[Source]()
     val adders = ArrayBuffer[Adder]()
     srcs ++= splits.sortBy(_.offset)
@@ -179,7 +186,7 @@ object AdderAggregator {
     while (srcs.size != 0) {
       for (i <- srcs.indices.dropRight(1)) assert(srcs(i).offsetTmp <= srcs(i + 1).offsetTmp)
       // Check if the have other srcs in range
-      if (srcs.size == 1 || srcs(0).offsetNext <= srcs(1).offsetTmp) {
+      if (srcs.size == 1 || srcs(0).offsetNext <= srcs(1).offsetTmp || srcs(0).offsetTmp >= untilOffset) {
         val a = srcs.head
         adders += Adder(a.offsetTmp, a.offsetNext - a.offsetTmp, List(Lane(List(LaneSource(a)))))
         srcs.remove(0)
@@ -246,8 +253,8 @@ object AdderAggregator {
 //      sources ++= adders.map(_.toSource())
 //    }
 
-    val aw = 65
-    val bw = 65
+    val aw = 32
+    val bw = 32
     val cw = aw + bw
     SimConfig.withFstWave.compile(new Component{
       val doSigned = true
@@ -260,7 +267,7 @@ object AdderAggregator {
 
       val splitsSpec = MulSpliter(
         aw, bw,
-        17, 17,
+        1000, 1,
         doSigned, doSigned
       )
       val muls = splitsSpec.map(_.toMulU(a, b, cw))
@@ -272,8 +279,8 @@ object AdderAggregator {
       class Step() extends Area {
         val ss = sourcesSpec
         var addersSpec = stepCounter match {
-//          case 0 => AdderAggregator(sourcesSpec, 17, 2)
-          case _ => AdderAggregator(sourcesSpec, 64, 4)
+          case 0 => AdderAggregator(sourcesSpec, 16, 2)
+          case _ => AdderAggregator(sourcesSpec, 32, 8)
         }
         val adders = addersSpec.map(_.craft(sourceToSignal))
         sourcesSpec = addersSpec.map(_.toSource()).toList

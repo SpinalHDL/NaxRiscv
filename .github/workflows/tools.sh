@@ -14,7 +14,7 @@ install_verilator(){
   git checkout v4.216
   autoconf        # Create ./configure script
   ./configure --prefix ~/tools
-  make -j$(nproc)
+  make -j4
   make install
   cd ..
 }
@@ -30,7 +30,7 @@ install_spike(){
   mkdir build
   cd build
   ../configure --prefix=$RISCV --enable-commitlog --without-boost --without-boost-asio --without-boost-regex
-  make -j$(nproc)
+  make -j4
   g++ --shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/lib  -o package.so spike.o  libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
   cp -f package.so ~/tools/spike.so
   cp -f config.h ~/tools/spike.h
@@ -39,6 +39,7 @@ install_spike(){
 install_elfio(){
   git clone https://github.com/serge1/ELFIO.git
   cd ELFIO
+  git checkout d251da09a07dff40af0b63b8f6c8ae71d2d1938d # Avoid C++17
   sudo cp -R elfio /usr/include
   #export C_INCLUDE_PATH=${PWD}/elfio
   cd ..

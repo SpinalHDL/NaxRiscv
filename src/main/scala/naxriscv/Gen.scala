@@ -296,7 +296,8 @@ object Config{
       spec = riscv.IntRegFile,
       physicalDepth = 64,
       bankCount = 1,
-      preferedWritePortForInit = "ALU0"
+      preferedWritePortForInit = "ALU0",
+      latchBased = asic
     )
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
     plugins += new CsrRamPlugin()
@@ -330,7 +331,8 @@ object Config{
       case true => new MulPlugin(
         euId = "EU0",
         sumAt = 0,
-        sumsSpec = List((16, 4), (24, 1000), (1000, 1000)),
+        sumsSpec = List((20, 2), (24, 8), (1000, 1000)),
+        untilOffsetS0 = 28,
         splitWidthA = xlen,
         splitWidthB = 1,
         useRsUnsignedPlugin = true,
@@ -371,7 +373,8 @@ object Config{
         physicalDepth = 64,
         bankCount = 1,
         allOne = simulation,
-        preferedWritePortForInit = "Fpu"
+        preferedWritePortForInit = "Fpu",
+        latchBased = asic
       )
 
       plugins += new FpuIntegerExecute("EU0")
@@ -434,7 +437,9 @@ object Config{
     // Integer write port sharing
     val intRfWrite = new{}
     plugins.collect{
-      case lsu : LsuPlugin =>
+      case lsu: LsuPlugin =>
+        lsu.addRfWriteSharing(IntRegFile, intRfWrite, withReady = false, priority = 2)
+      case lsu: Lsu2Plugin =>
         lsu.addRfWriteSharing(IntRegFile, intRfWrite, withReady = false, priority = 2)
       case eu0 : ExecutionUnitBase if eu0.euId == "EU0" =>
         eu0.addRfWriteSharing(IntRegFile, intRfWrite, withReady = true, priority = 1)
