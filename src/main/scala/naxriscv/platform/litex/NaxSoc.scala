@@ -148,21 +148,16 @@ class NaxSoc(c : NaxSocConfig) extends Component{
 
       val axiLiteRegions = regions.filter(e => e.onPeripheral && !e.isIo)
       val toAxiLite4 = new fabric.AxiLite4Bridge
-      toAxiLite4.up at (OrMapping(axiLiteRegions.map(_.mapping))) of bus
-      //    toAxiLite4.up.setUpConnection(a = StreamPipe.HALF, d = StreamPipe.HALF)
+      toAxiLite4.up << bus
 
       val virtualRegions = for (region <- axiLiteRegions) yield new Area with SpinalTagReady {
         def self = this
 
         new MemoryConnection {
           override def up = toAxiLite4.down
-
           override def down = self
-
-          override def transformers = List(OffsetTransformer(region.mapping.lowerBound))
-
+          override def transformers = Nil
           override def mapping = region.mapping
-
           populate()
         }
 

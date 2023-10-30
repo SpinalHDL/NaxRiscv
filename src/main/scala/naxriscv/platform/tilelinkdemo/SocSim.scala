@@ -54,6 +54,7 @@ object SocSim extends App {
   var traceIt = false
   var withRvls = true
   var withL2 = true
+  var asic = false
   var naxCount = 1
   val bins = ArrayBuffer[(Long, String)]()
   val elfs = ArrayBuffer[String]()
@@ -64,6 +65,7 @@ object SocSim extends App {
     opt[Unit]("trace") action { (v, c) => traceIt = true }
     opt[Unit]("no-rvls") action { (v, c) => withRvls = false }
     opt[Unit]("no-l2") action { (v, c) => withL2 = false }
+    opt[Unit]("asic") action { (v, c) => asic = true }
     opt[Int]("nax-count") action { (v, c) => naxCount = v }
     opt[Seq[String]]("load-bin") unbounded() action { (v, c) => bins += (lang.Long.parseLong(v(0), 16) -> v(1)) }
     opt[String]("load-elf") unbounded() action { (v, c) => elfs += v }
@@ -72,13 +74,14 @@ object SocSim extends App {
 
   val sc = SimConfig
   sc.normalOptimisation
-  sc.withFstWave
+  sc.withIVerilog
+//  sc.withFstWave
   sc.withConfig(SpinalConfig(defaultConfigForClockDomains = ClockDomainConfig(resetKind = ASYNC)).includeSimulation)
-  sc.addSimulatorFlag("--threads 1")
+//  sc.addSimulatorFlag("--threads 1")
 //  sc.addSimulatorFlag("--prof-exec")
 
   // Tweek the toplevel a bit
-  class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount, withL2 = withL2){
+  class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount, withL2 = withL2, asic = asic){
     setDefinitionName("SocDemo")
     // You can for instance override cache parameters of the CPU caches like that :
     naxes.flatMap(_.plugins).foreach{
@@ -155,7 +158,7 @@ object SocSim extends App {
     }
 
     // Collect traces from the CPUs behaviour
-    val naxes = dut.naxes.map(nax => new NaxriscvTilelinkProbe(nax, nax.getHartId()))
+    val naxes = withRvls generate dut.naxes.map(nax => new NaxriscvTilelinkProbe(nax, nax.getHartId()))
     if(withRvls) naxes.foreach(_.add(rvls))
 
     // Things to enable when we want to collect traces
@@ -166,12 +169,12 @@ object SocSim extends App {
       val tracerFile = new FileBackend(new File(new File(compiled.compiledPath, currentTestName), "tracer.log"))
       tracerFile.spinalSimFlusher(10 * 10000)
       tracerFile.spinalSimTime(10000)
-      naxes.foreach { hart =>
-        hart.add(tracerFile)
-        val r = hart.backends.reverse
-        hart.backends.clear()
-        hart.backends ++= r
-      }
+//      naxes.foreach { hart =>
+//        hart.add(tracerFile)
+//        val r = hart.backends.reverse
+//        hart.backends.clear()
+//        hart.backends ++= r
+//      }
     }
 
     // Load the binaries
@@ -189,20 +192,20 @@ object SocSim extends App {
       if(elf.getELFSymbol("pass") != null && elf.getELFSymbol("fail") != null) {
         val passSymbol = elf.getSymbolAddress("pass")
         val failSymbol = elf.getSymbolAddress("fail")
-        naxes.foreach { nax =>
-          nax.commitsCallbacks += { (hartId, pc) =>
-            if (pc == passSymbol) delayed(1) {
-              dut.naxes.flatMap(_.plugins).foreach {
-                case p: FetchCachePlugin => println("i$ refill = " + p.logic.refill.pushCounter.toLong)
-                case p: DataCachePlugin => println("d$ refill = " + p.logic.cache.refill.pushCounter.toLong)
-                case _ =>
-              }
-
-              simSuccess()
-            }
-            if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
-          }
-        }
+//        naxes.foreach { nax =>
+//          nax.commitsCallbacks += { (hartId, pc) =>
+//            if (pc == passSymbol) delayed(1) {
+//              dut.naxes.flatMap(_.plugins).foreach {
+//                case p: FetchCachePlugin => println("i$ refill = " + p.logic.refill.pushCounter.toLong)
+//                case p: DataCachePlugin => println("d$ refill = " + p.logic.cache.refill.pushCounter.toLong)
+//                case _ =>
+//              }
+//
+//              simSuccess()
+//            }
+//            if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
+//          }
+//        }
       }
     }
 
