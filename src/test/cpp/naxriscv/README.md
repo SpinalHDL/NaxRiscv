@@ -8,7 +8,6 @@ SPDX-License-Identifier: CC0-1.0
 
 ```shell
 # Get the repo
-git clone https://github.com/SpinalHDL/SpinalHDL.git --recursive
 git clone https://github.com/SpinalHDL/NaxRiscv.git --recursive
 cd NaxRiscv
 export NAXRISCV=${PWD}
