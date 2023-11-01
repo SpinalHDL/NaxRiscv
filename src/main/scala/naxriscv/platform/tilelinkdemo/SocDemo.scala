@@ -1,5 +1,6 @@
 package naxriscv.platform.tilelinkdemo
 
+import naxriscv.lsu.DataCachePlugin
 import naxriscv.platform.{RvlsBackend, TilelinkNaxRiscvFiber}
 import riscv.model.Model
 import spinal.core._
@@ -37,6 +38,7 @@ class SocDemo(cpuCount : Int, withL2 : Boolean = true, asic : Boolean = false) e
 
   val l2 = withL2 generate new Area {
     val cache = new CacheFiber()
+    cache.parameter.throttleList = naxes.map(_.plugins.collectFirst {case p : DataCachePlugin => p}.get)
     cache.parameter.cacheWays = 4
     cache.parameter.cacheBytes = 128 * 1024
     cache.up << memFilter.down
@@ -58,6 +60,8 @@ class SocDemo(cpuCount : Int, withL2 : Boolean = true, asic : Boolean = false) e
 
     val plic = new TilelinkPlicFiber()
     plic.node at 0xC00000l of bus
+
+    if(withL2) l2.cache.ctrl at 0x20000 of bus
 
     for(nax <- naxes) {
       nax.bind(clint)
