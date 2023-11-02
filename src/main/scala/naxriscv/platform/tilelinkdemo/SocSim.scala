@@ -169,12 +169,12 @@ object SocSim extends App {
       val tracerFile = new FileBackend(new File(new File(compiled.compiledPath, currentTestName), "tracer.log"))
       tracerFile.spinalSimFlusher(10 * 10000)
       tracerFile.spinalSimTime(10000)
-//      naxes.foreach { hart =>
-//        hart.add(tracerFile)
-//        val r = hart.backends.reverse
-//        hart.backends.clear()
-//        hart.backends ++= r
-//      }
+      naxes.foreach { hart =>
+        hart.add(tracerFile)
+        val r = hart.backends.reverse
+        hart.backends.clear()
+        hart.backends ++= r
+      }
     }
 
     // Load the binaries
@@ -192,20 +192,20 @@ object SocSim extends App {
       if(elf.getELFSymbol("pass") != null && elf.getELFSymbol("fail") != null) {
         val passSymbol = elf.getSymbolAddress("pass")
         val failSymbol = elf.getSymbolAddress("fail")
-//        naxes.foreach { nax =>
-//          nax.commitsCallbacks += { (hartId, pc) =>
-//            if (pc == passSymbol) delayed(1) {
-//              dut.naxes.flatMap(_.plugins).foreach {
-//                case p: FetchCachePlugin => println("i$ refill = " + p.logic.refill.pushCounter.toLong)
-//                case p: DataCachePlugin => println("d$ refill = " + p.logic.cache.refill.pushCounter.toLong)
-//                case _ =>
-//              }
-//
-//              simSuccess()
-//            }
-//            if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
-//          }
-//        }
+        naxes.foreach { nax =>
+          nax.commitsCallbacks += { (hartId, pc) =>
+            if (pc == passSymbol) delayed(1) {
+              dut.naxes.flatMap(_.plugins).foreach {
+                case p: FetchCachePlugin => println("i$ refill = " + p.logic.refill.pushCounter.toLong)
+                case p: DataCachePlugin => println("d$ refill = " + p.logic.cache.refill.pushCounter.toLong)
+                case _ =>
+              }
+
+              simSuccess()
+            }
+            if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
+          }
+        }
       }
     }
 
