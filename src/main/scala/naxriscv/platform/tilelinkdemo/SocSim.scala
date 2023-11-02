@@ -74,8 +74,8 @@ object SocSim extends App {
 
   val sc = SimConfig
   sc.normalOptimisation
-  sc.withIVerilog
-//  sc.withFstWave
+//  sc.withIVerilog
+  sc.withFstWave
   sc.withConfig(SpinalConfig(defaultConfigForClockDomains = ClockDomainConfig(resetKind = ASYNC)).includeSimulation)
 //  sc.addSimulatorFlag("--threads 1")
 //  sc.addSimulatorFlag("--prof-exec")
