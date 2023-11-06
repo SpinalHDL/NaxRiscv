@@ -158,7 +158,7 @@ object SocSim extends App {
     }
 
     // Collect traces from the CPUs behaviour
-    val naxes = withRvls generate dut.naxes.map(nax => new NaxriscvTilelinkProbe(nax, nax.getHartId()))
+    val naxes = dut.naxes.map(nax => new NaxriscvTilelinkProbe(nax, nax.getHartId()))
     if(withRvls) naxes.foreach(_.add(rvls))
 
     // Things to enable when we want to collect traces
