@@ -100,6 +100,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
 
     val l2 = withL2 generate new Area {
       val cache = new CacheFiber()
+      cache.parameter.throttleList = naxes.map(_.plugins.collectFirst {case p : DataCachePlugin => p}.get)
       cache.parameter.cacheWays = l2Ways
       cache.parameter.cacheBytes = l2Bytes
       cache.up << memFilter.down
@@ -130,6 +131,9 @@ class NaxSoc(c : NaxSocConfig) extends Component{
 
       val plic = new TilelinkPlicFiber()
       plic.node at 0xF0C00000l of bus
+
+
+      if (withL2) l2.cache.ctrl at 0xF0080000l of bus
 
       val externalInterrupts = new Area {
         val port = in Bits (32 bits)
