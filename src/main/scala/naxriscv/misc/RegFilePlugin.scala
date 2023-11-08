@@ -155,7 +155,7 @@ class RegFileLatch(addressWidth    : Int,
 
   
   val writeFrontend = new Area {
-    val clock = ClockDomain.current.readClockWire
+    @dontName val clock = ClockDomain.current.readClockWire
     val buffers = for (port <- io.writes) yield LatchWhen(port.data, clock)
 //    val buffers = for (port <- io.writes) yield RegNext(port.data)
   }
