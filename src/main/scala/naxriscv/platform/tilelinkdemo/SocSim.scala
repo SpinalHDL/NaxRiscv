@@ -195,10 +195,13 @@ object SocSim extends App {
         naxes.foreach { nax =>
           nax.commitsCallbacks += { (hartId, pc) =>
             if (pc == passSymbol) delayed(1) {
-              dut.naxes.flatMap(_.plugins).foreach {
-                case p: FetchCachePlugin => println("i$ refill = " + p.logic.refill.pushCounter.toLong)
-                case p: DataCachePlugin => println("d$ refill = " + p.logic.cache.refill.pushCounter.toLong)
-                case _ =>
+              dut.naxes.foreach { nax =>
+                println(s"Hart $hartId")
+                nax.plugins.foreach {
+                  case p: FetchCachePlugin => println("- i$ refill = " + p.logic.refill.pushCounter.toLong)
+                  case p: DataCachePlugin => println("- d$ refill = " + p.logic.cache.refill.pushCounter.toLong)
+                  case _ =>
+                }
               }
 
               simSuccess()
