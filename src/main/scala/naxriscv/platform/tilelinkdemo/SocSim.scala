@@ -56,11 +56,13 @@ object SocSim extends App {
   var withL2 = true
   var asic = false
   var naxCount = 1
+  var xlen = 32
   val bins = ArrayBuffer[(Long, String)]()
   val elfs = ArrayBuffer[String]()
 
   assert(new scopt.OptionParser[Unit]("NaxRiscv") {
     help("help").text("prints this usage text")
+    opt[Int]("xlen") action { (v, c) => xlen = v }
     opt[Unit]("dual-sim") action { (v, c) => dualSim = true }
     opt[Unit]("trace") action { (v, c) => traceIt = true }
     opt[Unit]("no-rvls") action { (v, c) => withRvls = false }
@@ -74,14 +76,14 @@ object SocSim extends App {
 
   val sc = SimConfig
   sc.normalOptimisation
-  sc.withIVerilog
-//  sc.withFstWave
+//  sc.withIVerilog
+  sc.withFstWave
   sc.withConfig(SpinalConfig(defaultConfigForClockDomains = ClockDomainConfig(resetKind = ASYNC)).includeSimulation)
 //  sc.addSimulatorFlag("--threads 1")
 //  sc.addSimulatorFlag("--prof-exec")
 
   // Tweek the toplevel a bit
-  class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount, withL2 = withL2, asic = asic){
+  class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount, withL2 = withL2, asic = asic, xlen = xlen){
     setDefinitionName("SocDemo")
     // You can for instance override cache parameters of the CPU caches like that :
     naxes.flatMap(_.plugins).foreach{
@@ -158,7 +160,7 @@ object SocSim extends App {
     }
 
     // Collect traces from the CPUs behaviour
-    val naxes = withRvls generate dut.naxes.map(nax => new NaxriscvTilelinkProbe(nax, nax.getHartId()))
+    val naxes = dut.naxes.map(nax => new NaxriscvTilelinkProbe(nax, nax.getHartId()))
     if(withRvls) naxes.foreach(_.add(rvls))
 
     // Things to enable when we want to collect traces
@@ -169,12 +171,12 @@ object SocSim extends App {
       val tracerFile = new FileBackend(new File(new File(compiled.compiledPath, currentTestName), "tracer.log"))
       tracerFile.spinalSimFlusher(10 * 10000)
       tracerFile.spinalSimTime(10000)
-//      naxes.foreach { hart =>
-//        hart.add(tracerFile)
-//        val r = hart.backends.reverse
-//        hart.backends.clear()
-//        hart.backends ++= r
-//      }
+      naxes.foreach { hart =>
+        hart.add(tracerFile)
+        val r = hart.backends.reverse
+        hart.backends.clear()
+        hart.backends ++= r
+      }
     }
 
     // Load the binaries
@@ -185,27 +187,30 @@ object SocSim extends App {
 
     // load elfs
     for (file <- elfs) {
-      val elf = new Elf(new File(file))
-      elf.load(ma.mem, -0xffffffff80000000l)
+      val elf = new Elf(new File(file), xlen)
+      elf.load(ma.mem, 0x80000000l)
       if(withRvls) rvls.loadElf(0, elf.f)
 
       if(elf.getELFSymbol("pass") != null && elf.getELFSymbol("fail") != null) {
         val passSymbol = elf.getSymbolAddress("pass")
         val failSymbol = elf.getSymbolAddress("fail")
-//        naxes.foreach { nax =>
-//          nax.commitsCallbacks += { (hartId, pc) =>
-//            if (pc == passSymbol) delayed(1) {
-//              dut.naxes.flatMap(_.plugins).foreach {
-//                case p: FetchCachePlugin => println("i$ refill = " + p.logic.refill.pushCounter.toLong)
-//                case p: DataCachePlugin => println("d$ refill = " + p.logic.cache.refill.pushCounter.toLong)
-//                case _ =>
-//              }
-//
-//              simSuccess()
-//            }
-//            if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
-//          }
-//        }
+        naxes.foreach { nax =>
+          nax.commitsCallbacks += { (hartId, pc) =>
+            if (pc == passSymbol) delayed(1) {
+              dut.naxes.foreach { nax =>
+                println(s"Hart $hartId")
+                nax.plugins.foreach {
+                  case p: FetchCachePlugin => println("- i$ refill = " + p.logic.refill.pushCounter.toLong)
+                  case p: DataCachePlugin => println("- d$ refill = " + p.logic.cache.refill.pushCounter.toLong)
+                  case _ =>
+                }
+              }
+
+              simSuccess()
+            }
+            if (pc == failSymbol) delayed(1)(simFailure("Software reach the fail symbole :("))
+          }
+        }
       }
     }
 

@@ -6,7 +6,7 @@ import spinal.lib.sim.SparseMemory
 import java.io.File
 import java.nio.file.Files
 
-class Elf(val f : File){
+class Elf(val f : File, addressWidth : Int){
   val fBytes = Files.readAllBytes(f.toPath)
   val elf = ElfFile.from(fBytes)
 
@@ -35,7 +35,7 @@ class Elf(val f : File){
     foreachSection{section =>
       if((section.header.sh_flags & ElfSectionHeader.FLAG_ALLOC) != 0){
         val data = getData(section)
-        val memoryAddress = section.header.sh_addr + offset
+        val memoryAddress = (section.header.sh_addr - offset) & ((BigInt(1) << addressWidth)-1).toLong
         mem.write(memoryAddress, data)
       }
     }
@@ -85,7 +85,7 @@ class Elf(val f : File){
 
 object ElfTest extends App{
   import net.fornwall.jelf._
-  val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"))
+  val elf = new Elf(new File("ext/NaxSoftware/baremetal/dhrystone/build/rv32ima/dhrystone.elf"), 32)
 
   elf.foreachSection{section =>
     println(f"${section.header.getName} ${section.header.sh_type} ${section.header.sh_flags}")
