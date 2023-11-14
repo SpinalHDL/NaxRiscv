@@ -56,11 +56,13 @@ object SocSim extends App {
   var withL2 = true
   var asic = false
   var naxCount = 1
+  var xlen = 32
   val bins = ArrayBuffer[(Long, String)]()
   val elfs = ArrayBuffer[String]()
 
   assert(new scopt.OptionParser[Unit]("NaxRiscv") {
     help("help").text("prints this usage text")
+    opt[Int]("xlen") action { (v, c) => xlen = v }
     opt[Unit]("dual-sim") action { (v, c) => dualSim = true }
     opt[Unit]("trace") action { (v, c) => traceIt = true }
     opt[Unit]("no-rvls") action { (v, c) => withRvls = false }
@@ -81,7 +83,7 @@ object SocSim extends App {
 //  sc.addSimulatorFlag("--prof-exec")
 
   // Tweek the toplevel a bit
-  class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount, withL2 = withL2, asic = asic){
+  class SocDemoSim(cpuCount : Int) extends SocDemo(cpuCount, withL2 = withL2, asic = asic, xlen = xlen){
     setDefinitionName("SocDemo")
     // You can for instance override cache parameters of the CPU caches like that :
     naxes.flatMap(_.plugins).foreach{
@@ -185,8 +187,8 @@ object SocSim extends App {
 
     // load elfs
     for (file <- elfs) {
-      val elf = new Elf(new File(file))
-      elf.load(ma.mem, -0xffffffff80000000l)
+      val elf = new Elf(new File(file), xlen)
+      elf.load(ma.mem, 0x80000000l)
       if(withRvls) rvls.loadElf(0, elf.f)
 
       if(elf.getELFSymbol("pass") != null && elf.getELFSymbol("fail") != null) {
