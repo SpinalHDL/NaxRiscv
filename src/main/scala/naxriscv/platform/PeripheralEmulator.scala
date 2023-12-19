@@ -54,7 +54,7 @@ class PeripheralEmulator(bus : tilelink.Bus, mei : Bool, sei : Bool, cd : ClockD
         a.address.toInt match {
           case IO_FAULT_ADDRESS => {
             d.denied = true
-            Random.nextBytes(d.data)
+            simRandom.nextBytes(d.data)
           }
           case GETC => {
             if(System.in.available() != 0) {
