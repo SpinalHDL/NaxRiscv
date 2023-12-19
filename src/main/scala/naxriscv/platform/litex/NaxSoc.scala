@@ -2,6 +2,7 @@ package naxriscv.platform.litex
 
 import naxriscv.debug.EmbeddedJtagPlugin
 import naxriscv.execute.CsrTracer
+import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.DataCachePlugin
 import naxriscv.platform.TilelinkNaxRiscvFiber
 import naxriscv.utilities.Plugin
@@ -169,6 +170,39 @@ class NaxSoc(c : NaxSocConfig) extends Component{
           override def get = toAxiLite4.up.m2s.parameters.emits
         })
         if (region.isCachable) addTag(PMA.MAIN)
+      }
+    }
+
+    val scope = new ScopeFiber() {
+      up at 0xF1000000l of peripheral.bus
+      lock.retain()
+
+      val filler = Fiber build new Area {
+        if (withL2) {
+          val l2c = l2.cache.logic.cache
+          add(l2c.events.acquire.hit, 0xF00) //acquire is used by data cache
+          add(l2c.events.acquire.miss, 0xF04)
+          add(l2c.events.getPut.hit, 0xF20) //getPut is used by instruction cache refill and DMA
+          add(l2c.events.getPut.miss, 0xF24)
+        }
+        for ((nax, i) <- naxes.zipWithIndex) nax.plugins.foreach {
+          case p: FetchCachePlugin => add(p.logic.refill.fire, i * 0x80 + 0x000)
+          case p: DataCachePlugin => {
+            add(p.logic.cache.refill.push.fire, i * 0x80 + 0x010)
+            add(p.logic.cache.writeback.push.fire, i * 0x80 + 0x014)
+            if (withL2) {
+              val l2c = l2.cache.logic.cache
+              l2c.rework {
+                //For each core, generate a L2 d$ miss probe
+                val masterSpec = l2c.p.unp.m.masters.find(_.name == p).get
+                val masterHit = masterSpec.sourceHit(l2c.ctrl.processStage(l2c.CTRL_CMD).source)
+                add((masterHit && l2c.events.acquire.miss).setCompositeName(l2c.events.acquire.miss, s"nax_$i"), i * 0x80 + 0x40)
+              }
+            }
+          }
+          case _ =>
+        }
+        lock.release()
       }
     }
 
