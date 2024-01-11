@@ -19,9 +19,8 @@ object TestRfGen extends App {
         dataWidth = 2,
         readsParameter = List.fill(1)(RegFileReadParameter(false, false)),
         writesParameter = List.fill(1)(RegFileWriteParameter(false)),
-        bypasseCount = 0,
         headZero = false
-      ).setDefinitionName("top")
+      ).setDefinitionName("rf")
     }
   }
 }

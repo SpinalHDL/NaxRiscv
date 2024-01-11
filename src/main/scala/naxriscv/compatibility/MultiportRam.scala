@@ -224,6 +224,7 @@ class MultiPortWritesSymplifier(onlyTagged : Boolean = false) extends PhaseMemBl
 
 
       for((reworked, old) <- (io.read, readsAsync).zipped){
+        reworked.cmd.valid := True
         reworked.cmd.payload.assignFrom(old.address)
         wrapConsumers(typo, old, reworked.rsp)
       }

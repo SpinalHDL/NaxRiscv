@@ -1,5 +1,6 @@
 
 package naxriscv.platform.asic
+import naxriscv.compatibility.MultiPortWritesSymplifier
 import spinal.core._
 import spinal.core.internals.{MemTopology, PhaseContext, PhaseMemBlackBoxingWithPolicy, PhaseNetlist}
 import spinal.lib._
@@ -15,6 +16,7 @@ object SpinalSky130{
   }
   def apply() = {
     val c = SpinalConfig(mode = Verilog)
+    c.addTransformationPhase(new MultiPortWritesSymplifier)
     c.addStandardMemBlackboxing(blackboxPolicy)
     c.phasesInserters += { phases =>
       val i = phases.lastIndexWhere(_.isInstanceOf[PhaseMemBlackBoxingWithPolicy])
