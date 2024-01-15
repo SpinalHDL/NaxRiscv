@@ -189,7 +189,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
           case p: FetchCachePlugin => add(p.logic.refill.fire, i * 0x80 + 0x000)
           case p: DataCachePlugin => {
             add(p.logic.cache.refill.push.fire, i * 0x80 + 0x010)
-            add(p.logic.cache.writeback.push.fire && p.logic.cache.writeback.push.dirty, i * 0x80 + 0x014)
+            add(p.logic.cache.writeback.push.fire.pull() && p.logic.cache.writeback.push.dirty.pull(), i * 0x80 + 0x014)
             if (withL2) {
               val l2c = l2.cache.logic.cache
               l2c.rework {
