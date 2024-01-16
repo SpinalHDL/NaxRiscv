@@ -55,6 +55,7 @@ object SocSim extends App {
   var withRvls = true
   var withL2 = true
   var asic = false
+  var iverilog = false
   var naxCount = 1
   val bins = ArrayBuffer[(Long, String)]()
   val elfs = ArrayBuffer[String]()
@@ -66,6 +67,7 @@ object SocSim extends App {
     opt[Unit]("no-rvls") action { (v, c) => withRvls = false }
     opt[Unit]("no-l2") action { (v, c) => withL2 = false }
     opt[Unit]("asic") action { (v, c) => asic = true }
+    opt[Unit]("iverilog") action { (v, c) => iverilog = true }
     opt[Int]("nax-count") action { (v, c) => naxCount = v }
     opt[Seq[String]]("load-bin") unbounded() action { (v, c) => bins += (lang.Long.parseLong(v(0), 16) -> v(1)) }
     opt[String]("load-elf") unbounded() action { (v, c) => elfs += v }
@@ -74,9 +76,13 @@ object SocSim extends App {
 
   val sc = SimConfig
 //  sc.normalOptimisation
-  sc.withIVerilog
+  if(iverilog) {
+    sc.withIVerilog
+    withRvls = false //unsuported because of probe
+  }
 //  sc.withWave
-  sc.withFstWave
+  if(!iverilog) sc.withFstWave
+  if(iverilog && traceIt) sc.withWave
   sc.withConfig(SpinalConfig(defaultConfigForClockDomains = ClockDomainConfig(resetKind = ASYNC)).includeSimulation)
 //  sc.addSimulatorFlag("--threads 1")
 //  sc.addSimulatorFlag("--prof-exec")
@@ -141,7 +147,7 @@ object SocSim extends App {
   def testIt(dut : SocDemoSim, onTrace : (=> Unit) => Unit = cb => {}): Unit = {
     val cd = dut.clockDomain
     cd.forkStimulus(10)
-     cd.forkSimSpeedPrinter(1.0)
+    //cd.forkSimSpeedPrinter(1.0)
 
     // Connect the few peripherals
     val ma = new MemoryAgent(dut.mem.node.bus, cd, seed = 0, randomProberFactor = 0.2f)(null) {
