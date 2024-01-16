@@ -21,12 +21,10 @@ case class RegFileWriteParameter(withReady : Boolean)
 case class RegFileIo( addressWidth: Int,
                       dataWidth: Int,
                       readsParameter: Seq[RegFileReadParameter],
-                      writesParameter: Seq[RegFileWriteParameter],
-                      bypasseCount: Int
+                      writesParameter: Seq[RegFileWriteParameter]
                     ) extends Bundle{
   val writes = Vec(writesParameter.map(p => slave(RegFileWrite(addressWidth, dataWidth, p.withReady))))
   val reads = Vec(readsParameter.map(p => slave(RegFileRead(addressWidth, dataWidth, p.withReady, 0, p.forceNoBypass))))
-  val bypasses = Vec.fill(bypasseCount)(slave(RegFileBypass(addressWidth, dataWidth)))
 }
 
 //The bankCount is currently useless, but maybe uesefull in the future with execution units which can stall
@@ -35,14 +33,13 @@ class RegFileAsync(addressWidth    : Int,
                    bankCount       : Int,
                    readsParameter  : Seq[RegFileReadParameter],
                    writesParameter : Seq[RegFileWriteParameter],
-                   bypasseCount    : Int,
                    preferedWritePortForInit : Int,
                    headZero        : Boolean,
                    allOne         : Boolean,
                    asyncReadBySyncReadRevertedClk : Boolean = false) extends Component {
   assert(!(allOne && headZero))
 
-  val io = RegFileIo(addressWidth, dataWidth, readsParameter, writesParameter, bypasseCount)
+  val io = RegFileIo(addressWidth, dataWidth, readsParameter, writesParameter)
 
   val bankShift = log2Up(bankCount)
   val writePortCount = io.writes.count(!_.withReady)
@@ -71,14 +68,6 @@ class RegFileAsync(addressWidth    : Int,
       val port = bank.readPort(i)
       port.address := r.address >> bankShift
       r.data := port.data
-    }
-
-    val bypass = (!r.forceNoBypass && bypasseCount != 0) generate new Area{
-      val hits = io.bypasses.map(b => b.valid && b.address === r.address)
-      val hitsValue = MuxOH.mux(hits, io.bypasses.map(_.data))
-      when(hits.orR){
-        r.data := hitsValue
-      }
     }
   }
 
@@ -118,7 +107,6 @@ object RegFileAsyncSynth extends App{
     bankCount       = 1,
     readsParameter  = Seq.fill(4)(RegFileReadParameter(withReady = false, forceNoBypass = false)),
     writesParameter = Seq.fill(1)(RegFileWriteParameter(withReady = false)),
-    bypasseCount    = 0,
     preferedWritePortForInit = 0,
     headZero        = true,
     allOne         = false
@@ -141,21 +129,25 @@ Artix 7 -> 375 Mhz 176 LUT 585 FF
 Artix 7 -> 538 Mhz 176 LUT 585 FF
 
  */
+class sky130_fd_sc_hd__dlxtp_1 extends BlackBox {
+  val Q = out Bool()
+  val D = in Bool()
+  val GATE = in Bool()
+}
 
 class RegFileLatch(addressWidth    : Int,
                    dataWidth       : Int,
                    readsParameter  : Seq[RegFileReadParameter],
                    writesParameter : Seq[RegFileWriteParameter],
-                   bypasseCount    : Int,
                    headZero        : Boolean) extends Component {
-  val io = RegFileIo(addressWidth, dataWidth, readsParameter, writesParameter, bypasseCount)
+  val io = RegFileIo(addressWidth, dataWidth, readsParameter, writesParameter)
 
   io.reads.foreach(e => assert(!e.withReady))
   io.writes.foreach(e => assert(!e.withReady))
 
-  
+
   val writeFrontend = new Area {
-    val clock = ClockDomain.current.readClockWire
+    @dontName val clock = ClockDomain.current.readClockWire
     val buffers = for (port <- io.writes) yield LatchWhen(port.data, clock)
 //    val buffers = for (port <- io.writes) yield RegNext(port.data)
   }
@@ -165,26 +157,38 @@ class RegFileLatch(addressWidth    : Int,
       val mask = B(io.writes.map(port => port.valid && port.address === i))
       val maskReg = LatchWhen(mask, writeFrontend.clock)
       val validReg = LatchWhen(mask.orR, writeFrontend.clock)
-//      val maskReg = RegNext(mask)
-//      val validReg = RegNext(mask.orR)
       val data = OhMux.or(maskReg, writeFrontend.buffers)
+      val sample = !writeFrontend.clock && validReg
     }
-    val storage = LatchWhen(write.data, !writeFrontend.clock && write.validReg)
+
+    // Infered latch implementation
+    val storage = LatchWhen(write.data, write.sample)
+
+    // sky130_fd_sc_hd__dlxtp_1 latch implementation
+    //    val storages = Array.fill(dataWidth)(new sky130_fd_sc_hd__dlxtp_1)
+    //    val GATE = !writeFrontend.clock && write.validReg
+    //    for((s, i) <- storages.zipWithIndex){
+    //      s.D := write.data(i)
+    //      s.GATE := GATE
+    //    }
+    //    val storage = storages.map(_.Q).toSeq.asBits
   }
 
 
   val readLogic = for ((r, i) <- io.reads.zipWithIndex) yield new Area {
     var mem = latches.map(_.storage).toList
     if(headZero) mem = B(0, dataWidth bits) :: mem
-    r.data := mem.read(r.address)
 
-    val bypass = (!r.forceNoBypass && bypasseCount != 0) generate new Area {
-      val hits = io.bypasses.map(b => b.valid && b.address === r.address)
-      val hitsValue = MuxOH.or(hits, io.bypasses.map(_.data))
-      when(hits.orR) {
-        r.data := hitsValue
-      }
+    // Tristate based mux implementation
+    val oh = UIntToOh(r.address)
+    val tri = Analog(Bits(dataWidth bits))
+    mem.onMask(oh){ value =>
+      tri := value
     }
+    r.data := tri
+
+    // Regular mux implementation
+//    r.data := mem.read(r.address)
   }
 }
 
@@ -286,7 +290,6 @@ class RegFilePlugin(var spec : RegfileSpec,
         bankCount = bankCount,
         readsParameter = reads.map(e => RegFileReadParameter(withReady = e.withReady, e.forceNoBypass)),
         writesParameter = writeMerges.map(e => RegFileWriteParameter(withReady = false)).toList,
-        bypasseCount = bypasses.size,
         headZero = spec.x0AlwaysZero,
         preferedWritePortForInit = writeGroups.zipWithIndex.find(_._1._2.exists(_.port.getName().contains(preferedWritePortForInit))).get._2,
         allOne = allOne,
@@ -298,7 +301,6 @@ class RegFilePlugin(var spec : RegfileSpec,
         dataWidth = dataWidth,
         readsParameter = reads.map(e => RegFileReadParameter(withReady = e.withReady, e.forceNoBypass)),
         writesParameter = writeMerges.map(e => RegFileWriteParameter(withReady = false)).toList,
-        bypasseCount = bypasses.size,
         headZero = spec.x0AlwaysZero
       )
 
@@ -312,7 +314,16 @@ class RegFilePlugin(var spec : RegfileSpec,
 
     (regfile.io.reads, reads).zipped.foreach(_ <> _)
     (regfile.io.writes, writeMerges.map(_.bus)).zipped.foreach(_ <> _)
-    (regfile.io.bypasses, bypasses).zipped.foreach(_ <> _)
+    val bypass = for(i <- 0 until regfile.io.readsParameter.size) {
+      val r = reads(i)
+      if(!r.forceNoBypass && bypasses.size != 0){
+        val hits = bypasses.map(b => b.valid && b.address === r.address)
+        val hitsValue = MuxOH.mux(hits, bypasses.map(_.data))
+        when(hits.orR) {
+          r.data := hitsValue
+        }
+      }
+    }
 
     //Used for tracing in verilator sim
     val writeEvents = Vec(writeMerges.map(e => CombInit(e.bus)))
@@ -321,4 +332,11 @@ class RegFilePlugin(var spec : RegfileSpec,
     doc.property(writeEvents.getName() +"_count", writeEvents.size)
     doc.property(spec.getName() +"_PHYSICAL_DEPTH", physicalDepth)
   }
+}
+
+
+object LatchRegFilePlacer extends App{
+
+//  latches_17_storages_24 585.12 848.64
+//  latches_17_storages_25 585.58 848.64
 }

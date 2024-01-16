@@ -1,5 +1,7 @@
 
 package naxriscv.platform.asic
+import naxriscv.compatibility.MultiPortWritesSymplifier
+import org.apache.commons.io.FileUtils
 import spinal.core._
 import spinal.core.internals.{MemTopology, PhaseContext, PhaseMemBlackBoxingWithPolicy, PhaseNetlist}
 import spinal.lib._
@@ -15,6 +17,7 @@ object SpinalSky130{
   }
   def apply() = {
     val c = SpinalConfig(mode = Verilog)
+    c.addTransformationPhase(new MultiPortWritesSymplifier)
     c.addStandardMemBlackboxing(blackboxPolicy)
     c.phasesInserters += { phases =>
       val i = phases.lastIndexWhere(_.isInstanceOf[PhaseMemBlackBoxingWithPolicy])
@@ -83,9 +86,14 @@ class OpenRamPhase extends PhaseNetlist {
 
     val macros = ArrayBuffer[String]()
     println("Generate openram macros")
+
+
     for(c <- configs_1r1w){
       macros += c.name
-      val bf = new BufferedWriter(new FileWriter(new File(c.name + ".py")))
+      val dir = new File(s"sram")
+      FileUtils.forceMkdir(dir)
+
+      val bf = new BufferedWriter(new FileWriter(new File(dir, c.name + ".py")))
       val mask = c.bitPerMask match {
         case Some(x) => s"write_size = $x"
         case None => ""
@@ -121,7 +129,7 @@ class OpenRamPhase extends PhaseNetlist {
 
       bf.close()
 
-      val sbf = new BufferedWriter(new FileWriter(new File(c.name + "_sc.py")))
+      val sbf = new BufferedWriter(new FileWriter(new File(dir, c.name + "_sc.py")))
       sbf.write(
         s"""import siliconcompiler
            |
@@ -144,7 +152,7 @@ class OpenRamPhase extends PhaseNetlist {
       )
       sbf.close()
 
-      val bbf = new BufferedWriter(new FileWriter(new File(c.name + ".bb.v")))
+      val bbf = new BufferedWriter(new FileWriter(new File(dir, c.name + ".bb.v")))
 
       bbf.write(
         s"""// OpenRAM SRAM model
@@ -194,9 +202,9 @@ class OpenRamPhase extends PhaseNetlist {
     println(macros.mkString(" \\\n"))
 
     {
-      val f = new File("openram.sh")
+      val f = new File("sram/openram.sh")
       val bf = new BufferedWriter(new FileWriter(f))
-      bf.write(s"make -j$$(nproc) ${macros.mkString(" ")}")
+      bf.write(s"make ${macros.mkString(" ")}") // -j$$(nproc)
       bf.close()
     }
 
