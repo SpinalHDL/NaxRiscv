@@ -46,19 +46,27 @@ object NaxAsicGen extends App{
       //      withCoherency = true,
       ioRange = a => a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
     )
+
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))
-
-      case p: FetchCachePlugin => p.wayCount = 2; p.cacheSize = 4096; p.memDataWidth = 64
-      case p: DataCachePlugin => p.wayCount = 2; p.cacheSize = 4096; p.memDataWidth = 64
-      case p: BtbPlugin => p.entries = 64
-      case p: GSharePlugin => p.memBytes = 512
-
-//      case p: FetchCachePlugin => p.wayCount = 1; p.cacheSize = 256; p.memDataWidth = 64
-//      case p: DataCachePlugin => p.wayCount = 1; p.cacheSize = 256; p.memDataWidth = 64
-//      case p: BtbPlugin => p.entries = 8
-//      case p: GSharePlugin => p.memBytes = 32
       case _ =>
+    }
+
+    target match {
+      case "asic" => l.foreach {
+        case p: FetchCachePlugin => p.wayCount = 1; p.cacheSize = 256; p.memDataWidth = 64
+        case p: DataCachePlugin => p.wayCount = 1; p.cacheSize = 256; p.memDataWidth = 64
+        case p: BtbPlugin => p.entries = 8
+        case p: GSharePlugin => p.memBytes = 32
+        case _ =>
+      }
+      case "sky130" => l.foreach {
+        case p: FetchCachePlugin => p.wayCount = 2; p.cacheSize = 4096; p.memDataWidth = 64
+        case p: DataCachePlugin => p.wayCount = 2; p.cacheSize = 4096; p.memDataWidth = 64
+        case p: BtbPlugin => p.entries = 64
+        case p: GSharePlugin => p.memBytes = 512
+        case _ =>
+      }
     }
     l
   }
