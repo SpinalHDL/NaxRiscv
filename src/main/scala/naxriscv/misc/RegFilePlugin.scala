@@ -157,20 +157,21 @@ class RegFileLatch(addressWidth    : Int,
       val mask = B(io.writes.map(port => port.valid && port.address === i))
       val maskReg = LatchWhen(mask, writeFrontend.clock)
       val validReg = LatchWhen(mask.orR, writeFrontend.clock)
-//      val maskReg = RegNext(mask)
-//      val validReg = RegNext(mask.orR)
       val data = OhMux.or(maskReg, writeFrontend.buffers)
+      val sample = !writeFrontend.clock && validReg
     }
 
-//    val storages = Array.fill(dataWidth)(new sky130_fd_sc_hd__dlxtp_1)
-//    val GATE = !writeFrontend.clock && write.validReg
-//    for((s, i) <- storages.zipWithIndex){
-//      s.D := write.data(i)
-//      s.GATE := GATE
-//    }
-//    val storage = storages.map(_.Q).toSeq.asBits
+    // Infered latch implementation
+    val storage = LatchWhen(write.data, write.sample)
 
-    val storage = LatchWhen(write.data, !writeFrontend.clock && write.validReg)
+    // sky130_fd_sc_hd__dlxtp_1 latch implementation
+    //    val storages = Array.fill(dataWidth)(new sky130_fd_sc_hd__dlxtp_1)
+    //    val GATE = !writeFrontend.clock && write.validReg
+    //    for((s, i) <- storages.zipWithIndex){
+    //      s.D := write.data(i)
+    //      s.GATE := GATE
+    //    }
+    //    val storage = storages.map(_.Q).toSeq.asBits
   }
 
 
@@ -178,6 +179,7 @@ class RegFileLatch(addressWidth    : Int,
     var mem = latches.map(_.storage).toList
     if(headZero) mem = B(0, dataWidth bits) :: mem
 
+    // Tristate based mux implementation
     val oh = UIntToOh(r.address)
     val tri = Analog(Bits(dataWidth bits))
     mem.onMask(oh){ value =>
@@ -185,7 +187,7 @@ class RegFileLatch(addressWidth    : Int,
     }
     r.data := tri
 
-
+    // Regular mux implementation
 //    r.data := mem.read(r.address)
   }
 }

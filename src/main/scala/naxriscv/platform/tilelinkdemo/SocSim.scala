@@ -73,9 +73,10 @@ object SocSim extends App {
 
 
   val sc = SimConfig
-  sc.normalOptimisation
-//  sc.withIVerilog
-//  sc.withFstWave
+//  sc.normalOptimisation
+  sc.withIVerilog
+//  sc.withWave
+  sc.withFstWave
   sc.withConfig(SpinalConfig(defaultConfigForClockDomains = ClockDomainConfig(resetKind = ASYNC)).includeSimulation)
 //  sc.addSimulatorFlag("--threads 1")
 //  sc.addSimulatorFlag("--prof-exec")
@@ -140,7 +141,7 @@ object SocSim extends App {
   def testIt(dut : SocDemoSim, onTrace : (=> Unit) => Unit = cb => {}): Unit = {
     val cd = dut.clockDomain
     cd.forkStimulus(10)
-    // cd.forkSimSpeedPrinter(1.0)
+     cd.forkSimSpeedPrinter(1.0)
 
     // Connect the few peripherals
     val ma = new MemoryAgent(dut.mem.node.bus, cd, seed = 0, randomProberFactor = 0.2f)(null) {
