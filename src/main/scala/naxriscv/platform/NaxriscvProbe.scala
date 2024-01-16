@@ -154,8 +154,10 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
   def add(tracer : TraceBackend) : this.type = {
     backends += tracer
     tracer.newCpuMemoryView(hartId, lsuPlugin.lqSize+1, lsuPlugin.sqSize) //+1 because AMO
-    tracer.newCpu(hartId, "RV32IMA", "MSU", 32, hartId)
-    tracer.setPc(hartId, 0x80000000)
+    tracer.newCpu(hartId, s"RV${xlen}IMA", "MSU", 32, hartId)
+    var pc = 0x80000000l
+    if(xlen == 32) pc = (pc << 32) >> 32
+    tracer.setPc(hartId, pc)
     this
   }
 

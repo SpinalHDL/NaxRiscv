@@ -128,7 +128,7 @@ class BranchPlugin(val euId : String,
     val branch = new ExecuteArea(branchAt){
       import stage._
 
-      val badEarlyTaken  = if(setup.withBranchContext) BRANCH_EARLY.taken =/= COND              else CombInit(stage(COND))
+      val badEarlyTaken  = if(setup.withBranchContext) BRANCH_EARLY.taken =/= COND else CombInit(stage(COND))
       MISSPREDICTED := badEarlyTaken || COND && BAD_EARLY_TARGET
 
       def target = if(setup.withBranchContext)  stage(PC, "TARGET") else stage(PC, "TRUE")
