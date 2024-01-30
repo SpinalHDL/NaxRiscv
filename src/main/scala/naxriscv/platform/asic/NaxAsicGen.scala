@@ -13,10 +13,12 @@ import spinal.lib.eda.bench.Rtl
 
 object NaxAsicGen extends App{
   var target = "asic"
+  var regFileFakeRatio = 1
 
   assert(new scopt.OptionParser[Unit]("NaxAsicGen") {
     help("help").text("prints this usage text")
     opt[Unit]("sky130") action { (v, c) => target = "sky130" }
+    opt[Int]("regfile-fake-ratio") action { (v, c) => regFileFakeRatio = v }
   }.parse(args, Unit).nonEmpty)
 
 
@@ -43,6 +45,7 @@ object NaxAsicGen extends App{
       dispatchSlots = 8,
       robSize = 16,
       branchCount = 4,
+      regFileFakeRatio = regFileFakeRatio,
       //      withCoherency = true,
       ioRange = a => a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
     )
