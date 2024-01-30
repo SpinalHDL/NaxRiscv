@@ -139,7 +139,9 @@ class RegFileLatch(addressWidth    : Int,
                    dataWidth       : Int,
                    readsParameter  : Seq[RegFileReadParameter],
                    writesParameter : Seq[RegFileWriteParameter],
-                   headZero        : Boolean) extends Component {
+                   headZero        : Boolean,
+                   fakeRatio       : Int) extends Component {
+  assert(isPow2(fakeRatio))
   val io = RegFileIo(addressWidth, dataWidth, readsParameter, writesParameter)
 
   io.reads.foreach(e => assert(!e.withReady))
@@ -152,7 +154,7 @@ class RegFileLatch(addressWidth    : Int,
 //    val buffers = for (port <- io.writes) yield RegNext(port.data)
   }
 
-  val latches = for (i <- headZero.toInt until 1 << addressWidth) yield new Area {
+  val latches = for (i <- headZero.toInt until (1 << addressWidth)/fakeRatio) yield new Area {
     val write = new Area {
       val mask = B(io.writes.map(port => port.valid && port.address === i))
       val maskReg = LatchWhen(mask, writeFrontend.clock)
@@ -182,7 +184,7 @@ class RegFileLatch(addressWidth    : Int,
     // Tristate based mux implementation
     val oh = UIntToOh(r.address)
     val tri = Analog(Bits(dataWidth bits))
-    mem.onMask(oh){ value =>
+    mem.onMask(oh.resize(mem.size)){ value =>
       tri := value
     }
     r.data := tri
@@ -192,13 +194,15 @@ class RegFileLatch(addressWidth    : Int,
   }
 }
 
+//fakeRatio > 1 allows the latchregister file to be n time smaller by faking registers
 class RegFilePlugin(var spec : RegfileSpec,
                     var physicalDepth : Int,
                     var bankCount : Int,
                     var preferedWritePortForInit : String,
                     var asyncReadBySyncReadRevertedClk : Boolean = false,
                     var allOne : Boolean = false,
-                    var latchBased : Boolean = false) extends Plugin with RegfileService with InitCycles {
+                    var latchBased : Boolean = false,
+                    var fakeRatio : Int = 1) extends Plugin with RegfileService with InitCycles {
   withPrefix(spec.getName())
 
   override def getPhysicalDepth = physicalDepth
@@ -301,7 +305,8 @@ class RegFilePlugin(var spec : RegfileSpec,
         dataWidth = dataWidth,
         readsParameter = reads.map(e => RegFileReadParameter(withReady = e.withReady, e.forceNoBypass)),
         writesParameter = writeMerges.map(e => RegFileWriteParameter(withReady = false)).toList,
-        headZero = spec.x0AlwaysZero
+        headZero = spec.x0AlwaysZero,
+        fakeRatio = fakeRatio
       )
 
 

@@ -69,7 +69,8 @@ object Config{
               robSize : Int = 64,
               withCoherency : Boolean = false,
               hartId : Int = 0,
-              asic : Boolean = false): ArrayBuffer[Plugin] ={
+              asic : Boolean = false,
+              regFileFakeRatio : Int = 1): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
 
     val fpu = withFloat || withDouble
@@ -297,7 +298,8 @@ object Config{
       physicalDepth = 64,
       bankCount = 1,
       preferedWritePortForInit = "ALU0",
-      latchBased = asic
+      latchBased = asic,
+      fakeRatio = regFileFakeRatio
     )
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
     plugins += new CsrRamPlugin()
