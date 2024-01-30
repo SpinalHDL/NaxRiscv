@@ -14,11 +14,13 @@ import spinal.lib.eda.bench.Rtl
 object NaxAsicGen extends App{
   var target = "asic"
   var regFileFakeRatio = 1
+  var withLsu = true
 
   assert(new scopt.OptionParser[Unit]("NaxAsicGen") {
     help("help").text("prints this usage text")
     opt[Unit]("sky130") action { (v, c) => target = "sky130" }
     opt[Int]("regfile-fake-ratio") action { (v, c) => regFileFakeRatio = v }
+    opt[Unit]("no-lsu") action { (v, c) => withLsu = false }
   }.parse(args, Unit).nonEmpty)
 
 
@@ -32,7 +34,7 @@ object NaxAsicGen extends App{
       debugTriggers = 4,
       withDedicatedLoadAgu = false,
       withRvc = false,
-      withLoadStore = false,
+      withLoadStore = withLsu,
       withMmu = false,
       withDebug = false,
       withEmbeddedJtagTap = false,
