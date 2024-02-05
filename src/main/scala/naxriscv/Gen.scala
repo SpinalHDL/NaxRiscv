@@ -70,6 +70,7 @@ object Config{
               withCoherency : Boolean = false,
               hartId : Int = 0,
               asic : Boolean = false,
+              mmuSets : Int = 32,
               regFileFakeRatio : Int = 1): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
 
@@ -116,12 +117,12 @@ object Config{
           MmuStorageLevel(
             id    = 0,
             ways  = 4,
-            depth = 32
+            depth = mmuSets
           ),
           MmuStorageLevel(
             id    = 1,
             ways  = 2,
-            depth = 32
+            depth = mmuSets
           )
         ),
         priority = 0
@@ -196,12 +197,12 @@ object Config{
               MmuStorageLevel(
                 id = 0,
                 ways = 4,
-                depth = 32
+                depth = mmuSets
               ),
               MmuStorageLevel(
                 id = 1,
                 ways = 2,
-                depth = 32
+                depth = mmuSets
               )
             ),
             priority = 1
