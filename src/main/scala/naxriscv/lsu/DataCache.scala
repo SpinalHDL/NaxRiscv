@@ -1004,7 +1004,7 @@ class DataCache(val p : DataCacheParameters) extends Component {
       val rspWithData = p.withCoherency.mux(io.mem.read.rsp.withData, True)
       if(withCoherency) assert(!(io.mem.read.rsp.valid && !rspWithData && slots.map(_.data).read(io.mem.read.rsp.id)), "Data cache asked for data but didn't recieved any :(")
 
-      val bankWriteNotif = B(0, bankCount bits)
+      val bankWriteNotif = B(0, bankCount bits).allowOverride()
       for ((bank, bankId) <- banks.zipWithIndex) {
         if (!reducedBankWidth) {
           bankWriteNotif(bankId) := io.mem.read.rsp.valid && rspWithData && way === bankId
