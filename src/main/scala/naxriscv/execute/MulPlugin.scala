@@ -149,10 +149,10 @@ class MulPlugin(val euId : String,
       // Setup the iteration variables for the next step
       sourcesSpec = addersSpec.map(_.toSource()).toList
       for ((s, m) <- (sourcesSpec, adders).zipped) sourceToSignal(s) = m
-      if(splitWidthB == 1){
-        println(addersSpec.mkString("\n"))
-        println("------------")
-      }
+//      if(splitWidthB == 1){
+//        println(addersSpec.mkString("\n"))
+//        println("------------")
+//      }
 
 
       val revert = useRsUnsignedPlugin generate new Area{
