@@ -5,6 +5,7 @@ import naxriscv.compatibility.{EnforceSyncRamPhase, MemReadDuringWriteHazardPhas
 import naxriscv.debug.EmbeddedJtagPlugin
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.DataCachePlugin
+import naxriscv.lsu2.Lsu2Plugin
 import naxriscv.prediction.{BtbPlugin, GSharePlugin}
 import naxriscv.utilities.DocPlugin
 import spinal.core._
@@ -35,7 +36,7 @@ object NaxAsicGen extends App{
       withDedicatedLoadAgu = false,
       withRvc = false,
       withLoadStore = withLsu,
-      withMmu = false,
+      withMmu = withLsu,
       withDebug = false,
       withEmbeddedJtagTap = false,
       jtagTunneled = false,
@@ -47,6 +48,7 @@ object NaxAsicGen extends App{
       dispatchSlots = 8,
       robSize = 16,
       branchCount = 4,
+      mmuSets = 4,
       regFileFakeRatio = regFileFakeRatio,
       //      withCoherency = true,
       ioRange = a => a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
@@ -63,6 +65,7 @@ object NaxAsicGen extends App{
         case p: DataCachePlugin => p.wayCount = 1; p.cacheSize = 256; p.memDataWidth = 64
         case p: BtbPlugin => p.entries = 8
         case p: GSharePlugin => p.memBytes = 32
+        case p: Lsu2Plugin => p.hitPedictionEntries = 64
         case _ =>
       }
       case "sky130" => l.foreach {
@@ -70,6 +73,7 @@ object NaxAsicGen extends App{
         case p: DataCachePlugin => p.wayCount = 2; p.cacheSize = 4096; p.memDataWidth = 64
         case p: BtbPlugin => p.entries = 64
         case p: GSharePlugin => p.memBytes = 512
+        case p: Lsu2Plugin => p.hitPedictionEntries = 64
         case _ =>
       }
     }
