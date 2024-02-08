@@ -13,7 +13,7 @@ import spinal.lib._
 import spinal.lib.eda.bench.Rtl
 
 object NaxAsicGen extends App{
-  var target = "asic"
+  var ramBlocks = "inferred"
   var regFileFakeRatio = 1
   var withLsu = true
   var withIoFf = false
@@ -21,7 +21,7 @@ object NaxAsicGen extends App{
 
   assert(new scopt.OptionParser[Unit]("NaxAsicGen") {
     help("help").text("prints this usage text")
-    opt[Unit]("sky130") action { (v, c) => target = "sky130" }
+    opt[Unit]("sky130-ram") action { (v, c) => ramBlocks = "sky130" }
     opt[Int]("regfile-fake-ratio") action { (v, c) => regFileFakeRatio = v }
     opt[Unit]("no-lsu") action { (v, c) => withLsu = false }
     opt[Unit]("io-ff") action { (v, c) => withIoFf = true }
@@ -63,8 +63,8 @@ object NaxAsicGen extends App{
       case _ =>
     }
 
-    target match {
-      case "asic" => l.foreach {
+    ramBlocks match {
+      case "inferred" => l.foreach {
         case p: FetchCachePlugin => p.wayCount = 1; p.cacheSize = 256; p.memDataWidth = 64
         case p: DataCachePlugin => p.wayCount = 1; p.cacheSize = 256; p.memDataWidth = 64
         case p: BtbPlugin => p.entries = 8
@@ -84,8 +84,8 @@ object NaxAsicGen extends App{
     l
   }
 
-  var spinalConfig = target match {
-    case "asic" => SpinalConfig()
+  var spinalConfig = ramBlocks match {
+    case "inferred" => SpinalConfig()
     case "sky130" => SpinalSky130()
   }
 
