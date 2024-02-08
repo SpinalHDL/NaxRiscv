@@ -239,12 +239,12 @@ object Config{
               MmuStorageLevel(
                 id = 0,
                 ways = 4,
-                depth = 32
+                depth = mmuSets
               ),
               MmuStorageLevel(
                 id = 1,
                 ways = 2,
-                depth = 32
+                depth = mmuSets
               )
             ),
             priority = 1
@@ -334,11 +334,11 @@ object Config{
       case true => new MulPlugin(
         euId = "EU0",
         sumAt = 0,
-        sumsSpec = List((20, 2), (24, 8), (1000, 1000)),
+        sumsSpec = List((20, 4), (24, 8), (1000, 1000)),
         untilOffsetS0 = 28,
         splitWidthA = xlen,
         splitWidthB = 1,
-        useRsUnsignedPlugin = true,
+        useRsUnsignedPlugin = false,
         staticLatency = false
       )
     })
