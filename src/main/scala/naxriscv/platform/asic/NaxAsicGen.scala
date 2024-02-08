@@ -1,7 +1,7 @@
 package naxriscv.platform.asic
 
 import naxriscv.{Config, NaxRiscv}
-import naxriscv.compatibility.{EnforceSyncRamPhase, MemReadDuringWriteHazardPhase, MemReadDuringWritePatcherPhase, MultiPortWritesSymplifier}
+import naxriscv.compatibility.{CombRamBlackboxer, EnforceSyncRamPhase, MemReadDuringWriteHazardPhase, MemReadDuringWritePatcherPhase, MultiPortWritesSymplifier}
 import naxriscv.debug.EmbeddedJtagPlugin
 import naxriscv.fetch.FetchCachePlugin
 import naxriscv.lsu.DataCachePlugin
@@ -16,12 +16,16 @@ object NaxAsicGen extends App{
   var target = "asic"
   var regFileFakeRatio = 1
   var withLsu = true
+  var withIoFf = false
+  var blackBoxCombRam = false
 
   assert(new scopt.OptionParser[Unit]("NaxAsicGen") {
     help("help").text("prints this usage text")
     opt[Unit]("sky130") action { (v, c) => target = "sky130" }
     opt[Int]("regfile-fake-ratio") action { (v, c) => regFileFakeRatio = v }
     opt[Unit]("no-lsu") action { (v, c) => withLsu = false }
+    opt[Unit]("io-ff") action { (v, c) => withIoFf = true }
+    opt[Unit]("bb-comb-ram") action { (v, c) => blackBoxCombRam = true }
   }.parse(args, Unit).nonEmpty)
 
 
@@ -85,7 +89,10 @@ object NaxAsicGen extends App{
     case "sky130" => SpinalSky130()
   }
 
-  spinalConfig.generateVerilog(new NaxRiscv(plugins).setDefinitionName("nax"))
+  if(blackBoxCombRam) spinalConfig.memBlackBoxers += new CombRamBlackboxer()
+
+  def gen = new NaxRiscv(plugins).setDefinitionName("nax")
+  spinalConfig.generateVerilog(if(withIoFf) Rtl.ffIo(gen) else gen)
 
 //  spinalConfig.generateVerilog(new StreamFifo(UInt(4 bits), 256).setDefinitionName("nax"))
 }
