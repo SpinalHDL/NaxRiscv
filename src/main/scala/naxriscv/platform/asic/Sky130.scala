@@ -17,7 +17,7 @@ object SpinalSky130{
   }
   def apply() = {
     val c = SpinalConfig(mode = Verilog)
-    c.addTransformationPhase(new MultiPortWritesSymplifier)
+//    c.addTransformationPhase(new MultiPortWritesSymplifier)
     c.addStandardMemBlackboxing(blackboxPolicy)
     c.phasesInserters += { phases =>
       val i = phases.lastIndexWhere(_.isInstanceOf[PhaseMemBlackBoxingWithPolicy])
