@@ -9,6 +9,8 @@ import spinal.core.internals._
 import spinal.lib._
 import spinal.lib.eda.bench.{Bench, Rtl, XilinxStdTargets}
 
+import java.io.{BufferedWriter, File, FileWriter}
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 case class MemWriteCmd[T <: Data](payloadType : HardType[T], depth : Int) extends Bundle{
@@ -459,6 +461,72 @@ class EnforceSyncRamPhase extends PhaseMemBlackboxing{
   override def doBlackboxing(pc: PhaseContext, typo: MemTopology) = {
     if(typo.readsAsync.size == 0){
       typo.mem.addAttribute("ram_style", "block")
+    }
+  }
+}
+
+class CombRamBlackboxer(onlyTagged : Boolean = false) extends PhaseMemBlackboxing{
+  def wrapBool(that: Expression): Bool = that match {
+    case that: Bool => that
+    case that =>
+      val ret = Bool()
+      ret.assignFrom(that)
+      ret
+  }
+
+  val generatedList = mutable.LinkedHashSet[String]()
+  override def impl(pc: PhaseContext) = {
+    super.impl(pc)
+    val f = new BufferedWriter(new FileWriter(new File("comb_ram.log")))
+    for(name <- generatedList){
+      f.write(name + "\n")
+    }
+    f.close()
+  }
+
+  override def doBlackboxing(pc: PhaseContext, typo: MemTopology) : Unit = {
+    if(typo.readsSync.size == 0 && typo.readsAsync.size != 0 && typo.mem.wordCount > 8){
+      typo.writes.foreach(w => assert(w.mask == null))
+      val cd = typo.writes.head.clockDomain
+      import typo._
+
+      val ctx = List(mem.parentScope.push(), cd.push())
+
+
+      val bb = new BlackBox{
+        setDefinitionName(s"ram_${typo.readsAsync.size}ar_${typo.writes.size}w_${mem.wordCount}x${mem.width}")
+        setName(mem.getName())
+        generatedList += definitionName
+
+        val clk = in Bool()
+        mapCurrentClockDomain(clk)
+
+        val writes = Vec.fill(typo.writes.size)(new Bundle {
+          val en = in Bool()
+          val addr = in(mem.addressType)
+          val data = in(Bits(mem.width bits))
+        })
+        val reads = Vec.fill(typo.readsAsync.size)(new Bundle {
+          val addr = in(mem.addressType)
+          val data = out(Bits(mem.width bits))
+        })
+      }
+
+      for((src, dst) <- (writes, bb.writes).zipped){
+        dst.en := wrapBool(src.writeEnable) && cd.isClockEnableActive
+        dst.addr.assignFrom(src.address)
+        dst.data.assignFrom(src.data)
+      }
+
+      for ((src, dst) <- (readsAsync, bb.reads).zipped) {
+        dst.addr.assignFrom(src.address)
+        wrapConsumers(typo, src, dst.data)
+      }
+
+      mem.removeStatement()
+      mem.foreachStatements(s => s.removeStatement())
+
+      ctx.foreach(_.restore())
     }
   }
 }

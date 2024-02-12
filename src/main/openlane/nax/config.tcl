@@ -4,6 +4,7 @@ set ::env(VERILOG_FILES) [glob $::env(DESIGN_DIR)/src/*.v]
 set ::env(CLOCK_PORT) "clk"
 set ::env(CLOCK_PERIOD) "50.0"
 set ::env(DESIGN_IS_CORE) {1}
+set ::env(SYNTH_AUTONAME) {1}
 
 # If you use SRAM macro, uncomment this
 #set ::env(VERILOG_FILES_BLACKBOX) [glob $::env(DESIGN_DIR)/sram/*.v]

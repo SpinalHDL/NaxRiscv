@@ -150,15 +150,15 @@ class RegFileLatch(addressWidth    : Int,
 
   val writeFrontend = new Area {
     @dontName val clock = ClockDomain.current.readClockWire
-    val buffers = for (port <- io.writes) yield LatchWhen(port.data, clock)
-//    val buffers = for (port <- io.writes) yield RegNext(port.data)
+//    val buffers = for (port <- io.writes) yield LatchWhen(port.data, clock)
+    val buffers = for (port <- io.writes) yield RegNext(port.data)
   }
 
   val latches = for (i <- headZero.toInt until (1 << addressWidth)/fakeRatio) yield new Area {
     val write = new Area {
       val mask = B(io.writes.map(port => port.valid && port.address === i))
-      val maskReg = LatchWhen(mask, writeFrontend.clock)
-      val validReg = LatchWhen(mask.orR, writeFrontend.clock)
+      val maskReg = RegNext(mask)
+      val validReg = RegNext(mask.orR)
       val data = OhMux.or(maskReg, writeFrontend.buffers)
       val sample = !writeFrontend.clock && validReg
     }
