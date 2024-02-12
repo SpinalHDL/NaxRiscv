@@ -70,6 +70,7 @@ object Config{
               withCoherency : Boolean = false,
               hartId : Int = 0,
               asic : Boolean = false,
+              withRfLatchRam : Boolean = false,
               mmuSets : Int = 32,
               regFileFakeRatio : Int = 1): ArrayBuffer[Plugin] ={
     val plugins = ArrayBuffer[Plugin]()
@@ -299,7 +300,7 @@ object Config{
       physicalDepth = 64,
       bankCount = 1,
       preferedWritePortForInit = "ALU0",
-      latchBased = asic,
+      latchBased = withRfLatchRam,
       fakeRatio = regFileFakeRatio
     )
     plugins += new CommitDebugFilterPlugin(List(4, 8, 12))
@@ -377,7 +378,7 @@ object Config{
         bankCount = 1,
         allOne = simulation,
         preferedWritePortForInit = "Fpu",
-        latchBased = asic
+        latchBased = withRfLatchRam
       )
 
       plugins += new FpuIntegerExecute("EU0")
@@ -443,8 +444,8 @@ object Config{
       case lsu: LsuPlugin =>
         lsu.addRfWriteSharing(IntRegFile, intRfWrite, withReady = false, priority = 2)
       case lsu: Lsu2Plugin =>
-        //Surprisingly doesn't make that big of a difference
-//        lsu.addRfWriteSharing(IntRegFile, intRfWrite, withReady = false, priority = 2)
+        //Surprisingly doesn't make that big of a difference on FPGA
+        if(asic) lsu.addRfWriteSharing(IntRegFile, intRfWrite, withReady = false, priority = 2)
       case eu0 : ExecutionUnitBase if eu0.euId == "EU0" =>
         eu0.addRfWriteSharing(IntRegFile, intRfWrite, withReady = true, priority = 1)
       case fpu : FpuWriteback =>

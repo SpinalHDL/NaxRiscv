@@ -17,6 +17,7 @@ object NaxAsicGen extends App{
   var regFileFakeRatio = 1
   var withLsu = true
   var withIoFf = false
+  var withRfLatchRam = true
   var blackBoxCombRam = false
 
   assert(new scopt.OptionParser[Unit]("NaxAsicGen") {
@@ -25,6 +26,7 @@ object NaxAsicGen extends App{
     opt[Int]("regfile-fake-ratio") action { (v, c) => regFileFakeRatio = v }
     opt[Unit]("no-lsu") action { (v, c) => withLsu = false }
     opt[Unit]("io-ff") action { (v, c) => withIoFf = true }
+    opt[Unit]("no-rf-latch-ram") action { (v, c) => withRfLatchRam = false }
     opt[Unit]("bb-comb-ram") action { (v, c) => blackBoxCombRam = true }
   }.parse(args, Unit).nonEmpty)
 
@@ -33,6 +35,7 @@ object NaxAsicGen extends App{
   def plugins = {
     val l = Config.plugins(
       asic = true,
+      withRfLatchRam = withRfLatchRam,
       withRdTime = false,
       aluCount    = 1,
       decodeCount = 1,
