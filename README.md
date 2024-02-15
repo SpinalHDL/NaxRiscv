@@ -6,20 +6,20 @@ SPDX-License-Identifier: CC0-1.0
 
 # NaxRiscv
 
-An RISC-V core currently characterised by : 
+A RISC-V core currently characterised by :
 
 - Out of order execution with register renaming
 - Superscalar (ex : 2 decode, 3 execution units, 2 retire)
 - (RV32/RV64)IMAFDCSU (Linux / Buildroot works on hardware)
-- High perf config : 2.93 DMIPS/Mhz, 5.02 Coremark/Mhz, 1.67 Embench-iot baseline (Cortex M4) @ 155 Mhz + 13.3 KLUT on Artix 7-3
+- High perf config : 2.93 DMIPS/MHz, 5.02 Coremark/MHz, 1.67 Embench-iot baseline (Cortex M4) @ 155 MHz + 13.3 KLUT on Artix 7-3
 - Portable HDL, but target FPGA with distributed ram (Xilinx series 7 is the reference used so far)
 - Target a (relatively) low area usage and high fmax (not the best IPC)
-- Decentralized hardware elaboration (Empty toplevel parametrized with plugins)
+- Decentralized hardware elaboration (Empty toplevel parameterized with plugins)
 - Frontend implemented around a pipelining framework to ease customisation
 - Non-blocking Data cache with multiple refill and writeback slots
 - BTB + GSHARE + RAS branch predictors
 - Hardware refilled MMU (SV32, SV39)
-- Load to use latency of 3 cycles via the speculative cache hit predictor 
+- Load to use latency of 3 cycles via the speculative cache hit predictor
 - Pipeline visualisation via verilator simulation and Konata (gem5 file format)
 - JTAG / OpenOCD / GDB support by implementing the RISCV External Debug Support v. 0.13.2
 
@@ -27,7 +27,7 @@ To test the project, see the "Running Verilator simulation" section
 
 # Online documentation
 
-There is a Read The Doc hosted here : 
+There is a Read The Doc hosted here :
 
 https://spinalhdl.github.io/NaxRiscv-Rtd/main/NaxRiscv/introduction/index.html
 
@@ -39,13 +39,13 @@ https://spinalhdl.github.io/NaxRiscv-Rtd/main/NaxRiscv/performance/index.html
 
 # Running on hardware
 
-NaxRiscv is currently integrated into https://github.com/enjoy-digital/litex. For instance to run it on the Nexys video board, you can : 
+NaxRiscv is currently integrated into https://github.com/enjoy-digital/litex. For instance to run it on the Nexys video board, you can :
 
 ```shell
 python3 -m litex_boards.targets.digilent_nexys_video --cpu-type=naxriscv --with-video-framebuffer --with-sdcard --build --load
-```` 
+```
 
-Also, note that if you want to run linux on it, it is image compatible with https://github.com/litex-hub/linux-on-litex-vexriscv, you will have to adapte the dts/dtb (removing peripherals).
+Also, note that if you want to run Linux on it, it is image compatible with https://github.com/litex-hub/linux-on-litex-vexriscv, you will have to adapt the dts/dtb (removing peripherals).
 
 Here is Doom running in linux :
 https://twitter.com/enjoy_digital/status/1493996880593887235?s=20&t=VR734wYewBFsT2Fgvm339Q
@@ -54,14 +54,14 @@ https://twitter.com/enjoy_digital/status/1493996880593887235?s=20&t=VR734wYewBFs
 
 See src/test/cpp/naxriscv/README.md
 
-Linux/Buildroot running in simulation : 
+Linux/Buildroot running in simulation :
 
 ```
 ./obj_dir/VNaxRiscv \
     --load-bin $LINUX_IMAGES/fw_jump.bin,0x80000000 \
     --load-bin $LINUX_IMAGES/linux.dtb,0x80F80000 \
     --load-bin $LINUX_IMAGES/Image,0x80400000 \
-    --load-bin $LINUX_IMAGES/rootfs.cpio,0x81000000 
+    --load-bin $LINUX_IMAGES/rootfs.cpio,0x81000000
 OpenSBI v0.8
    ____                    _____ ____ _____
   / __ \                  / ____|  _ \_   _|
