@@ -263,8 +263,8 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
       ioAccess.error = ioBus.rsp.error.toBoolean
       if(!ioAccess.write) {
         val offset = (ioAccess.address) & (ioBus.p.dataWidth/8-1)
-        val mask = (1l << ioAccess.size*8)-1
-        ioAccess.data = (ioBus.rsp.data.toLong >> offset*8) & mask
+        val mask = (BigInt(1) << ioAccess.size*8)-1
+        ioAccess.data = (ioBus.rsp.data.toLong >> offset*8) & mask.toLong
       }
       backends.foreach(_.ioAccess(hartId, ioAccess))
       ioAccess = null
