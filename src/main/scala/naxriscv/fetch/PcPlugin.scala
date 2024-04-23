@@ -59,8 +59,8 @@ class PcPlugin(var resetVector : BigInt = 0x80000000l, fetchPcIncAt : Int = 1) e
       }
 
       val pcLoad = Flow(JumpCmd(pcWidth = widthOf(PC)))
-      pcLoad.valid   := jumpsSpec.map(_.interface.valid).orR
-      pcLoad.pc := target
+      pcLoad.valid := jumpsSpec.map(_.interface.valid).orR
+      pcLoad.pc    := target
     }
 
     val init = new Area{

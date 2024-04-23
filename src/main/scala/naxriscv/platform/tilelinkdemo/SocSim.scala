@@ -77,7 +77,7 @@ object SocSim extends App {
 
 
   val sc = SimConfig
-//  sc.normalOptimisation
+  sc.allOptimisation
   if(iverilog) {
     sc.withIVerilog
     withRvls = false //unsuported because of probe

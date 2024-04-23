@@ -314,10 +314,19 @@ Nax : timed 5026 gametics in 4958 realtics (35.480034 fps)
       timed 5026 gametics in 3187 realtics (55.196110 fps) (LSU2)
       timed 5026 gametics in 2369 realtics (74.254959 fps) (-1)
       timed 5026 gametics in 2301 realtics (76.449371 fps) (-1)
-      timed 5026 gametics in 2375 realtics (74.067368 fps) (LSU2)
+      timed 5026 gametics in 2375 realtics (74.067368 fps) (-1 LSU2)
 Vex : timed 5026 gametics in 5606 realtics (31.378880 fps)
       timed 5026 gametics in 5238 realtics (33.583427 fps)
       timed 5026 gametics in 4866 realtics (36.150841 fps) (-1)
+vexii:timed 5026 gametics in 6349 realtics (27.706726 fps) (no sb, 1i)
+      timed 5026 gametics in 3695 realtics (47.607578 fps) (-1    sb, 2i, 128KB-l2)
+      timed 5026 gametics in 4303 realtics (40.880779 fps) (-1 no sb, 1i)
+      timed 5026 gametics in 3662 realtics (48.036591 fps) (-1 no sb, 1i, 128KB-l2)
+      timed 5026 gametics in 3164 realtics (55.597343 fps) (-1 no sb, 2i, 128KB-l2)
+      timed 5026 gametics in 2724 realtics (64.577827 fps) (-1    sb, 2i, 128KB-l2)
+      timed 5026 gametics in 2897 realtics (60.721436 fps) 2x(-1    sb, 2i, 128KB-l2)
+
+
 
 chocolate-doom -2 -timedemo demo1.lmp  -noblit
 Nax : timed 5026 gametics in 2040 realtics (86.230392 fps)
@@ -329,9 +338,17 @@ Nax : timed 5026 gametics in 2040 realtics (86.230392 fps)
       timed 5026 gametics in 1751 realtics (100.462593 fps)
       timed 5026 gametics in 1737 realtics (101.272308 fps) (LSU2)
 Vex : timed 5026 gametics in 3851 realtics (45.679043 fps)
+vexii:timed 5026 gametics in 3013 realtics (58.383671 fps) (no sb, 1i)
+      timed 5026 gametics in 2556 realtics (68.822380 fps) (no sb, 1i, 128KB-l2)
+      timed 5026 gametics in 2229 realtics (78.918800 fps) (no sb, 2i, 128KB-l2)
+      timed 5026 gametics in 2071 realtics (84.939644 fps) (   sb, 2i, 128KB-l2)
+      timed 5026 gametics in 2175 realtics (80.878159 fps) 2x(   sb, 2i, 128KB-l2)
 
 no draw no blit :
 Nax : timed 5026 gametics in 277 realtics (635.054138 fps
+vexii:timed 5026 gametics in 259 realtics (679.189209 fps)  (-1 no sb, 2i, 128KB-l2)
+      timed 5026 gametics in 252 realtics (698.055542 fps)  (-1    sb, 2i, 128KB-l2)
+
 
 
 root@buildroot:~# ramspeed -b 1 -g  1
