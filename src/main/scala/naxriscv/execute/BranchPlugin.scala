@@ -45,21 +45,22 @@ class BranchPlugin(val euId : String,
   override def euWritebackAt = writebackAt
   override def euCompletionAt = branchAt max writebackAt
 
-  override val setup = create early new Setup{
+  override val setup = create early new BranchSetup
+  class BranchSetup extends Setup {
     getService[RobService].retain()
     val sk = SrcKeys
 
-    add(Rvi.JAL , List(                                    ), List(BRANCH_CTRL -> BranchCtrlEnum.JAL))
-    add(Rvi.JALR, List(              sk.SRC1.RF            ), List(BRANCH_CTRL -> BranchCtrlEnum.JALR))
-    add(Rvi.BEQ , List(              sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BNE , List(              sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BLT , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
-    add(Rvi.BGE , List(sk.Op.LESS  , sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.JAL, List(), List(BRANCH_CTRL -> BranchCtrlEnum.JAL))
+    add(Rvi.JALR, List(sk.SRC1.RF), List(BRANCH_CTRL -> BranchCtrlEnum.JALR))
+    add(Rvi.BEQ, List(sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BNE, List(sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BLT, List(sk.Op.LESS, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
+    add(Rvi.BGE, List(sk.Op.LESS, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
     add(Rvi.BLTU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
     add(Rvi.BGEU, List(sk.Op.LESS_U, sk.SRC1.RF, sk.SRC2.RF), List(BRANCH_CTRL -> BranchCtrlEnum.B))
 
     val withBranchContext = isServiceAvailable[BranchContextPlugin]
-    if(withBranchContext){
+    if (withBranchContext) {
       eu.addRobStageable(getService[BranchContextPlugin].keys.BRANCH_ID)
     }
     val reschedule = getService[CommitService].newSchedulePort(canJump = true, canTrap = !Global.RVC)

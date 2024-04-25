@@ -18,7 +18,7 @@ import spinal.lib.bus.tilelink.fabric.Node
 import spinal.lib.cpu.riscv.debug.DebugModuleFiber
 import spinal.lib.misc.plic.TilelinkPlicFiber
 import spinal.lib.misc.{InterruptNode, TilelinkClintFiber}
-import spinal.lib.system.tag.{MappedNode, MemoryConnection, MemoryTransferTag, MemoryTransfers, PMA}
+import spinal.lib.system.tag.{MappedNode, MemoryConnection, MemoryEndpoint, MemoryTransferTag, MemoryTransfers, PMA}
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -47,7 +47,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
   val system = socResetCtrl.cd on new AreaRoot {
     val mainDataWidth = c.naxPlugins.head.collectFirst { case p: DataCachePlugin => p.memDataWidth }.get
 
-    val naxes = for (p <- naxPlugins) yield new TilelinkNaxRiscvFiber().setPlugins(p)
+    val naxes = for (p <- naxPlugins) yield new TilelinkNaxRiscvFiber(p)
     for (nax <- naxes) {
       nax.dBus.setDownConnection(a = StreamPipe.HALF, d = StreamPipe.M2S, b = StreamPipe.HALF, c = StreamPipe.FULL, e = StreamPipe.HALF)
       nax.iBus.setDownConnection(a = StreamPipe.HALF, d = StreamPipe.M2S)
@@ -113,9 +113,12 @@ class NaxSoc(c : NaxSocConfig) extends Component{
     val toAxi4 = withMem generate new fabric.Axi4Bridge
     if (withMem) {
       toAxi4.up.forceDataWidth(mBusWidth)
+      toAxi4.up << nonCoherent
       toAxi4.down.addTag(PMA.MAIN)
       regions.filter(_.onMemory).foreach(r =>
-        toAxi4.up at r.mapping of nonCoherent
+        toAxi4.down.addTag(new MemoryEndpoint {
+          override def mapping = r.mapping
+        })
       )
     }
 
@@ -158,14 +161,18 @@ class NaxSoc(c : NaxSocConfig) extends Component{
           override def up = toAxiLite4.down
           override def down = self
           override def transformers = Nil
-          override def mapping = region.mapping
+//          override def mapping = region.mapping //TODO
           populate()
         }
+        self.addTag(new MemoryEndpoint {
+          override def mapping = region.mapping
+        })
 
         addTag(new MemoryTransferTag {
           override def get = toAxiLite4.up.m2s.parameters.emits
         })
         if (region.isCachable) addTag(PMA.MAIN)
+        if (region.isExecutable) addTag(PMA.EXECUTABLE)
       }
     }
 
@@ -201,7 +208,7 @@ class NaxSoc(c : NaxSocConfig) extends Component{
       if (withJtagTap) debug.tap.jtag.setName("jtag")
       if (withJtagInstruction) debug.instruction.setName("jtag_instruction")
       if (c.withDebug) {
-        debug.dm.ndmreset.toIo().setName("debug_ndmreset")
+        out(debug.dm.ndmreset).setName("debug_ndmreset")
         debug.cd.reset.setName("debug_reset")
       }
 

@@ -12,7 +12,7 @@ import spinal.lib._
 import naxriscv.utilities._
 import spinal.lib.pipeline._
 import naxriscv.Frontend._
-import naxriscv.Global._
+import naxriscv.Global.{XLEN, _}
 import naxriscv.frontend.DispatchPlugin
 import naxriscv.misc.CommitPlugin
 import spinal.lib.fsm.{State, StateMachine}
@@ -61,7 +61,8 @@ class CsrAccessPlugin(val euId: String)(var writebackAt: Int) extends ExecutionU
   override def onReadToWriteBits = setup.onReadToWriteBits
   override def onWriteFlushPipeline() = setup.onWriteFlushPipeline := True
 
-  val setup = create early new Setup{
+  val setup = create early new CsrSetup
+  class CsrSetup extends Setup {
     val dispatch = getService[DispatchPlugin]
     getServiceOption[CsrRamService] match {
       case Some(x) => x.portLock.retain()
@@ -71,29 +72,29 @@ class CsrAccessPlugin(val euId: String)(var writebackAt: Int) extends ExecutionU
 
     val onDecodeTrap = False
     val onDecodeFlushPipeline = False
-    val onDecodeRead  = Bool()
+    val onDecodeRead = Bool()
     val onDecodeWrite = Bool()
     val onDecodeAddress = UInt(12 bits)
 
-    val onReadHalt  = False
+    val onReadHalt = False
     val onWriteHalt = False
 
     val onReadToWriteBits = Bits(XLEN bits)
     val onWriteBits = Bits(XLEN bits)
     val onWriteAddress = UInt(12 bits)
     val onWriteFlushPipeline = False
-    val onReadAddress  = UInt(12 bits)
+    val onReadAddress = UInt(12 bits)
     val onReadMovingOff = Bool()
     val onWriteMovingOff = Bool()
 
-    add(Rvi.CSRRW , Nil, DecodeList(CSR_IMM -> False, CSR_MASK -> False))
-    add(Rvi.CSRRS , Nil, DecodeList(CSR_IMM -> False, CSR_MASK -> True , CSR_CLEAR -> False))
-    add(Rvi.CSRRC , Nil, DecodeList(CSR_IMM -> False, CSR_MASK -> True , CSR_CLEAR -> True))
-    add(Rvi.CSRRWI, Nil, DecodeList(CSR_IMM -> True , CSR_MASK -> False))
-    add(Rvi.CSRRSI, Nil, DecodeList(CSR_IMM -> True , CSR_MASK -> True , CSR_CLEAR -> False))
-    add(Rvi.CSRRCI, Nil, DecodeList(CSR_IMM -> True , CSR_MASK -> True , CSR_CLEAR -> True))
+    add(Rvi.CSRRW, Nil, DecodeList(CSR_IMM -> False, CSR_MASK -> False))
+    add(Rvi.CSRRS, Nil, DecodeList(CSR_IMM -> False, CSR_MASK -> True, CSR_CLEAR -> False))
+    add(Rvi.CSRRC, Nil, DecodeList(CSR_IMM -> False, CSR_MASK -> True, CSR_CLEAR -> True))
+    add(Rvi.CSRRWI, Nil, DecodeList(CSR_IMM -> True, CSR_MASK -> False))
+    add(Rvi.CSRRSI, Nil, DecodeList(CSR_IMM -> True, CSR_MASK -> True, CSR_CLEAR -> False))
+    add(Rvi.CSRRCI, Nil, DecodeList(CSR_IMM -> True, CSR_MASK -> True, CSR_CLEAR -> True))
 
-    for(op <- List(Rvi.CSRRW, Rvi.CSRRS, Rvi.CSRRC, Rvi.CSRRWI, Rvi.CSRRSI, Rvi.CSRRCI)){
+    for (op <- List(Rvi.CSRRW, Rvi.CSRRS, Rvi.CSRRC, Rvi.CSRRWI, Rvi.CSRRSI, Rvi.CSRRCI)) {
       dispatch.fenceYounger(op)
       dispatch.fenceOlder(op)
     }
@@ -102,7 +103,8 @@ class CsrAccessPlugin(val euId: String)(var writebackAt: Int) extends ExecutionU
     val trap = commit.newSchedulePort(canTrap = true, canJump = false)
   }
 
-  val logic = create late new Logic{
+  val logic = create late new CsrLogic
+  class CsrLogic extends Logic{
     val ram = getServiceOption[CsrRamService] match {
       case Some(x) => x
       case None => null
@@ -380,6 +382,7 @@ class CsrAccessPlugin(val euId: String)(var writebackAt: Int) extends ExecutionU
 
     val whitebox = new AreaRoot {
       import writebackLogic.stage._
+
       val csrAccess = Verilator.public(Flow(new Bundle {
         val robId = ROB.ID()
         val address = UInt(12 bits)

@@ -31,29 +31,9 @@ import java.io.{BufferedWriter, File, FileWriter}
 import java.nio.file.Files
 import scala.collection.mutable.ArrayBuffer
 
-
-
-class TilelinkNaxRiscvFiber() extends Area with RiscvHart{
-  val iBus = Node.master()
-  val dBus = Node.master()
-  val pBus = Node.master()
-  val buses = List(iBus, dBus, pBus)
-  val plugins = Handle[Seq[Plugin]]
-
-  val icfs = ArrayBuffer[InterruptCtrlFiber]()
-  def bind(icf : InterruptCtrlFiber): Unit = {
-    icf.retain()
-    icfs += icf
-  }
-
-  val clint = Handle[TilelinkClintFiber]
-  def bind(clint : TilelinkClintFiber): Unit = {
-    clint.lock.retain()
-    this.clint load clint
-  }
-
-  def setCoherentConfig(hartId : Int, asic : Boolean = false, xlen : Int = 32) : this.type = {
-    plugins load Config.plugins(
+object TilelinkNaxRiscvFiber{
+  def getCoherentConfig(hartId: Int, asic: Boolean = false, xlen: Int = 32) = {
+    Config.plugins(
       withCoherency = true,
       withRdTime = false,
       aluCount = 2,
@@ -63,15 +43,31 @@ class TilelinkNaxRiscvFiber() extends Area with RiscvHart{
       asic = asic,
       xlen = xlen
     )
-    this
   }
-  def setPlugins(p : Seq[Plugin]) : this.type = {
-    plugins.load(p)
-    this
+}
+
+class TilelinkNaxRiscvFiber(val plugins : Seq[Plugin]) extends Area with RiscvHart{
+  val iBus = Node.master()
+  val dBus = Node.master()
+  val pBus = Node.master()
+  val buses = List(iBus, dBus, pBus)
+
+  def bind(icf : InterruptCtrlFiber): Unit = iBus.clockDomain{
+    val intIdPerHart = 1 + privPlugin.p.withSupervisor.toInt
+    mei << icf.createInterruptMaster(privPlugin.p.hartId*intIdPerHart)
+    if(sei != null) sei << icf.createInterruptMaster(privPlugin.p.hartId * intIdPerHart + 1)
   }
 
+  val clint = Handle[TilelinkClintFiber]
+  def bind(clint : TilelinkClintFiber): Unit = iBus.clockDomain{
+    this.clint load clint
+    val clintPort = clint.createPort(privPlugin.p.hartId).setCompositeName(this, "clintPort")
+    mti << clintPort.mti
+    msi << clintPort.msi
+    clintPort.stoptime := False
+  }
 
-  def privPlugin : PrivilegedPlugin = thread.core.framework.getService[PrivilegedPlugin]
+  def privPlugin : PrivilegedPlugin = plugins.collectFirst {case e : PrivilegedPlugin => e}.get
   override def getXlen() = thread.core.framework.getService[DecoderPlugin].xlen
   override def getFlen() = thread.core.framework.getServiceOption[FpuSettingPlugin] match {
     case Some(x) => x.rvd.toInt*64 max x.rvf.toInt*32
@@ -84,31 +80,14 @@ class TilelinkNaxRiscvFiber() extends Area with RiscvHart{
   override def getIntSupervisorExternal() = privPlugin.io.int.supervisor.external
   override def getDebugBus(): DebugHartBus = privPlugin.setup.debugBus
 
+  val mei = InterruptNode.slave()
+  val sei = privPlugin.p.withSupervisor generate InterruptNode.slave()
+  val mti, msi = InterruptNode.slave()
   val thread = Fiber build new Area{
     val l = ArrayBuffer[Plugin]()
     l ++= plugins
 
     val privPlugin = plugins.collectFirst{case p : PrivilegedPlugin => p }.get
-    val intIdPerHart = 1+privPlugin.p.withSupervisor.toInt
-    val mei = new Area{
-      val node = InterruptNode.slave()
-      val drivers = icfs.map(_.createInterruptMaster(privPlugin.p.hartId*intIdPerHart))
-      drivers.foreach(node << _)
-    }
-
-    val sei = privPlugin.p.withSupervisor generate new Area{
-      val node = InterruptNode.slave()
-      val drivers = icfs.map(_.createInterruptMaster(privPlugin.p.hartId*intIdPerHart+1))
-      drivers.foreach(node << _)
-    }
-
-    icfs.foreach(_.release())
-
-    val clintPort = clint.createPort(privPlugin.p.hartId)
-    val mti, msi = InterruptNode.slave()
-    mti << clintPort.mti
-    msi << clintPort.msi
-    clint.lock.release()
 
     // Add a plugin to Nax which will handle the negotiation of the tilelink parameters
     l += new Plugin {
@@ -147,9 +126,11 @@ class TilelinkNaxRiscvFiber() extends Area with RiscvHart{
       case p : PrivilegedPlugin => {
         p.io.int.machine.timer := mti.flag
         p.io.int.machine.software := msi.flag
-        p.io.int.machine.external := mei.node.flag
-        if(p.p.withSupervisor) p.io.int.supervisor.external := sei.node.flag
-        if(p.p.withRdTime) p.io.rdtime := clint.thread.core.io.time
+        p.io.int.machine.external := mei.flag
+        if(p.p.withSupervisor) p.io.int.supervisor.external := sei.flag
+        if(p.p.withRdTime) {
+          p.io.rdtime := clint.thread.core.io.time
+        }
       }
       case _ =>
     }

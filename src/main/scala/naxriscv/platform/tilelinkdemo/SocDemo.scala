@@ -18,7 +18,7 @@ import spinal.lib.system.tag.PMA
 // SocDemo is a little SoC made only for simulation purposes.
 class SocDemo(cpuCount : Int, withL2 : Boolean = true, asic : Boolean = false, xlen : Int = 32) extends Component {
   // Create a few NaxRiscv cpu
-  val naxes = for(hartId <- 0 until cpuCount) yield new TilelinkNaxRiscvFiber().setCoherentConfig(hartId, asic = asic, xlen = xlen)
+  val naxes = for(hartId <- 0 until cpuCount) yield new TilelinkNaxRiscvFiber(TilelinkNaxRiscvFiber.getCoherentConfig(hartId, asic = asic, xlen = xlen))
 
   // As NaxRiscv may emit memory request to some unmapped memory space, we need to catch those with TransactionFilter
   val memFilter, ioFilter = new fabric.TransferFilter()
@@ -75,11 +75,12 @@ class SocDemo(cpuCount : Int, withL2 : Boolean = true, asic : Boolean = false, x
         )
       )
     )
-    emulated.node << bus
+    emulated.node at(0, 0x1000) of bus
 
     val custom = Fiber build new Area{
       val mei,sei = in Bool()
       naxes.foreach{ hart =>
+        hart.thread.get
         hart.getIntMachineExternal() setWhen mei
         hart.getIntSupervisorExternal() setWhen sei
       }
