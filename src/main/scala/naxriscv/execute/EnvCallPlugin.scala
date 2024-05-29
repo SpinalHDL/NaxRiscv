@@ -92,7 +92,7 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
     when(XRET){
       setup.reschedule.cause            := CAUSE_XRET //the reschedule cause isn't the final value which will end up into XCAUSE csr
       setup.reschedule.tval(1 downto 0) := xretPriv.asBits
-      when(xretPriv < priv.getPrivilege()){
+      when(xretPriv > priv.getPrivilege()){
         setup.reschedule.cause      := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
         setup.reschedule.reason     := ScheduleReason.TRAP
         setup.reschedule.skipCommit := True
