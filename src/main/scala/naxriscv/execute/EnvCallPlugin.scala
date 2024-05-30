@@ -89,14 +89,12 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
     setup.reschedule.cause.assignDontCare()
 
     val xretPriv = Frontend.MICRO_OP(29 downto 28).asUInt
+    val trap = False
     when(XRET){
       setup.reschedule.cause            := CAUSE_XRET //the reschedule cause isn't the final value which will end up into XCAUSE csr
       setup.reschedule.tval(1 downto 0) := xretPriv.asBits
-      when(xretPriv > priv.getPrivilege()){
-        setup.reschedule.cause      := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
-        setup.reschedule.reason     := ScheduleReason.TRAP
-        setup.reschedule.skipCommit := True
-      }
+      trap setWhen (xretPriv > priv.getPrivilege())
+      if(priv.p.withSupervisor) trap setWhen (priv.logic.machine.mstatus.tsr && priv.getPrivilege() === 1 && xretPriv === 1)
     }
     when(EBREAK){
       setup.reschedule.cause      := CSR.MCAUSE_ENUM.BREAKPOINT
@@ -104,9 +102,18 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
     when(ECALL){
       setup.reschedule.cause      := CSR.MCAUSE_ENUM.ECALL_MACHINE //the reschedule cause isn't the final value which will end up into XCAUSE csr
     }
-
     when(FENCE_I || FENCE_VMA || FLUSH_DATA){
       setup.reschedule.cause      := CAUSE_FLUSH
+    }
+    if(priv.p.withSupervisor) when(FENCE_VMA){
+      trap setWhen(priv.getPrivilege() === 1 && priv.logic.machine.mstatus.tvm)
+      trap setWhen(priv.getPrivilege() === 0)
+    }
+
+    when(trap){
+      setup.reschedule.cause := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
+      setup.reschedule.reason := ScheduleReason.TRAP
+      setup.reschedule.skipCommit := True
     }
 
     //Handle FENCE.I and FENCE.VMA

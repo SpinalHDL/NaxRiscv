@@ -201,8 +201,12 @@ class MmuPlugin(var spec : MmuSpec,
 //    csr.readWriteRam(CSR.SATP) not suported by writeCancel
 
     csr.onDecode(CSR.SATP){
-      csr.onDecodeFlushPipeline()
-      setup.invalidatePort.cmd.valid := True
+      when(priv.logic.machine.mstatus.tvm && priv.getPrivilege() === 1){
+        csr.onDecodeTrap()
+      } otherwise {
+        csr.onDecodeFlushPipeline()
+        setup.invalidatePort.cmd.valid := True
+      }
     }
 
     ram.allocationLock.release()
