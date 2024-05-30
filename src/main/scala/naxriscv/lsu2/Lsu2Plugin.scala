@@ -1664,7 +1664,7 @@ class Lsu2Plugin(var lqSize: Int,
 
 
       val atomic = new StateMachine{
-        val IDLE, LOAD_CMD, LOAD_RSP, LOCK_DELAY, ALU, COMPLETION, SYNC, TRAP = new State
+        val IDLE, LOAD_CMD, LOAD_RSP, LOCK_DELAY, ALU, COMPLETION, SYNC, TRAP, TRAP_WAIT = new State
         setEntry(IDLE)
 
         setEncoding(binaryOneHot)
@@ -1787,6 +1787,10 @@ class Lsu2Plugin(var lqSize: Int,
 
         TRAP whenIsActive{
           setup.specialTrap.valid := True
+          goto(TRAP_WAIT)
+        }
+
+        TRAP_WAIT whenIsActive{
           goto(IDLE)
         }
 
