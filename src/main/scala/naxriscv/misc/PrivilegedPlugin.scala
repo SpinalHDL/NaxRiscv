@@ -416,6 +416,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       val tval    = csr.readWriteRam(CSR.MTVAL)
       val epc     = csr.readWriteRam(CSR.MEPC)
       val scratch = csr.readWriteRam(CSR.MSCRATCH)
+      csr.writeOverride(U(0, RVC.get.mux(1, 2) bits), CSR.MEPC, 0)
 
       csr.read(U(p.vendorId),CSR.MVENDORID) // MRO Vendor ID.
       csr.read(U(p.archId),  CSR.MARCHID) // MRO Architecture ID.
@@ -504,6 +505,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       val tval    = csr.readWriteRam(CSR.STVAL)
       val epc     = csr.readWriteRam(CSR.SEPC)
       val scratch = csr.readWriteRam(CSR.SSCRATCH)
+      csr.writeOverride(U(0, RVC.get.mux(1, 2) bits), CSR.SEPC, 0)
 
       csr.readWrite(CSR.SCAUSE, XLEN-1 -> cause.interrupt, 0 -> cause.code)
 
@@ -546,6 +548,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       val tval    = csr.readWriteRam(CSR.UTVAL)
       val epc     = csr.readWriteRam(CSR.UEPC)
       val scratch = csr.readWriteRam(CSR.USCRATCH)
+      csr.writeOverride(U(0, RVC.get.mux(1, 2) bits), CSR.UEPC, 0)
     }
 
     if(p.withRdTime) {

@@ -488,6 +488,11 @@ trait CsrService extends Service with LockedImpl{
     }
   }
 
+  def writeOverride[T <: Data](value: T, csrFilter: Any, bitOffset: Int = 0): Unit = {
+    onWrite(csrFilter, false) {
+      onWriteBits(bitOffset, widthOf(value) bits) := value.asBits
+    }
+  }
   def readWrite(csrAddress : Int, thats : (Int, Data)*) : Unit = for(that <- thats) readWrite(that._2, csrAddress, that._1)
   def write(csrAddress : Int, thats : (Int, Data)*) : Unit = for(that <- thats) write(that._2, csrAddress, that._1)
   def read(csrAddress : Int, thats : (Int, Data)*) : Unit = for(that <- thats) read(that._2, csrAddress, that._1)
