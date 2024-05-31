@@ -34,6 +34,12 @@ install_spike(){
   g++ --shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/lib  -o package.so spike.o  libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
   cp -f package.so ~/tools/spike.so
   cp -f config.h ~/tools/spike.h
+  cp -f libspike_main.a ~/tools
+  cp -f libriscv.a ~/tools
+  cp -f libdisasm.a ~/tools
+  cp -f libsoftfloat.a ~/tools
+  cp -f libfesvr.a ~/tools
+  cp -f libfdt.a ~/tools
 }
 
 install_elfio(){
@@ -58,6 +64,12 @@ install_uncached(){
   mkdir -p $NAXRISCV/ext/riscv-isa-sim/build
   cp -f ~/tools/spike.so $NAXRISCV/ext/riscv-isa-sim/build/package.so
   cp -f ~/tools/spike.h $NAXRISCV/ext/riscv-isa-sim/build/config.h
+  cp -f ~/tools/libspike_main.a $NAXRISCV/ext/riscv-isa-sim/build
+  cp -f ~/tools/libriscv.a $NAXRISCV/ext/riscv-isa-sim/build
+  cp -f ~/tools/libdisasm.a $NAXRISCV/ext/riscv-isa-sim/build
+  cp -f ~/tools/libsoftfloat.a $NAXRISCV/ext/riscv-isa-sim/build
+  cp -f ~/tools/libfesvr.a $NAXRISCV/ext/riscv-isa-sim/build
+  cp -f ~/tools/libfdt.a $NAXRISCV/ext/riscv-isa-sim/build
 }
 
 install_cached(){
