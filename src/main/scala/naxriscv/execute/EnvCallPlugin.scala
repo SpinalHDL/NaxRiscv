@@ -81,7 +81,10 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
     import stage._
     import s._
 
-    setup.reschedule.valid      := isValid && (EBREAK || ECALL || XRET || FENCE_I || FLUSH_DATA || FENCE_VMA)
+    setup.reschedule.valid      := isValid && (
+      EBREAK || ECALL || XRET || FENCE_I || FLUSH_DATA || FENCE_VMA ||
+      WFI && priv.logic.machine.mstatus.tw && !priv.isMachine()
+    )
     setup.reschedule.robId      := ROB.ID
     setup.reschedule.tval       := B(PC).andMask(EBREAK) //That's what spike do
     setup.reschedule.skipCommit := EBREAK || ECALL
@@ -108,6 +111,9 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
     if(priv.p.withSupervisor) when(FENCE_VMA){
       trap setWhen(priv.getPrivilege() === 1 && priv.logic.machine.mstatus.tvm)
       trap setWhen(priv.getPrivilege() === 0)
+    }
+    if (priv.p.withUser) when(WFI) {
+      trap := True
     }
 
     when(trap){
