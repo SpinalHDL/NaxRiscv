@@ -83,7 +83,7 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
 
     setup.reschedule.valid      := isValid && (
       EBREAK || ECALL || XRET || FENCE_I || FLUSH_DATA || FENCE_VMA ||
-      WFI && priv.logic.machine.mstatus.tw && !priv.isMachine()
+      WFI && (priv.logic.machine.mstatus.tw && !priv.isMachine() || priv.isUser())
     )
     setup.reschedule.robId      := ROB.ID
     setup.reschedule.tval       := B(PC).andMask(EBREAK) //That's what spike do
