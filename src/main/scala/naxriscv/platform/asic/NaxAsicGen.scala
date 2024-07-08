@@ -58,7 +58,7 @@ object NaxAsicGen extends App{
       mmuSets = 4,
       regFileFakeRatio = regFileFakeRatio,
       //      withCoherency = true,
-      ioRange = a => a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
+      ioRange = a => !a(31) //a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
     )
 
     l.foreach{

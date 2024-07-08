@@ -40,7 +40,7 @@ class NaxRiscv(val plugins : Seq[Plugin]) extends Component{
 object Config{
   def plugins(resetVector : BigInt = 0x80000000l,
               withRdTime : Boolean = true,
-              ioRange    : UInt => Bool = _(31 downto 28) === 0x1,
+              ioRange    : UInt => Bool = !_(31),
               fetchRange : UInt => Bool = _(31 downto 28) =/= 0x1,
               aluCount : Int = 2,
               decodeCount : Int = 2,
@@ -477,7 +477,7 @@ object Gen extends App{
       lqSize = 16,
       sqSize = 16,
 //      withCoherency = true,
-      ioRange = a => a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
+      ioRange = a => !a(31) //a(31 downto 28) === 0x1// || !a(12)//(a(5, 6 bits) ^ a(12, 6 bits)) === 51
     )
     l.foreach{
       case p : EmbeddedJtagPlugin => p.debugCd.load(ClockDomain.current.copy(reset = Bool().setName("debug_reset")))
