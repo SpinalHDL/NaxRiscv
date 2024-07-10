@@ -392,7 +392,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         if(RVF) setup.isFpuEnabled setWhen(fs =/= 0)
         if(withFs) sd setWhen(fs === 3)
 
-        val tsr, tw, tvm = p.withSupervisor generate RegInit(False)
+        val tsr, tvm = p.withSupervisor generate RegInit(False)
+        val tw = p.withUser.mux(RegInit(False), False)
       }
       val mip = new Area{
         val meip = RegNext(io.int.machine.external) init(False)
@@ -435,7 +436,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       csr.read     (CSR.MSTATUS, XLEN-1 -> mstatus.sd)
       csr.read     (CSR.MIP, 11 -> mip.meip, 7 -> mip.mtip, 3 -> mip.msip)
       csr.readWrite(CSR.MIE, 11 -> mie.meie, 7 -> mie.mtie, 3 -> mie.msie)
-      if(p.withSupervisor) csr.readWrite(CSR.MSTATUS, 22 -> mstatus.tsr, 21 -> mstatus.tw, 20 -> mstatus.tvm)
+      if (p.withSupervisor) csr.readWrite(CSR.MSTATUS, 22 -> mstatus.tsr, 20 -> mstatus.tvm)
+      if (p.withUser) csr.readWrite(CSR.MSTATUS, 21 -> mstatus.tw)
 
 
       if(withFs) csr.readWrite(CSR.MSTATUS, 13 -> mstatus.fs)
