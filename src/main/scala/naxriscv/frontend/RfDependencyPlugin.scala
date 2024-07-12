@@ -64,28 +64,15 @@ class DependencyStorage(physDepth : Int,
   }
 
   val status = new Area{
-    val busy = Mem.fill(physDepth)(Bool())
-    val write = for(p <- io.writes){
-      busy.write(
-        address = p.physical,
-        data = True,
-        enable = p.valid
-      )
-    }
-    val commit = for(p <- io.commits) yield new Area{
-      when(p.valid){
-        busy.write(
-          address = p.physical,
-          data = False,
-          enable = p.valid
-        )
-      }
-    }
+    val busy = Reg(Bits(physDepth bits))
+    val sets = io.writes.map(e => UIntToOh(e.physical).andMask(e.valid)).reduceBalancedTree(_ | _)
+    val clears = io.commits.map(e => UIntToOh(e.physical).andMask(e.valid)).reduceBalancedTree(_ | _)
+    busy := (busy & ~clears) | sets
   }
 
   val read = for(p <- io.reads) yield new Area{
     val robId = translation.physToRob.readAsync(p.cmd.payload)
-    val enabled = status.busy.readAsync(p.cmd.payload) //TODO as it was optimize, maybe we do not need the [dispatch] stage anymore in the frontend plugin
+    val enabled = status.busy(p.cmd.payload) //TODO as it was optimize, maybe we do not need the [dispatch] stage anymore in the frontend plugin
     p.rsp.valid := p.cmd.valid
     p.rsp.enable := enabled
     p.rsp.rob := robId
