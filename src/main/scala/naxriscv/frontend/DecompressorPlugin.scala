@@ -173,7 +173,10 @@ object RvcDecompressor{
       is(15){ ret.inst := bImm(12) ## bImm(10 downto 5) ## x0 ## rch ## B"001" ## bImm(4 downto 1) ## bImm(11) ## B"1100011" }
       is(16){ ret.inst := B"000000" ## i(12) ## i(6 downto 2) ## i(11 downto 7) ## B"001" ## i(11 downto 7) ## B"0010011"   }
       if(rvd) is(17){ret.inst := ldspImm ## x2 ## B"011" ## i(11 downto 7) ## B"0000111" } // C.FLDSP
-      is(18){ ret.inst := lwspImm ## x2 ## B"010" ## i(11 downto 7) ## B"0000011" }
+      is(18) {
+        ret.inst := lwspImm ## x2 ## B"010" ## i(11 downto 7) ## B"0000011"
+        ret.illegal setWhen (i(11 downto 7) === 0)
+      }
       if(xlen == 32 && rvf) is(19){ret.inst := lwspImm ## x2 ## B"010" ## i(11 downto 7) ## B"0000111" } // C.FLWSP
       if(xlen == 64) is(19){ret.inst := ldspImm ## x2 ## B"011" ## i(11 downto 7) ## B"0000011" } // C.LDSP
       is(20) {
