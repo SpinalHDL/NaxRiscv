@@ -75,7 +75,7 @@ class SocDemo(cpuCount : Int, withL2 : Boolean = true, asic : Boolean = false, x
         )
       )
     )
-    emulated.node at(0, 0x1000) of bus
+    emulated.node at(0, 0x10000000) of bus
 
     val custom = Fiber build new Area{
       val mei,sei = in Bool()
