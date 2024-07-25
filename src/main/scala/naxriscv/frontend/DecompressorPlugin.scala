@@ -48,8 +48,6 @@ class DecompressorPlugin(var enabled : Boolean, var pipelined : Boolean) extends
         )
         stage(INSTRUCTION_DECOMPRESSED, i) := (isRvc ? decompressor.inst | inst)
         stage(INSTRUCTION_ILLEGAL, i) := isRvc && decompressor.illegal
-        //TODO don't forget to mask INSTRUCTION_DECOMPRESSED upper bits if RVC for traps mtval
-        //TODO trap on illegal RVC
       }
     }
     setup.frontend.release()
@@ -108,7 +106,7 @@ object RvcDecompressor{
       default{ ret.illegal := True }
       is(0){
         ret.inst := addi5spnImm ## B"00010" ## B"000" ## rcl ## B"0010011"
-        ret.illegal setWhen(i(12 downto 2) === 0)
+        ret.illegal setWhen(i(12 downto 5) === 0)//imm!=0
       } //C.ADDI4SPN -> addi rd0, x2, nzuimm[9:2].
       if(rvd) is(1){ret.inst := ldImm ## rch ##  B"011" ## rcl ## B"0000111"} // C.FLD
       is(2){ret.inst := lwImm ## rch ## B"010" ## rcl ## B"0000011"} //C.LW -> lw rd', offset[6:2](rs1')
@@ -120,12 +118,16 @@ object RvcDecompressor{
       if(xlen == 64) is(7){ret.inst := sdImm(11 downto 5) ## rcl  ## rch ## B"011" ## sdImm(4 downto 0) ## B"0100011"} // C.SD
       is(8){ret.inst := addImm ## i(11 downto 7) ## B"000" ## i(11 downto 7) ## B"0010011"} //C.ADDI -> addi rd, rd, nzimm[5:0].
       if(xlen == 32) is(9){ret.inst := jalImm(20) ## jalImm(10 downto 1) ## jalImm(11) ## jalImm(19 downto 12) ## x1 ## B"1101111"} //C.JAL -> jalr x1, rs1, 0.
-      if(xlen == 64) is(9){ret.inst := addImm ## i(11 downto 7) ## B"000" ## i(11 downto 7) ## B"0011011"} //C.JAL -> jalr x1, rs1, 0.
+      if(xlen == 64) is(9){//C.ADDIW -> addiw rd, rd, nzimm[5:0].
+        ret.inst := addImm ## i(11 downto 7) ## B"000" ## i(11 downto 7) ## B"0011011"
+        ret.illegal setWhen(i(11 downto 7) === 0) //rd!=0
+      }
       is(10){ret.inst := lImm ## B"00000" ## B"000" ## i(11 downto 7) ## B"0010011"} //C.LI -> addi rd, x0, imm[5:0].
       is(11){  //C.ADDI16SP    C.LUI ->
         val addi16sp =  addi16spImm ## i(11 downto 7) ## B"000" ## i(11 downto 7) ## B"0010011"
         val lui      =  luiImm(31 downto 12) ## i(11 downto 7) ## B"0110111"
         ret.inst := (i(11 downto 7) === 2) ? addi16sp | lui
+        ret.illegal setWhen(i(6 downto 2) === 0 && i(12) === False) //imm!=0
       }
       is(12){
         val srli = shamt ## rch ## B"101" ## rch ## B"0010011"
@@ -172,18 +174,24 @@ object RvcDecompressor{
       is(14){ ret.inst := bImm(12) ## bImm(10 downto 5) ## x0 ## rch ## B"000" ## bImm(4 downto 1) ## bImm(11) ## B"1100011" }
       is(15){ ret.inst := bImm(12) ## bImm(10 downto 5) ## x0 ## rch ## B"001" ## bImm(4 downto 1) ## bImm(11) ## B"1100011" }
       is(16){ ret.inst := B"000000" ## i(12) ## i(6 downto 2) ## i(11 downto 7) ## B"001" ## i(11 downto 7) ## B"0010011"   }
-      if(rvd) is(17){ret.inst := ldspImm ## x2 ## B"011" ## i(11 downto 7) ## B"0000111" } // C.FLDSP
-      is(18){ ret.inst := lwspImm ## x2 ## B"010" ## i(11 downto 7) ## B"0000011" }
+      if(rvd) is(17){ret.inst := ldspImm ## x2 ## B"011" ## i(11 downto 7) ## B"0000111"}// C.FLDSP
+      is(18){ // C.LWSP
+        ret.inst := lwspImm ## x2 ## B"010" ## i(11 downto 7) ## B"0000011" 
+        ret.illegal setWhen(i(11 downto 7) === 0) //rd!=0
+      }
       if(xlen == 32 && rvf) is(19){ret.inst := lwspImm ## x2 ## B"010" ## i(11 downto 7) ## B"0000111" } // C.FLWSP
-      if(xlen == 64) is(19){ret.inst := ldspImm ## x2 ## B"011" ## i(11 downto 7) ## B"0000011" } // C.LDSP
+      if(xlen == 64) is(19){ // C.LDSP
+        ret.inst := ldspImm ## x2 ## B"011" ## i(11 downto 7) ## B"0000011"
+        ret.illegal setWhen(i(11 downto 7) === 0) //rd!=0
+      }
       is(20) {
         val add = B"000_0000" ## i(6 downto 2) ## (i(12) ? i(11 downto 7) | x0) ## B"000" ## i(11 downto 7) ## B"0110011"   //add => add rd, rd, rs2  mv => add rd, x0, rs2
         val j =  B"0000_0000_0000" ## i(11 downto 7) ## B"000" ## (i(12) ? x1 | x0)  ## B"1100111"  //jr => jalr x0, rs1, 0.    jalr => jalr x1, rs1, 0.
         val ebreak = B"000000000001_00000_000_00000_1110011" //EBREAK
         val addJ = (i(6 downto 2) === 0) ? j | add
         ret.inst := (i(12 downto 2) === B"100_0000_0000") ? ebreak | addJ
+        ret.illegal setWhen(i(11 downto 7) === 0 && i(6 downto 2) === 0 && i(12) === False) //rs!=0 for C.JR
       }
-
       if(rvd) is(21){ret.inst := sdspImm(11 downto 5) ## i(6 downto 2)  ## x2 ## B"011" ## sdspImm(4 downto 0) ## B"0100111" } // C.FSDSP
       is(22){ ret.inst := swspImm(11 downto 5) ## i(6 downto 2)  ## x2 ## B"010" ## swspImm(4 downto 0) ## B"0100011" }
       if(xlen == 32 && rvf) is(23){ret.inst := swspImm(11 downto 5) ## i(6 downto 2)  ## x2 ## B"010" ## swspImm(4 downto 0) ## B"0100111" } // C.FSwSP

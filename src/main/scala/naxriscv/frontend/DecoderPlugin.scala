@@ -306,8 +306,10 @@ class DecoderPlugin(val xlen : Int) extends Plugin with DecoderService with Lock
       val debugEnterReg = RegNextWhen(setup.debugEnter, !trigged)
       val epcReg   = RegNextWhen(getAll(PC), !trigged)
       val instReg = RegNextWhen(getAll(INSTRUCTION_ALIGNED), !trigged)
+      val compressedFaultReg = RegNextWhen(getAll(INSTRUCTION_ILLEGAL), !trigged)
       val oh = OHMasking.first(exceptionReg)
 
+      val compressedFault = OHMux.or(oh, compressedFaultReg)
       val fetchFault      = OHMux.or(oh, fetchFaultReg)
       val fetchFaultPage  = OHMux.or(oh, fetchFaultPageReg)
       val fetchFaultSlice = OHMux.or(oh, fetchFaultSliceReg)
@@ -333,7 +335,10 @@ class DecoderPlugin(val xlen : Int) extends Plugin with DecoderService with Lock
           setup.exceptionPort.cause := CSR.MCAUSE_ENUM.INSTRUCTION_ACCESS_FAULT
         }
         setup.exceptionPort.tval  := B(pc + (fetchFaultSlice << SLICE_RANGE_LOW)).resized //TODO PC sign extends ?
-      } otherwise {
+      }elsewhen(compressedFault){
+        setup.exceptionPort.cause := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
+        setup.exceptionPort.tval  := (OHMux.or(oh, instReg) & 0xFFFF).resized // mask INSTRUCTION_ALIGNED upper bits for RVC traps mtval
+      }otherwise {
         setup.exceptionPort.cause := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
         setup.exceptionPort.tval  := OHMux.or(oh, instReg).resized
       }
