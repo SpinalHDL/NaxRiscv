@@ -55,8 +55,7 @@ class PerformanceCounterPlugin(var additionalCounterCount : Int,
 
     if(priv.implementSupervisor) csr.allowCsr(CSR.SCOUNTEREN)
     csr.allowCsr(CSR.MCOUNTEREN)
-    csr.allowCsr(CsrListFilter((3 to 31).flatMap(e => List(e + 0xB00, e + 0x320))))
-    if(withHigh) csr.allowCsr(CsrListFilter((3 to 31).flatMap(e => List(e + 0xB80))))
+    csr.allowCsr(CsrListFilter((3 to 31).flatMap(e => List(e + 0xB00, e + 0x320) ++ withHigh.option(e + 0xB80))))
 
     val commitMask = getService[CommitService].onCommit().mask
     val commitCount = CountOne(commitMask)
