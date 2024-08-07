@@ -46,7 +46,9 @@ class MulPlugin(val euId : String,
                 var writebackAt : Int = 2,
                 var splitWidthA : Int = 17,
                 var splitWidthB : Int = 17,
-                var staticLatency : Boolean = true,
+                var staticLatency: Boolean = true,
+                var keepMulInput: Boolean = true,
+                var keepMulOutput: Boolean = true,
                 var useRsUnsignedPlugin : Boolean = false,
                 var bufferedHigh : Option[Boolean] = None) extends ExecutionUnitElementSimple(euId, staticLatency) {
   import MulPlugin._
@@ -97,8 +99,10 @@ class MulPlugin(val euId : String,
         case false => {
           MUL_SRC1 := (RS1_SIGNED && rs1.msb) ## (rs1)
           MUL_SRC2 := (RS2_SIGNED && rs2.msb) ## (rs2)
-          KeepAttribute(stage(MUL_SRC1))
-          KeepAttribute(stage(MUL_SRC2))
+          if(keepMulInput) {
+            KeepAttribute(stage(MUL_SRC1))
+            KeepAttribute(stage(MUL_SRC2))
+          }
         }
         case true => {
           MUL_SRC1 := RS1_UNSIGNED.asBits
@@ -115,7 +119,9 @@ class MulPlugin(val euId : String,
       val splits = MulSpliter(SRC_WIDTH, SRC_WIDTH, splitWidthA, splitWidthB, !useRsUnsignedPlugin, !useRsUnsignedPlugin)
       // Generate the partial multiplications from the splits data model
       val VALUES = splits.map(s => insert(s.toMulU(MUL_SRC1, MUL_SRC2, finalWidth)))
-      VALUES.foreach(e => KeepAttribute(stage(e)))
+      if(keepMulOutput) {
+        VALUES.foreach(e => KeepAttribute(stage(e)))
+      }
     }
 
     // sourcesSpec will track the partial sum positions

@@ -16,9 +16,11 @@ import naxriscv.fetch._
 import naxriscv.interfaces.CommitService
 import naxriscv.lsu._
 import naxriscv.lsu2.Lsu2Plugin
+import naxriscv.platform.litex.blackboxPolicy
 import naxriscv.prediction._
 import naxriscv.riscv.IntRegFile
 import naxriscv.utilities._
+import spinal.core.internals.{MemTopology, PhaseContext, PhaseMemBlackboxing}
 import spinal.lib.{LatencyAnalysis, Timeout}
 import spinal.lib.bus.amba4.axi.Axi4SpecRenamer
 import spinal.lib.bus.amba4.axilite.AxiLite4SpecRenamer
@@ -60,7 +62,9 @@ object Config{
               branchCount : Int = 16,
               withFloat  : Boolean = false,
               withDouble : Boolean = false,
-              withLsu2 : Boolean = true,
+              withLsu2: Boolean = true,
+              keepMulInput: Boolean = true,
+              keepMulOutput: Boolean = true,
               lqSize : Int = 16,
               sqSize : Int = 16,
               simulation : Boolean = GenerationFlags.simulation,
@@ -331,7 +335,13 @@ object Config{
     plugins += new SrcPlugin("EU0")
     plugins += new RsUnsignedPlugin("EU0")
     plugins += (asic match {
-      case false => new MulPlugin(euId = "EU0", writebackAt = 2, staticLatency = false)
+      case false => new MulPlugin(
+        euId = "EU0",
+        writebackAt = 2,
+        staticLatency = false,
+        keepMulInput = keepMulInput,
+        keepMulOutput = keepMulOutput
+      )
       case true => new MulPlugin(
         euId = "EU0",
         sumAt = 0,
@@ -340,7 +350,9 @@ object Config{
         splitWidthA = xlen,
         splitWidthB = 1,
         useRsUnsignedPlugin = false,
-        staticLatency = false
+        staticLatency = false,
+        keepMulInput = keepMulInput,
+        keepMulOutput = keepMulOutput
       )
     })
     plugins += new DivPlugin("EU0", writebackAt = 2)
@@ -463,7 +475,7 @@ object Gen extends App{
       withRdTime = false,
       aluCount    = 2,
       decodeCount = 2,
-      debugTriggers = 4,
+      debugTriggers = 0,
       withDedicatedLoadAgu = false,
       withRvc = false,
       withLoadStore = true,
