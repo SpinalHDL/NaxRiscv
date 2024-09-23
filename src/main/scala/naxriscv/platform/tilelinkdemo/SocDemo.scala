@@ -6,7 +6,7 @@ import riscv.model.Model
 import spinal.core._
 import spinal.core.fiber._
 import spinal.lib.StreamPipe
-import spinal.lib.bus.misc.SizeMapping
+import spinal.lib.bus.misc.{OrMapping, SizeMapping}
 import spinal.lib.bus.tilelink
 import spinal.lib.bus.tilelink._
 import spinal.lib.bus.tilelink.coherent.{CacheFiber, HubFiber}
@@ -75,7 +75,7 @@ class SocDemo(cpuCount : Int, withL2 : Boolean = true, asic : Boolean = false, x
         )
       )
     )
-    emulated.node at(0, 0x10000000) of bus
+    emulated.node at(OrMapping(List(SizeMapping(0, 0x1000), SizeMapping(0xF000000l, 0x1000000l)))) of bus
 
     val custom = Fiber build new Area{
       val mei,sei = in Bool()
