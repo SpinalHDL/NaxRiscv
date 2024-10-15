@@ -820,6 +820,13 @@ public:
     Memory memory;
     queue<IoAccess> mmioDut;
 
+    // Configuration and Harts
+    const cfg_t cfg;
+    const std::map<size_t, processor_t*> harts;
+
+    sim_wrap(const cfg_t& configuration)
+    : cfg(configuration) {}
+
     // should return NULL for MMIO addresses
     virtual char* addr_to_mem(reg_t addr)  {
         if((addr & 0xE0000000) == 0x00000000) return NULL;
@@ -865,6 +872,14 @@ public:
 //        printf("proc_reset %d\n", id);
     }
 
+    virtual const cfg_t& get_cfg() const override {
+        return cfg;
+    }
+
+    virtual const std::map<size_t, processor_t*>& get_harts() const override {
+        return harts;
+    }
+    
     virtual const char* get_symbol(uint64_t addr)  {
 //        printf("get_symbol %lx\n", addr);
         return NULL;
@@ -1038,7 +1053,7 @@ public:
     bool statsCaptureEnable = true;
     NaxStats stats;
 
-    NaxWhitebox(VNaxRiscv_NaxRiscv* nax): robToPc{MAP_INIT(&nax->robToPc_pc_,  DISPATCH_COUNT,)},
+    NaxWhitebox(VNaxRiscv_NaxRiscv* nax, const isa_parser_t* isa_parser): robToPc{MAP_INIT(&nax->robToPc_pc_,  DISPATCH_COUNT,)},
             integer_write_valid{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _valid)},
             integer_write_robId{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _robId)},
             integer_write_data{MAP_INIT(&nax->integer_write_,  INTEGER_WRITE_COUNT, _data)},
@@ -1060,7 +1075,7 @@ public:
             decoded_instruction{MAP_INIT(&nax->FrontendPlugin_decoded_Frontend_INSTRUCTION_DECOMPRESSED_,  DISPATCH_COUNT,)},
             decoded_pc{MAP_INIT(&nax->FrontendPlugin_decoded_PC_,  DISPATCH_COUNT,)},
             dispatch_mask{MAP_INIT(&nax->FrontendPlugin_dispatch_Frontend_DISPATCH_MASK_,  DISPATCH_COUNT,)},
-            disasm(XLEN){
+            disasm(isa_parser){
         this->nax = nax;
     }
 
@@ -1753,7 +1768,12 @@ void verilatorInit(int argc, char** argv){
     Verilated::mkdir("logs");
 }
 
+cfg_t cfg;
+
 void spikeInit(){
+    std::string isa;
+    std::string priv;
+    
     fptr = trace_ref ? fopen((outputDir + "/spike.log").c_str(),"w") : NULL;
     std::ofstream outfile ("/dev/null",std::ofstream::binary);
     wrap = new sim_wrap();
