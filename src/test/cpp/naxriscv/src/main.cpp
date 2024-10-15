@@ -821,11 +821,11 @@ public:
     queue<IoAccess> mmioDut;
 
     // Configuration and Harts
-    const cfg_t cfg;
+    const cfg_t * const cfg;
     const std::map<size_t, processor_t*> harts;
 
-    sim_wrap(const cfg_t& configuration)
-    : cfg(configuration) {}
+    sim_wrap(const cfg_t *config)
+    : cfg(config) {}
 
     // should return NULL for MMIO addresses
     virtual char* addr_to_mem(reg_t addr)  {
@@ -873,13 +873,13 @@ public:
     }
 
     virtual const cfg_t& get_cfg() const override {
-        return cfg;
+        return *cfg;
     }
 
     virtual const std::map<size_t, processor_t*>& get_harts() const override {
         return harts;
     }
-    
+
     virtual const char* get_symbol(uint64_t addr)  {
 //        printf("get_symbol %lx\n", addr);
         return NULL;
@@ -1776,8 +1776,7 @@ void spikeInit(){
     
     fptr = trace_ref ? fopen((outputDir + "/spike.log").c_str(),"w") : NULL;
     std::ofstream outfile ("/dev/null",std::ofstream::binary);
-    wrap = new sim_wrap();
-    string isa;
+
     #if XLEN==32
     isa += "RV32I";
     #else
@@ -1791,7 +1790,16 @@ void spikeInit(){
     isa += "D";
     #endif
     if(RVC) isa += "C";
-    proc = new processor_t(isa.c_str(), "MSU", "", wrap, 0, false, fptr, outfile);
+    priv = "MSU";
+    // Initialization of the config class
+    cfg.isa = isa.c_str();
+    cfg.priv = priv.c_str();
+    cfg.misaligned = false;
+    cfg.pmpregions = 0;
+    cfg.hartids.push_back(0);
+    // Instantiation
+    wrap = new sim_wrap(&cfg);
+    proc = new processor_t(isa.c_str(), priv.c_str(), &cfg, wrap, 0, false, fptr, outfile);
     proc->set_impl(IMPL_MMU_SV32, XLEN == 32);
     proc->set_impl(IMPL_MMU_SV39, XLEN == 64);
     proc->set_impl(IMPL_MMU_SV48, false);
@@ -1811,7 +1819,7 @@ void rtlInit(){
     top = new VNaxRiscv;  // Or use a const unique_ptr, or the VL_UNIQUE_PTR wrapper
     topInternal = top->NaxRiscv;
 
-    whitebox = new NaxWhitebox(top->NaxRiscv);
+    whitebox = new NaxWhitebox(top->NaxRiscv, &proc->get_isa());
     whitebox->traceGem5(traceGem5);
     if(traceGem5) whitebox->gem5 = ofstream(outputDir + "/trace.gem5o3",std::ofstream::binary);
 
