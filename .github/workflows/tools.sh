@@ -13,7 +13,7 @@ install_verilator(){
   git pull        # Make sure we're up-to-date
   git checkout v4.216
   autoconf        # Create ./configure script
-  ./configure --prefix ~/tools
+  CPPFLAGS=-std=c++14 ./configure --prefix ~/tools
   make -j4
   make install
   cd ..
