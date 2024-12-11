@@ -18,7 +18,7 @@ sudo apt-get install device-tree-compiler libboost-all-dev
 cd $NAXRISCV/ext/riscv-isa-sim
 mkdir build
 cd build
-../configure --prefix=$RISCV --enable-commitlog  --without-boost --without-boost-asio --without-boost-regex
+../configure --prefix=$RISCV --without-boost --without-boost-asio --without-boost-regex
 make -j$(nproc)
 
 # Install ELFIO, used to load elf file in the sim 

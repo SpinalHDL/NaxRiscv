@@ -92,8 +92,8 @@ class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRIS
         doCmd("make compile", env: _*)
       }
       doCmd(s"make test-all -j${makeThreadCount}", env :_*)
-      val passed = doCmd(s"find output -name PASS", env :_*).lines.count()
-      val failed = doCmd(s"find output -name FAIL", env :_*).lines.count()
+      val passed = doCmd(s"find output -name PASS", env :_*).lines.filter(line => line.contains("PASS")).toArray.size
+      val failed = doCmd(s"find output -name FAIL", env :_*).lines.filter(line => line.contains("FAIL")).toArray.size
       println(s"PASS = $passed")
       println(s"FAIL = $failed")
       if(failed != 0 || passed == 0) throw new Exception("Failure")

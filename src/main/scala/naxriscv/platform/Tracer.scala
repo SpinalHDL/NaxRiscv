@@ -192,12 +192,12 @@ class RvlsBackend(workspace : File = new File(".")) extends TraceBackend{
   override def ioAccess(hartId: Int, access: TraceIo): Unit = Frontend.ioAccess(handle, hartId, access.write, access.address, access.data, access.mask, access.size, access.error)
   override def setInterrupt(hartId: Int, intId: Int, value: Boolean): Unit = Frontend.setInterrupt(handle, hartId, intId, value)
   override def addRegion(hartId: Int, kind: Int, base: Long, size: Long): Unit = Frontend.addRegion(handle, hartId, kind, base, size)
-  override def loadExecute(hartId: Int, id: Long, addr: Long, len: Long, data: Long): Unit = Frontend.loadExecute(handle, hartId, id, addr, len, data)
-  override def loadCommit(hartId: Int, id: Long): Unit = Frontend.loadCommit(handle, hartId, id)
-  override def loadFlush(hartId: Int): Unit = Frontend.loadFlush(handle, hartId)
-  override def storeCommit(hartId: Int, id: Long, addr: Long, len: Long, data: Long): Unit = Frontend.storeCommit(handle, hartId, id, addr, len, data)
-  override def storeBroadcast(hartId: Int, id: Long): Unit = Frontend.storeBroadcast(handle, hartId, id)
-  override def storeConditional(hartId: Int, failure: Boolean): Unit = Frontend.storeConditional(handle, hartId, failure)
+  override def loadExecute(hartId: Int, id: Long, addr: Long, len: Long, data: Long): Unit = if(!Frontend.loadExecute(handle, hartId, id, addr, len, data)) throw new Exception()
+  override def loadCommit(hartId: Int, id: Long): Unit = if(!Frontend.loadCommit(handle, hartId, id)) throw new Exception()
+  override def loadFlush(hartId: Int): Unit = if(!Frontend.loadFlush(handle, hartId)) throw new Exception()
+  override def storeCommit(hartId: Int, id: Long, addr: Long, len: Long, data: Long): Unit = if(!Frontend.storeCommit(handle, hartId, id, addr, len, data)) throw new Exception()
+  override def storeBroadcast(hartId: Int, id: Long): Unit = if(!Frontend.storeBroadcast(handle, hartId, id)) throw new Exception()
+  override def storeConditional(hartId: Int, failure: Boolean): Unit = if(!Frontend.storeConditional(handle, hartId, failure)) throw new Exception()
   override def time(value: Long): Unit = Frontend.time(handle, value)
 
 }
