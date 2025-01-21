@@ -7,7 +7,7 @@ SPDX-License-Identifier: CC0-1.0
 # NaxRiscv
 
 A RISC-V core currently characterised by :
-
+ 
 - Out of order execution with register renaming
 - Superscalar (ex : 2 decode, 3 execution units, 2 retire)
 - (RV32/RV64)IMAFDCSU (Linux / Buildroot works on hardware)
