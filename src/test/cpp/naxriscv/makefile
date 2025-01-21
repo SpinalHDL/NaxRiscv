@@ -9,7 +9,8 @@ NAXRISCV_HEADER?=${NAXRISCV_GEN_FOLDER}/nax.h
 
 SPIKE?=${NAXRISCV_REPO}/ext/riscv-isa-sim
 SPIKE_BUILD=$(realpath ${SPIKE}/build)
-
+SPIKE_INCLUDE=$(realpath ${NAXRISCV_REPO}/ext/include)
+SPIKE_LIB=$(realpath ${NAXRISCV_REPO}/ext/lib)
 
 TRACE?=yes
 #LOCKSTEP?=yes
@@ -19,9 +20,9 @@ ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE}/riscv)
 ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE}/fesvr)
 ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE}/softfloat)
 ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE_BUILD})
+ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE_INCLUDE}) # to include SDL2 & elfio
 
-
-ADDCFLAGS += -CFLAGS -lSDL2
+ADDCFLAGS += -LDFLAGS -L$(realpath ${SPIKE_LIB})
 ADDCFLAGS += -LDFLAGS -lSDL2
 
 ADDCFLAGS += -CFLAGS -g
