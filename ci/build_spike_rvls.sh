@@ -13,30 +13,75 @@ if [ "$#" -ne 1 ]; then
     exit 1
 fi
 
+# Base directory
+BASE_DIR=$1
+
+# Check if RISCV environment variable is set
+if [ -z "$RISCV" ]; then
+    echo "Error: RISCV environment variable is not set."
+    exit 1
+fi
+
+# Install ELFIO if not already installed
+if [ ! -e "$BASE_DIR/ext/riscv-isa-sim/include/elfio/elfio.hpp" ]; then
+    echo "Installing ELFIO..."
+    mkdir -p $BASE_DIR/tmp
+    cd $BASE_DIR/tmp
+    git clone https://github.com/serge1/ELFIO.git
+    cd ELFIO
+    git checkout master # or specify a specific version/tag
+    mkdir -p $BASE_DIR/ext/riscv-isa-sim/include
+    cp -R elfio $BASE_DIR/ext/riscv-isa-sim/include
+    cd $BASE_DIR
+    rm -rf $BASE_DIR/tmp
+else
+    echo "ELFIO is already installed."
+fi
+
+# Install SDL if not already installed
+if [ ! -e "$BASE_DIR/ext/riscv-isa-sim/include/SDL2/SDL.h" ]; then
+    echo "Installing SDL..."
+    mkdir -p $BASE_DIR/tmp
+    cd $BASE_DIR/tmp
+    git clone https://github.com/libsdl-org/SDL
+    cd SDL
+    git checkout release-2.28.5 # or specify a specific version/tag
+    mkdir -p build
+    cd build
+    ../configure --prefix="$BASE_DIR/ext/riscv-isa-sim/"
+    make -j$(nproc)
+    make install
+    cd $BASE_DIR
+    rm -rf $BASE_DIR/tmp
+else
+    echo "SDL is already installed."
+fi
+
 # Check if the 'build' directory exists, create it if it doesn't
-if [ ! -d "ext/riscv-isa-sim/build/" ]; then
-    mkdir -p ext/riscv-isa-sim/build/
+if [ ! -d "$BASE_DIR/ext/riscv-isa-sim/build/" ]; then
+    mkdir -p $BASE_DIR/ext/riscv-isa-sim/build/
 fi
 
 # Run the configuration script without Boost libraries
-cd $1/ext/riscv-isa-sim/build/
-if [ -d "ext/riscv-isa-sim/build/" ]; then
+cd $BASE_DIR/ext/riscv-isa-sim/build/
+if [ -d "$BASE_DIR/ext/riscv-isa-sim/build/" ]; then
     make clean
 fi
 ../configure --prefix=${RISCV} --without-boost --without-boost-asio --without-boost-regex
- 
 
 # Compile the project using all available cores
 make -j$(nproc)
 
 # Clean previous build artifacts for 'rvls'
-if [ ! -e "$1/ext/rvls/build/apps/rvls"  ]; then
+if [ ! -e "$BASE_DIR/ext/rvls/build/apps/rvls" ]; then
     echo "Installing RVLS..."
-    cd $1/ext/rvls/
+    cd $BASE_DIR/ext/rvls/
 else
-	cd $1/ext/rvls/
+    cd $BASE_DIR/ext/rvls/
     make clean
 fi
 
 # Compile the project using all available cores
 make -j$(nproc)
+
+echo "Installation and build of ELFIO, SDL, Spike, and RVLS completed."
