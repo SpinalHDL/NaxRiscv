@@ -32,34 +32,23 @@ OPENJDK_HOME=$(TOOLCHAIN_DIR)/openjdk
 GIT_URL_NAXRISCV=https://github.com/SpinalHDL/NaxRiscv
 GIT_URL_SPINALHDL=https://github.com/SpinalHDL/SpinalHDL.git
 
-# test list
-TESTFILES_32 := $(filter-out $(RISCV_TEST_DIR)/%.dump, $(wildcard $(RISCV_TEST_DIR)/rv32ui-p-*))
-TESTFILES_32 := $(filter-out %simple, $(TESTFILES_32))
-TESTFILES_32 := $(addprefix --load-elf , $(TESTFILES_32))
-TESTFILES_64 := $(filter-out $(RISCV_TEST_DIR)/%.dump, $(wildcard $(RISCV_TEST_DIR)/rv64ui-p-*))
-TESTFILES_64 := $(filter-out %simple, $(TESTFILES_64))
-TESTFILES_64 := $(addprefix --load-elf , $(TESTFILES_64))
-
 # install toolchain ####################################
-
-# install initial
-install-toolchain-initial:
-	mkdir -p $(TOOLCHAIN_DIR)
-	./ci/install-sbt.sh $(SBT_VERSION) $(TOOLCHAIN_DIR)
-	./ci/install-openjdk.sh $(OPENJDK_VERSION) $(TOOLCHAIN_DIR)
-	./ci/install-riscv-gnu-toolchain.sh $(RISCV_VERSION) $(TOOLCHAIN_DIR)
-
-# install toolchain
-install-toolchain: install-toolchain-initial
-	./ci/install-verilator.sh $(VERILATOR_VERSION_NAX) $(TOOLCHAIN_DIR)
-	./ci/install-spike-spinalhdl.sh $(SPIKE_DIR) $(TOOLCHAIN_DIR)/dtc
-	./ci/install-rvls.sh $(RVLS_DIR)		
 
 # install core
 install-core:
 	./ci/clone-submodules.sh $(CORE_DIR)
-	./ci/install-elfio.sh $(ELFIO_VERSION) $(SPIKE_DIR)
-	./ci/install-libsdl.sh $(LIBSDL_VERSION) $(SPIKE_DIR)
+
+# install initial
+install-toolchain-initial: install-core
+	mkdir -p $(TOOLCHAIN_DIR)
+	./ci/install-sbt.sh $(SBT_VERSION) $(TOOLCHAIN_DIR)
+	./ci/install-openjdk.sh $(OPENJDK_VERSION) $(TOOLCHAIN_DIR)
+
+# install toolchain
+install-toolchain: install-toolchain-initial
+	./ci/install-verilator.sh $(VERILATOR_VERSION_NAX) $(TOOLCHAIN_DIR)
+	./ci/install-libsdl-elfio-spikespinalhdl.sh $(SPIKE_DIR) $(ELFIO_VERSION) $(LIBSDL_VERSION)
+	./ci/install-rvls.sh $(RVLS_DIR)		
 
 # build spike & rvls after modification
 build-spike-rvls:
@@ -125,15 +114,20 @@ src/test/cpp/naxriscv/obj_dir/VNaxRiscv:$(PRJ_NAX).v
 verilate-$(PRJ_NAX): src/test/cpp/naxriscv/obj_dir/VNaxRiscv
 
 # install
-install:clean-install clean-sim clean-toolchain install-core install-toolchain verilate-$(PRJ_NAX)
+install:clean-install clean-sim clean-toolchain install-toolchain verilate-$(PRJ_NAX)
 	@echo " "
 	@echo "[SUCCESS] The entire toolchain is built with Success."
 	@echo "[SUCCESS] Generates the Verilator model for $(TARGET_NAX) NaxRiscv."
 	@echo " "
 
+# test execute #########################################
+test-regression : 
+	@echo "Testing with NaxRiscvRegression...."
+	sbt "testOnly *.NaxRiscvRegression"
+
 # clean ################################################
 
-clean-core:
+clean-submodules:
 	rm -rf $(CORE_DIR)/ext/*
 	
 clean-install:
@@ -153,6 +147,13 @@ clean-exec:
 	rm -rf *.tar.gz
 
 clean-toolchain:
+	rm -rf $(TOOLCHAIN_DIR)/verilator-v4.216
+	rm -rf $(SPIKE_DIR)
+	rm -rf $(RVLS_DIR)
+	rm -rf $(TOOLCHAIN_DIR)/SpinalHDL
+	rm -rf $(CORE_DIR)/ext/NaxSoftware
+
+clean-toolchain-all:
 	rm -rf $(TOOLCHAIN_DIR)
 
 clean-gen:
