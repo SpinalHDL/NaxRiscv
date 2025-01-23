@@ -78,3 +78,8 @@ install_cached(){
   (install_spike)
   (install_verilator)
 }
+
+install_all(){
+  export NAXRISCV=${PWD}
+  make install
+}

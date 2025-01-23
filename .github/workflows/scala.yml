@@ -55,15 +55,8 @@ jobs:
       - name: Setup env
         run: echo "$HOME/tools/bin" >> $GITHUB_PATH
 
-      - name: Install cached tools
-        if: steps.tools.outputs.cache-hit != 'true'
-        run: source .github/workflows/tools.sh && install_cached
-
-      - name: Install uncached tools
-        run: source .github/workflows/tools.sh && install_uncached
-
-      - name: Install SpinalHDL
-        run: (cd .. && git clone https://github.com/SpinalHDL/SpinalHDL.git -b dev)
+      - name: Install all tools
+        run: source .github/workflows/tools.sh && install_all
 
       - name: Compile
         run: sbt clean compile
