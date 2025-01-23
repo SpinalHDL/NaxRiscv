@@ -13,11 +13,6 @@ SPIKE_NAX_HOME=$1
 ELFIO_VERSION=$2
 LIBSDL_VERSION=$3
 
-# Check if RISCV environment variable is set
-if [ -z "$RISCV" ]; then
-    echo "Error: RISCV environment variable is not set."
-    exit 1
-fi
 
 # Create a temporary directory for downloads and builds
 TMP_DIR=$(mktemp -d)
