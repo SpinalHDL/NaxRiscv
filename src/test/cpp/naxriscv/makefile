@@ -9,8 +9,8 @@ NAXRISCV_HEADER?=${NAXRISCV_GEN_FOLDER}/nax.h
 
 SPIKE?=${NAXRISCV_REPO}/ext/riscv-isa-sim
 SPIKE_BUILD=$(realpath ${SPIKE}/build)
-SPIKE_INCLUDE=$(realpath ${NAXRISCV_REPO}/ext/include)
-SPIKE_LIB=$(realpath ${NAXRISCV_REPO}/ext/lib)
+SPIKE_INCLUDE=$(realpath ${SPIKE}/include)
+SPIKE_LIB=$(realpath ${SPIKE}/lib)
 
 TRACE?=yes
 #LOCKSTEP?=yes
