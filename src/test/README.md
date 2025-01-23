@@ -55,7 +55,7 @@ If the installation completes successfully, you will see the following messages:
 ```bash
 make install-toolchain-initial
 ```
-Installs initial components, including SBT, OpenJDK, and RISC-V GNU toolchain.
+Installs initial components, including SBT and OpenJDK.
 
 
 ### Complete Toolchain Installation
@@ -69,14 +69,13 @@ Completes the toolchain installation by adding Verilator, Spike, and RVLS.
 ```bash
 make install-core
 ```
-Clones required submodules and installs additional libraries (ELFIO, SDL).
-
+Clones the required submodules and applies necessary patches.
 
 ### Full Installation
 ```bash
 make install
 ```
-Performs a complete installation of the core, toolchain, simulators, and tests.
+Performs a complete installation, including cloning submodules, applying patches if necessary, setting up the toolchain, installing simulators, and configuring tests.
 
 
 ## Build Targets
@@ -84,7 +83,7 @@ Performs a complete installation of the core, toolchain, simulators, and tests.
 ```bash
 make build-spike-rvls
 ```
-Rebuilds the Spike and RVLS simulators after modifications.
+Rebuilds the Spike simulator (including ELFIO and SDL library installations) and the RVLS simulator after any modifications.
 
 
 ### Building Regression Simulator

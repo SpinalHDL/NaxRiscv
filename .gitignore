@@ -52,6 +52,7 @@ obj_dir
 explor
 nax.h
 
+toolchain/
 simWorkspace/
 tmp/
 /archive.tar.gz
