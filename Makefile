@@ -6,7 +6,6 @@ MKFILE_PATH=$(abspath $(firstword $(MAKEFILE_LIST)))
 CORE_DIR=$(dir $(MKFILE_PATH))
 TOOLCHAIN_DIR=$(CORE_DIR)/toolchain
 # Tools
-INCLUDE_DIR=$(CORE_DIR)/ext
 SPIKE_DIR=$(CORE_DIR)/ext/riscv-isa-sim
 RVLS_DIR=$(CORE_DIR)/ext/rvls
 RISCV_TEST_DIR=$(CORE_DIR)/ext/NaxSoftware/riscv-tests
@@ -59,8 +58,8 @@ install-toolchain: install-toolchain-initial
 # install core
 install-core:
 	./ci/clone-submodules.sh $(CORE_DIR)
-	./ci/install-elfio.sh $(ELFIO_VERSION) $(INCLUDE_DIR)
-	./ci/install-libsdl.sh $(LIBSDL_VERSION) $(INCLUDE_DIR)
+	./ci/install-elfio.sh $(ELFIO_VERSION) $(SPIKE_DIR)
+	./ci/install-libsdl.sh $(LIBSDL_VERSION) $(SPIKE_DIR)
 
 # build spike & rvls after modification
 build-spike-rvls:
