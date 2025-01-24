@@ -13,6 +13,26 @@ fi
 # Arguments
 ROOT_DIR=$1
 
+#Function to apply a patch
+apply_patch() {
+    local patch_dir=$1
+    local patch_file=$2
+    local patch_name=$3
+
+    echo "Applying patch for $patch_name..."
+    
+    # Appliquer le patch et vérifier si l'application a réussi
+    cd "$patch_dir" && git apply --reject "$patch_file"
+    
+    if [ $? -ne 0 ]; then
+        echo "Error: Patch $patch_name failed to apply. Exiting."
+        exit 1
+    fi
+
+    echo "$patch_name successfully applied...OK"
+    echo " "
+}
+
 # Function to check and clone submodules
 clone_submodule() {
     echo "Checking and cloning submodules if necessary..."
@@ -34,6 +54,8 @@ clone_submodule() {
             echo "Please check if the submodule is correctly initialized."
             exit 1
         fi
+        # Apply the patches
+        apply_patch "$ROOT_DIR/ext/rvls" "$ROOT_DIR/rvls.diff" "rvls"
     else
         echo "Submodules already initialized..."
         echo " "
