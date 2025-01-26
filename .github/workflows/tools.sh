@@ -84,6 +84,10 @@ install_all(){
   make install
 }
 
+test-regression(){
+  make test-regression
+}
+
 test-rvls(){
   make test-rvls
 }
