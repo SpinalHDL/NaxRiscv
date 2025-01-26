@@ -13,7 +13,7 @@ fi
 # Arguments
 ROOT_DIR=$1
 RVLS_DIR="$ROOT_DIR/ext/rvls"
-RVLS_VERSION="b5c15e129f8168c2317b2c129aef91adf935bfeb"
+#RVLS_VERSION="b5c15e129f8168c2317b2c129aef91adf935bfeb"
 
 # Function to apply a patch
 apply_patch() {
@@ -66,12 +66,12 @@ clone_submodule() {
         echo "  3- restart the script with '$0 \$NAXRISCV'"
     fi
 
-    # Ensure RVLS is at the correct version
-    echo "Ensuring RVLS is at the correct version: $RVLS_VERSION"
-    cd "$RVLS_DIR" || { echo "Error: Directory $RVLS_DIR does not exist."; exit 1; }
-    git fetch
-    git checkout "$RVLS_VERSION" || { echo "Error: Failed to checkout RVLS version $RVLS_VERSION."; exit 1; }
-    echo "RVLS successfully checked out to $RVLS_VERSION."
+    ## Ensure RVLS is at the correct version
+    #echo "Ensuring RVLS is at the correct version: $RVLS_VERSION"
+    #cd "$RVLS_DIR" || { echo "Error: Directory $RVLS_DIR does not exist."; exit 1; }
+    #git fetch
+    #git checkout "$RVLS_VERSION" || { echo "Error: Failed to checkout RVLS version $RVLS_VERSION."; exit 1; }
+    #echo "RVLS successfully checked out to $RVLS_VERSION."
 
     # Apply patches
     apply_patch "$RVLS_DIR" "$ROOT_DIR/rvls.diff" "rvls-include-elfio"
