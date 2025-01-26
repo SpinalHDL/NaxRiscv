@@ -22,7 +22,7 @@
 #include <queue>
 #include <time.h>
 #include <map>
-#include <filesystem>
+#include <experimental/filesystem>
 #include <chrono>
 
 #include <netdb.h>
@@ -434,7 +434,9 @@ public:
         nax->PrivilegedPlugin_io_int_machine_external = 0;
         nax->PrivilegedPlugin_io_int_machine_timer = 0;
         nax->PrivilegedPlugin_io_int_machine_software = 0;
+        #if SUPERVISOR == 1
         nax->PrivilegedPlugin_io_int_supervisor_external = 0;
+        #endif
         for(auto e : socElements) e->onReset();
     }
 
@@ -819,7 +821,7 @@ public:
 
     Memory memory;
     queue<IoAccess> mmioDut;
-
+    
     // Configuration and Harts
     const cfg_t * const cfg;
     const std::map<size_t, processor_t*> harts;
@@ -901,7 +903,7 @@ public:
     int  csrAddress;
     RvData csrWriteData;
     RvData csrReadData;
-
+//    bool fsDirty;
     IData branchHistory;
     int opId;
 
@@ -911,6 +913,7 @@ public:
         csrValid = false;
         csrWriteDone = false;
         csrReadDone = false;
+//        fsDirty = false;
         floatFlags = 0;
     }
 };
@@ -1250,6 +1253,7 @@ public:
             robCtx[robId].csrReadDone = nax->csrAccess_payload_readDone;
             robCtx[robId].csrWriteData = nax->csrAccess_payload_write;
             robCtx[robId].csrReadData = nax->csrAccess_payload_read;
+//            robCtx[robId].fsDirty = nax->csrAccess_payload_fsDirty;
         }
 
 //        if(nax->FrontendPlugin_allocated_isFireing){
@@ -1773,7 +1777,7 @@ cfg_t cfg;
 void spikeInit(){
     std::string isa;
     std::string priv;
-    
+
     fptr = trace_ref ? fopen((outputDir + "/spike.log").c_str(),"w") : NULL;
     std::ofstream outfile ("/dev/null",std::ofstream::binary);
 
@@ -1791,15 +1795,17 @@ void spikeInit(){
     #endif
     if(RVC) isa += "C";
     priv = "MSU";
+
     // Initialization of the config class
     cfg.isa = isa.c_str();
     cfg.priv = priv.c_str();
     cfg.misaligned = false;
     cfg.pmpregions = 0;
     cfg.hartids.push_back(0);
+
     // Instantiation
     wrap = new sim_wrap(&cfg);
-    proc = new processor_t(isa.c_str(), priv.c_str(), &cfg, wrap, 0, false, fptr, outfile);
+    proc = new processor_t(isa.c_str(), "MSU", &cfg, wrap, 0, false, fptr, outfile);
     proc->set_impl(IMPL_MMU_SV32, XLEN == 32);
     proc->set_impl(IMPL_MMU_SV39, XLEN == 64);
     proc->set_impl(IMPL_MMU_SV48, false);
@@ -2187,19 +2193,23 @@ void simLoop(){
                                 assertEq("MISSMATCH PC", pc, spike_pc);
                                 for (auto item : state->log_reg_write) {
                                     if (item.first == 0)
-                                      continue;
+                                        continue;
 
                                     int rd = item.first >> 4;
+//                                    printf("**************************************************\n");
+//                                    printf("PC: %lx\t inst: %lx\t type: %d\t REF@: %d\t DUT@: %d\t REF_data: %lx\t DUT_data: %lx\n", last_commit_pc, state->last_inst.bits(), (u32)(item.first & 0xf), rd, whitebox->robCtx[robId].csrAddress,  item.second.v[0], whitebox->robCtx[robId].csrWriteData);
                                     switch (item.first & 0xf) {
+                                    
                                     case 0: { //integer
                                         assertTrue("INTEGER WRITE MISSING", whitebox->robCtx[robId].integerWriteValid);
                                         assertEq("INTEGER WRITE DATA", whitebox->robCtx[robId].integerWriteData, item.second.v[0]);
                                     } break;
                                     case 1: { //float
+//                                        printf("\n*** FLOAT WRITE DATA DUT=%lx REF=%lx ***\n\n", (u64)whitebox->robCtx[robId].floatWriteData, (u64) item.second.v[0]);
                                         //TODO FPU track float writes
                                         assertTrue("FLOAT WRITE MISSING", whitebox->robCtx[robId].floatWriteValid);
                                         if(whitebox->robCtx[robId].floatWriteData != (RvFloat)item.second.v[0]){
-                                            printf("\n*** FLOAT WRITE DATA DUT=%lx REF=%lx ***\n\n", (u64)whitebox->robCtx[robId].floatWriteData, (u64) item.second.v[0]);\
+//                                            printf("\n*** FLOAT WRITE DATA DUT=%lx REF=%lx ***\n\n", (u64)whitebox->robCtx[robId].floatWriteData, (u64) item.second.v[0]);
                                             failure();
                                         }
                                     } break;
@@ -2211,12 +2221,21 @@ void simLoop(){
                                         case 0x00200073: //URET
                                             break;
                                         default:
-                                            if(inst & 0x7F == 0x73 && inst & 0x3000 != 0){
+//                                            printf("PC: %lx\t inst: %lx\t type: %d\t REF@: %ld\t DUT@: %ld\t REF_data: %x\t DUT_data: %x\n", last_commit_pc, inst, item.first & 0xf, rd, whitebox->robCtx[robId].csrAddress,  item.second.v[0], whitebox->robCtx[robId].csrWriteData);
+                                            if((inst & 0x7F) == 0x73 && (inst & 0x3000) != 0){
+
                                                 assertTrue("CSR WRITE MISSING", whitebox->robCtx[robId].csrWriteDone);
+
+                                                if((inst >> 20)==CSR_FCSR || (inst >> 20)==CSR_FRM || (inst >> 20)==CSR_FFLAGS){
+                                                    if(rd!=CSR_MSTATUS){
+                                                        assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
+                                                    }
+                                                    break;
+                                                }
                                                 assertEq("CSR WRITE ADDRESS", whitebox->robCtx[robId].csrAddress & 0xCFF, rd & 0xCFF);
-//                                                assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
+                                                break;
                                             }
-                                            break;
+
                                         }
                                     } break;
                                     default: {
