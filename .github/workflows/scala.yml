@@ -61,5 +61,8 @@ jobs:
       - name: Compile
         run: sbt clean compile
 
-      - name: Test
+      - name: Regression Test SIMULATOR
         run: NAXRISCV_REGRESSION_THREAD_COUNT=1 SBT_OPTS="-Xmx2G -XX:+UseConcMarkSweepGC -XX:+CMSClassUnloadingEnabled -XX:MaxPermSize=2G -Xss2M  -Duser.timezone=GMT" sbt test
+
+      - name: Regression Test RVLS
+        run: source .github/workflows/tools.sh && test-rvls

@@ -83,3 +83,7 @@ install_all(){
   export NAXRISCV=${PWD}
   make install
 }
+
+test-rvls(){
+  make test-rvls
+}
