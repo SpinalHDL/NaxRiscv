@@ -114,7 +114,7 @@ src/test/cpp/naxriscv/obj_dir/VNaxRiscv:$(PRJ_NAX).v
 verilate-$(PRJ_NAX): src/test/cpp/naxriscv/obj_dir/VNaxRiscv
 
 # install
-install:clean-install clean-sim clean-toolchain install-toolchain verilate-$(PRJ_NAX)
+install:clean-install clean-toolchain install-toolchain verilate-$(PRJ_NAX)
 	@echo " "
 	@echo "[SUCCESS] The entire toolchain is built with Success."
 	@echo "[SUCCESS] Generates the Verilator model for $(TARGET_NAX) NaxRiscv."
@@ -125,6 +125,9 @@ test-regression :
 	@echo "Testing with NaxRiscvRegression...."
 	sbt "testOnly *.NaxRiscvRegression"
 
+test-rvls : 
+	@echo "Testing with NaxRiscvRvls...."
+	sbt "testOnly *.NaxRiscvRvls"
 # clean ################################################
 
 clean-submodules:
@@ -150,7 +153,7 @@ clean-toolchain:
 	rm -rf $(TOOLCHAIN_DIR)/verilator-v4.216
 	rm -rf $(SPIKE_DIR)
 	rm -rf $(RVLS_DIR)
-	rm -rf $(TOOLCHAIN_DIR)/SpinalHDL
+	rm -rf $(CORE_DIR)/ext/SpinalHDL
 	rm -rf $(CORE_DIR)/ext/NaxSoftware
 
 clean-toolchain-all:
@@ -161,3 +164,7 @@ clean-gen:
 	rm -f $(PRJ_NAX).v
 	rm -f nax.h
 	rm -f NaxRiscvSynt.v
+
+# include ################################################
+-include testsRvls.mk
+-include src/test/python/naxriscv/all_testsRvls.mk
