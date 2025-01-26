@@ -16,9 +16,26 @@ import spinal.lib.misc.plic.TilelinkPlicFiber
 import spinal.lib.system.tag.PMA
 
 // SocDemo is a little SoC made only for simulation purposes.
-class SocDemo(cpuCount : Int, withL2 : Boolean = true, asic : Boolean = false, xlen : Int = 32) extends Component {
+class SocDemo(cpuCount : Int,
+              withL2 : Boolean = true,
+              asic : Boolean = false,
+              xlen : Int = 32,
+              withRvc: Boolean = true,
+              withFloat: Boolean = true,
+              withDouble: Boolean = false
+             ) extends Component {
   // Create a few NaxRiscv cpu
-  val naxes = for(hartId <- 0 until cpuCount) yield new TilelinkNaxRiscvFiber(TilelinkNaxRiscvFiber.getCoherentConfig(hartId, asic = asic, xlen = xlen))
+val naxes = for(hartId <- 0 until cpuCount) yield
+  new TilelinkNaxRiscvFiber(
+    TilelinkNaxRiscvFiber.getCoherentConfig(
+      hartId,
+      asic = asic,
+      xlen = xlen,
+      withRvc = withRvc,
+      withFloat = withFloat,
+      withDouble = withDouble
+    )
+  )
 
   // As NaxRiscv may emit memory request to some unmapped memory space, we need to catch those with TransactionFilter
   val memFilter, ioFilter = new fabric.TransferFilter()
