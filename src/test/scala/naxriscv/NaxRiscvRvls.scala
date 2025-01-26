@@ -177,8 +177,8 @@ import scala.util.Random
 
         workspacePath = s"simWorkspace/rvls/$name"
         val workspaceOutputDir = envMap.getOrElse("WORKSPACE_OUTPUT_DIR", "logs")
-        val passed = doCmd(s"find $workspaceOutputDir -name PASS", env :_*)().lines.count(line => line.contains("PASS"))
-        val failed = doCmd(s"find $workspaceOutputDir -name FAIL", env :_*)().lines.count(line => line.contains("FAIL"))
+        val passed = doCmd(s"find $workspaceOutputDir -name PASS", env :_*)().lines.filter(line => line.contains("PASS")).toArray.size
+        val failed = doCmd(s"find $workspaceOutputDir -name FAIL", env :_*)().lines.filter(line => line.contains("FAIL")).toArray.size
         println(s"PASS = $passed")
         println(s"FAIL = $failed")
         if(failed != 0 || passed == 0) throw new Exception("Failure")
