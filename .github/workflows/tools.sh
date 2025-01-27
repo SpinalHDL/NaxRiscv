@@ -83,11 +83,3 @@ install_all(){
   export NAXRISCV=${PWD}
   make install
 }
-
-test-regression(){
-  make test-regression
-}
-
-test-rvls(){
-  make test-rvls
-}
