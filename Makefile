@@ -114,10 +114,9 @@ src/test/cpp/naxriscv/obj_dir/VNaxRiscv:$(PRJ_NAX).v
 verilate-$(PRJ_NAX): src/test/cpp/naxriscv/obj_dir/VNaxRiscv
 
 # install
-install:clean-install clean-toolchain install-toolchain verilate-$(PRJ_NAX)
+install:clean-install clean-toolchain install-toolchain
 	@echo " "
 	@echo "[SUCCESS] The entire toolchain is built with Success."
-	@echo "[SUCCESS] Generates the Verilator model for $(TARGET_NAX) NaxRiscv."
 	@echo " "
 
 # test execute #########################################
