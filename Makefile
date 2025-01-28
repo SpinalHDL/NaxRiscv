@@ -107,9 +107,9 @@ $(PRJ_NAX).v:
 .PHONY: src/test/cpp/naxriscv/obj_dir/VNaxRiscv
 src/test/cpp/naxriscv/obj_dir/VNaxRiscv:$(PRJ_NAX).v
 	make -C $(CORE_DIR)/src/test/cpp/naxriscv compile
-		VERILATOR_ROOT=$(VERILATOR_ROOT_NAX)
+		VERILATOR_ROOT=$(VERILATOR_ROOT_NAX)/bin
 		SPIKE=$(SPIKE_DIR)
-		PATH=$(VERILATOR_ROOT_NAX)/bin:$(PATH)
+		PATH=$(VERILATOR_ROOT_NAX):$(PATH)
 
 verilate-$(PRJ_NAX): src/test/cpp/naxriscv/obj_dir/VNaxRiscv
 
