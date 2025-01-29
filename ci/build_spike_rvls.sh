@@ -67,11 +67,15 @@ cd $BASE_DIR/ext/riscv-isa-sim/build/
 if [ -d "$BASE_DIR/ext/riscv-isa-sim/build/" ]; then
     make clean
 fi
-../configure --prefix=${RISCV} --without-boost --without-boost-asio --without-boost-regex
+../configure --prefix=${BASE_DIR}/ext/riscv-isa-sim/ --without-boost --without-boost-asio --without-boost-regex
 
-# Compile the project using all available cores
+# Compile the library using all available cores
 make -j$(nproc)
-
+# Create a shared library
+g++ --shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  \
+        -Wl,-rpath,/lib  -o package.so spike.o  libspike_main.a  libriscv.a \
+        libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl \
+        -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
 # Clean previous build artifacts for 'rvls'
 if [ ! -e "$BASE_DIR/ext/rvls/build/apps/rvls" ]; then
     echo "Installing RVLS..."
