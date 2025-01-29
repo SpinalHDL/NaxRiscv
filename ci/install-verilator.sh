@@ -15,12 +15,12 @@ if [ ! -e "$2/verilator-$1/bin/verilator" ]; then
     ./configure --prefix="$2/verilator-$1"
     make -j$(nproc)
     cp -r * $2/verilator-$1/
-    rm -rf ~/tools/verilator
-    cp -r * ~/tools/verilator
+    rm -rf ~/tools/verilator # used in naxriscv github workflow
+    cp -r * ~/tools/verilator # used in naxriscv github workflow
     cd ..
 else
     echo "Using Verilator from cached directory."
     # Vérification que ~/tools/verilator est à jour
-    rm -rf ~/tools/verilator
-    cp -r "$2/verilator-$1" ~/tools/verilator
+    rm -rf ~/tools/verilator # used in naxriscv github workflow
+    cp -r "$2/verilator-$1" ~/tools/verilator # used in naxriscv github workflow
 fi
