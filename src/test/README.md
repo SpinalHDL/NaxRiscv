@@ -67,7 +67,6 @@ NaxRiscv/
 └── tmp/                    # Temporary build files
 ```
 
----
 
 ### Key Components
 - **Core Files**
@@ -84,10 +83,10 @@ NaxRiscv/
 
   - **SpinalHDL**: `adding_wavePath_simConfig.patch`, `Patch_DualSimTracer...patch`
 
----
 
-### Installation Guide
-#### Step-by-Step Setup
+
+## Installation Guide
+### Step-by-Step Setup
 
 ```bash
 # Initial toolchain (SBT + OpenJDK)
@@ -99,14 +98,14 @@ make install-toolchain
 # Generate RTL for default target (rv64imafdcsu)
 make NaxRiscv.v
 ```
+Please refer to the `README.md` file located in `NaxRiscv/src/test/cpp/naxriscv/` for a detailed, step-by-step guide on setting things up independently from the main Makefile.
 
-#### Environment Variables
+### Environment Variables
 ```bash
 export JAVA_HOME=$NAXRISCV/toolchain/openjdk
 export PATH=$JAVA_HOME/bin:$PATH
 ```
 
----
 
 ### Build Targets
 |ASCII                          |Description                        |
@@ -114,27 +113,77 @@ export PATH=$JAVA_HOME/bin:$PATH
 |`make build-spike-rvls`        |Rebuild Spike and RVLS simulators  |
 |`make build-simulator`         |Rebuild regression simulator       |
 |`make verilate-NaxRiscv`       |Generate Verilator model           |
----------------------------------------------------------------------
+
+
+## Testing
+
+### Method 1: RVLS Core Regression Testing (SocSim + RVLS)
+
+### 1. Single Configuration Test  
+```bash
+# Generate Makefile for rv64imafdcsu
+cd $NAXRISCV/src/test/python/naxriscv/
+./testsGenRvls.py --xlen 64 --withFloat --withDouble --withRvc --naxCount 1
+
+# Execute tests and generate report
+cd ../../../..
+make test-rv64imafdcsu-all -j$(nproc)
+make test-rv64imafdcsu-report
+```
+#### Generated Artifacts:
+```bash
+simWorkspace/SocDemo/
+├── logs/    # Test execution logs
+├── waves/   # Waveform captures
+├── rtl/     # SoC Verilog source
+└── verilator/ # Verilated model
+```
+
+### 2. Full Configuration Suite
+```bash
+# Run all predefined ISA configurations
+cd $NAXRISCV
+make clean-testsRvls-all
+make test-rvls
+```
+#### Supported Configurations:
+- **RV32**: `imasu`, `imacsu`, `imafcsu`, `imafdcsu`
+- **RV64**: `imasu`, `imacsu`, `imafcsu`, `imafdcsu`
+
+#### Test Automation Workflow
+`NaxRiscvRvls.scala` handles:
+
+  - Workspace setup in `simWorkspace/rvls/config_<name>`
+
+  - Makefile generation via `testsGenRvls.py`
+
+  - Parallel test execution
+
+  - Result collection in `logs/` and `waves/`
 
 ---
+### Method 2: Core Regression Testing
 
-### Testing
-#### Regression Tests
+#### Run Full Test Suite:
 ```bash
+cd $NAXRISCV
 make test-regression  # Run all regression tests
 ```
+#### NaxRiscvRegression.scala manages:
 
-#### RVLS Verification
-```bash
-make test-rvls        # Validate with RVLS trace checker
-```
-Test results appear in `simWorkspace/regression/` and `simWorkspace/rvls/`.
+  - Workspace creation in `simWorkspace/regression/config_<name>`
+
+  - Test setup with `testsGen.py`
+
+  - Batch execution of all `ISA` variants
+
+  - Result storage in `output/`
 
 ---
 
-### Advanced Configuration
+## Advanced Configuration
 
-#### Target Architectures
+### Target Architectures
 ```bash
 # Supported targets (32/64-bit)
 TARGETS_NAX=(
@@ -146,14 +195,40 @@ TARGETS_NAX=(
 make TARGET_NAX=rv32imafdcsu NaxRiscv.v
 ```
 
-#### Feature Flags
-|Extension                         |Parameters                        |
-|-------------------------------|-------------------------------------|
-|`RV32IMACSU` or `RV64IMACSU`   |`--withRvc`                          |
-|`make build-simulator`         |`--withRvc --withFloat`              |
-|`make verilate-NaxRiscv`       |`--withRvc --withFloat --withDouble` |
------------------------------------------------------------------------
+### Feature Flags
+|Extension                        |Parameters                           |Test Coverage          |
+|---------------------------------|-------------------------------------|------------------------
+|`RV32IMASU` or `RV64IMASU`       | Base ISA no parameter needed        |Base ISA               |
+|`RV32IMACSU` or `RV64IMACSU`     |`--withRvc`                          |Base ISA + Compression |
+|`RV32IMAFCSU` or `RV64IMAFCSU`   |`--withRvc --withFloat`              |+ Single-precision FP  |
+|`RV32IMAFDCSU` or `RV64IMAFDCSU` |`--withRvc --withFloat --withDouble` |+ Double-precision FP  |
 
+
+### Test Generation Parameters
+#### Script Options:
+```bash
+cd $NAXRISCV/src/test/python/naxriscv
+./testsGenRvls.py [OPTIONS]
+
+# ISA extension parameters
+--xlen=INT                  : Specify the value of xlen 32 or 64
+--naxCount=INT              : Number of NaxRiscv cores
+--withRvc                   : Activate Compressed Instructions Extension
+--withFloat                 : Activate Single-precision floating-point extension
+--withDouble                : Activate Double-precision floating-point extension
+--noRva                     : Disable the Atomic extension, which is enabled by default
+--no-l2                     : Disable the l2 cache, which is enabled by default
+
+# Simulation parameters
+--noRvls                    : Disable RVLS, NaxRiscv behaviour will not be checked
+--dualSim                   : Enable dual lock step simulation to only trace the 50000 cycles before failure
+--trace                     : Enable wave capture
+
+# Workspace definition
+--workspacePath=DIR      : Set the path in the simWorkspace folder           - default="./simWorkspace/SocDemo"
+--workspaceName=DIR      : Set workspace name in workspaceDir folder         - default='.'
+--workspaceOutputDir=DIR : Set Name of output directory in socSim workspace  - default='logs'
+```
 ---
 
 ### Maintenance
