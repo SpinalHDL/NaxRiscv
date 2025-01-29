@@ -53,8 +53,12 @@ if [ ! -e "$SPIKE_NAX_HOME/build/spike" ]; then
     cd $SPIKE_NAX_HOME
     mkdir -p build
     cd build
-    ../configure --prefix=$RISCV --without-boost --without-boost-asio --without-boost-regex
+    ../configure --prefix=$SPIKE_NAX_HOME --without-boost --without-boost-asio --without-boost-regex
     make -j$(nproc)
+    g++ --shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  \
+        -Wl,-rpath,/lib  -o package.so spike.o  libspike_main.a  libriscv.a \
+        libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl \
+        -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
 else
     echo "Spike is already built and exists in $SPIKE_NAX_HOME/build."
 fi
