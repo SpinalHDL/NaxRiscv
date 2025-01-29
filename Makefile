@@ -107,9 +107,9 @@ $(PRJ_NAX).v:
 .PHONY: src/test/cpp/naxriscv/obj_dir/VNaxRiscv
 src/test/cpp/naxriscv/obj_dir/VNaxRiscv:$(PRJ_NAX).v
 	make -C $(CORE_DIR)/src/test/cpp/naxriscv compile
-		VERILATOR_ROOT=$(VERILATOR_ROOT_NAX)/bin
+		VERILATOR_ROOT=$(VERILATOR_ROOT_NAX)
 		SPIKE=$(SPIKE_DIR)
-		PATH=$(VERILATOR_ROOT_NAX):$(PATH)
+		PATH=$(VERILATOR_ROOT_NAX)/bin:$(PATH)
 
 verilate-$(PRJ_NAX): src/test/cpp/naxriscv/obj_dir/VNaxRiscv
 
@@ -149,7 +149,7 @@ clean-exec:
 	rm -rf *.tar.gz
 
 clean-toolchain:
-	rm -rf $(TOOLCHAIN_DIR)/verilator-v4.216
+	rm -rf $(TOOLCHAIN_DIR)/verilator-$(VERILATOR_VERSION_NAX)
 	rm -rf $(SPIKE_DIR)
 	rm -rf $(RVLS_DIR)
 	rm -rf $(CORE_DIR)/ext/SpinalHDL
