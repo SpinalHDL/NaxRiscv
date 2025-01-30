@@ -282,7 +282,8 @@ object SocSim extends App {
     println()
     if(withRvls) {
       naxes.foreach(_.add(rvls, isa))
-      rvls.debug()
+      rvls.spikeLogCommit() //Always enable, even if traceIt = false
+      if(traceIt) rvls.spikeDebug() //Optional, controlled by traceIt
     }
     // Things to enable when we want to collect traces
     onTrace{
