@@ -114,7 +114,7 @@ src/test/cpp/naxriscv/obj_dir/VNaxRiscv:$(PRJ_NAX).v
 verilate-$(PRJ_NAX): src/test/cpp/naxriscv/obj_dir/VNaxRiscv
 
 # install
-install:clean-install clean-sim clean-workspace install-toolchain
+install:clean-all install-toolchain
 	@echo " "
 	@echo "[SUCCESS] The entire toolchain is built with Success."
 	@echo " "
