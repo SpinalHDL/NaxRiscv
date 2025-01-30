@@ -88,43 +88,43 @@ class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRIS
       val makeThreadCount = sys.env.getOrElse("NAXRISCV_REGRESSION_MAKE_THREAD_COUNT", "3").toInt
       println("Env :\n" + env.map(e => e._1 + "=" + e._2).mkString(" "))
       doCmd("python3 ./testsGen.py", env :_*)
+      // Correction des accolades et chemins
       val updatedEnv = HeavyLock.synchronized {
-      // Verilator configuration
-      val verilatorRoot = {
-        val base = new File("toolchain/verilator-v4.216")
-        val canonical = base.getCanonicalFile
-        if (!canonical.exists()) throw new Exception(s"Verilator missing at ${canonical.getAbsolutePath}")
-        canonical.getAbsolutePath
+        // Verilator configuration
+        val verilatorRoot = {
+          val base = new File("toolchain/verilator-v4.216")
+          val canonical = base.getCanonicalFile
+          if (!canonical.exists()) throw new Exception(s"Verilator missing at ${canonical.getAbsolutePath}")
+          canonical.getAbsolutePath
+        }
+
+        // Verify Verilator binary exists
+        val verilatorBin = new File(s"$verilatorRoot/bin/verilator")
+        if (!verilatorBin.exists()) throw new Exception(s"Verilator binary missing: ${verilatorBin.getAbsolutePath}")
+
+        // Spike configuration
+        val spikeRoot = {
+          val base = new File("ext/riscv-isa-sim")
+          val canonical = base.getCanonicalFile
+          if (!canonical.exists()) throw new Exception(s"Spike installation missing at ${canonical.getAbsolutePath}")
+          canonical.getAbsolutePath
+        }
+
+        // Update global environment variables
+        env ++ List(
+          "VERILATOR_ROOT" -> verilatorRoot,
+          "SPIKE" -> spikeRoot,
+          "PATH" -> List(
+            s"$verilatorRoot/bin",
+            System.getenv("PATH")
+          ).mkString(File.pathSeparator)
+        )
+      } // <-- Accolade fermante AJOUTÉE
+
+      // Compilation (needs synchronization)
+      HeavyLock.synchronized {
+        doCmd("make compile", updatedEnv: _*)
       }
-
-      // Verify Verilator binary exists
-      val verilatorBin = new File(s"$verilatorRoot/bin/verilator")
-      if (!verilatorBin.exists()) throw new Exception(s"Verilator binary missing: ${verilatorBin.getAbsolutePath}")
-
-      // Spike configuration
-      val spikeRoot = {
-        val base = new File("ext/riscv-isa-sim")
-        val canonical = base.getCanonicalFile
-        if (!canonical.exists()) throw new Exception(s"Spike installation missing at ${canonical.getAbsolutePath}")
-        canonical.getAbsolutePath
-      }
-
-      // Update global environment variables
-      env ++ List(
-        "VERILATOR_ROOT" -> verilatorRoot,
-        "SPIKE" -> spikeRoot,
-        "PATH" -> List(
-          s"$verilatorRoot/bin",       // Verilator binaries
-          System.getenv("PATH")        // Existing system PATH
-        ).mkString(File.pathSeparator) // OS-appropriate path separator
-      )
-    }
-
-    // Compilation (needs synchronization)
-    HeavyLock.synchronized {
-      doCmd("make compile", updatedEnv: _*)
-    }
-
     // Run tests with updated environment
     doCmd(s"make test-all -j${makeThreadCount}", updatedEnv: _*)
       doCmd(s"make test-all -j${makeThreadCount}", env :_*)
