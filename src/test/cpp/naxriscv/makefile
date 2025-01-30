@@ -85,20 +85,16 @@ LIBS +="-lpthread -ldl -lboost_regex -lboost_system  -lpthread  -lboost_system -
 all: clean run
 
 run: compile
-	./${MAKEFILE_DIR}/obj_dir/VNaxRiscv
+	./obj_dir/VNaxRiscv
 
 verilate: ${NAXRISCV_VERILOG}
-ifdef VERILATOR_ROOT
-	${VERILATOR_ROOT}/bin/verilator -cc ${NAXRISCV_VERILOG} -CFLAGS -std=c++14 -LDFLAGS -pthread ${ADDCFLAGS} ${FLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH --x-assign unique --exe ${SRCS}
-else
 	verilator -cc ${NAXRISCV_VERILOG} -CFLAGS -std=c++14 -LDFLAGS -pthread ${ADDCFLAGS} ${FLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH --x-assign unique --exe ${SRCS}
-endif
 
 src/nax.h: ${NAXRISCV_HEADER}
 	cp ${NAXRISCV_HEADER} src/nax.h
 
 compile: verilate src/nax.h
-	make  -j${THREAD_COUNT} -C ${MAKEFILE_DIR}/obj_dir/ -f VNaxRiscv.mk VNaxRiscv LIBS=${LIBS}
+	make  -j${THREAD_COUNT} -C obj_dir/ -f VNaxRiscv.mk VNaxRiscv LIBS=${LIBS}
  	
 clean:
 	rm -rf obj_dir
