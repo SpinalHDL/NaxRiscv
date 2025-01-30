@@ -71,4 +71,4 @@ jobs:
         run: |
           export NAXRISCV_REGRESSION_THREAD_COUNT=1
           export SBT_OPTS="-Xmx2G -XX:+UseConcMarkSweepGC -XX:+CMSClassUnloadingEnabled -XX:MaxPermSize=2G -Xss2M -Duser.timezone=GMT"
-#          sbt "testOnly *NaxRiscvRvls"
+          sbt "testOnly *NaxRiscvRvls"
