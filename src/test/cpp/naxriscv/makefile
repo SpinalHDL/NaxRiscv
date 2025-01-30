@@ -86,7 +86,11 @@ run: compile
 	./obj_dir/VNaxRiscv
 
 verilate: ${NAXRISCV_VERILOG}
-	verilator -cc  ${NAXRISCV_VERILOG}  -CFLAGS -std=c++14 -LDFLAGS -pthread  ${ADDCFLAGS}  ${FLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH --x-assign unique --exe ${SRCS}
+ifdef VERILATOR_ROOT
+	${VERILATOR_ROOT}/bin/verilator -cc ${NAXRISCV_VERILOG} -CFLAGS -std=c++14 -LDFLAGS -pthread ${ADDCFLAGS} ${FLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH --x-assign unique --exe ${SRCS}
+else
+	verilator -cc ${NAXRISCV_VERILOG} -CFLAGS -std=c++14 -LDFLAGS -pthread ${ADDCFLAGS} ${FLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH --x-assign unique --exe ${SRCS}
+endif
 
 src/nax.h: ${NAXRISCV_HEADER}
 	cp ${NAXRISCV_HEADER} src/nax.h
