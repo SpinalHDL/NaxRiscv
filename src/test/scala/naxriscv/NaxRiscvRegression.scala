@@ -119,7 +119,7 @@ class NaxRiscvRegression extends MultithreadedFunSuite(sys.env.getOrElse("NAXRIS
             System.getenv("PATH")
           ).mkString(File.pathSeparator)
         )
-      } // <-- Accolade fermante AJOUTÉE
+      }
 
       // Compilation (needs synchronization)
       HeavyLock.synchronized {
