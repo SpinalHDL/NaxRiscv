@@ -16,6 +16,7 @@ if [ ! -e "$VERILATOR_DIR/bin/verilator" ]; then
 
     # Clone and build in the verilator toolchain directory
     git clone https://github.com/verilator/verilator.git $VERILATOR_DIR
+    unset VERILATOR_ROOT
     cd $VERILATOR_DIR
     git checkout $VERILATOR_VERSION
 
@@ -23,7 +24,6 @@ if [ ! -e "$VERILATOR_DIR/bin/verilator" ]; then
     autoconf
     ./configure --prefix="$VERILATOR_DIR"
     make -j$(nproc)
-    make install
 
     echo "Verilator successfully installed in $VERILATOR_DIR"
 else
