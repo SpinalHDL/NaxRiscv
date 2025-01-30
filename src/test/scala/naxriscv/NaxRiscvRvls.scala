@@ -45,20 +45,9 @@ import scala.util.Random
 
         FileUtils.deleteQuietly(new File(workspacePath))
 
-        //val spinalConfig = SpinalConfig(inlineRom = true, targetDirectory = workspacePath)
-        //spinalConfig.addTransformationPhase(new MemReadDuringWriteHazardPhase)
-        //spinalConfig.addTransformationPhase(new MultiPortWritesSymplifier)
-
-        //spinalConfig.includeSimulation
-
-        //val report = SyncBlock.synchronized {spinalConfig.generateVerilog(new NaxRiscv(plugins))}
-        //val doc = report.toplevel.framework.getService[DocPlugin]
-        //doc.genC(workspacePath + "/nax.h")
-
         def cpyTb(file : String) = FileUtils.copyFile(new File(testbenchPath + "/" + file), new File(workspacePath + "/" + file))
-        //cpyTb("testsRvls.mk")
+
         cpyTb("testsGenRvls.py")
-        ///FileUtils.copyDirectory(new File(testbenchPath + "/src"), new File(workspacePath + "/src"))
 
         def doCmd(cmd: String, extraEnv: (String, String)*)(args: String*): String = {
           val stdOut = new StringBuilder()
@@ -77,17 +66,13 @@ import scala.util.Random
           }
           // Concatenate command and arguments
           val fullCommand = if (args.isEmpty) cmd else cmd + " " + args.mkString(" ")
-//          println(s"Running command: $fullCommand")
 
           // Get the current working directory
           val currentDirectory = new File(workspacePath).getAbsolutePath
-//          println(s"Current working directory: $currentDirectory")
 
           //Run the command with the specified working directory
           try{
             val ret = Process(fullCommand, new File(workspacePath), extraEnv :_*).!(new Logger)
-//            println(s"RET: $ret")
-//            println(s"Running full command: $fullCommand")
             assert(ret == 0)
           } catch {
             case ex: Exception => println(s"Error executing command: ${ex.getMessage}")
@@ -95,16 +80,46 @@ import scala.util.Random
           stdOut.toString()
         }
 
+        // =====================================================================
+        // Environment Configuration
+        // =====================================================================
+        
+        // Verify and configure Verilator installation
+        val verilatorRoot = {
+          val base = new File("toolchain/verilator-v4.216")
+          val canonical = base.getCanonicalFile
+          if (!canonical.exists()) throw new Exception(s"Verilator missing at ${canonical.getAbsolutePath}")
+          canonical.getAbsolutePath
+        }
+
+        // Ensure Verilator binary exists
+        val verilatorBin = new File(s"$verilatorRoot/bin/verilator")
+        if (!verilatorBin.exists()) throw new Exception(s"Verilator binary missing: ${verilatorBin.getAbsolutePath}")
+
+        // Verify and configure Spike RISC-V simulator
+        val spikeRoot = {
+          val base = new File("ext/riscv-isa-sim")
+          val canonical = base.getCanonicalFile
+          if (!canonical.exists()) throw new Exception(s"Spike installation missing at ${canonical.getAbsolutePath}")
+          canonical.getAbsolutePath
+        }
+
+        // Build environment variables for subprocesses
         val env = List(
-          "WORKSPACE_PATH" -> s"./simWorkspace/rvls",
-          "WORKSPACE_NAME" -> s"$name",
+          "WORKSPACE_PATH"       -> s"./simWorkspace/rvls",
+          "WORKSPACE_NAME"       -> s"$name",
           "WORKSPACE_OUTPUT_DIR" -> s"logs",
-          "NAXRISCV_SOFTWARE" -> "ext/NaxSoftware",
-          "SPIKE" -> "ext/riscv-isa-sim",
-          "FREERTOS_COUNT" -> freertosCount.toString,
-          "LINUX_COUNT" -> linuxCount.toString,
-          "NAXRISCV_SEED" -> seed.toString,
-          "NAXRISCV_COUNT" -> naxCount.toString,
+          "NAXRISCV_SOFTWARE"    -> "ext/NaxSoftware",
+          "SPIKE"                -> spikeRoot,                 // Absolute path to Spike
+          "VERILATOR_ROOT"       -> verilatorRoot,             // Verilator installation root
+          "PATH"                 -> List(                      // Prepend Verilator to PATH
+            s"$verilatorRoot/bin", 
+            System.getenv("PATH")
+          ).mkString(File.pathSeparator),
+          "FREERTOS_COUNT"       -> freertosCount.toString,
+          "LINUX_COUNT"         -> linuxCount.toString,
+          "NAXRISCV_SEED"        -> seed.toString,
+          "NAXRISCV_COUNT"       -> naxCount.toString,
           "NAXRISCV_TEST_FPU_FACTOR" -> 0.10.toString
         )
         val envMap = env.toMap
@@ -145,33 +160,22 @@ import scala.util.Random
         }.toList
 
         val makeThreadCount = sys.env.getOrElse("NAXRISCV_REGRESSION_MAKE_THREAD_COUNT", "3").toInt
-//        println("Env :\n" + env.map(e => e._1 + "=" + e._2).mkString(" "))
+
         // Get the configuration arguments that are used in test generation
         val configurationArgs = parseConfig(name).getOrElse(Nil) ++ filteredParams
-        // Imprime la liste des arguments de configuration
-//        println("Simulation arguments: " + configurationArgs.mkString(" "))
+
         configurationArgs match {
           case args: List[String] =>
             // Call doCmd with command, environment variables, and configuration arguments
             doCmd("python3 ./testsGenRvls.py", env: _*)(args: _*)
         } 
         
-        //SyncBlock.synchronized {
-        //  doCmd("make compile", env: _*)
-        //}
-        
         // Extract config name
         val configName = extractConfigName(name)
-//        println(s"Nom de la configuration extrait : $configName")
-        
-        //var command = s"make test-rv32imasu-all -j$makeThreadCount".replace("rvls", configName)
+
         var command = s"make test-rvls-all".replace("rvls", configName)
-        //var command = s"make riscv32_tests -j$makeThreadCount"
         workspacePath = "."
         doCmd(command, env :_*)()
-        //command = s"make riscvTestMemory -j$makeThreadCount"
-        //doCmd(command, env :_*)()
-        //command = s"make test-rvls-report -j$makeThreadCount".replace("rvls", configName)
         command = s"make test-rvls-report".replace("rvls", configName)
         doCmd(command, env :_*)()
 
