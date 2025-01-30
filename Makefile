@@ -114,7 +114,7 @@ src/test/cpp/naxriscv/obj_dir/VNaxRiscv:$(PRJ_NAX).v
 verilate-$(PRJ_NAX): src/test/cpp/naxriscv/obj_dir/VNaxRiscv
 
 # install
-install:clean-install clean-toolchain install-toolchain
+install:clean-install clean-sim clean-workspace install-toolchain
 	@echo " "
 	@echo "[SUCCESS] The entire toolchain is built with Success."
 	@echo " "
@@ -133,9 +133,7 @@ clean-submodules:
 	rm -rf $(CORE_DIR)/ext/*
 	
 clean-install:
-	rm -rf $(CORE_DIR)/ext/*
 	rm -rf $(CORE_DIR)/tmp
-	rm -rf $(CORE_DIR)/.venv
 
 clean-sim:
 	rm -rf $(CORE_DIR)/.venv
@@ -149,13 +147,6 @@ clean-exec:
 	rm -rf *.tar.gz
 
 clean-toolchain:
-	rm -rf $(TOOLCHAIN_DIR)/verilator-$(VERILATOR_VERSION_NAX)
-	rm -rf $(SPIKE_DIR)
-	rm -rf $(RVLS_DIR)
-	rm -rf $(CORE_DIR)/ext/SpinalHDL
-	rm -rf $(CORE_DIR)/ext/NaxSoftware
-
-clean-toolchain-all:
 	rm -rf $(TOOLCHAIN_DIR)
 
 clean-gen:
@@ -163,6 +154,15 @@ clean-gen:
 	rm -f $(PRJ_NAX).v
 	rm -f nax.h
 	rm -f NaxRiscvSynt.v
+
+clean-all: clean-install clean-sim clean-workspace clean-exec clean-gen
+	rm -rf $(TOOLCHAIN_DIR)/openjdk
+	rm -rf $(TOOLCHAIN_DIR)/sbt
+	rm -rf $(TOOLCHAIN_DIR)/verilator-$(VERILATOR_VERSION_NAX)
+	rm -rf $(SPIKE_DIR)
+	rm -rf $(RVLS_DIR)
+	rm -rf $(CORE_DIR)/ext/SpinalHDL
+	rm -rf $(CORE_DIR)/ext/NaxSoftware
 
 # include ################################################
 -include testsRvls.mk
