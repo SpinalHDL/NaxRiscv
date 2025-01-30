@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: MIT
 
+MAKEFILE_DIR := $(dir $(realpath $(lastword $(MAKEFILE_LIST)))))
+
 NAXRISCV_REPO?=$(realpath ../../../..)
 NAXRISCV_GEN_FOLDER?=${NAXRISCV_REPO}
 NAXRISCV_VERILOG?=${NAXRISCV_GEN_FOLDER}/NaxRiscv.v
@@ -96,7 +98,7 @@ src/nax.h: ${NAXRISCV_HEADER}
 	cp ${NAXRISCV_HEADER} src/nax.h
 
 compile: verilate src/nax.h
-	make  -j${THREAD_COUNT} -C obj_dir/ -f VNaxRiscv.mk VNaxRiscv LIBS=${LIBS}
+	make  -j${THREAD_COUNT} -C $(MAKEFILE_DIR)obj_dir/ -f $(MAKEFILE_DIR)VNaxRiscv.mk $(MAKEFILE_DIR)VNaxRiscv LIBS=${LIBS}
  	
 clean:
 	rm -rf obj_dir
