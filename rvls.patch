@@ -13,9 +13,10 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 <+>UTF-8
 ===================================================================
 diff --git a/bindings/jni/rvls/jni/Frontend.java b/bindings/jni/rvls/jni/Frontend.java
---- a/bindings/jni/rvls/jni/Frontend.java	(revision b5c15e129f8168c2317b2c129aef91adf935bfeb)
-+++ b/bindings/jni/rvls/jni/Frontend.java	(revision 2650638f8c4aac96b7e068d01373b4836713b079)
-@@ -3,7 +3,7 @@
+index 5f34cf7..f33c35b 100644
+--- a/bindings/jni/rvls/jni/Frontend.java
++++ b/bindings/jni/rvls/jni/Frontend.java
+@@ -3,11 +3,11 @@ package rvls.jni;
  import java.io.File;
  
  public class Frontend  {
@@ -24,7 +25,12 @@ diff --git a/bindings/jni/rvls/jni/Frontend.java b/bindings/jni/rvls/jni/Fronten
      public static native void deleteDisassemble(long handle);
      public static native String disassemble(long handle, long instruction);
      
-@@ -16,12 +16,13 @@
+-    public static native long newContext(String workspace);
++    public static native long newContext(String workspace, boolean spikeLogFileOut);
+     public static native void deleteContext(long handle);
+ 
+     public static native void spikeDebug(long handle, boolean enable);
+@@ -16,12 +16,13 @@ public class Frontend  {
      public static native void newCpuMemoryView(long handle, int viewId, long readIds, long writeIds);
      public static native void newCpu(long handle, int hartId, String isa, String priv, int physWidth, int memoryViewId);
      public static native void loadElf(long handle, long offset, String path);
@@ -389,8 +395,9 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 <+>UTF-8
 ===================================================================
 diff --git a/src/jni_frontend.cpp b/src/jni_frontend.cpp
---- a/src/jni_frontend.cpp	(revision b5c15e129f8168c2317b2c129aef91adf935bfeb)
-+++ b/src/jni_frontend.cpp	(revision 2650638f8c4aac96b7e068d01373b4836713b079)
+index 652c913..589334f 100644
+--- a/src/jni_frontend.cpp
++++ b/src/jni_frontend.cpp
 @@ -12,8 +12,8 @@
  #include "disasm.h"
  
@@ -402,7 +409,7 @@ diff --git a/src/jni_frontend.cpp b/src/jni_frontend.cpp
  
  #ifdef __cplusplus
  extern "C" {
-@@ -37,8 +37,8 @@
+@@ -37,8 +37,8 @@ string toString(JNIEnv *env, jstring jstr){
      return str;
  }
  
@@ -413,7 +420,20 @@ diff --git a/src/jni_frontend.cpp b/src/jni_frontend.cpp
  }
  
  JNIEXPORT jstring JNICALL Java_rvls_jni_Frontend_disassemble(JNIEnv * env, jobject obj, long handle, long instruction){
-@@ -98,6 +98,10 @@
+@@ -52,10 +52,10 @@ JNIEXPORT void JNICALL Java_rvls_jni_Frontend_deleteDisassemble(JNIEnv * env, jo
+ }
+ 
+ 
+-JNIEXPORT jlong JNICALL Java_rvls_jni_Frontend_newContext(JNIEnv * env, jobject obj, jstring jworkspace){
++JNIEXPORT jlong JNICALL Java_rvls_jni_Frontend_newContext(JNIEnv * env, jobject obj, jstring jworkspace, jboolean spikeLogFileOut){
+ 	string workspace = toString(env, jworkspace);
+ 	auto *ctx = new Context();
+-	ctx->spikeLogs = fopen((workspace + "/spike.log").c_str(), "w");
++	ctx->spikeLogs = fopen((spikeLogFileOut ? (workspace + "/spike.log") : "/dev/null").c_str(), "w");
+     return (jlong)ctx;
+ }
+ 
+@@ -98,6 +98,10 @@ rvlsJni(loadBin), long offset, jstring path){
  	c->loadBin(toString(env, path), offset);
  }
  
@@ -424,7 +444,7 @@ diff --git a/src/jni_frontend.cpp b/src/jni_frontend.cpp
  rvlsJni(setPc), int hartId, long pc){
  	rv->setPc(pc);
  }
-@@ -117,9 +121,10 @@
+@@ -117,9 +121,10 @@ rvlsJniBool(commit), int hartId, long pc) {
  	}
  	return true;
  }
@@ -500,9 +520,10 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 <+>UTF-8
 ===================================================================
 diff --git a/bindings/spinal/rvls/spinal/Tracer.scala b/bindings/spinal/rvls/spinal/Tracer.scala
---- a/bindings/spinal/rvls/spinal/Tracer.scala	(revision 61b8e1b29bee6338cffe0bb34eaabdd07a3758b9)
-+++ b/bindings/spinal/rvls/spinal/Tracer.scala	(revision 929e75348d8115045775d37d96f54b520eb61c9d)
-@@ -72,12 +72,13 @@
+index 674065d..091a4cf 100644
+--- a/bindings/spinal/rvls/spinal/Tracer.scala
++++ b/bindings/spinal/rvls/spinal/Tracer.scala
+@@ -72,12 +72,13 @@ class DummyBackend() extends TraceBackend{
    override def newCpuMemoryView(viewId: Int, readIds: Long, writeIds: Long) = {}
    override def newCpu(hartId: Int, isa: String, priv: String, physWidth: Int, memoryViewId: Int) = {}
    override def loadElf(offset: Long, path: File) = {}
@@ -517,7 +538,7 @@ diff --git a/bindings/spinal/rvls/spinal/Tracer.scala b/bindings/spinal/rvls/spi
    override def ioAccess(hartId: Int, access: TraceIo) = {}
    override def setInterrupt(hartId: Int, intId: Int, value: Boolean) = {}
    override def addRegion(hartId: Int, kind : Int, base: Long, size: Long) = {}
-@@ -105,8 +106,8 @@
+@@ -105,8 +106,8 @@ class FileBackend(f : File) extends TraceBackend{
      log(f"rv commit $hartId $pc%016x\n")
    }
  
@@ -528,7 +549,7 @@ diff --git a/bindings/spinal/rvls/spinal/Tracer.scala b/bindings/spinal/rvls/spi
    }
  
    override def writeRf(hartId: Int, rfKind: Int, address: Int, data: Long) = {
-@@ -129,6 +130,10 @@
+@@ -129,6 +130,10 @@ class FileBackend(f : File) extends TraceBackend{
      log(f"rv region add $hartId $kind $base%016x $size%016x\n")
    }
  
@@ -539,7 +560,20 @@ diff --git a/bindings/spinal/rvls/spinal/Tracer.scala b/bindings/spinal/rvls/spi
    override def loadElf(offset: Long, path: File) = {
      log(f"elf load  $offset%016x ${path.getAbsolutePath}\n")
    }
-@@ -194,6 +199,7 @@
+@@ -174,10 +179,10 @@ class FileBackend(f : File) extends TraceBackend{
+   override def close() = bf.close()
+ }
+ 
+-class RvlsBackend(workspace : File = new File(".")) extends TraceBackend{
++class RvlsBackend(workspace : File = new File("."), spikeLogFileOut: Boolean) extends TraceBackend{
+   import rvls.jni.Frontend
+   FileUtils.forceMkdir(workspace)
+-  val handle = Frontend.newContext(workspace.getAbsolutePath)
++  val handle = Frontend.newContext(workspace.getAbsolutePath,spikeLogFileOut)
+ 
+   override def flush(): Unit = {}
+   override def close(): Unit = {
+@@ -194,6 +199,7 @@ class RvlsBackend(workspace : File = new File(".")) extends TraceBackend{
    override def newCpuMemoryView(viewId: Int, readIds: Long, writeIds: Long): Unit = Frontend.newCpuMemoryView(handle, viewId, readIds, writeIds)
    override def newCpu(hartId: Int, isa: String, priv: String, physWidth: Int, memoryViewId: Int): Unit = Frontend.newCpu(handle, hartId, isa, priv, physWidth, memoryViewId)
    override def loadElf(offset: Long, path: File): Unit = Frontend.loadElf(handle, offset, path.getAbsolutePath)
@@ -547,7 +581,7 @@ diff --git a/bindings/spinal/rvls/spinal/Tracer.scala b/bindings/spinal/rvls/spi
    override def loadBin(offset: Long, path: File): Unit = Frontend.loadBin(handle, offset, path.getAbsolutePath)
    override def setPc(hartId: Int, pc: Long): Unit = Frontend.setPc(handle, hartId, pc)
    override def writeRf(hardId: Int, rfKind: Int, address: Int, data: Long): Unit = Frontend.writeRf(handle, hardId, rfKind, address, data)
-@@ -201,7 +207,7 @@
+@@ -201,7 +207,7 @@ class RvlsBackend(workspace : File = new File(".")) extends TraceBackend{
    override def commit(hartId: Int, pc: Long): Unit = if(!Frontend.commit(handle, hartId, pc)) {
      throw new Exception(Frontend.getLastErrorMessage(handle))
    }

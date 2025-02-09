@@ -257,7 +257,7 @@ object SocSim extends App {
     println("logs_output: "+logsOutputPathFile);
 
     // Rvls will check that the CPUs are doing things right
-    val rvls = withRvls generate new RvlsBackend(logsOutputPathFile)
+    val rvls = withRvls generate new RvlsBackend(logsOutputPathFile, traceIt)
     if(withRvls) {
       rvls.spinalSimFlusher(10 * 10000)
       rvls.spinalSimTime(10000)
@@ -282,8 +282,7 @@ object SocSim extends App {
     println()
     if(withRvls) {
       naxes.foreach(_.add(rvls, isa))
-      rvls.spikeLogCommit() //Always enable, even if traceIt = false
-      if(traceIt) rvls.spikeDebug() //Optional, controlled by traceIt
+      rvls.debug()
     }
     // Things to enable when we want to collect traces
     onTrace{
