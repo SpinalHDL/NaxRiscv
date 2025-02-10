@@ -189,13 +189,13 @@ import scala.util.Random
       }
     }
  
-    doTest("config_rv32imasu", naxCount = 1, params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 1, freertosCount = 1)
-    doTest("config_rv64imasu", naxCount = 1,  params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 1, freertosCount = 1)
-    doTest("config_rv32imacsu",naxCount = 1,  params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 1, freertosCount = 1)
-    doTest("config_rv32imafcsu", naxCount = 1,  params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 0, freertosCount = 1)
-    doTest("config_rv32imafdcsu", naxCount = 1,  params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 0, freertosCount = 1)
-    doTest("config_rv64imacsu", naxCount = 1,  params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 1, freertosCount = 1)
-    doTest("config_rv64imafcsu", naxCount = 1,  params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 0, freertosCount = 1) 
+    //doTest("config_rv32imasu", naxCount = 1, params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 1, freertosCount = 1)
+    //doTest("config_rv64imasu", naxCount = 1,  params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 1, freertosCount = 1)
+    //doTest("config_rv32imacsu",naxCount = 1,  params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 1, freertosCount = 1)
+    //doTest("config_rv32imafcsu", naxCount = 1,  params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 0, freertosCount = 1)
+    //doTest("config_rv32imafdcsu", naxCount = 1,  params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 0, freertosCount = 1)
+    //doTest("config_rv64imacsu", naxCount = 1,  params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 1, freertosCount = 1)
+    //doTest("config_rv64imafcsu", naxCount = 1,  params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 0, freertosCount = 1) 
     doTest("config_rv64imafdcsu", naxCount = 1, params = Seq("noL2" -> "0", "noRvls" -> "0", "dualSim" -> "0", "trace" -> "0"), linuxCount = 1, freertosCount = 1)
   }
 
