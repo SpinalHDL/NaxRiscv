@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: MIT
 
+MAKEFILE_DIR := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
+
 NAXRISCV_REPO?=$(realpath ../../../..)
 NAXRISCV_GEN_FOLDER?=${NAXRISCV_REPO}
 NAXRISCV_VERILOG?=${NAXRISCV_GEN_FOLDER}/NaxRiscv.v
@@ -9,7 +11,8 @@ NAXRISCV_HEADER?=${NAXRISCV_GEN_FOLDER}/nax.h
 
 SPIKE?=${NAXRISCV_REPO}/ext/riscv-isa-sim
 SPIKE_BUILD=$(realpath ${SPIKE}/build)
-
+SPIKE_INCLUDE=$(realpath ${SPIKE}/include)
+SPIKE_LIB=$(realpath ${SPIKE}/lib)
 
 TRACE?=yes
 #LOCKSTEP?=yes
@@ -19,9 +22,9 @@ ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE}/riscv)
 ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE}/fesvr)
 ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE}/softfloat)
 ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE_BUILD})
+ADDCFLAGS += -CFLAGS -I$(realpath ${SPIKE_INCLUDE}) # to include SDL2 & elfio
 
-
-ADDCFLAGS += -CFLAGS -lSDL2
+ADDCFLAGS += -LDFLAGS -L$(realpath ${SPIKE_LIB})
 ADDCFLAGS += -LDFLAGS -lSDL2
 
 ADDCFLAGS += -CFLAGS -g
@@ -47,7 +50,7 @@ SPIKE_OBJS:=$(addprefix ${SPIKE_BUILD}/,${SPIKE_OBJS})
 
 SRCS=src/main.cpp
 SRCS+=${SPIKE_OBJS} # g++ -shared -L. -Wl,--export-dynamic -L/usr/lib/x86_64-linux-gnu  -Wl,-rpath,/opt/riscv/lib  -o package.so spike.o  libspike_main.a  libriscv.a  libdisasm.a  libsoftfloat.a  libfesvr.a  libfdt.a -lpthread -ldl -lboost_regex -lboost_system -lpthread  -lboost_system -lboost_regex
-
+SRCS+=${SPIKE_BUILD}/package.so
 
 #SRCS+=${SPIKE_BUILD}/libspike_main.a
 #SRCS+=${SPIKE_BUILD}/libriscv.a
@@ -85,7 +88,7 @@ run: compile
 	./obj_dir/VNaxRiscv
 
 verilate: ${NAXRISCV_VERILOG}
-	verilator -cc  ${NAXRISCV_VERILOG}  -CFLAGS -std=c++14 -LDFLAGS -pthread  ${ADDCFLAGS}  ${FLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH --x-assign unique --exe ${SRCS}
+	verilator -cc ${NAXRISCV_VERILOG} -CFLAGS -std=c++14 -LDFLAGS -pthread ${ADDCFLAGS} ${FLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH --x-assign unique --exe ${SRCS}
 
 src/nax.h: ${NAXRISCV_HEADER}
 	cp ${NAXRISCV_HEADER} src/nax.h

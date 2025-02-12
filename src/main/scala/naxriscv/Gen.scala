@@ -33,6 +33,7 @@ import spinal.lib.misc.plic.WishbonePlic
 import scala.collection.mutable.ArrayBuffer
 import scala.sys.exit
 
+import scopt.OParser
 
 class NaxRiscv(val plugins : Seq[Plugin]) extends Component{
   val database = new DataBase
@@ -43,6 +44,7 @@ object Config{
   def plugins(resetVector : BigInt = 0x80000000l,
               withRdTime : Boolean = true,
               ioRange    : UInt => Bool = _(31 downto 28) === 0x1,
+              memRange   : UInt => Bool = _(31),
               fetchRange : UInt => Bool = _(31 downto 28) =/= 0x1,
               aluCount : Int = 2,
               decodeCount : Int = 2,
@@ -50,6 +52,7 @@ object Config{
               withMmu : Boolean = true,
               withPerfCounters : Boolean = true,
               withSupervisor : Boolean = true,
+              withUser : Boolean = true,
               withDistributedRam : Boolean = true,
               xlen : Int = 32,
               withLoadStore : Boolean = true,
@@ -91,6 +94,7 @@ object Config{
       case true => new MmuPlugin(
         spec    = if(xlen == 32) MmuSpec.sv32 else MmuSpec.sv39,
         ioRange = ioRange,
+        memRange = memRange,
         fetchRange = fetchRange,
         physicalWidth = 32
       )
@@ -312,6 +316,7 @@ object Config{
     plugins += new PrivilegedPlugin(PrivilegedConfig.full.copy(
       withRdTime = withRdTime,
       withSupervisor = withSupervisor,
+      withUser = withUser,
       withDebug = withDebug,
       debugTriggers = debugTriggers,
       hartId = hartId
@@ -469,7 +474,31 @@ object Config{
 }
 // ramstyle = "MLAB, no_rw_check"
 object Gen extends App{
+// configuration variables
+  var withRvc = false
+  var withFloat = false
+  var withDouble = false
+  var withSupervisor = true
+  var withUser = true
+  // Argument parser
+  val builder = OParser.builder[Unit]
+  val parser = {
+    import builder._
+    OParser.sequence(
+      programName("Gen"),
+      head("Gen64", "1.0"),
+      opt[Unit]("withRvc").action((_, _) => withRvc = true).text("Enable RVC"),
+      opt[Unit]("withFloat").action((_, _) => withFloat = true).text("Enable float"),
+      opt[Unit]("withDouble").action((_, _) => withDouble = true).text("Enable double"),
+      opt[Unit]("noSupervisor").action((_, _) => withSupervisor = false).text("Disable supervisor mode"),
+      opt[Unit]("noUser").action((_, _) => withUser = false).text("Disable user mode")
+    )
+  }
+  // Parse command line arguments
+  OParser.parse(parser, args, ())
+  // Configuring LUT inputs
   LutInputs.set(6)
+  // Plugin configuration function
   def plugins = {
     val l = Config.plugins(
       withRdTime = false,
@@ -477,14 +506,16 @@ object Gen extends App{
       decodeCount = 2,
       debugTriggers = 0,
       withDedicatedLoadAgu = false,
-      withRvc = false,
+      withRvc = withRvc,
       withLoadStore = true,
       withMmu = true,
       withDebug = false,
       withEmbeddedJtagTap = false,
       jtagTunneled = false,
-      withFloat = false,
-      withDouble = false,
+      withFloat = withFloat,
+      withDouble = withDouble,
+      withSupervisor = withSupervisor,
+      withUser = withUser,
       withLsu2 = true,
       lqSize = 16,
       sqSize = 16,
@@ -537,7 +568,31 @@ no mmu, no load/store => 7873
 
 // ramstyle = "MLAB, no_rw_check"
 object Gen64 extends App{
+  // configuration variables
+  var withRvc = false
+  var withFloat = false
+  var withDouble = false
+  var withSupervisor = true
+  var withUser = true
+  // Argument parser
+  val builder = OParser.builder[Unit]
+  val parser = {
+    import builder._
+    OParser.sequence(
+      programName("Gen"),
+      head("Gen64", "1.0"),
+      opt[Unit]("withRvc").action((_, _) => withRvc = true).text("Enable RVC"),
+      opt[Unit]("withFloat").action((_, _) => withFloat = true).text("Enable float"),
+      opt[Unit]("withDouble").action((_, _) => withDouble = true).text("Enable double"),
+      opt[Unit]("noSupervisor").action((_, _) => withSupervisor = false).text("Disable supervisor mode"),
+      opt[Unit]("noUser").action((_, _) => withUser = false).text("Disable user mode")
+    )
+  }
+  // Parse command line arguments
+  OParser.parse(parser, args, ())
+  // Configuring LUT inputs
   LutInputs.set(6)
+  // Plugin configuration function
   def plugins = {
     val l = Config.plugins(
       sideChannels = false, //WARNING, FOR TEST PURPOSES ONLY, turn to false for real stuff <3
@@ -545,12 +600,14 @@ object Gen64 extends App{
       withRdTime = false,
       aluCount    = 2,
       decodeCount = 2,
-      withRvc = false,
+      withRvc = withRvc,
       withDebug = false,
       withEmbeddedJtagTap = false,
       debugTriggers = 4,
-      withFloat = false,
-      withDouble = false,
+      withFloat = withFloat,
+      withDouble = withDouble,
+      withSupervisor = withSupervisor,
+      withUser = withUser,
       lqSize = 16,
       sqSize = 16,
       asic = false

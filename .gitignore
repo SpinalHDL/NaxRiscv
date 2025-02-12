@@ -52,7 +52,11 @@ obj_dir
 explor
 nax.h
 
+toolchain/
 simWorkspace/
 tmp/
 /archive.tar.gz
 *.out32
+.metals/
+src/test/python/naxriscv/*.mk
+*.diff
