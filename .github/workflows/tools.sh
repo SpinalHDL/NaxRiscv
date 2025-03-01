@@ -11,7 +11,7 @@ install_verilator(){
   unset VERILATOR_ROOT  # For bash
   cd verilator
   git pull        # Make sure we're up-to-date
-  git checkout v4.216
+  git checkout v4.228
   autoconf        # Create ./configure script
   ./configure --prefix ~/tools
   make -j4
