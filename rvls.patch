@@ -1,0 +1,592 @@
+Subject: [PATCH] RVLS
+logging FCSR write register
+initialize floating registers and update FCSR assertion
+Update rvls tracer
+Merge remote-tracking branch 'my-github-rvls/updated-spike' into patch_local_rvls
+Added  to support FPU tests with SocSim, and extended the  method to include  for logging the trap address. This change allows more detailed information to be captured during trap handling.
+- Removed the shift operation because it caused a mismatch in 32-bit mode. - For example, with pc=0xffffffff8000017c and state->pc=0xffffffff8000017c, - a 32-bit shift was applied, resulting in a mismatch. This was problematic in SocSim.
+Update RVLS for compatibility with the updated Spike version
+---
+Index: bindings/jni/rvls/jni/Frontend.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/bindings/jni/rvls/jni/Frontend.java b/bindings/jni/rvls/jni/Frontend.java
+index 5f34cf7..f33c35b 100644
+--- a/bindings/jni/rvls/jni/Frontend.java
++++ b/bindings/jni/rvls/jni/Frontend.java
+@@ -3,11 +3,11 @@ package rvls.jni;
+ import java.io.File;
+ 
+ public class Frontend  {
+-    public static native long newDisassemble(int xlen);
++    public static native long newDisassemble(long handle, int hartId);
+     public static native void deleteDisassemble(long handle);
+     public static native String disassemble(long handle, long instruction);
+     
+-    public static native long newContext(String workspace);
++    public static native long newContext(String workspace, boolean spikeLogFileOut);
+     public static native void deleteContext(long handle);
+ 
+     public static native void spikeDebug(long handle, boolean enable);
+@@ -16,12 +16,13 @@ public class Frontend  {
+     public static native void newCpuMemoryView(long handle, int viewId, long readIds, long writeIds);
+     public static native void newCpu(long handle, int hartId, String isa, String priv, int physWidth, int memoryViewId);
+     public static native void loadElf(long handle, long offset, String path);
++    public static native void loadU32(long handle, long address,  int data);
+     public static native void loadBin(long handle, long offset, String path);
+     public static native void setPc(long handle, int hartId, long pc);
+     public static native void writeRf(long handle, int hardId, int rfKind, int address, long data);
+     public static native void readRf(long handle, int hardId, int rfKind, int address, long data);
+     public static native boolean commit(long handle, int hartId, long pc);
+-    public static native boolean trap(long handle, int hartId, boolean interrupt, int code);
++    public static native boolean trap(long handle, int hartId, boolean interrupt, int code, long fault_addr);
+     public static native String getLastErrorMessage(long handle);
+     public static native void ioAccess(long handle, int hartId, boolean write, long address, long data, int mask, int size, boolean error);
+     public static native void setInterrupt(long handle, int hartId, int intId, boolean value);
+Index: src/hart.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/hart.cpp b/src/hart.cpp
+--- a/src/hart.cpp	(revision b5c15e129f8168c2317b2c129aef91adf935bfeb)
++++ b/src/hart.cpp	(revision d2fbaa45be212de7b1df2360ad9f3d4dcf78f965)
+@@ -9,8 +9,9 @@
+ 
+ 
+ 
+-SpikeIf::SpikeIf(CpuMemoryView *memory){
+-    this->memory = memory;
++SpikeIf::SpikeIf(CpuMemoryView *memory, const cfg_t *cfg)
++    : memory(memory), cfg(cfg) {
++
+ }
+ 
+ Region* SpikeIf::getRegion(u64 address){
+@@ -104,6 +105,14 @@
+ 
+     return false;
+ }
++// Correct definition of get_cfg without virtual and override
++const cfg_t& SpikeIf::get_cfg() const {
++    return *cfg;
++}
++// Correct definition of get_harts without virtual and override
++const std::map<size_t, processor_t*>& SpikeIf::get_harts() const {
++    return harts;
++}
+ // Callback for processors to let the simulation know they were reset.
+ void SpikeIf::proc_reset(unsigned id)  {
+ //        printf("proc_reset %d\n", id);
+@@ -116,13 +125,19 @@
+ 
+ 
+ 
+-Hart::Hart(u32 hartId, string isa, string priv, u32 physWidth, CpuMemoryView *memory, FILE *logs){
++Hart::Hart(u32 hartId, string isa, string priv, u32 physWidth, CpuMemoryView *memory, FILE *logs)
++: isa_hart(isa), priv_hart(priv), cfg() // Initialiser le membre cfg
++{
+     this->memory = memory;
+     this->physWidth = physWidth;
+-    sif = new SpikeIf(memory);
+     std::ofstream outfile ("/dev/null",std::ofstream::binary);
+-    proc = new processor_t(isa.c_str(), priv.c_str(), "", sif, hartId, false, logs, outfile);
+-    auto xlen = proc->get_xlen();
++    this->cfg.isa = isa_hart.c_str();
++    this->cfg.priv = priv_hart.c_str();
++    this->cfg.misaligned = false;
++    this->cfg.pmpregions = 0;
++    this->cfg.hartids.push_back(hartId);
++    sif = new SpikeIf(memory, &this->cfg);
++    proc = new processor_t(isa_hart.c_str(), priv_hart.c_str(), &this->cfg, sif, hartId, false, logs, outfile);    auto xlen = proc->get_xlen();
+     proc->set_impl(IMPL_MMU_SV32, xlen == 32);
+     proc->set_impl(IMPL_MMU_SV39, xlen == 64);
+     proc->set_impl(IMPL_MMU_SV48, false);
+@@ -131,6 +146,12 @@
+     state = proc->get_state();
+     state->csrmap[CSR_MCYCLE] = std::make_shared<basic_csr_t>(proc, CSR_MCYCLE, 0);
+     state->csrmap[CSR_MCYCLEH] = std::make_shared<basic_csr_t>(proc, CSR_MCYCLEH, 0);
++    for(int i = 0;i < 32;i++){
++        float128_t tmp;
++        tmp.v[0] = -1;
++        tmp.v[1] = -1;
++        state->FPR.write(i, tmp);
++    }
+ }
+ 
+ void Hart::close() {
+@@ -153,6 +174,11 @@
+         floatWriteData = data;
+         break;
+     case 4:
++        if((csrAddress == CSR_FCSR || csrAddress == CSR_FRM || csrAddress == CSR_FFLAGS) && address == CSR_MSTATUS){
++            fsDirty = true;
++            fsCsrAddress = address;
++            break;
++        }
+         if((csrWrite || csrRead) && csrAddress != address){
+         	failure("duplicated CSR access \n");
+         }
+@@ -186,16 +212,41 @@
+ }
+ 
+ void Hart::physExtends(u64 &v){
+-    v = (u64)(((s64)v<<(64-physWidth)) >> (64-physWidth));
++    //v = (u64)(((s64)v<<(64-physWidth)) >> (64-physWidth));
++    auto xlen = proc->get_xlen();
++    if(xlen == 32){
++        v = (u64)(((s64)v<<(64-physWidth)) >> (64-physWidth));
++    }
++    else{
++        v = (s64)v;
++    }
+ }
+ 
+-void Hart::trap(bool interrupt, u32 code){
++void Hart::trap(bool interrupt, u32 code, u64 address){
+     int mask = 1 << code;
+     auto fromPc = state->pc;
++    bool pageFault = !interrupt && (code == 12 || code == 13 || code == 15);
++//    printf("DUT did trap at tval: 0x%lx pc: %lx code %d\n", address, fromPc, code);
++     if(pageFault){
++        auto mmu = proc->get_mmu();
++        mmu->flush_tlb();
++        mmu->fault_fetch = code == 12;
++        mmu->fault_load  = code == 13;
++        mmu->fault_store = code == 15;
++        mmu->fault_address = address;
++    }
++
+     if(interrupt) state->mip->write_with_mask(mask, mask);
+     proc->step(1);
+     if(interrupt) state->mip->write_with_mask(mask, 0);
++    if(pageFault){
++        auto mmu = proc->get_mmu();
++        mmu->fault_fetch = false;
++        mmu->fault_load  = false;
++        mmu->fault_store = false;
++    }
+     if(!state->trap_happened){
++//        printf("DUT did trap on %lx Code %d\n", fromPc, code);
+         failure("DUT did trap on %lx\n", fromPc);
+     }
+ 
+@@ -206,8 +257,9 @@
+ }
+ 
+ void Hart::commit(u64 pc){
+-	auto shift = 64-proc->get_xlen();
+-    if(pc != (state->pc << shift >> shift)){
++//	auto shift = 64-proc->get_xlen();
++//  if(pc != (state->pc << shift >> shift)){
++    if(pc != state->pc ){
+     	failure("PC MISSMATCH dut=%lx ref=%lx\n", pc, state->pc);
+     }
+ 
+@@ -244,6 +296,10 @@
+         }
+     }
+ 
++//    Check
++//    printf("**************************************************\n");
++//    printf("PC = %016lx, ref=%lx, INST = %08lx\n", pc, state->pc, state->last_inst.bits());
++
+     //Run the spike model
+     proc->step(1);
+     memory->step();
+@@ -251,6 +307,7 @@
+     //Sync back some CSR
+     state->mip->unlogged_write_with_mask(-1, 0);
+     if(csrRead){
++//        printf("Debug: CSR read - address: %x, data: %lx\n", csrAddress, csrReadData);
+         switch(csrAddress){
+         case MIP:
+         case SIP:
+@@ -262,53 +319,76 @@
+ 
+     //Checks
+ //        printf("%016lx %08lx\n", pc, state->last_inst.bits());
+-    assertTrue("DUT missed a trap", !state->trap_happened);
+-    for (auto item : state->log_reg_write) {
+-        if (item.first == 0)
+-          continue;
++    assertTrue("DUT missed a trap", !((u32)state->trap_happened));
++    int i = 0;
++   for (auto item : state->log_reg_write) {
++//    printf("LOG N°%u :Debug: LOOP rd = %u, data = %lx, dut_floatData: %lx, dut_floatValid: %u\n", i, (u32)item.first >> 4, item.second.v[0], floatWriteData, floatWriteValid);
++    if (item.first == 0)
++        continue;
+ 
+-        u32 rd = item.first >> 4;
+-        switch (item.first & 0xf) {
+-        case 0: { //integer
+-            assertTrue("INTEGER WRITE MISSING", integerWriteValid);
+-            assertEq("INTEGER WRITE MISSMATCH", integerWriteData, item.second.v[0]);
+-            integerWriteValid = false;
+-        } break;
+-        case 1: { //float
+-            assertTrue("FLOAT WRITE MISSING", floatWriteValid);
+-            assertEq("FLOAT WRITE MISSMATCH", floatWriteData, item.second.v[0]);
+-            floatWriteValid = false;
+-        } break;
+-        case 4:{ //CSR
+-            u64 inst = state->last_inst.bits();
+-            switch(inst){
+-            case 0x30200073: //MRET
+-            case 0x10200073: //SRET
+-            case 0x00200073: //URET
+-                physExtends(state->pc);
+-                break;
+-            default:{
+-                if((inst & 0x7F) == 0x73 && (inst & 0x3000) != 0){
+-                    assertTrue("CSR WRITE MISSING", csrWrite);
+-                    assertEq("CSR WRITE ADDRESS", (u32)(csrAddress & 0xCFF), (u32)(rd & 0xCFF));
++    i += 1;
++
++    u32 rd = item.first >> 4;
++
++//    printf("LOG N°%u :Debug: LOOP rd = %u, data = %lx, dut_floatData: %lx, dut_floatValid: %u\n", i, rd, item.second.v[0], floatWriteData, floatWriteValid);
++
++    switch (item.first & 0xf) {
++    case 0: { //integer
++//        printf("Debug: Integer write detected, rd = %u, data = %lx, dut_integerData: %lx\n", rd, item.second.v[0], integerWriteData);
++        assertTrue("INTEGER WRITE MISSING", integerWriteValid);
++        assertEq("INTEGER WRITE MISSMATCH", integerWriteData, item.second.v[0]);
++        integerWriteValid = false;
++    } break;
++
++    case 1: { //float
++//        printf("item.second.v[0] = %lx, item.second.v[1] = %lx\n",item.second.v[0], item.second.v[1]);
++//        printf("Debug: Float write detected, rd = %u, data = %lx, dut_floatData: %lx, dut_floatValid: %u\n", rd, item.second.v[0], floatWriteData, floatWriteValid);
++        assertTrue("FLOAT WRITE MISSING", floatWriteValid);
++        assertEq("FLOAT WRITE MISSMATCH", floatWriteData, item.second.v[0]);
++        floatWriteValid = false;
++    } break;
++
++    case 4: { //CSR
++        u64 inst = state->last_inst.bits();
++//        printf("Debug: CSR write detected, inst = %lx, rd = %u\n", inst, rd);
++
++        switch (inst) {
++        case 0x30200073: // MRET
++        case 0x10200073: // SRET
++        case 0x00200073: // URET
++//            printf("Debug: Handling MRET/SRET/URET instruction\n");
++            physExtends(state->pc);
++            break;
++        default: {
++            if ((inst & 0x7F) == 0x73 && (inst & 0x3000) != 0) {
++//                printf("Debug: CSR instruction detected, inst = %lx, CSR address = %x\n", inst, csrAddress);
++
++                if ((inst >> 20) == CSR_FCSR || (inst >> 20) == CSR_FRM || (inst >> 20) == CSR_FFLAGS) {
++                    if (rd != CSR_MSTATUS) {
++                        assertTrue("CSR WRITE MISSING", csrWrite);
++                        assertEq("CSR WRITE ADDRESS", (u32)(csrAddress & 0xCFF), (u32)(rd & 0xCFF));
+ //                                                assertEq("CSR WRITE DATA", whitebox->robCtx[robId].csrWriteData, item.second.v[0]);
+-                }
+-                break;
+-            }
+-
++                    }
++                    break;
++                }
++                assertTrue("CSR WRITE MISSING", csrWrite);
++                assertEq("CSR WRITE ADDRESS", (u32)(csrAddress & 0xCFF), (u32)(rd & 0xCFF));
+             }
+-            csrWrite = false;
+-        } break;
+-        default: {
+-            failure("??? unknown spike trace %lx\n", item.first & 0xf);
+-        } break;
+-        }
+-    }
++            break;
++        }
++        }
++        csrWrite = false;
++    } break;
++    default: {
++        failure("??? unknown spike trace %lx\n", item.first & 0xf);
++    } break;
++    }
++}
+ 
+-    csrRead = false;
+-    assertTrue("CSR WRITE SPAWNED", !csrWrite);
+-    assertTrue("INTEGER WRITE SPAWNED", !integerWriteValid);
+-    assertTrue("FLOAT WRITE SPAWNED", !floatWriteValid);
++csrRead = false;
++assertTrue("CSR WRITE SPAWNED", !csrWrite);
++assertTrue("INTEGER WRITE SPAWNED", !integerWriteValid);
++assertTrue("FLOAT WRITE SPAWNED", !floatWriteValid);
+ }
+ 
+ void Hart::ioAccess(TraceIo io){
+@@ -325,5 +405,6 @@
+ }
+ 
+ void Hart::addRegion(Region r){
++//    printf("Type: %d Base %lx Size %lx\n", r.type, r.base, r.size);
+     sif->regions.push_back(r);
+ }
+Index: src/hart.hpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/hart.hpp b/src/hart.hpp
+--- a/src/hart.hpp	(revision b5c15e129f8168c2317b2c129aef91adf935bfeb)
++++ b/src/hart.hpp	(revision 313afc005d70c6f777981dad5fb3de88dcaeaf55)
+@@ -51,8 +51,10 @@
+     CpuMemoryView *memory;
+     queue <TraceIo> ioQueue;
+     vector<Region> regions;
++    const cfg_t * const cfg;
++    const std::map<size_t, processor_t*> harts;
+ 
+-    SpikeIf(CpuMemoryView *memory);
++    SpikeIf(CpuMemoryView *memory, const cfg_t *cfg);
+ 
+     virtual char* addr_to_mem(reg_t addr);
+     virtual bool mmio_fetch(reg_t addr, size_t len, u8* bytes);
+@@ -61,6 +63,8 @@
+     virtual bool mmio_store(reg_t addr, size_t len, const u8* bytes);
+     virtual void proc_reset(unsigned id);
+     virtual const char* get_symbol(uint64_t addr);
++    virtual const cfg_t& get_cfg() const override;
++    virtual const std::map<size_t, processor_t*>& get_harts() const override;
+     bool isMem(u64 address);
+     bool isIo(u64 address);
+     bool isFetchable(u64 address);
+@@ -69,6 +73,9 @@
+ 
+ class Hart{
+ public:
++    std::string isa_hart;
++    std::string priv_hart;
++    cfg_t cfg;
+     SpikeIf *sif;
+     processor_t *proc;
+     state_t *state;
+@@ -89,6 +96,9 @@
+     u64 csrWriteData = 0;
+     u64 csrReadData = 0;
+ 
++    u32 fsCsrAddress = 0;
++    bool fsDirty = false;
++
+     bool scValid = false;
+     bool scFailure = false;
+ 
+@@ -99,7 +109,7 @@
+     void writeRf(u32 rfKind, u32 address, u64 data);
+     void readRf(u32 rfKind, u32 address, u64 data);
+     void physExtends(u64 &v);
+-    void trap(bool interrupt, u32 code);
++    void trap(bool interrupt, u32 code, u64 address);
+     void commit(u64 pc);
+     void ioAccess(TraceIo io);
+     void setInt(u32 id, bool value);
+Index: src/jni_frontend.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/jni_frontend.cpp b/src/jni_frontend.cpp
+index 652c913..589334f 100644
+--- a/src/jni_frontend.cpp
++++ b/src/jni_frontend.cpp
+@@ -12,8 +12,8 @@
+ #include "disasm.h"
+ 
+ 
+-static disassembler_t disasm32 = disassembler_t(32);
+-static disassembler_t disasm64 = disassembler_t(64);
++//static disassembler_t disasm32 = disassembler_t(32);
++//static disassembler_t disasm64 = disassembler_t(64);
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -37,8 +37,8 @@ string toString(JNIEnv *env, jstring jstr){
+     return str;
+ }
+ 
+-JNIEXPORT jlong JNICALL Java_rvls_jni_Frontend_newDisassemble(JNIEnv * env, jobject obj, int xlen){
+-    return  (jlong) new disassembler_t(xlen);
++JNIEXPORT jlong JNICALL Java_rvls_jni_Frontend_newDisassemble(JNIEnv * env, jobject obj, long handle, int hartId){
++    return  (jlong) new disassembler_t(&rv->proc->get_isa());
+ }
+ 
+ JNIEXPORT jstring JNICALL Java_rvls_jni_Frontend_disassemble(JNIEnv * env, jobject obj, long handle, long instruction){
+@@ -52,10 +52,10 @@ JNIEXPORT void JNICALL Java_rvls_jni_Frontend_deleteDisassemble(JNIEnv * env, jo
+ }
+ 
+ 
+-JNIEXPORT jlong JNICALL Java_rvls_jni_Frontend_newContext(JNIEnv * env, jobject obj, jstring jworkspace){
++JNIEXPORT jlong JNICALL Java_rvls_jni_Frontend_newContext(JNIEnv * env, jobject obj, jstring jworkspace, jboolean spikeLogFileOut){
+ 	string workspace = toString(env, jworkspace);
+ 	auto *ctx = new Context();
+-	ctx->spikeLogs = fopen((workspace + "/spike.log").c_str(), "w");
++	ctx->spikeLogs = fopen((spikeLogFileOut ? (workspace + "/spike.log") : "/dev/null").c_str(), "w");
+     return (jlong)ctx;
+ }
+ 
+@@ -98,6 +98,10 @@ rvlsJni(loadBin), long offset, jstring path){
+ 	c->loadBin(toString(env, path), offset);
+ }
+ 
++rvlsJni(loadU32), long address, int data){
++	c->loadU32(address, data);
++}
++
+ rvlsJni(setPc), int hartId, long pc){
+ 	rv->setPc(pc);
+ }
+@@ -117,9 +121,10 @@ rvlsJniBool(commit), int hartId, long pc) {
+ 	}
+ 	return true;
+ }
+-rvlsJniBool(trap), int hartId, jboolean interrupt, int code) {
++
++rvlsJniBool(trap), int hartId, jboolean interrupt, int code, long address) {
+ 	try{
+-		rv->trap(interrupt, code);
++		rv->trap(interrupt, code, address);
+ 	} catch (const std::exception &e) {
+ 		c->lastErrorMessage = e.what();
+ 	    return false;
+Index: src/ascii_frontend.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/ascii_frontend.cpp b/src/ascii_frontend.cpp
+--- a/src/ascii_frontend.cpp	(revision d006d160d570ce64d454a1dc979d2f0016963b66)
++++ b/src/ascii_frontend.cpp	(revision 2650638f8c4aac96b7e068d01373b4836713b079)
+@@ -82,9 +82,10 @@
+                     rv->ioAccess(io);
+                 } else if (str == "trap") {
+                     u32 hartId, code;
++                    u64 address;
+                     bool interrupt;
+-                    f >> hartId >> interrupt >> code;
+-                    rv->trap(interrupt, code);
++                    f >> hartId >> interrupt >> code >> address;
++                    rv->trap(interrupt, code, address);
+                 } else if (str == "int") {
+                     f >> str;
+                     if(str == "set") {
+Index: src/context.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/context.cpp b/src/context.cpp
+--- a/src/context.cpp	(revision d006d160d570ce64d454a1dc979d2f0016963b66)
++++ b/src/context.cpp	(revision 2650638f8c4aac96b7e068d01373b4836713b079)
+@@ -1,5 +1,10 @@
+ #include "context.hpp"
+ 
++void Context::loadU32(u64 address, u32 data){
++    memory.write(address, 4, (uint8_t*)&data);
++}
++
++
+ void Context::loadElf(std::string path, u64 offset){
+     auto elf = new Elf(path.c_str());
+     elf->visitBytes([&](u8 data, u64 address) {
+Index: src/context.hpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/context.hpp b/src/context.hpp
+--- a/src/context.hpp	(revision d006d160d570ce64d454a1dc979d2f0016963b66)
++++ b/src/context.hpp	(revision 2650638f8c4aac96b7e068d01373b4836713b079)
+@@ -18,7 +18,7 @@
+     FILE *spikeLogs;
+     u64 time = 0xFFFFFFFFFFFFFFFF;
+     std::string lastErrorMessage;
+-
++    void loadU32(u64 address, u32 data);
+     void loadElf(std::string path, u64 offset);
+     void loadBin(std::string path, u64 offset);
+     void cpuMemoryViewNew(u32 id, u64 readIds, u64 writeIds);
+Index: bindings/spinal/rvls/spinal/Tracer.scala
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/bindings/spinal/rvls/spinal/Tracer.scala b/bindings/spinal/rvls/spinal/Tracer.scala
+index 674065d..091a4cf 100644
+--- a/bindings/spinal/rvls/spinal/Tracer.scala
++++ b/bindings/spinal/rvls/spinal/Tracer.scala
+@@ -72,12 +72,13 @@ class DummyBackend() extends TraceBackend{
+   override def newCpuMemoryView(viewId: Int, readIds: Long, writeIds: Long) = {}
+   override def newCpu(hartId: Int, isa: String, priv: String, physWidth: Int, memoryViewId: Int) = {}
+   override def loadElf(offset: Long, path: File) = {}
++  override def loadU32(address: Long, data: Int) = {}
+   override def loadBin(offset: Long, path: File) = {}
+   override def setPc(hartId: Int, pc: Long) = {}
+   override def writeRf(hardId: Int, rfKind: Int, address: Int, data: Long) = {}
+   override def readRf(hardId: Int, rfKind: Int, address: Int, data: Long) = {}
+   override def commit(hartId: Int, pc: Long) = {}
+-  override def trap(hartId: Int, interrupt: Boolean, code: Int) = {}
++  override def trap(hartId: Int, interrupt: Boolean, code: Int, fault_addr: Long) = {}
+   override def ioAccess(hartId: Int, access: TraceIo) = {}
+   override def setInterrupt(hartId: Int, intId: Int, value: Boolean) = {}
+   override def addRegion(hartId: Int, kind : Int, base: Long, size: Long) = {}
+@@ -105,8 +106,8 @@ class FileBackend(f : File) extends TraceBackend{
+     log(f"rv commit $hartId $pc%016x\n")
+   }
+ 
+-  override def trap(hartId: Int, interrupt : Boolean, code : Int): Unit ={
+-    log(f"rv trap $hartId ${interrupt.toInt} $code\n")
++  override def trap(hartId: Int, interrupt : Boolean, code : Int, fault_addr: Long): Unit ={
++    log(f"rv trap $hartId ${interrupt.toInt} $code $fault_addr%016x\n")
+   }
+ 
+   override def writeRf(hartId: Int, rfKind: Int, address: Int, data: Long) = {
+@@ -129,6 +130,10 @@ class FileBackend(f : File) extends TraceBackend{
+     log(f"rv region add $hartId $kind $base%016x $size%016x\n")
+   }
+ 
++  override def loadU32(address: Long, data: Int): Unit = {
++    log(f"U32 load  $address%016x $data")
++  }
++
+   override def loadElf(offset: Long, path: File) = {
+     log(f"elf load  $offset%016x ${path.getAbsolutePath}\n")
+   }
+@@ -174,10 +179,10 @@ class FileBackend(f : File) extends TraceBackend{
+   override def close() = bf.close()
+ }
+ 
+-class RvlsBackend(workspace : File = new File(".")) extends TraceBackend{
++class RvlsBackend(workspace : File = new File("."), spikeLogFileOut: Boolean) extends TraceBackend{
+   import rvls.jni.Frontend
+   FileUtils.forceMkdir(workspace)
+-  val handle = Frontend.newContext(workspace.getAbsolutePath)
++  val handle = Frontend.newContext(workspace.getAbsolutePath,spikeLogFileOut)
+ 
+   override def flush(): Unit = {}
+   override def close(): Unit = {
+@@ -194,6 +199,7 @@ class RvlsBackend(workspace : File = new File(".")) extends TraceBackend{
+   override def newCpuMemoryView(viewId: Int, readIds: Long, writeIds: Long): Unit = Frontend.newCpuMemoryView(handle, viewId, readIds, writeIds)
+   override def newCpu(hartId: Int, isa: String, priv: String, physWidth: Int, memoryViewId: Int): Unit = Frontend.newCpu(handle, hartId, isa, priv, physWidth, memoryViewId)
+   override def loadElf(offset: Long, path: File): Unit = Frontend.loadElf(handle, offset, path.getAbsolutePath)
++  override def loadU32(address: Long, data: Int): Unit = Frontend.loadU32(handle, address, data)
+   override def loadBin(offset: Long, path: File): Unit = Frontend.loadBin(handle, offset, path.getAbsolutePath)
+   override def setPc(hartId: Int, pc: Long): Unit = Frontend.setPc(handle, hartId, pc)
+   override def writeRf(hardId: Int, rfKind: Int, address: Int, data: Long): Unit = Frontend.writeRf(handle, hardId, rfKind, address, data)
+@@ -201,7 +207,7 @@ class RvlsBackend(workspace : File = new File(".")) extends TraceBackend{
+   override def commit(hartId: Int, pc: Long): Unit = if(!Frontend.commit(handle, hartId, pc)) {
+     throw new Exception(Frontend.getLastErrorMessage(handle))
+   }
+-  override def trap(hartId: Int, interrupt: Boolean, code: Int): Unit = if(!Frontend.trap(handle, hartId, interrupt, code)) {
++  override def trap(hartId: Int, interrupt: Boolean, code: Int, fault_addr: Long): Unit = if(!Frontend.trap(handle, hartId, interrupt, code, fault_addr)){
+     throw new Exception(Frontend.getLastErrorMessage(handle))
+   }
+   override def ioAccess(hartId: Int, access: TraceIo): Unit = Frontend.ioAccess(handle, hartId, access.write, access.address, access.data, access.mask, access.size, access.error)

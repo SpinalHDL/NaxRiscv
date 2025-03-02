@@ -436,8 +436,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       csr.read     (CSR.MSTATUS, XLEN-1 -> mstatus.sd)
       csr.read     (CSR.MIP, 11 -> mip.meip, 7 -> mip.mtip, 3 -> mip.msip)
       csr.readWrite(CSR.MIE, 11 -> mie.meie, 7 -> mie.mtie, 3 -> mie.msie)
-      if (p.withSupervisor) csr.readWrite(CSR.MSTATUS, 22 -> mstatus.tsr, 20 -> mstatus.tvm)
-      if (p.withUser) csr.readWrite(CSR.MSTATUS, 21 -> mstatus.tw)
+      if(p.withSupervisor) csr.readWrite(CSR.MSTATUS, 22 -> mstatus.tsr, 21 -> mstatus.tw, 20 -> mstatus.tvm)
 
 
       if(withFs) csr.readWrite(CSR.MSTATUS, 13 -> mstatus.fs)
@@ -983,6 +982,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         val code      = Verilator.public(CombInit(fsm.trap.code     ))
         val interrupt = Verilator.public(CombInit(fsm.trap.interrupt))
         val tval      = Verilator.public(CombInit(reschedule.tval))
+        val tval_width  = TVAL_WIDTH.get
       }
     }
 

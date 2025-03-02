@@ -28,12 +28,13 @@ trait TraceBackend{
   def newCpuMemoryView(viewId : Int, readIds : Long, writeIds : Long)
   def newCpu(hartId : Int, isa : String, priv : String, physWidth : Int, memoryViewId : Int) : Unit
   def loadElf(offset : Long, path : File) : Unit
+  def loadU32(address: Long, data: Int): Unit
   def loadBin(offset : Long, path : File) : Unit
   def setPc(hartId : Int, pc : Long): Unit
   def writeRf(hardId : Int, rfKind : Int, address : Int, data : Long) //address out of range mean unknown
   def readRf(hardId : Int, rfKind : Int, address : Int, data : Long) //address out of range mean unknown
   def commit(hartId : Int, pc : Long): Unit
-  def trap(hartId: Int, interrupt : Boolean, code : Int)
+  def trap(hartId: Int, interrupt: Boolean, code:Int, fault_addr: Long)
   def ioAccess(hartId: Int, access : TraceIo) : Unit
   def setInterrupt(hartId : Int, intId : Int, value : Boolean) : Unit
   def addRegion(hartId : Int, kind : Int, base : Long, size : Long) : Unit
@@ -61,12 +62,13 @@ class DummyBackend() extends TraceBackend{
   override def newCpuMemoryView(viewId: Int, readIds: Long, writeIds: Long) = {}
   override def newCpu(hartId: Int, isa: String, priv: String, physWidth: Int, memoryViewId: Int) = {}
   override def loadElf(offset: Long, path: File) = {}
+  override def loadU32(address: Long, data: Int): Unit = {}
   override def loadBin(offset: Long, path: File) = {}
   override def setPc(hartId: Int, pc: Long) = {}
   override def writeRf(hardId: Int, rfKind: Int, address: Int, data: Long) = {}
   override def readRf(hardId: Int, rfKind: Int, address: Int, data: Long) = {}
   override def commit(hartId: Int, pc: Long) = {}
-  override def trap(hartId: Int, interrupt: Boolean, code: Int) = {}
+  override def trap(hartId: Int, interrupt: Boolean, code: Int,  fault_addr: Long) = {}
   override def ioAccess(hartId: Int, access: TraceIo) = {}
   override def setInterrupt(hartId: Int, intId: Int, value: Boolean) = {}
   override def addRegion(hartId: Int, kind : Int, base: Long, size: Long) = {}
@@ -94,8 +96,8 @@ class FileBackend(f : File) extends TraceBackend{
     log(f"rv commit $hartId $pc%016x\n")
   }
 
-  override def trap(hartId: Int, interrupt : Boolean, code : Int): Unit ={
-    log(f"rv trap $hartId ${interrupt.toInt} $code\n")
+  override def trap(hartId: Int, interrupt : Boolean, code : Int, fault_addr: Long): Unit ={
+    log(f"rv trap $hartId ${interrupt.toInt} $code $fault_addr%016x\n")
   }
 
   override def writeRf(hartId: Int, rfKind: Int, address: Int, data: Long) = {
@@ -120,6 +122,10 @@ class FileBackend(f : File) extends TraceBackend{
 
   override def loadElf(offset: Long, path: File) = {
     log(f"elf load  $offset%016x ${path.getAbsolutePath}\n")
+  }
+
+  override def loadU32(address: Long, data: Int): Unit = {
+    log(f"U32 load  $address%016x $data")
   }
 
   override def loadBin(offset: Long, path: File) = {
@@ -163,10 +169,10 @@ class FileBackend(f : File) extends TraceBackend{
   override def close() = bf.close()
 }
 
-class RvlsBackend(workspace : File = new File(".")) extends TraceBackend{
+class RvlsBackend(workspace : File = new File("."), spikeLogFileOut: Boolean) extends TraceBackend{
   import rvls.jni.Frontend
   FileUtils.forceMkdir(workspace)
-  val handle = Frontend.newContext(workspace.getAbsolutePath)
+  val handle = Frontend.newContext(workspace.getAbsolutePath,spikeLogFileOut)
 
   override def flush(): Unit = {}
   override def close(): Unit = {
@@ -184,20 +190,21 @@ class RvlsBackend(workspace : File = new File(".")) extends TraceBackend{
   override def newCpu(hartId: Int, isa: String, priv: String, physWidth: Int, memoryViewId: Int): Unit = Frontend.newCpu(handle, hartId, isa, priv, physWidth, memoryViewId)
   override def loadElf(offset: Long, path: File): Unit = Frontend.loadElf(handle, offset, path.getAbsolutePath)
   override def loadBin(offset: Long, path: File): Unit = Frontend.loadBin(handle, offset, path.getAbsolutePath)
+  override def loadU32(address: Long, data: Int): Unit = Frontend.loadU32(handle, address, data)
   override def setPc(hartId: Int, pc: Long): Unit = Frontend.setPc(handle, hartId, pc)
   override def writeRf(hardId: Int, rfKind: Int, address: Int, data: Long): Unit = Frontend.writeRf(handle, hardId, rfKind, address, data)
   override def readRf(hardId: Int, rfKind: Int, address: Int, data: Long): Unit = Frontend.readRf(handle, hardId, rfKind, address, data)
   override def commit(hartId: Int, pc: Long): Unit = if(!Frontend.commit(handle, hartId, pc)) throw new Exception()
-  override def trap(hartId: Int, interrupt: Boolean, code: Int): Unit = if(!Frontend.trap(handle, hartId, interrupt, code)) throw new Exception()
+  override def trap(hartId: Int, interrupt: Boolean, code: Int, fault_addr: Long): Unit = if(!Frontend.trap(handle, hartId, interrupt, code, fault_addr)) throw new Exception()
   override def ioAccess(hartId: Int, access: TraceIo): Unit = Frontend.ioAccess(handle, hartId, access.write, access.address, access.data, access.mask, access.size, access.error)
   override def setInterrupt(hartId: Int, intId: Int, value: Boolean): Unit = Frontend.setInterrupt(handle, hartId, intId, value)
   override def addRegion(hartId: Int, kind: Int, base: Long, size: Long): Unit = Frontend.addRegion(handle, hartId, kind, base, size)
-  override def loadExecute(hartId: Int, id: Long, addr: Long, len: Long, data: Long): Unit = Frontend.loadExecute(handle, hartId, id, addr, len, data)
-  override def loadCommit(hartId: Int, id: Long): Unit = Frontend.loadCommit(handle, hartId, id)
-  override def loadFlush(hartId: Int): Unit = Frontend.loadFlush(handle, hartId)
-  override def storeCommit(hartId: Int, id: Long, addr: Long, len: Long, data: Long): Unit = Frontend.storeCommit(handle, hartId, id, addr, len, data)
-  override def storeBroadcast(hartId: Int, id: Long): Unit = Frontend.storeBroadcast(handle, hartId, id)
-  override def storeConditional(hartId: Int, failure: Boolean): Unit = Frontend.storeConditional(handle, hartId, failure)
+  override def loadExecute(hartId: Int, id: Long, addr: Long, len: Long, data: Long): Unit = if(!Frontend.loadExecute(handle, hartId, id, addr, len, data)) throw new Exception()
+  override def loadCommit(hartId: Int, id: Long): Unit = if(!Frontend.loadCommit(handle, hartId, id)) throw new Exception()
+  override def loadFlush(hartId: Int): Unit = if(!Frontend.loadFlush(handle, hartId)) throw new Exception()
+  override def storeCommit(hartId: Int, id: Long, addr: Long, len: Long, data: Long): Unit = if(!Frontend.storeCommit(handle, hartId, id, addr, len, data)) throw new Exception()
+  override def storeBroadcast(hartId: Int, id: Long): Unit = if(!Frontend.storeBroadcast(handle, hartId, id)) throw new Exception()
+  override def storeConditional(hartId: Int, failure: Boolean): Unit = if(!Frontend.storeConditional(handle, hartId, failure)) throw new Exception()
   override def time(value: Long): Unit = Frontend.time(handle, value)
 
 }

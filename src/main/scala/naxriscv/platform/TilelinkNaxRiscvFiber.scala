@@ -32,7 +32,12 @@ import java.nio.file.Files
 import scala.collection.mutable.ArrayBuffer
 
 object TilelinkNaxRiscvFiber{
-  def getCoherentConfig(hartId: Int, asic: Boolean = false, xlen: Int = 32) = {
+  def getCoherentConfig(hartId: Int,
+                        asic: Boolean = false,
+                        xlen: Int = 32,
+                        withRvc: Boolean = false,
+                        withFloat: Boolean = false,
+                        withDouble: Boolean = false) = {
     Config.plugins(
       withCoherency = true,
       withRdTime = false,
@@ -41,7 +46,10 @@ object TilelinkNaxRiscvFiber{
       ioRange = a => a(31 downto 28) === 0x1,
       hartId = hartId,
       asic = asic,
-      xlen = xlen
+      xlen = xlen,
+      withRvc = withRvc,
+      withFloat = withFloat,
+      withDouble = withDouble
     )
   }
 }

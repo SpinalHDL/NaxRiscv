@@ -390,6 +390,7 @@ class CsrAccessPlugin(val euId: String)(var writebackAt: Int) extends ExecutionU
         val read = Bits(XLEN bits)
         val writeDone = Bool()
         val readDone = Bool()
+        val fsDirty = Bool() //Log that FS bits are set to dirty in MSTATUS when write in FCSR or FRM or FFLAGS
       }))
       csrAccess.valid := isFireing && SEL && !fsm.regs.trap
       csrAccess.robId := ROB.ID
@@ -398,6 +399,7 @@ class CsrAccessPlugin(val euId: String)(var writebackAt: Int) extends ExecutionU
       csrAccess.read := fsm.regs.csrValue
       csrAccess.writeDone := fsm.regs.write
       csrAccess.readDone := fsm.regs.read
+      if(RVF.get){ csrAccess.fsDirty := List(CSR.FRM, CSR.FCSR, CSR.FFLAGS).map(fsm.regs.sels(_)).orR && fsm.regs.write } else { csrAccess.fsDirty := False}
     }
   }
 }

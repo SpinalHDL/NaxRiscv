@@ -82,7 +82,8 @@ object MmuSpec{
 class MmuPlugin(var spec : MmuSpec,
                 var physicalWidth : Int,
                 var ioRange : UInt => Bool,
-                var fetchRange : UInt => Bool) extends Plugin with AddressTranslationService{
+                var fetchRange : UInt => Bool,
+                var memRange : UInt => Bool) extends Plugin with AddressTranslationService{
   override def withTranslation = true
   override def invalidatePort = setup.invalidatePort
 
@@ -324,7 +325,7 @@ class MmuPlugin(var spec : MmuSpec,
           ALLOW_READ    := True
           ALLOW_WRITE   := True
           PAGE_FAULT    := False
-          ACCESS_FAULT  := ps.preAddress.drop(physicalWidth) =/= 0
+          ACCESS_FAULT  := ps.preAddress.drop(physicalWidth) =/= 0 || !(memRange(TRANSLATED) || IO)
         }
 
         ALLOW_EXECUTE clearWhen(!fetchRange(TRANSLATED))

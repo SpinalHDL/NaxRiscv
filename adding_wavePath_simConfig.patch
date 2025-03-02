@@ -1,0 +1,80 @@
+diff --git a/core/src/main/scala/spinal/core/sim/SimBootstraps.scala b/core/src/main/scala/spinal/core/sim/SimBootstraps.scala
+index cb825e689..7f5cf3b2a 100644
+--- a/core/src/main/scala/spinal/core/sim/SimBootstraps.scala
++++ b/core/src/main/scala/spinal/core/sim/SimBootstraps.scala
+@@ -658,6 +658,7 @@ object SpinalSimBackendSel{
+ case class SpinalSimConfig(
+                             var _workspacePath     : String = System.getenv().getOrDefault("SPINALSIM_WORKSPACE","./simWorkspace"),
+                             var _workspaceName     : String = null,
++                            var _wavePath          : String = "./",
+                             var _waveDepth         : Int = 0, //0 => all
+                             var _spinalConfig      : SpinalConfig = SpinalConfig(),
+                             var _optimisationLevel : Int = 0,
+@@ -813,6 +814,12 @@ case class SpinalSimConfig(
+     this
+   }
+ 
++  def wavePath(path: String): this.type = {
++    _wavePath = path
++    println("SET WAVE PATH: " + _wavePath)
++    this
++  }
++
+   def withConfig(config: SpinalConfig): this.type = {
+     _spinalConfig = config
+     this
+@@ -972,9 +979,33 @@ case class SpinalSimConfig(
+     _workspaceName = SimWorkspace.allocateWorkspace(_workspacePath, _workspaceName)
+ 
+     println(f"[Progress] Simulation workspace in ${new File(s"${_workspacePath}/${_workspaceName}").getAbsolutePath}")
+-    new File(s"${_workspacePath}").mkdirs()
+-    FileUtils.deleteQuietly(new File(s"${_workspacePath}/${_workspaceName}"))
+-    new File(s"${_workspacePath}/${_workspaceName}").mkdirs()
++    val workspacePathDir = new File(s"${_workspacePath}")
++    // Create folder only if it does not exist
++    if (!workspacePathDir.exists()) workspacePathDir.mkdirs()
++
++    val workspaceDir = new File(s"${_workspacePath}/${_workspaceName}")
++    if (workspaceDir.exists() && workspaceDir.isDirectory()) {
++      workspaceDir.listFiles().foreach { file =>
++        try {
++          val extension = file.getName().split('.').lastOption.getOrElse("")
++          if (!Set("py", "mk").contains(extension) && file.getName() != "Makefile" && file.getName() != "logs" && file.getName() != "waves" && !file.isDirectory()) {
++            FileUtils.deleteQuietly(file)
++          }
++        } catch {
++          case e: Exception =>
++            println(s"Failed to delete file: ${file.getName()}")
++            e.printStackTrace()
++        }
++      }
++    } else {
++      println(s"Directory ${workspaceDir.getAbsolutePath()} does not exist or is not a directory.")
++    }
++
++    if (!workspaceDir.exists()) workspaceDir.mkdirs()
++
++    val wavePathDir = new File(s"${_workspacePath}/${_workspaceName}/${_wavePath}")
++    if (!wavePathDir.exists()) wavePathDir.mkdirs()
++
+     new File(s"${_workspacePath}/${_workspaceName}/rtl").mkdirs()
+ 
+     val compiledPath = new File(s"${_workspacePath}/${_workspaceName}")
+@@ -1022,7 +1053,7 @@ case class SpinalSimConfig(
+           maxCacheEntries = _maxCacheEntries,
+           cachePath = if (!_disableCache) (if (_cachePath != null) _cachePath else s"${_workspacePath}/.cache") else null,
+           workspacePath = s"${_workspacePath}/${_workspaceName}",
+-          vcdPath = wavePath,
++          vcdPath = s"${_workspacePath}/${_workspaceName}/${_wavePath}",
+           vcdPrefix = null,
+           workspaceName = "verilator",
+           waveDepth = _waveDepth,
+@@ -1174,6 +1205,8 @@ case class SimConfigLegacy[T <: Component](
+   def workspacePath(path: String): this.type = { _simConfig.workspacePath(path); this }
+   def workspaceName(name: String): this.type = { _simConfig.workspaceName(name); this }
+ 
++  def wavePath(path: String): this.type = { _simConfig.wavePath(path); this }
++
+   def withConfig(config: SpinalConfig): this.type =  { _simConfig.withConfig(config); this }
+ 
+   def noOptimisation: this.type     = { _simConfig.noOptimisation ; this }

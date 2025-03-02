@@ -6,6 +6,7 @@ import naxriscv.fetch.AlignerPlugin
 import naxriscv.frontend.DecoderPlugin
 import naxriscv.lsu2.Lsu2Plugin
 import naxriscv.misc.{CommitPlugin, PrivilegedPlugin, RegFilePlugin, RobPlugin}
+import naxriscv.riscv.CSR
 import naxriscv.{NaxRiscv, riscv}
 import spinal.core.{Bool, assert}
 import spinal.core.sim._
@@ -15,13 +16,14 @@ import spinal.lib.system.tag.MemoryConnection
 import scala.collection.mutable.ArrayBuffer
 
 class NaxriscvTilelinkProbe(naxTl : TilelinkNaxRiscvFiber, hartId : Int) extends NaxriscvProbe(naxTl.thread.core, hartId){
-  override def add(tracer: TraceBackend) = {
-    super.add(tracer)
+  override def add(tracer: TraceBackend, isa: String) = {
+    super.add(tracer, isa)
     val dSpec = MemoryConnection.getMemoryTransfers(naxTl.dBus)
     for(e <- dSpec){
       e.transfers match {
         case t : M2sTransfers => if (t.nonEmpty){
           tracer.addRegion(hartId, 0, e.mapping)
+//          println("NaxMappingD "+e.mapping)
         }
       }
     }
@@ -31,6 +33,7 @@ class NaxriscvTilelinkProbe(naxTl : TilelinkNaxRiscvFiber, hartId : Int) extends
       e.transfers match {
         case t : M2sTransfers => if (t.nonEmpty){
           tracer.addRegion(hartId, 1, e.mapping)
+//          println("NaxMappingP "+e.mapping)
         }
       }
     }
@@ -55,6 +58,9 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
     var csrWriteData = -1l
     var csrReadData = -1l
 
+    //Set FS bits to dirty in MSTATUS when write in FCSR
+    var fsDirty = false
+
     var lsuAddress = -1l
     var lsuLen = 0
     var storeValid = false
@@ -77,6 +83,7 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
       loadValid = false
       storeValid = false
       isSc = false
+      fsDirty = false
     }
     clear()
   };
@@ -88,7 +95,7 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
   val privPlugin = nax.framework.getService[PrivilegedPlugin]
   val robPlugin = nax.framework.getService[RobPlugin]
   val lsuPlugin = nax.framework.getService[Lsu2Plugin]
-  val intRf = nax.framework.getServiceWhere[RegFilePlugin](_.spec == riscv.IntRegFile)
+  val RF = nax.framework.getServicesOf[RegFilePlugin]
 
   val commitWb = commitPlugin.logic.whitebox
   val commitMask = commitWb.commit.mask.simProxy()
@@ -97,9 +104,6 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
   val commitRobToPcValid = commitWb.robToPc.valid.simProxy()
   val commitRobToPcRobId = commitWb.robToPc.robId.simProxy()
   val commitRobToPcValue = commitWb.robToPc.pc.map(_.simProxy()).toArray
-
-  val intRfEvents = intRf.logic.writeEvents.toArray
-  val intRfEventsValid = intRfEvents.map(_.valid.simProxy())
 
   val ioBus = lsuPlugin.peripheralBus
   val ioBusCmdValid = ioBus.cmd.valid.simProxy()
@@ -150,11 +154,11 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
 
   val robArray = Array.fill(robPlugin.robSize)(new RobCtx)
 
-
-  def add(tracer : TraceBackend) : this.type = {
+  def add(tracer : TraceBackend, isa : String) : this.type = {
     backends += tracer
     tracer.newCpuMemoryView(hartId, lsuPlugin.lqSize+1, lsuPlugin.sqSize) //+1 because AMO
-    tracer.newCpu(hartId, s"RV${xlen}IMA", "MSU", 32, hartId)
+    //tracer.newCpu(hartId, s"RV${xlen}IMAFDC", "MSU", 32, hartId)
+    tracer.newCpu(hartId, isa, "MSU", 32, hartId)
     var pc = 0x80000000l
     if(xlen == 32) pc = (pc << 32) >> 32
     tracer.setPc(hartId, pc)
@@ -173,15 +177,39 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
       }
     }
 
-    for(i <- 0 until intRfEvents.size){
-      if(intRfEventsValid(i).toBoolean){
-        val port = intRfEvents(i)
-        val robId = port.robId.toInt
-        val ctx = robArray(robId)
-        ctx.integerWriteValid = true
-        var data = port.data.toLong
-        if(xlen == 32) data = (data << 32) >> 32
-        ctx.integerWriteData = data
+    for(rf <- RF){
+      rf.spec match{
+        case riscv.IntRegFile => {
+          val intRfEvents = rf.logic.writeEvents.toArray
+          val intRfEventsValid = intRfEvents.map(_.valid.simProxy())
+          for (i <- 0 until intRfEvents.size) {
+            if (intRfEventsValid(i).toBoolean) {
+              val port = intRfEvents(i)
+              val robId = port.robId.toInt
+              val ctx = robArray(robId)
+              ctx.integerWriteValid = true
+              var data = port.data.toLong
+              if (xlen == 32) data = (data << 32) >> 32
+              ctx.integerWriteData = data
+              //        println(s"INTEGER: writeData: 0x${data.toHexString}\n")
+            }
+          }
+        }
+        case riscv.FloatRegFile => {
+          val floatRfEvents = rf.logic.writeEvents.toArray
+          val floatRfEventsValid = floatRfEvents.map(_.valid.simProxy())
+          for (i <- 0 until floatRfEvents.size) {
+            if (floatRfEventsValid(i).toBoolean) {
+              val port = floatRfEvents(i)
+              val robId = port.robId.toInt
+              val ctx = robArray(robId)
+              ctx.floatWriteValid = true
+              var data = port.data.toLong
+              ctx.floatWriteData = data
+              //        println(s"\nFLOAT${i.toInt}: writeData: 0x${data.toHexString}\n")
+            }
+          }
+        }
       }
     }
 
@@ -194,6 +222,7 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
       ctx.csrReadDone = csrAccess.readDone.toBoolean
       ctx.csrWriteData = csrAccess.write.toLong
       ctx.csrReadData = csrAccess.read.toLong
+      ctx.fsDirty = csrAccess.fsDirty.toBoolean
     }
   }
 
@@ -201,7 +230,11 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
     if(trapFire.toBoolean){
       val code = trapWb.trap.code.toInt
       val interrupt = trapWb.trap.interrupt.toBoolean
-      backends.foreach(_.trap(hartId, interrupt, code))
+      val tval : Long = trapWb.trap.tval.toLong
+      val tval_width : Int = trapWb.trap.tval_width.toInt
+      val fault_address : Long = ((tval << (64 - tval_width)) >> (64 - tval_width))
+//      println(s"Address: 0x${fault_address.toHexString}\t Code de trap: $code\t tval: 0x${(trapWb.trap.tval.toLong).toHexString}\t tval_width: $tval_width")
+      backends.foreach(_.trap(hartId, interrupt, code, fault_address))
     }
   }
 
@@ -228,9 +261,14 @@ class NaxriscvProbe(nax : NaxRiscv, hartId : Int){
         if(robCtx.integerWriteValid){
           backends.foreach(_.writeRf(hartId, 0, 32, robCtx.integerWriteData))
         }
+        if(robCtx.floatWriteValid){
+//          println(s"floatWriteValid: ${robCtx.floatWriteValid}, hartId: $hartId, writeData: ${robCtx.floatWriteData.toHexString}\n")
+          backends.foreach(_.writeRf(hartId, 1, 32, robCtx.floatWriteData))
+        }
         if(robCtx.csrValid){
           if(robCtx.csrReadDone) backends.foreach(_.readRf(hartId, 4, robCtx.csrAddress, robCtx.csrReadData))
           if(robCtx.csrWriteDone) backends.foreach(_.writeRf(hartId, 4, robCtx.csrAddress, robCtx.csrWriteData))
+          if(robCtx.fsDirty) backends.foreach(_.writeRf(hartId, 4, CSR.MSTATUS, 0x8000))
         }
         backends.foreach(_.commit(hartId, robCtx.pc))
         commitsCallbacks.foreach(_(hartId, robCtx.pc))

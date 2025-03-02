@@ -1,0 +1,80 @@
+diff --git a/lib/src/main/scala/spinal/lib/misc/test/DualSimTracer.scala b/lib/src/main/scala/spinal/lib/misc/test/DualSimTracer.scala
+index 5160ace69..d12a2a8ef 100644
+--- a/lib/src/main/scala/spinal/lib/misc/test/DualSimTracer.scala
++++ b/lib/src/main/scala/spinal/lib/misc/test/DualSimTracer.scala
+@@ -12,14 +12,68 @@ import scala.concurrent.ExecutionContext
+  */
+ object DualSimTracer {
+   def apply[T <: Component](compiled: SimCompiled[T], window: Long, seed: Int)(testbench: T => Unit): Unit = withCb(compiled, window, seed) { (dut, _) => testbench(dut) }
+-  def withCb[T <: Component](compiled: SimCompiled[T], window: Long, seed: Int, dualSimEnable : Boolean)(testbench: (T, (=> Unit) => Unit) => Unit): Unit = {
+-    dualSimEnable match {
+-      case true => DualSimTracer.withCb(compiled, window, seed)(testbench)
+-      case false => {
+-        val traceCallbacks = ArrayBuffer[() => Unit]()
+-        compiled.doSimUntilVoid(seed = seed) { dut => testbench(dut, f => traceCallbacks += (() => f)); traceCallbacks.foreach(_())}
++
++  def apply[T <: Component](compiled: SimCompiled[T], window: Long, seed: Int, elfFile : String, runBuildroot: Boolean = false)(testbench: T => Unit): Unit = withCb(compiled, window, seed, elfFile, runBuildroot) { (dut: T, _, _, _) => testbench(dut) }
++
++  def withCb[T <: Component](compiled: SimCompiled[T], window: Long, seed: Int, elfFile : String, runBuildroot: Boolean = false)(testbench: (T, (=> Unit) => Unit, String, Boolean) => Unit): Unit = {
++    var mTime = 0l
++    var mEnded = false
++    var explorerFailed = false
++
++    implicit val ec = ExecutionContext.global
++
++    val testName = elfFile.substring(elfFile.lastIndexOf("/") + 1)
++
++    val explorer = new AsyncJob(toStdout = true, logsPath = new File(compiled.compiledPath, "explorer/" + testName)) ({
++      try {
++        compiled.doSimUntilVoid(name = testName + s"_explorer", seed = seed) { dut =>
++          disableSimWave()
++          periodicaly(window) {
++            mTime = simTime()
++          }
++          onSimEnd {
++            mTime = simTime()
++            mEnded = true
++          }
++          testbench(dut, cb => {}, elfFile, runBuildroot)
++        }
++//        println("Explorer success")
++      } catch {
++        case e: Throwable => explorerFailed = true; throw e
+       }
+-    }
++    })
++
++    val tracer = new AsyncJob(toStdout = false, logsPath = new File(compiled.compiledPath, "tracer/" + testName))({
++      val traceCallbacks = ArrayBuffer[() => Unit]()
++      compiled.doSimUntilVoid(name = testName + s"_tracer", seed = seed) { dut =>
++        disableSimWave()
++        fork {
++          sleep(0)
++          while (true) {
++            while (simTime + window * 2 >= mTime && !mEnded) {
++              Thread.sleep(100, 0)
++            }
++            if (mEnded && explorerFailed) {
++              sleep((mTime - simTime - window) max 0)
++              enableSimWave()
++              traceCallbacks.foreach(_())
++              sleep(window + 1000)
++              simFailure("slave thread didn't ended ????")
++            }
++            sleep(window)
++          }
++        }
++//        println("Tracer success")
++        testbench(dut, callback => traceCallbacks += (() => callback), elfFile, runBuildroot)
++      }
++    })
++
++    explorer.join()
++    tracer.join()
++
++    assert(explorer.failed == tracer.failed)
++
++    if (tracer.failed) throw new Exception(s"Dual sim reached end with failure, see ${tracer.logsPath.getAbsolutePath}")
+   }
+ 
+   def withCb[T <: Component](compiled: SimCompiled[T], window: Long, seed: Int)(testbench: (T, (=> Unit) => Unit) => Unit): Unit = {

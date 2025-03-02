@@ -7,7 +7,7 @@
 install_verilator(){
   sudo apt-get update
   sudo apt install -y git make autoconf g++ flex libfl-dev bison  # First time prerequisites
-  git clone https://github.com/verilator/verilator  # Only first time
+  git clone https://github.com/verilator/verilator.git   # Only first time
   unset VERILATOR_ROOT  # For bash
   cd verilator
   git pull        # Make sure we're up-to-date
@@ -54,6 +54,7 @@ install_elfio(){
 install_packages(){
   sudo apt-get update
   sudo apt install -y zlib1g-dev libboost-all-dev libboost-dev libasio-dev device-tree-compiler libsdl2-2.0-0 libsdl2-dev
+  sudo apt install -y git make autoconf build-essential flex libfl-dev bison help2man # First time prerequisites
 }
 
 install_uncached(){
@@ -77,4 +78,9 @@ install_cached(){
   mkdir -p ~/tools
   (install_spike)
   (install_verilator)
+}
+
+install_all(){
+  export NAXRISCV=${PWD}
+  make install
 }
