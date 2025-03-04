@@ -158,7 +158,7 @@ clean-gen:
 clean-all: clean-install clean-sim clean-workspace clean-exec clean-gen
 	rm -rf $(TOOLCHAIN_DIR)/openjdk
 	rm -rf $(TOOLCHAIN_DIR)/sbt
-	rm -rf $(TOOLCHAIN_DIR)/verilator-$(VERILATOR_VERSION_NAX)
+	rm -rf $(TOOLCHAIN_DIR)/verilator-*
 	rm -rf $(SPIKE_DIR)
 	rm -rf $(RVLS_DIR)
 	rm -rf $(CORE_DIR)/ext/SpinalHDL
