@@ -86,7 +86,7 @@ import scala.util.Random
         
         // Verify and configure Verilator installation
         val verilatorRoot = {
-          val base = new File("toolchain/verilator-v4.216")
+          val base = new File("toolchain/verilator-v4.228")
           val canonical = base.getCanonicalFile
           if (!canonical.exists()) throw new Exception(s"Verilator missing at ${canonical.getAbsolutePath}")
           canonical.getAbsolutePath
