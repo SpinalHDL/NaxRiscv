@@ -17,7 +17,7 @@ RISCV_GCC=$(RISCV)/bin/$(RISCV_HOST)-gcc
 RISCV_OBJCOPY=$(RISCV)/bin/$(RISCV_HOST)-objcopy
 RISCV_OBJDUMP=$(RISCV)/bin/$(RISCV_HOST)-objdump
 # Verilator
-VERILATOR_VERSION_NAX=v4.216
+VERILATOR_VERSION_NAX=v4.228
 VERILATOR_ROOT_NAX=$(TOOLCHAIN_DIR)/verilator-$(VERILATOR_VERSION_NAX)
 # ELFIO
 ELFIO_VERSION=d251da09a07dff40af0b63b8f6c8ae71d2d1938d # Avoid C++17
@@ -158,7 +158,7 @@ clean-gen:
 clean-all: clean-install clean-sim clean-workspace clean-exec clean-gen
 	rm -rf $(TOOLCHAIN_DIR)/openjdk
 	rm -rf $(TOOLCHAIN_DIR)/sbt
-	rm -rf $(TOOLCHAIN_DIR)/verilator-$(VERILATOR_VERSION_NAX)
+	rm -rf $(TOOLCHAIN_DIR)/verilator-*
 	rm -rf $(SPIKE_DIR)
 	rm -rf $(RVLS_DIR)
 	rm -rf $(CORE_DIR)/ext/SpinalHDL

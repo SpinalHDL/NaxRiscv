@@ -29,7 +29,7 @@ jobs:
         run: source .github/workflows/tools.sh && install_packages
 
       - name: Cache pip
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-v2
@@ -37,7 +37,7 @@ jobs:
             ${{ runner.os }}-pip-
 
       - name: Cache SBT
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: |
             ~/.ivy2/cache
@@ -46,7 +46,7 @@ jobs:
 
       - name: Cache tools
         id: tools
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: |
             ~/tools
