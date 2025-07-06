@@ -184,7 +184,7 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
 
       bus.running :=  running
       bus.halted  := !running
-      bus.unavailable := BufferCC(ClockDomain.current.isResetActive)
+      bus.unavailable := BufferCC.withTag(ClockDomain.current.isResetActive)
       bus.regSuccess := False
       val enterHalt = running.getAheadValue().fall(False)
 
