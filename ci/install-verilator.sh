@@ -1,6 +1,6 @@
+#!/bin/bash
 # usage: ./install-verilator.sh <version> <output-dir>
 
-#!/bin/bash
 set -e  # Stop script on error
 
 VERILATOR_VERSION=$1

@@ -1,6 +1,5 @@
-# usage: ./install-openjdk.sh <version> <output-dir> 
-
 #!/bin/bash
+# usage: ./install-openjdk.sh <version> <output-dir>
 
 if [ ! -e "$2/openjdk/bin/java"  ]; then
     echo "Installing OpenJDK..."
@@ -12,4 +11,3 @@ if [ ! -e "$2/openjdk/bin/java"  ]; then
 else
     echo "Using OpenJDK from cached directory."
 fi
-
