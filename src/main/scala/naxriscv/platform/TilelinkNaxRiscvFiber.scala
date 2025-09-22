@@ -22,7 +22,7 @@ import spinal.lib.bus.tilelink.sim.{Checker, Endpoint, MemoryAgent, Monitor, Mon
 import spinal.lib.bus.tilelink.{M2sSupport, M2sTransfers, Opcode, S2mSupport, SizeRange, fabric}
 import spinal.lib.cpu.riscv.RiscvHart
 import spinal.lib.cpu.riscv.debug.DebugHartBus
-import spinal.lib.misc.plic.InterruptCtrlFiber
+import spinal.lib.misc.InterruptCtrlFiber
 import spinal.lib.misc.{ClintPort, Elf, InterruptCtrl, InterruptNode, TilelinkClintFiber}
 import spinal.lib.sim.SparseMemory
 import spinal.sim.{Signal, SimManagerContext}
