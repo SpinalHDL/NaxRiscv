@@ -659,6 +659,8 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
         when(debug.doHalt){
           valid := True
         }
+
+        valid clearWhen(setup.debugMode)
       }
     }
 
