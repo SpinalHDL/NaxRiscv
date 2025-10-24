@@ -4,6 +4,7 @@
 
 package naxriscv.execute
 
+import naxriscv.Frontend.{INSTRUCTION_ALIGNED, MICRO_OP}
 import naxriscv.Global._
 import naxriscv.fetch.{FetchCachePlugin, FetchPlugin}
 import naxriscv.frontend.DispatchPlugin
@@ -120,6 +121,7 @@ class EnvCallPlugin(val euId : String)(var rescheduleAt : Int = 0) extends Plugi
       setup.reschedule.cause := CSR.MCAUSE_ENUM.ILLEGAL_INSTRUCTION
       setup.reschedule.reason := ScheduleReason.TRAP
       setup.reschedule.skipCommit := True
+      setup.reschedule.tval := MICRO_OP.resized
     }
 
     //Handle FENCE.I and FENCE.VMA
