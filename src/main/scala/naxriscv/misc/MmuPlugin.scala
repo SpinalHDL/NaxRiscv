@@ -78,7 +78,7 @@ object MmuSpec{
     virtualWidth   = 39,
     physicalWidth  = 56,
     satpMode   = 8,
-    pteReserved = 0xFFC0000000000000l
+    pteReserved = BigInt("FFC0000000000000", 16)
   )
 }
 
