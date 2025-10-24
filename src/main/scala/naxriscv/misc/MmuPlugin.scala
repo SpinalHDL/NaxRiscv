@@ -41,7 +41,8 @@ case class MmuSpec(levels : Seq[MmuLevel],
                    entryBytes : Int,
                    virtualWidth : Int,
                    physicalWidth : Int,
-                   satpMode : Int)
+                   satpMode : Int,
+                   pteReserved : BigInt)
 
 case class MmuLevel(virtualWidth : Int,
                     physicalWidth : Int,
@@ -64,7 +65,8 @@ object MmuSpec{
     entryBytes = 4,
     virtualWidth   = 32,
     physicalWidth  = 32,
-    satpMode   = 1
+    satpMode   = 1,
+    pteReserved = 0
   )
   val sv39 = MmuSpec(
     levels     = List(
@@ -75,7 +77,8 @@ object MmuSpec{
     entryBytes = 8,
     virtualWidth   = 39,
     physicalWidth  = 56,
-    satpMode   = 8
+    satpMode   = 8,
+    pteReserved = 0xFFC0000000000000l
   )
 }
 
@@ -409,7 +412,8 @@ class MmuPlugin(var spec : MmuSpec,
 
         val flags = readed.resized.as(MmuEntryFlags())
         val leaf = flags.R || flags.X
-        val exception = !flags.V || (!flags.R && flags.W) || rsp.fault || (!leaf && (flags.D | flags.A | flags.U))
+        val reservedFault = (readed & spec.pteReserved).orR
+        val exception = !flags.V || (!flags.R && flags.W) || rsp.fault || (!leaf && (flags.D | flags.A | flags.U)) || reservedFault
         val levelToPhysicalAddress = List.fill(spec.levels.size)(UInt(spec.physicalWidth bits))
         val levelException = List.fill(spec.levels.size)(False)
         val nextLevelBase = U(0, PHYSICAL_WIDTH bits)
