@@ -182,7 +182,7 @@ class FpuWriteback() extends Plugin  with WakeRobService with WakeRegFileService
       wakeRob.robId := integerWriteback.robId
 
       val wakeRf = Flow(WakeRegFile(decoder.REGFILE_RD, decoder.PHYS_RD, needBypass = false, withRfBypass = false, rfLatency = 1))
-      wakeRf.valid := integerWriteback.fire
+      wakeRf.valid := integerWriteback.fire && writeRd
       wakeRf.physical := physical
       wakeRf.regfile := decoder.REGFILE_RD.rfToId(IntRegFile)
 
