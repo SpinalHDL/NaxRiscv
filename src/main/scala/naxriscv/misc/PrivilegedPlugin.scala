@@ -433,12 +433,19 @@ class PrivilegedPlugin(var p : PrivilegedConfig) extends Plugin with PrivilegedS
       csr.read(U(misa, XLEN bits), CSR.MISA) // MRW ISA and extensions
 
       csr.readWrite(CSR.MCAUSE, XLEN-1 -> cause.interrupt, 0 -> cause.code)
-      csr.readWrite(CSR.MSTATUS, 11 -> mstatus.mpp, 7 -> mstatus.mpie, 3 -> mstatus.mie)
-      csr.read     (CSR.MSTATUS, XLEN-1 -> mstatus.sd)
+      csr.readWrite(CSR.MSTATUS, 7 -> mstatus.mpie, 3 -> mstatus.mie)
+      csr.read     (CSR.MSTATUS, 11 -> mstatus.mpp, XLEN-1 -> mstatus.sd)
       csr.read     (CSR.MIP, 11 -> mip.meip, 7 -> mip.mtip, 3 -> mip.msip)
       csr.readWrite(CSR.MIE, 11 -> mie.meie, 7 -> mie.mtie, 3 -> mie.msie)
       if(p.withSupervisor) csr.readWrite(CSR.MSTATUS, 22 -> mstatus.tsr, 21 -> mstatus.tw, 20 -> mstatus.tvm)
 
+      csr.onWrite(CSR.MSTATUS, true) {
+        switch(csr.onWriteBits(12 downto 11)) {
+          is(3) { mstatus.mpp := 3 }
+          if (p.withSupervisor) is(1) { mstatus.mpp := 1 }
+          if (p.withUser) is(0) { mstatus.mpp := 0 }
+        }
+      }
 
       if(withFs) csr.readWrite(CSR.MSTATUS, 13 -> mstatus.fs)
       //TODO FPU trap illegal instruction if FPU instruction and "00"
