@@ -33,6 +33,10 @@ import scala.collection.mutable.ArrayBuffer
 
 object TilelinkNaxRiscvFiber{
   def getCoherentConfig(hartId: Int,
+                        addressRange : UInt => Bool = a => a(31) | a(31 downto 28) === 0x1,
+                        ioRange    : UInt => Bool = _(31 downto 28) === 0x1,
+                        memRange   : UInt => Bool = _(31),
+                        fetchRange : UInt => Bool = _(31 downto 28) =/= 0x1,
                         asic: Boolean = false,
                         xlen: Int = 32,
                         withRvc: Boolean = false,
@@ -43,7 +47,10 @@ object TilelinkNaxRiscvFiber{
       withRdTime = false,
       aluCount = 2,
       decodeCount = 2,
-      ioRange = a => a(31 downto 28) === 0x1,
+      addressRange = addressRange,
+      ioRange  = ioRange,
+      memRange = memRange,
+      fetchRange = fetchRange,
       hartId = hartId,
       asic = asic,
       xlen = xlen,

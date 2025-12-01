@@ -84,6 +84,7 @@ object MmuSpec{
 
 class MmuPlugin(var spec : MmuSpec,
                 var physicalWidth : Int,
+                var addressRange : UInt => Bool,
                 var ioRange : UInt => Bool,
                 var fetchRange : UInt => Bool,
                 var memRange : UInt => Bool) extends Plugin with AddressTranslationService{
@@ -328,7 +329,7 @@ class MmuPlugin(var spec : MmuSpec,
           ALLOW_READ    := True
           ALLOW_WRITE   := True
           PAGE_FAULT    := False
-          ACCESS_FAULT  := ps.preAddress.drop(physicalWidth) =/= 0 || !(memRange(TRANSLATED) || IO)
+          ACCESS_FAULT  := ps.preAddress.drop(physicalWidth) =/= 0 || !(addressRange(TRANSLATED))
         }
 
         ALLOW_EXECUTE clearWhen(!fetchRange(TRANSLATED))
