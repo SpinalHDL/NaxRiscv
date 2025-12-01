@@ -31,7 +31,6 @@ val naxes = for(hartId <- 0 until cpuCount) yield
       hartId,
       addressRange  = a => a(31) | a(31 downto 28) === 0x1,
       ioRange     = _(31 downto 28) === 0x1,
-      memRange    = _(31),
       fetchRange  = _(31 downto 28) =/= 0x1,
       asic = asic,
       xlen = xlen,

@@ -86,8 +86,7 @@ class MmuPlugin(var spec : MmuSpec,
                 var physicalWidth : Int,
                 var addressRange : UInt => Bool,
                 var ioRange : UInt => Bool,
-                var fetchRange : UInt => Bool,
-                var memRange : UInt => Bool) extends Plugin with AddressTranslationService{
+                var fetchRange : UInt => Bool) extends Plugin with AddressTranslationService{
   override def withTranslation = true
   override def invalidatePort = setup.invalidatePort
 

@@ -45,7 +45,6 @@ object Config{
               withRdTime : Boolean = true,
               addressRange : UInt => Bool = a => a(31) | a(31 downto 28) === 0x1,
               ioRange    : UInt => Bool = _(31 downto 28) === 0x1,
-              memRange   : UInt => Bool = _(31),
               fetchRange : UInt => Bool = _(31 downto 28) =/= 0x1,
               aluCount : Int = 2,
               decodeCount : Int = 2,
@@ -96,7 +95,6 @@ object Config{
         spec    = if(xlen == 32) MmuSpec.sv32 else MmuSpec.sv39,
         addressRange = addressRange,
         ioRange = ioRange,
-        memRange = memRange,
         fetchRange = fetchRange,
         physicalWidth = 32
       )
