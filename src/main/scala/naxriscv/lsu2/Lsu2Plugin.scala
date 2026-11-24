@@ -1204,6 +1204,8 @@ class Lsu2Plugin(var lqSize: Int,
           CTRL := CTRL_ENUM.MMU_REDO
         }.elsewhen(NEED_TRANSLATION && (tpk.ACCESS_FAULT || PAGE_FAULT)){
           CTRL := CTRL_ENUM.TRAP_MMU
+        }.elsewhen(!IS_LOAD && AMO && IS_IO){ //AMOs are done by the atomic state machine through the data cache, which can't reach IO
+          CTRL := CTRL_ENUM.TRAP_ACCESS
         }.elsewhen(IS_LOAD && (OLDER_STORE_HIT && !OLDER_STORE_BYPASS_SUCCESS || LOAD_HAZARD_PRED_HIT)){
           CTRL := CTRL_ENUM.LOAD_HAZARD
         }.elsewhen(IS_LOAD && rsp.redo) {
